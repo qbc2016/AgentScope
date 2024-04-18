@@ -18,7 +18,7 @@
         <script src="../_static/jquery.js?v=5d32c60e"></script>
         <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
         <script src="../_static/documentation_options.js?v=5929fcd5"></script>
-        <script src="../_static/doctools.js?v=888ff710"></script>
+        <script src="../_static/doctools.js?v=9a2dae69"></script>
         <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
@@ -57,16 +57,7 @@
 <li class="toctree-l2"><a class="reference internal" href="201-agent.html">Customizing Your Own Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="202-pipeline.html">Pipeline and MsgHub</a></li>
 <li class="toctree-l2"><a class="reference internal" href="203-model.html">Model</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Service</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="#built-in-service-functions">Built-in Service Functions</a></li>
-<li class="toctree-l3"><a class="reference internal" href="#how-to-use-service-functions">How to use Service Functions</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#about-service-factory">About Service Factory</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#about-serviceresponse">About ServiceResponse</a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="#example">Example</a></li>
-</ul>
-</li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Service</a></li>
 <li class="toctree-l2"><a class="reference internal" href="205-memory.html">Memory</a></li>
 <li class="toctree-l2"><a class="reference internal" href="206-prompt.html">Prompt Engineering</a></li>
 <li class="toctree-l2"><a class="reference internal" href="207-monitor.html">Monitor</a></li>
@@ -77,15 +68,15 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">AgentScope API Reference</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.agents.html">Agents package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.memory.html">Memory package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.models.html">Models package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.pipelines.html">Pipelines package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.service.html">Service package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.rpc.html">RPC package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.utils.html">Utils package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.web.html">Web UI package</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.html">Module contents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.agents.html">agentscope.agents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.memory.html">agentscope.memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.models.html">agentscope.models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.pipelines.html">agentscope.pipelines</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.service.html">agentscope.service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.rpc.html">agentscope.rpc</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.utils.html">agentscope.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.web.html">agentscope.web</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.html">agentscope</a></li>
 </ul>
 
         </div>
@@ -139,29 +130,45 @@ AgentScope and how to use them to enhance the capabilities of your agents.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">retrieve_from_list</span></code></p></td>
 <td><p>Retrieve a specific item from a list based on given criteria.</p></td>
 </tr>
-<tr class="row-even"><td><p>SQL Query</p></td>
+<tr class="row-even"><td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">cos_sim</span></code></p></td>
+<td><p>Compute the cosine similarity between two different embeddings.</p></td>
+</tr>
+<tr class="row-odd"><td><p>SQL Query</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">query_mysql</span></code></p></td>
 <td><p>Execute SQL queries on a MySQL database and return results.</p></td>
 </tr>
-<tr class="row-odd"><td><p></p></td>
+<tr class="row-even"><td><p></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">query_sqlite</span></code></p></td>
 <td><p>Execute SQL queries on a SQLite database and return results.</p></td>
 </tr>
-<tr class="row-even"><td><p></p></td>
+<tr class="row-odd"><td><p></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">query_mongodb</span></code></p></td>
 <td><p>Perform queries or operations on a MongoDB collection.</p></td>
 </tr>
-<tr class="row-odd"><td><p>Text Processing</p></td>
+<tr class="row-even"><td><p>Text Processing</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">summarization</span></code></p></td>
 <td><p>Summarize a piece of text using a large language model to highlight its main points.</p></td>
 </tr>
-<tr class="row-even"><td><p>Web Search</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">web_search</span></code></p></td>
-<td><p>Perform a web search using a specified search engine (currently supports Google and Bing).</p></td>
+<tr class="row-odd"><td><p>Web</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bing_search</span></code></p></td>
+<td><p>Perform bing search</p></td>
+</tr>
+<tr class="row-even"><td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">google_search</span></code></p></td>
+<td><p>Perform google search</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">arxiv_search</span></code></p></td>
+<td><p>Perform arXiv search</p></td>
+</tr>
+<tr class="row-even"><td><p></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">download_from_url</span></code></p></td>
+<td><p>Download file from given URL.</p></td>
 </tr>
 <tr class="row-odd"><td><p></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">load_web</span></code></p></td>
-<td><p>Load and parse the web page of the specificed url (currently only supports HTML).</p></td>
+<td><p>Load and parse the web page of the specified url (currently only supports HTML).</p></td>
 </tr>
 <tr class="row-even"><td><p></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">digest_webpage</span></code></p></td>
