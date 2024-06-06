@@ -58,15 +58,20 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">AgentScope API 文档</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.message.html">agentscope.message</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.models.html">agentscope.models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.agents.html">agentscope.agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.memory.html">agentscope.memory</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.models.html">agentscope.models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.parsers.html">agentscope.parsers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.exception.html">agentscope.exception</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.pipelines.html">agentscope.pipelines</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.service.html">agentscope.service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.rpc.html">agentscope.rpc</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.utils.html">agentscope.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.server.html">agentscope.server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.web.html">agentscope.web</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.prompt.html">agentscope.prompt</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.utils.html">agentscope.utils</a></li>
 </ul>
 
         </div>
@@ -108,7 +113,7 @@
 
 <span class="k">try</span><span class="p">:</span>
     <span class="kn">import</span> <span class="nn">dashscope</span>
-<span class="k">except</span> <span class="ne">ModuleNotFoundError</span><span class="p">:</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
     <span class="n">dashscope</span> <span class="o">=</span> <span class="kc">None</span>
 
 <span class="kn">from</span> <span class="nn">.model</span> <span class="kn">import</span> <span class="n">ModelWrapperBase</span><span class="p">,</span> <span class="n">ModelResponse</span>
@@ -116,9 +121,13 @@
 <span class="kn">from</span> <span class="nn">..file_manager</span> <span class="kn">import</span> <span class="n">file_manager</span>
 
 
+<div class="viewcode-block" id="DashScopeWrapperBase">
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeWrapperBase">[文档]</a>
 <span class="k">class</span> <span class="nc">DashScopeWrapperBase</span><span class="p">(</span><span class="n">ModelWrapperBase</span><span class="p">,</span> <span class="n">ABC</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The model wrapper for DashScope API.&quot;&quot;&quot;</span>
 
+<div class="viewcode-block" id="DashScopeWrapperBase.__init__">
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeWrapperBase.__init__">[文档]</a>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">config_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -159,8 +168,11 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">max_length</span> <span class="o">=</span> <span class="kc">None</span>
 
         <span class="c1"># Set monitor accordingly</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_register_default_metrics</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_register_default_metrics</span><span class="p">()</span></div>
 
+
+<div class="viewcode-block" id="DashScopeWrapperBase.format">
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeWrapperBase.format">[文档]</a>
     <span class="k">def</span> <span class="nf">format</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">]],</span>
@@ -169,11 +181,13 @@
             <span class="sa">f</span><span class="s2">&quot;Model Wrapper [</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">] doesn&#39;t &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;need to format the input. Please try to use the &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;model wrapper directly.&quot;</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div>
+</div>
+
 
 
 <div class="viewcode-block" id="DashScopeChatWrapper">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.DashScopeChatWrapper">[文档]</a>
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeChatWrapper">[文档]</a>
 <span class="k">class</span> <span class="nc">DashScopeChatWrapper</span><span class="p">(</span><span class="n">DashScopeWrapperBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The model wrapper for DashScope&#39;s chat API, refer to</span>
 <span class="sd">    https://help.aliyun.com/zh/dashscope/developer-reference/api-details</span>
@@ -311,7 +325,7 @@
         <span class="p">)</span>
 
 <div class="viewcode-block" id="DashScopeChatWrapper.format">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.DashScopeChatWrapper.format">[文档]</a>
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeChatWrapper.format">[文档]</a>
     <span class="k">def</span> <span class="nf">format</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">]],</span>
@@ -420,7 +434,7 @@
 
 
 <div class="viewcode-block" id="DashScopeImageSynthesisWrapper">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.DashScopeImageSynthesisWrapper">[文档]</a>
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeImageSynthesisWrapper">[文档]</a>
 <span class="k">class</span> <span class="nc">DashScopeImageSynthesisWrapper</span><span class="p">(</span><span class="n">DashScopeWrapperBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The model wrapper for DashScope Image Synthesis API, refer to</span>
 <span class="sd">    https://help.aliyun.com/zh/dashscope/developer-reference/quick-start-1</span>
@@ -525,7 +539,7 @@
 
 
 <div class="viewcode-block" id="DashScopeTextEmbeddingWrapper">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.DashScopeTextEmbeddingWrapper">[文档]</a>
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeTextEmbeddingWrapper">[文档]</a>
 <span class="k">class</span> <span class="nc">DashScopeTextEmbeddingWrapper</span><span class="p">(</span><span class="n">DashScopeWrapperBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The model wrapper for DashScope Text Embedding API.&quot;&quot;&quot;</span>
 
@@ -613,23 +627,15 @@
         <span class="p">)</span>
 
         <span class="c1"># step5: return response</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">output</span><span class="p">[</span><span class="s2">&quot;embeddings&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">ModelResponse</span><span class="p">(</span>
-                <span class="n">embedding</span><span class="o">=</span><span class="n">response</span><span class="o">.</span><span class="n">output</span><span class="p">[</span><span class="s2">&quot;embedding&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
-                <span class="n">raw</span><span class="o">=</span><span class="n">response</span><span class="p">,</span>
-            <span class="p">)</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">ModelResponse</span><span class="p">(</span>
-                <span class="n">embedding</span><span class="o">=</span><span class="p">[</span>
-                    <span class="n">_</span><span class="p">[</span><span class="s2">&quot;embedding&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">output</span><span class="p">[</span><span class="s2">&quot;embeddings&quot;</span><span class="p">]</span>
-                <span class="p">],</span>
-                <span class="n">raw</span><span class="o">=</span><span class="n">response</span><span class="p">,</span>
-            <span class="p">)</span></div>
+        <span class="k">return</span> <span class="n">ModelResponse</span><span class="p">(</span>
+            <span class="n">embedding</span><span class="o">=</span><span class="p">[</span><span class="n">_</span><span class="p">[</span><span class="s2">&quot;embedding&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">output</span><span class="p">[</span><span class="s2">&quot;embeddings&quot;</span><span class="p">]],</span>
+            <span class="n">raw</span><span class="o">=</span><span class="n">response</span><span class="p">,</span>
+        <span class="p">)</span></div>
 
 
 
 <div class="viewcode-block" id="DashScopeMultiModalWrapper">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.DashScopeMultiModalWrapper">[文档]</a>
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeMultiModalWrapper">[文档]</a>
 <span class="k">class</span> <span class="nc">DashScopeMultiModalWrapper</span><span class="p">(</span><span class="n">DashScopeWrapperBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The model wrapper for DashScope Multimodal API, refer to</span>
 <span class="sd">    https://help.aliyun.com/zh/dashscope/developer-reference/tongyi-qianwen-vl-api</span>
@@ -725,7 +731,9 @@
             <span class="n">messages</span><span class="o">=</span><span class="n">messages</span><span class="p">,</span>
             <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
         <span class="p">)</span>
-
+        <span class="c1"># Unhandle code path here</span>
+        <span class="c1"># response could be a generator , if stream is yes</span>
+        <span class="c1"># suggest add a check here</span>
         <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">status_code</span> <span class="o">!=</span> <span class="n">HTTPStatus</span><span class="o">.</span><span class="n">OK</span><span class="p">:</span>
             <span class="n">error_msg</span> <span class="o">=</span> <span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot; Request id: </span><span class="si">{</span><span class="n">response</span><span class="o">.</span><span class="n">request_id</span><span class="si">}</span><span class="s2">,&quot;</span>
@@ -771,7 +779,7 @@
         <span class="p">)</span>
 
 <div class="viewcode-block" id="DashScopeMultiModalWrapper.format">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.DashScopeMultiModalWrapper.format">[文档]</a>
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeMultiModalWrapper.format">[文档]</a>
     <span class="k">def</span> <span class="nf">format</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">]],</span>
@@ -891,7 +899,7 @@
         <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">unit</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">input_msgs</span><span class="p">):</span>
             <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">unit</span><span class="o">.</span><span class="n">role</span> <span class="o">==</span> <span class="s2">&quot;system&quot;</span><span class="p">:</span>
                 <span class="c1"># system prompt</span>
-                <span class="n">content</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_url</span><span class="p">(</span><span class="n">unit</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+                <span class="n">content</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">convert_url</span><span class="p">(</span><span class="n">unit</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
                 <span class="n">content</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="n">_convert_to_str</span><span class="p">(</span><span class="n">unit</span><span class="o">.</span><span class="n">content</span><span class="p">)})</span>
 
                 <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
@@ -906,7 +914,7 @@
                     <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">unit</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">_convert_to_str</span><span class="p">(</span><span class="n">unit</span><span class="o">.</span><span class="n">content</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
                 <span class="p">)</span>
                 <span class="c1"># image and audio</span>
-                <span class="n">image_or_audio_dicts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_convert_url</span><span class="p">(</span><span class="n">unit</span><span class="o">.</span><span class="n">url</span><span class="p">))</span>
+                <span class="n">image_or_audio_dicts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">convert_url</span><span class="p">(</span><span class="n">unit</span><span class="o">.</span><span class="n">url</span><span class="p">))</span>
 
         <span class="n">dialogue_history</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dialogue</span><span class="p">)</span>
 
@@ -930,7 +938,9 @@
         <span class="k">return</span> <span class="n">messages</span></div>
 
 
-    <span class="k">def</span> <span class="nf">_convert_url</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="kc">None</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<div class="viewcode-block" id="DashScopeMultiModalWrapper.convert_url">
+<a class="viewcode-back" href="../../../agentscope.models.dashscope_model.html#agentscope.models.DashScopeMultiModalWrapper.convert_url">[文档]</a>
+    <span class="k">def</span> <span class="nf">convert_url</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="kc">None</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert the url to the format of DashScope API. Note for local</span>
 <span class="sd">        files, a prefix &quot;file://&quot; will be added.</span>
 
@@ -963,12 +973,13 @@
         <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
             <span class="n">dicts</span> <span class="o">=</span> <span class="p">[]</span>
             <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">url</span><span class="p">:</span>
-                <span class="n">dicts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_convert_url</span><span class="p">(</span><span class="n">_</span><span class="p">))</span>
+                <span class="n">dicts</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">convert_url</span><span class="p">(</span><span class="n">_</span><span class="p">))</span>
             <span class="k">return</span> <span class="n">dicts</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
                 <span class="sa">f</span><span class="s2">&quot;Unsupported url type </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">url</span><span class="p">)</span><span class="si">}</span><span class="s2">, &quot;</span> <span class="sa">f</span><span class="s2">&quot;str or list expected.&quot;</span><span class="p">,</span>
             <span class="p">)</span></div>
+</div>
 
 </pre></div>
 

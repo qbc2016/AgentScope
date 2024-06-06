@@ -57,15 +57,20 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">AgentScope API Reference</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.message.html">agentscope.message</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.models.html">agentscope.models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.agents.html">agentscope.agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.memory.html">agentscope.memory</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.models.html">agentscope.models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.parsers.html">agentscope.parsers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.exception.html">agentscope.exception</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.pipelines.html">agentscope.pipelines</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.service.html">agentscope.service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.rpc.html">agentscope.rpc</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.utils.html">agentscope.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.server.html">agentscope.server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../agentscope.web.html">agentscope.web</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.prompt.html">agentscope.prompt</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../agentscope.utils.html">agentscope.utils</a></li>
 </ul>
 
         </div>
@@ -113,12 +118,14 @@
 
 
 <div class="viewcode-block" id="PostAPIModelWrapperBase">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.PostAPIModelWrapperBase">[docs]</a>
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIModelWrapperBase">[docs]</a>
 <span class="k">class</span> <span class="nc">PostAPIModelWrapperBase</span><span class="p">(</span><span class="n">ModelWrapperBase</span><span class="p">,</span> <span class="n">ABC</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;The base model wrapper for the model deployed on the POST API.&quot;&quot;&quot;</span>
 
     <span class="n">model_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;post_api&quot;</span>
 
+<div class="viewcode-block" id="PostAPIModelWrapperBase.__init__">
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIModelWrapperBase.__init__">[docs]</a>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">config_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -184,7 +191,8 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">post_args</span> <span class="o">=</span> <span class="n">post_args</span> <span class="ow">or</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">max_retries</span> <span class="o">=</span> <span class="n">max_retries</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">messages_key</span> <span class="o">=</span> <span class="n">messages_key</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">retry_interval</span> <span class="o">=</span> <span class="n">retry_interval</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">retry_interval</span> <span class="o">=</span> <span class="n">retry_interval</span></div>
+
 
     <span class="k">def</span> <span class="nf">_parse_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ModelResponse</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Parse the response json data into ModelResponse&quot;&quot;&quot;</span>
@@ -260,9 +268,9 @@
 
 
 <div class="viewcode-block" id="PostAPIChatWrapper">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.PostAPIChatWrapper">[docs]</a>
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIChatWrapper">[docs]</a>
 <span class="k">class</span> <span class="nc">PostAPIChatWrapper</span><span class="p">(</span><span class="n">PostAPIModelWrapperBase</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;A post api model wrapper compatilble with openai chat, e.g., vLLM,</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A post api model wrapper compatible with openai chat, e.g., vLLM,</span>
 <span class="sd">    FastChat.&quot;&quot;&quot;</span>
 
     <span class="n">model_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;post_api_chat&quot;</span>
@@ -275,7 +283,7 @@
         <span class="p">)</span>
 
 <div class="viewcode-block" id="PostAPIChatWrapper.format">
-<a class="viewcode-back" href="../../../agentscope.models.html#agentscope.models.PostAPIChatWrapper.format">[docs]</a>
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIChatWrapper.format">[docs]</a>
     <span class="k">def</span> <span class="nf">format</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">]],</span>
@@ -318,6 +326,8 @@
 
 
 
+<div class="viewcode-block" id="PostAPIDALLEWrapper">
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIDALLEWrapper">[docs]</a>
 <span class="k">class</span> <span class="nc">PostAPIDALLEWrapper</span><span class="p">(</span><span class="n">PostAPIModelWrapperBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A post api model wrapper compatible with openai dall_e&quot;&quot;&quot;</span>
 
@@ -326,9 +336,18 @@
     <span class="n">deprecated_model_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;post_api_dalle&quot;</span>
 
     <span class="k">def</span> <span class="nf">_parse_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ModelResponse</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">&quot;data&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="s2">&quot;error&quot;</span> <span class="ow">in</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">]:</span>
+                <span class="n">error_msg</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">][</span><span class="s2">&quot;error&quot;</span><span class="p">][</span><span class="s2">&quot;message&quot;</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">error_msg</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">]</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error in API call:</span><span class="se">\n</span><span class="si">{</span><span class="n">error_msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error in API call:</span><span class="se">\n</span><span class="si">{</span><span class="n">error_msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="n">urls</span> <span class="o">=</span> <span class="p">[</span><span class="n">img</span><span class="p">[</span><span class="s2">&quot;url&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">img</span> <span class="ow">in</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">][</span><span class="s2">&quot;data&quot;</span><span class="p">]]</span>
         <span class="k">return</span> <span class="n">ModelResponse</span><span class="p">(</span><span class="n">image_urls</span><span class="o">=</span><span class="n">urls</span><span class="p">)</span>
 
+<div class="viewcode-block" id="PostAPIDALLEWrapper.format">
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIDALLEWrapper.format">[docs]</a>
     <span class="k">def</span> <span class="nf">format</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">]],</span>
@@ -337,7 +356,75 @@
             <span class="sa">f</span><span class="s2">&quot;Model Wrapper [</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">] doesn&#39;t &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;need to format the input. Please try to use the &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;model wrapper directly.&quot;</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="PostAPIEmbeddingWrapper">
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIEmbeddingWrapper">[docs]</a>
+<span class="k">class</span> <span class="nc">PostAPIEmbeddingWrapper</span><span class="p">(</span><span class="n">PostAPIModelWrapperBase</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A post api model wrapper for embedding model</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">model_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;post_api_embedding&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_parse_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">response</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ModelResponse</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parse the response json data into ModelResponse with embedding.</span>
+<span class="sd">        Args:</span>
+<span class="sd">            response (`dict`):</span>
+<span class="sd">            The response obtained from the API. This parsing assume the</span>
+<span class="sd">            structure of the response is as following:</span>
+<span class="sd">        {</span>
+<span class="sd">            &quot;code&quot;: 200,</span>
+<span class="sd">            &quot;data&quot;: {</span>
+<span class="sd">                ...</span>
+<span class="sd">                &quot;response&quot;: {</span>
+<span class="sd">                    &quot;data&quot;: [</span>
+<span class="sd">                        {</span>
+<span class="sd">                            &quot;embedding&quot;: [</span>
+<span class="sd">                                0.001,</span>
+<span class="sd">                                ...</span>
+<span class="sd">                            ],</span>
+<span class="sd">                            ...</span>
+<span class="sd">                        }</span>
+<span class="sd">                    ],</span>
+<span class="sd">                    &quot;model&quot;: &quot;xxxx&quot;,</span>
+<span class="sd">                    ...</span>
+<span class="sd">                },</span>
+<span class="sd">            },</span>
+<span class="sd">        }</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s2">&quot;data&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="s2">&quot;error&quot;</span> <span class="ow">in</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">]:</span>
+                <span class="n">error_msg</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">][</span><span class="s2">&quot;error&quot;</span><span class="p">][</span><span class="s2">&quot;message&quot;</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">error_msg</span> <span class="o">=</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">]</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error in embedding API call:</span><span class="se">\n</span><span class="si">{</span><span class="n">error_msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error in embedding API call:</span><span class="se">\n</span><span class="si">{</span><span class="n">error_msg</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">embeddings</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">data</span><span class="p">[</span><span class="s2">&quot;embedding&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="n">response</span><span class="p">[</span><span class="s2">&quot;data&quot;</span><span class="p">][</span><span class="s2">&quot;response&quot;</span><span class="p">][</span><span class="s2">&quot;data&quot;</span><span class="p">]</span>
+        <span class="p">]</span>
+        <span class="k">return</span> <span class="n">ModelResponse</span><span class="p">(</span>
+            <span class="n">embedding</span><span class="o">=</span><span class="n">embeddings</span><span class="p">,</span>
+            <span class="n">raw</span><span class="o">=</span><span class="n">response</span><span class="p">,</span>
         <span class="p">)</span>
+
+<div class="viewcode-block" id="PostAPIEmbeddingWrapper.format">
+<a class="viewcode-back" href="../../../agentscope.models.post_model.html#agentscope.models.PostAPIEmbeddingWrapper.format">[docs]</a>
+    <span class="k">def</span> <span class="nf">format</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">,</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">MessageBase</span><span class="p">]],</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Union</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="nb">str</span><span class="p">]:</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Model Wrapper [</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">] doesn&#39;t &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;need to format the input. Please try to use the &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;model wrapper directly.&quot;</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
 </pre></div>
 
            </div>

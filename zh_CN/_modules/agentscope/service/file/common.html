@@ -58,15 +58,20 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">AgentScope API 文档</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.message.html">agentscope.message</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.models.html">agentscope.models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.agents.html">agentscope.agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.memory.html">agentscope.memory</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.models.html">agentscope.models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.parsers.html">agentscope.parsers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.exception.html">agentscope.exception</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.pipelines.html">agentscope.pipelines</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.service.html">agentscope.service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.rpc.html">agentscope.rpc</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.utils.html">agentscope.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.server.html">agentscope.server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.web.html">agentscope.web</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.prompt.html">agentscope.prompt</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../agentscope.utils.html">agentscope.utils</a></li>
 </ul>
 
         </div>
@@ -96,17 +101,18 @@
              
   <h1>agentscope.service.file.common 源代码</h1><div class="highlight"><pre>
 <span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="c1"># pylint: disable=C0301</span>
 <span class="sd">&quot;&quot;&quot; Common operators for file and directory. &quot;&quot;&quot;</span>
 <span class="kn">import</span> <span class="nn">os</span>
 <span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span>
 
-<span class="kn">from</span> <span class="nn">agentscope.utils.common</span> <span class="kn">import</span> <span class="n">write_file</span>
 <span class="kn">from</span> <span class="nn">agentscope.service.service_response</span> <span class="kn">import</span> <span class="n">ServiceResponse</span>
 <span class="kn">from</span> <span class="nn">agentscope.service.service_status</span> <span class="kn">import</span> <span class="n">ServiceExecStatus</span>
 
 
 <div class="viewcode-block" id="create_file">
-<a class="viewcode-back" href="../../../../agentscope.service.html#agentscope.service.create_file">[文档]</a>
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.create_file">[文档]</a>
 <span class="k">def</span> <span class="nf">create_file</span><span class="p">(</span><span class="n">file_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">content</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServiceResponse</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create a file and write content to it.</span>
@@ -127,12 +133,24 @@
             <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
             <span class="n">content</span><span class="o">=</span><span class="s2">&quot;FileExistsError: The file already exists.&quot;</span><span class="p">,</span>
         <span class="p">)</span>
-    <span class="k">return</span> <span class="n">write_file</span><span class="p">(</span><span class="n">content</span><span class="p">,</span> <span class="n">file_path</span><span class="p">)</span></div>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">file</span><span class="p">:</span>
+            <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">content</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">SUCCESS</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Success&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">error_message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">error_message</span><span class="p">,</span>
+        <span class="p">)</span></div>
 
 
 
 <div class="viewcode-block" id="delete_file">
-<a class="viewcode-back" href="../../../../agentscope.service.html#agentscope.service.delete_file">[文档]</a>
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.delete_file">[文档]</a>
 <span class="k">def</span> <span class="nf">delete_file</span><span class="p">(</span><span class="n">file_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServiceResponse</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Delete a file specified by the file path.</span>
 
@@ -161,7 +179,7 @@
 
 
 <div class="viewcode-block" id="move_file">
-<a class="viewcode-back" href="../../../../agentscope.service.html#agentscope.service.move_file">[文档]</a>
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.move_file">[文档]</a>
 <span class="k">def</span> <span class="nf">move_file</span><span class="p">(</span><span class="n">source_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">destination_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServiceResponse</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Move a file from a source path to a destination path.</span>
@@ -203,7 +221,7 @@
 
 
 <div class="viewcode-block" id="create_directory">
-<a class="viewcode-back" href="../../../../agentscope.service.html#agentscope.service.create_directory">[文档]</a>
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.create_directory">[文档]</a>
 <span class="k">def</span> <span class="nf">create_directory</span><span class="p">(</span><span class="n">directory_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServiceResponse</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create a directory at the specified path.</span>
@@ -238,7 +256,7 @@
 
 
 <div class="viewcode-block" id="delete_directory">
-<a class="viewcode-back" href="../../../../agentscope.service.html#agentscope.service.delete_directory">[文档]</a>
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.delete_directory">[文档]</a>
 <span class="k">def</span> <span class="nf">delete_directory</span><span class="p">(</span><span class="n">directory_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServiceResponse</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Delete a directory and all of its contents.</span>
@@ -273,7 +291,7 @@
 
 
 <div class="viewcode-block" id="move_directory">
-<a class="viewcode-back" href="../../../../agentscope.service.html#agentscope.service.move_directory">[文档]</a>
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.move_directory">[文档]</a>
 <span class="k">def</span> <span class="nf">move_directory</span><span class="p">(</span>
     <span class="n">source_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">destination_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -308,6 +326,70 @@
         <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
             <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">SUCCESS</span><span class="p">,</span>
             <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Success&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">error_message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">error_message</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="list_directory_content">
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.list_directory_content">[文档]</a>
+<span class="k">def</span> <span class="nf">list_directory_content</span><span class="p">(</span><span class="n">directory_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ServiceResponse</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    List the contents of a directory. i.e. ls -a</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        directory_path (`str`):</span>
+<span class="sd">            The path of the directory to show.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        `ServiceResponse`: The results contain a list of direcotry contents,</span>
+<span class="sd">        or an error message if any, including the error type.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">directory_path</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="s2">&quot;FileNotFoundError: The directory does not exist.&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">directory_path</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="s2">&quot;FileNotFoundError: The path is not a directory&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">ls_result</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">directory_path</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">SUCCESS</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ls_result</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">error_message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">error_message</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="get_current_directory">
+<a class="viewcode-back" href="../../../../agentscope.service.file.common.html#agentscope.service.get_current_directory">[文档]</a>
+<span class="k">def</span> <span class="nf">get_current_directory</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">ServiceResponse</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Get the current working directory path.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        `ServiceResponse`: The current working directory path, or an error</span>
+<span class="sd">        message if any, including the error type.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">cwd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">ServiceResponse</span><span class="p">(</span>
+            <span class="n">status</span><span class="o">=</span><span class="n">ServiceExecStatus</span><span class="o">.</span><span class="n">SUCCESS</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">cwd</span><span class="p">,</span>
         <span class="p">)</span>
     <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
         <span class="n">error_message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>

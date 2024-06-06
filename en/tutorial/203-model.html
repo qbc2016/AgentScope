@@ -23,7 +23,7 @@
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Service" href="204-service.html" />
+    <link rel="next" title="Model Response Parser" href="203-parser.html" />
     <link rel="prev" title="Pipeline and MsgHub" href="202-pipeline.html" /> 
 </head>
 
@@ -57,6 +57,7 @@
 <li class="toctree-l2"><a class="reference internal" href="201-agent.html">Customizing Your Own Agent</a></li>
 <li class="toctree-l2"><a class="reference internal" href="202-pipeline.html">Pipeline and MsgHub</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="203-parser.html">Model Response Parser</a></li>
 <li class="toctree-l2"><a class="reference internal" href="204-service.html">Service</a></li>
 <li class="toctree-l2"><a class="reference internal" href="205-memory.html">Memory</a></li>
 <li class="toctree-l2"><a class="reference internal" href="206-prompt.html">Prompt Engineering</a></li>
@@ -68,15 +69,20 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">AgentScope API Reference</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.message.html">agentscope.message</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.models.html">agentscope.models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../agentscope.agents.html">agentscope.agents</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../agentscope.memory.html">agentscope.memory</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.models.html">agentscope.models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.parsers.html">agentscope.parsers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.exception.html">agentscope.exception</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../agentscope.pipelines.html">agentscope.pipelines</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../agentscope.service.html">agentscope.service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../agentscope.rpc.html">agentscope.rpc</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.utils.html">agentscope.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.server.html">agentscope.server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../agentscope.web.html">agentscope.web</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../agentscope.html">agentscope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.prompt.html">agentscope.prompt</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../agentscope.utils.html">agentscope.utils</a></li>
 </ul>
 
         </div>
@@ -117,7 +123,9 @@ model services.</p>
 <li><p>OpenAI API, including chat, image generation (DALL-E), and Embedding.</p></li>
 <li><p>DashScope API, including chat, image sythesis and text embedding.</p></li>
 <li><p>Gemini API, including chat and embedding.</p></li>
+<li><p>ZhipuAI API, including chat and embedding.</p></li>
 <li><p>Ollama API, including chat, embedding and generation.</p></li>
+<li><p>LiteLLM API, including chat, with various model APIs.</p></li>
 <li><p>Post Request API, model inference services based on Post
 requests, including Huggingface/ModelScope Inference API and various
 post request based model APIs.</p></li>
@@ -229,6 +237,18 @@ It corresponds to the <code class="docutils literal notranslate"><span class="pr
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;gemini_embedding&quot;</span></code></p></td>
 <td><p>models/embedding-001, …</p></td>
 </tr>
+<tr class="row-odd"><td><p>ZhipuAI API</p></td>
+<td><p>Chat</p></td>
+<td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/zhipu_model.py"><code class="docutils literal notranslate"><span class="pre">ZhipuAIChatWrapper</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;zhipuai_chat&quot;</span></code></p></td>
+<td><p>glm4, …</p></td>
+</tr>
+<tr class="row-even"><td><p></p></td>
+<td><p>Embedding</p></td>
+<td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/zhipu_model.py"><code class="docutils literal notranslate"><span class="pre">ZhipuAIEmbeddingWrapper</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;zhipuai_embedding&quot;</span></code></p></td>
+<td><p>embedding-2, …</p></td>
+</tr>
 <tr class="row-odd"><td><p>ollama</p></td>
 <td><p>Chat</p></td>
 <td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/ollama_model.py"><code class="docutils literal notranslate"><span class="pre">OllamaChatWrapper</span></code></a></p></td>
@@ -247,10 +267,34 @@ It corresponds to the <code class="docutils literal notranslate"><span class="pr
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;ollama_generate&quot;</span></code></p></td>
 <td><p>llama2, …</p></td>
 </tr>
-<tr class="row-even"><td><p>Post Request based API</p></td>
+<tr class="row-even"><td><p>LiteLLM API</p></td>
+<td><p>Chat</p></td>
+<td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/litellm_model.py"><code class="docutils literal notranslate"><span class="pre">LiteLLMChatWrapper</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;litellm_chat&quot;</span></code></p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-odd"><td><p>Post Request based API</p></td>
 <td><p>-</p></td>
 <td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIModelWrapperBase</span></code></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;post_api&quot;</span></code></p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-even"><td><p></p></td>
+<td><p>Chat</p></td>
+<td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIChatWrapper</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;post_api_chat&quot;</span></code></p></td>
+<td><p>meta-llama/Meta-Llama-3-8B-Instruct, …</p></td>
+</tr>
+<tr class="row-odd"><td><p></p></td>
+<td><p>Image Synthesis</p></td>
+<td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIDALLEWrapper</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">post_api_dall_e</span></code></p></td>
+<td><p>-</p></td>
+</tr>
+<tr class="row-even"><td><p></p></td>
+<td><p>Embedding</p></td>
+<td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIEmbeddingWrapper</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">post_api_embedding</span></code></p></td>
 <td><p>-</p></td>
 </tr>
 </tbody>
@@ -445,6 +489,40 @@ Here we provide example configurations for different model wrappers.</p>
 </details>
 <br/>
 </section>
+<section id="zhipuai-api">
+<h4>ZhipuAI API<a class="headerlink" href="#zhipuai-api" title="Link to this heading"></a></h4>
+<details>
+<summary>ZhipuAI Chat API (<code><a href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/zhipu_model.py">agentscope.models.ZhipuAIChatWrapper</a></code>)</summary>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;my_zhipuai_chat_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;model_type&quot;</span><span class="p">:</span> <span class="s2">&quot;zhipuai_chat&quot;</span><span class="p">,</span>
+
+    <span class="c1"># Required parameters</span>
+    <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="s2">&quot;</span><span class="si">{model_name}</span><span class="s2">&quot;</span><span class="p">,</span>               <span class="c1"># The model name in ZhipuAI API, e.g. glm-4</span>
+
+    <span class="c1"># Optional parameters</span>
+    <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;</span><span class="si">{your_api_key}</span><span class="s2">&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</details>
+<details>
+<summary>ZhipuAI Embedding API (<code><a href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/zhipu_model.py">agentscope.models.ZhipuAIEmbeddingWrapper</a></code>)</summary>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;my_zhipuai_embedding_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;model_type&quot;</span><span class="p">:</span> <span class="s2">&quot;zhipuai_embedding&quot;</span><span class="p">,</span>
+
+    <span class="c1"># Required parameters</span>
+    <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="s2">&quot;</span><span class="si">{model_name}</span><span class="s2">&quot;</span><span class="p">,</span>               <span class="c1"># The model name in ZhipuAI API, e.g. embedding-2</span>
+
+    <span class="c1"># Optional parameters</span>
+    <span class="s2">&quot;api_key&quot;</span><span class="p">:</span> <span class="s2">&quot;</span><span class="si">{your_api_key}</span><span class="s2">&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</details>
+<br/>
+</section>
 <section id="ollama-api">
 <h4>Ollama API<a class="headerlink" href="#ollama-api" title="Link to this heading"></a></h4>
 <details>
@@ -503,10 +581,98 @@ Here we provide example configurations for different model wrappers.</p>
 </details>
 <br/>
 </section>
+<section id="litellm-chat-api">
+<h4>LiteLLM Chat API<a class="headerlink" href="#litellm-chat-api" title="Link to this heading"></a></h4>
+<details>
+<summary>LiteLLM Chat API (<code><a href="https://github.
+com/modelscope/agentscope/blob/main/src/agentscope/models/litellm_model.py">agentscope.models.LiteLLMChatModelWrapper</a></code>)</summary>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;lite_llm_openai_chat_gpt-3.5-turbo&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;model_type&quot;</span><span class="p">:</span> <span class="s2">&quot;litellm_chat&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;model_name&quot;</span><span class="p">:</span> <span class="s2">&quot;gpt-3.5-turbo&quot;</span> <span class="c1"># You should note that for different models, you should set the corresponding environment variables, such as OPENAI_API_KEY, etc. You may refer to https://docs.litellm.ai/docs/ for this.</span>
+<span class="p">},</span>
+</pre></div>
+</div>
+</details>
+<br/>
+</section>
 <section id="post-request-api">
 <h4>Post Request API<a class="headerlink" href="#post-request-api" title="Link to this heading"></a></h4>
 <details>
-<summary>Post request API (<code><a href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py">agentscope.models.PostAPIModelWrapperBase</a></code>)</summary>
+<summary>Post Request Chat API (<code><a href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py">agentscope.models.PostAPIChatWrapper</a></code>)</summary>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;my_postapichatwrapper_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;model_type&quot;</span><span class="p">:</span> <span class="s2">&quot;post_api_chat&quot;</span><span class="p">,</span>
+
+    <span class="c1"># Required parameters</span>
+    <span class="s2">&quot;api_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://xxx.xxx&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;headers&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="c1"># e.g. &quot;Authorization&quot;: &quot;Bearer xxx&quot;,</span>
+    <span class="p">},</span>
+
+    <span class="c1"># Optional parameters</span>
+    <span class="s2">&quot;messages_key&quot;</span><span class="p">:</span> <span class="s2">&quot;messages&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<blockquote>
+<div><p>⚠️ The Post Request Chat model wrapper (<code class="docutils literal notranslate"><span class="pre">PostAPIChatWrapper</span></code>) has the following properties:</p>
+<ol class="arabic simple">
+<li><p>The <code class="docutils literal notranslate"><span class="pre">.format()</span></code> function makes sure the input messages become a list of dicts.</p></li>
+<li><p>The <code class="docutils literal notranslate"><span class="pre">._parse_response()</span></code> function assumes the generated text will be in <code class="docutils literal notranslate"><span class="pre">response[&quot;data&quot;][&quot;response&quot;][&quot;choices&quot;][0][&quot;message&quot;][&quot;content&quot;]</span></code></p></li>
+</ol>
+</div></blockquote>
+</details>
+<details>
+<summary>Post Request Image Synthesis API  (<code><a href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py">agentscope.models.PostAPIDALLEWrapper</a></code>)</summary>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;my_postapiwrapper_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;model_type&quot;</span><span class="p">:</span> <span class="s2">&quot;post_api_dall_e&quot;</span><span class="p">,</span>
+
+    <span class="c1"># Required parameters</span>
+    <span class="s2">&quot;api_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://xxx.xxx&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;headers&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="c1"># e.g. &quot;Authorization&quot;: &quot;Bearer xxx&quot;,</span>
+    <span class="p">},</span>
+
+    <span class="c1"># Optional parameters</span>
+    <span class="s2">&quot;messages_key&quot;</span><span class="p">:</span> <span class="s2">&quot;messages&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<blockquote>
+<div><p>⚠️ The Post Request Image Synthesis model wrapper (<code class="docutils literal notranslate"><span class="pre">PostAPIDALLEWrapper</span></code>) has the following properties:</p>
+<ol class="arabic simple">
+<li><p>The <code class="docutils literal notranslate"><span class="pre">._parse_response()</span></code> function assumes the generated image will be presented as urls in <code class="docutils literal notranslate"><span class="pre">response[&quot;data&quot;][&quot;response&quot;][&quot;data&quot;][i][&quot;url&quot;]</span></code></p></li>
+</ol>
+</div></blockquote>
+</details>
+<details>
+<summary>Post Request Embedding API (<code><a href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py">agentscope.models.PostAPIEmbeddingWrapper</a></code>)</summary>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+    <span class="s2">&quot;config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;my_postapiwrapper_config&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;model_type&quot;</span><span class="p">:</span> <span class="s2">&quot;post_api_embedding&quot;</span><span class="p">,</span>
+
+    <span class="c1"># Required parameters</span>
+    <span class="s2">&quot;api_url&quot;</span><span class="p">:</span> <span class="s2">&quot;https://xxx.xxx&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;headers&quot;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="c1"># e.g. &quot;Authorization&quot;: &quot;Bearer xxx&quot;,</span>
+    <span class="p">},</span>
+
+    <span class="c1"># Optional parameters</span>
+    <span class="s2">&quot;messages_key&quot;</span><span class="p">:</span> <span class="s2">&quot;messages&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<blockquote>
+<div><p>⚠️ The Post Request Embedding model wrapper (<code class="docutils literal notranslate"><span class="pre">PostAPIEmbeddingWrapper</span></code>) has the following properties:</p>
+<ol class="arabic simple">
+<li><p>The <code class="docutils literal notranslate"><span class="pre">._parse_response()</span></code> function assumes the generated embeddings will be in <code class="docutils literal notranslate"><span class="pre">response[&quot;data&quot;][&quot;response&quot;][&quot;data&quot;][i][&quot;embedding&quot;]</span></code></p></li>
+</ol>
+</div></blockquote>
+</details>
+<details>
+<summary>Post Request API (<code><a href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py">agentscope.models.PostAPIModelWrapperBase</a></code>)</summary>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
     <span class="s2">&quot;config_name&quot;</span><span class="p">:</span> <span class="s2">&quot;my_postapiwrapper_config&quot;</span><span class="p">,</span>
     <span class="s2">&quot;model_type&quot;</span><span class="p">:</span> <span class="s2">&quot;post_api&quot;</span><span class="p">,</span>
@@ -522,6 +688,14 @@ Here we provide example configurations for different model wrappers.</p>
 <span class="p">}</span>
 </pre></div>
 </div>
+<blockquote>
+<div><p>⚠️ Post Request model wrapper (<code class="docutils literal notranslate"><span class="pre">PostAPIModelWrapperBase</span></code>) returns raw HTTP responses from the API in ModelResponse, and the <code class="docutils literal notranslate"><span class="pre">.format()</span></code> is not implemented. It is recommended to use <code class="docutils literal notranslate"><span class="pre">Post</span> <span class="pre">Request</span> <span class="pre">Chat</span> <span class="pre">API</span></code> when running examples with chats.
+<code class="docutils literal notranslate"><span class="pre">PostAPIModelWrapperBase</span></code> can be used when</p>
+<ol class="arabic simple">
+<li><p>only the raw HTTP response is wanted and <code class="docutils literal notranslate"><span class="pre">.format()</span></code> is not called;</p></li>
+<li><p>Or, the developers want to overwrite the <code class="docutils literal notranslate"><span class="pre">.format()</span></code> and/or <code class="docutils literal notranslate"><span class="pre">._parse_response()</span></code> functions.</p></li>
+</ol>
+</div></blockquote>
 </details>
 <br/>
 </section>
@@ -592,7 +766,7 @@ You can use it in the model configuration directly.</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="202-pipeline.html" class="btn btn-neutral float-left" title="Pipeline and MsgHub" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="204-service.html" class="btn btn-neutral float-right" title="Service" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="203-parser.html" class="btn btn-neutral float-right" title="Model Response Parser" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
