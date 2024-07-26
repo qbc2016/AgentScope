@@ -55,14 +55,17 @@
 <li class="toctree-l1"><a class="reference internal" href="tutorial/102-installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/103-example.html">Quick Start</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/203-model.html">Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial/203-stream.html">Streaming</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/206-prompt.html">Prompt Engineering</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/201-agent.html">Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/205-memory.html">Memory</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/203-parser.html">Response Parser</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial/209-prompt_opt.html">System Prompt Optimization</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/204-service.html">Tool</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/202-pipeline.html">Pipeline and MsgHub</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/208-distribute.html">Distribution</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/209-gui.html">AgentScope Studio</a></li>
+<li class="toctree-l1"><a class="reference internal" href="tutorial/210-rag.html">A Quick Introduction to RAG in AgentScope</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/105-logging.html">Logging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/207-monitor.html">Monitor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tutorial/104-usecase.html">Example: Werewolf Game</a></li>
@@ -70,20 +73,20 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">AgentScope API Reference</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.html">agentscope</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.message.html">agentscope.message</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.models.html">agentscope.models</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.agents.html">agentscope.agents</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.memory.html">agentscope.memory</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.parsers.html">agentscope.parsers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.exception.html">agentscope.exception</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.pipelines.html">agentscope.pipelines</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.service.html">agentscope.service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.rpc.html">agentscope.rpc</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.server.html">agentscope.server</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.web.html">agentscope.web</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.prompt.html">agentscope.prompt</a></li>
-<li class="toctree-l1"><a class="reference internal" href="agentscope.utils.html">agentscope.utils</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.html">agentscope package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.message.html">agentscope.message module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.models.html">agentscope.models package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.agents.html">agentscope.agents package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.memory.html">agentscope.memory package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.parsers.html">agentscope.parsers package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.exception.html">agentscope.exception module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.pipelines.html">agentscope.pipelines package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.service.html">agentscope.service package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.rpc.html">agentscope.rpc package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.server.html">agentscope.server package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.web.html">agentscope.web package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.prompt.html">agentscope.prompt package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agentscope.utils.html">agentscope.utils package</a></li>
 </ul>
 
         </div>
@@ -121,6 +124,7 @@
  | <a href="#E"><strong>E</strong></a>
  | <a href="#F"><strong>F</strong></a>
  | <a href="#G"><strong>G</strong></a>
+ | <a href="#H"><strong>H</strong></a>
  | <a href="#I"><strong>I</strong></a>
  | <a href="#J"><strong>J</strong></a>
  | <a href="#K"><strong>K</strong></a>
@@ -158,6 +162,10 @@
 </li>
         <li><a href="agentscope.agents.html#agentscope.agents.DistConf.__init__">(agentscope.agents.DistConf method)</a>
 </li>
+        <li><a href="agentscope.agents.html#agentscope.agents.LlamaIndexAgent.__init__">(agentscope.agents.LlamaIndexAgent method)</a>
+</li>
+        <li><a href="agentscope.agents.rag_agent.html#agentscope.agents.rag_agent.LlamaIndexAgent.__init__">(agentscope.agents.rag_agent.LlamaIndexAgent method)</a>
+</li>
         <li><a href="agentscope.agents.react_agent.html#agentscope.agents.react_agent.ReActAgent.__init__">(agentscope.agents.react_agent.ReActAgent method)</a>
 </li>
         <li><a href="agentscope.agents.html#agentscope.agents.ReActAgent.__init__">(agentscope.agents.ReActAgent method)</a>
@@ -173,6 +181,8 @@
         <li><a href="agentscope.agents.user_agent.html#agentscope.agents.user_agent.UserAgent.__init__">(agentscope.agents.user_agent.UserAgent method)</a>
 </li>
         <li><a href="agentscope.agents.html#agentscope.agents.UserAgent.__init__">(agentscope.agents.UserAgent method)</a>
+</li>
+        <li><a href="agentscope.exception.html#agentscope.exception.AgentServerError.__init__">(agentscope.exception.AgentServerError method)</a>
 </li>
         <li><a href="agentscope.exception.html#agentscope.exception.FunctionCallError.__init__">(agentscope.exception.FunctionCallError method)</a>
 </li>
@@ -196,9 +206,11 @@
 </li>
         <li><a href="agentscope.message.html#agentscope.message.PlaceholderMessage.__init__">(agentscope.message.PlaceholderMessage method)</a>
 </li>
-        <li><a href="agentscope.message.html#agentscope.message.Tht.__init__">(agentscope.message.Tht method)</a>
+        <li><a href="agentscope.models.dashscope_model.html#agentscope.models.dashscope_model.DashScopeChatWrapper.__init__">(agentscope.models.dashscope_model.DashScopeChatWrapper method)</a>
 </li>
         <li><a href="agentscope.models.dashscope_model.html#agentscope.models.dashscope_model.DashScopeWrapperBase.__init__">(agentscope.models.dashscope_model.DashScopeWrapperBase method)</a>
+</li>
+        <li><a href="agentscope.models.html#agentscope.models.DashScopeChatWrapper.__init__">(agentscope.models.DashScopeChatWrapper method)</a>
 </li>
         <li><a href="agentscope.models.gemini_model.html#agentscope.models.gemini_model.GeminiChatWrapper.__init__">(agentscope.models.gemini_model.GeminiChatWrapper method)</a>
 </li>
@@ -206,7 +218,11 @@
 </li>
         <li><a href="agentscope.models.html#agentscope.models.GeminiChatWrapper.__init__">(agentscope.models.GeminiChatWrapper method)</a>
 </li>
+        <li><a href="agentscope.models.litellm_model.html#agentscope.models.litellm_model.LiteLLMChatWrapper.__init__">(agentscope.models.litellm_model.LiteLLMChatWrapper method)</a>
+</li>
         <li><a href="agentscope.models.litellm_model.html#agentscope.models.litellm_model.LiteLLMWrapperBase.__init__">(agentscope.models.litellm_model.LiteLLMWrapperBase method)</a>
+</li>
+        <li><a href="agentscope.models.html#agentscope.models.LiteLLMChatWrapper.__init__">(agentscope.models.LiteLLMChatWrapper method)</a>
 </li>
         <li><a href="agentscope.models.model.html#agentscope.models.model.ModelWrapperBase.__init__">(agentscope.models.model.ModelWrapperBase method)</a>
 </li>
@@ -214,9 +230,17 @@
 </li>
         <li><a href="agentscope.models.html#agentscope.models.ModelWrapperBase.__init__">(agentscope.models.ModelWrapperBase method)</a>
 </li>
+        <li><a href="agentscope.models.ollama_model.html#agentscope.models.ollama_model.OllamaChatWrapper.__init__">(agentscope.models.ollama_model.OllamaChatWrapper method)</a>
+</li>
         <li><a href="agentscope.models.ollama_model.html#agentscope.models.ollama_model.OllamaWrapperBase.__init__">(agentscope.models.ollama_model.OllamaWrapperBase method)</a>
 </li>
+        <li><a href="agentscope.models.html#agentscope.models.OllamaChatWrapper.__init__">(agentscope.models.OllamaChatWrapper method)</a>
+</li>
+        <li><a href="agentscope.models.openai_model.html#agentscope.models.openai_model.OpenAIChatWrapper.__init__">(agentscope.models.openai_model.OpenAIChatWrapper method)</a>
+</li>
         <li><a href="agentscope.models.openai_model.html#agentscope.models.openai_model.OpenAIWrapperBase.__init__">(agentscope.models.openai_model.OpenAIWrapperBase method)</a>
+</li>
+        <li><a href="agentscope.models.html#agentscope.models.OpenAIChatWrapper.__init__">(agentscope.models.OpenAIChatWrapper method)</a>
 </li>
         <li><a href="agentscope.models.html#agentscope.models.OpenAIWrapperBase.__init__">(agentscope.models.OpenAIWrapperBase method)</a>
 </li>
@@ -226,7 +250,11 @@
 </li>
         <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.__init__">(agentscope.models.response.ModelResponse method)</a>
 </li>
+        <li><a href="agentscope.models.zhipu_model.html#agentscope.models.zhipu_model.ZhipuAIChatWrapper.__init__">(agentscope.models.zhipu_model.ZhipuAIChatWrapper method)</a>
+</li>
         <li><a href="agentscope.models.zhipu_model.html#agentscope.models.zhipu_model.ZhipuAIWrapperBase.__init__">(agentscope.models.zhipu_model.ZhipuAIWrapperBase method)</a>
+</li>
+        <li><a href="agentscope.models.html#agentscope.models.ZhipuAIChatWrapper.__init__">(agentscope.models.ZhipuAIChatWrapper method)</a>
 </li>
         <li><a href="agentscope.msghub.html#agentscope.msghub.MsgHubManager.__init__">(agentscope.msghub.MsgHubManager method)</a>
 </li>
@@ -245,6 +273,10 @@
         <li><a href="agentscope.parsers.html#agentscope.parsers.MultiTaggedContentParser.__init__">(agentscope.parsers.MultiTaggedContentParser method)</a>
 </li>
         <li><a href="agentscope.parsers.parser_base.html#agentscope.parsers.parser_base.DictFilterMixin.__init__">(agentscope.parsers.parser_base.DictFilterMixin method)</a>
+</li>
+        <li><a href="agentscope.parsers.regex_tagged_content_parser.html#agentscope.parsers.regex_tagged_content_parser.RegexTaggedContentParser.__init__">(agentscope.parsers.regex_tagged_content_parser.RegexTaggedContentParser method)</a>
+</li>
+        <li><a href="agentscope.parsers.html#agentscope.parsers.RegexTaggedContentParser.__init__">(agentscope.parsers.RegexTaggedContentParser method)</a>
 </li>
         <li><a href="agentscope.parsers.tagged_content_parser.html#agentscope.parsers.tagged_content_parser.MultiTaggedContentParser.__init__">(agentscope.parsers.tagged_content_parser.MultiTaggedContentParser method)</a>
 </li>
@@ -276,7 +308,29 @@
 </li>
         <li><a href="agentscope.pipelines.html#agentscope.pipelines.WhileLoopPipeline.__init__">(agentscope.pipelines.WhileLoopPipeline method)</a>
 </li>
+        <li><a href="agentscope.prompt.html#agentscope.prompt.ChineseSystemPromptGenerator.__init__">(agentscope.prompt.ChineseSystemPromptGenerator method)</a>
+</li>
+        <li><a href="agentscope.prompt.html#agentscope.prompt.EnglishSystemPromptGenerator.__init__">(agentscope.prompt.EnglishSystemPromptGenerator method)</a>
+</li>
         <li><a href="agentscope.prompt.html#agentscope.prompt.PromptEngine.__init__">(agentscope.prompt.PromptEngine method)</a>
+</li>
+        <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptComparer.__init__">(agentscope.prompt.SystemPromptComparer method)</a>
+</li>
+        <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptGeneratorBase.__init__">(agentscope.prompt.SystemPromptGeneratorBase method)</a>
+</li>
+        <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptOptimizer.__init__">(agentscope.prompt.SystemPromptOptimizer method)</a>
+</li>
+        <li><a href="agentscope.rag.html#agentscope.rag.Knowledge.__init__">(agentscope.rag.Knowledge method)</a>
+</li>
+        <li><a href="agentscope.rag.knowledge.html#agentscope.rag.knowledge.Knowledge.__init__">(agentscope.rag.knowledge.Knowledge method)</a>
+</li>
+        <li><a href="agentscope.rag.knowledge_bank.html#agentscope.rag.knowledge_bank.KnowledgeBank.__init__">(agentscope.rag.knowledge_bank.KnowledgeBank method)</a>
+</li>
+        <li><a href="agentscope.rag.html#agentscope.rag.KnowledgeBank.__init__">(agentscope.rag.KnowledgeBank method)</a>
+</li>
+        <li><a href="agentscope.rag.llama_index_knowledge.html#agentscope.rag.llama_index_knowledge.LlamaIndexKnowledge.__init__">(agentscope.rag.llama_index_knowledge.LlamaIndexKnowledge method)</a>
+</li>
+        <li><a href="agentscope.rag.html#agentscope.rag.LlamaIndexKnowledge.__init__">(agentscope.rag.LlamaIndexKnowledge method)</a>
 </li>
         <li><a href="agentscope.rpc.html#agentscope.rpc.ResponseStub.__init__">(agentscope.rpc.ResponseStub method)</a>
 </li>
@@ -307,6 +361,10 @@
         <li><a href="agentscope.service.html#agentscope.service.ServiceResponse.__init__">(agentscope.service.ServiceResponse method)</a>
 </li>
         <li><a href="agentscope.service.html#agentscope.service.ServiceToolkit.__init__">(agentscope.service.ServiceToolkit method)</a>
+</li>
+        <li><a href="agentscope.strategy.mixture_of_agent.html#agentscope.strategy.mixture_of_agent.MixtureOfAgents.__init__">(agentscope.strategy.mixture_of_agent.MixtureOfAgents method)</a>
+</li>
+        <li><a href="agentscope.strategy.html#agentscope.strategy.MixtureOfAgents.__init__">(agentscope.strategy.MixtureOfAgents method)</a>
 </li>
         <li><a href="agentscope.utils.monitor.html#agentscope.utils.monitor.QuotaExceededError.__init__">(agentscope.utils.monitor.QuotaExceededError method)</a>
 </li>
@@ -393,6 +451,12 @@
       </ul></li>
       <li><a href="agentscope.web.workstation.workflow_dag.html#agentscope.web.workstation.workflow_dag.ASDiGraph.add_as_node">add_as_node() (agentscope.web.workstation.workflow_dag.ASDiGraph method)</a>
 </li>
+      <li><a href="agentscope.rag.knowledge_bank.html#agentscope.rag.knowledge_bank.KnowledgeBank.add_data_as_knowledge">add_data_as_knowledge() (agentscope.rag.knowledge_bank.KnowledgeBank method)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.html#agentscope.rag.KnowledgeBank.add_data_as_knowledge">(agentscope.rag.KnowledgeBank method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.rpc.html#agentscope.rpc.add_RpcAgentServicer_to_server">add_RpcAgentServicer_to_server() (in module agentscope.rpc)</a>
 
       <ul>
@@ -419,6 +483,10 @@
         <li><a href="agentscope.agents.agent.html#agentscope.agents.agent.AgentBase">(class in agentscope.agents.agent)</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.exception.html#agentscope.exception.AgentCallError">AgentCallError</a>
+</li>
+      <li><a href="agentscope.exception.html#agentscope.exception.AgentCreationError">AgentCreationError</a>
+</li>
       <li>
     agentscope
 
@@ -459,6 +527,13 @@
 
       <ul>
         <li><a href="agentscope.agents.operator.html#module-agentscope.agents.operator">module</a>
+</li>
+      </ul></li>
+      <li>
+    agentscope.agents.rag_agent
+
+      <ul>
+        <li><a href="agentscope.agents.rag_agent.html#module-agentscope.agents.rag_agent">module</a>
 </li>
       </ul></li>
       <li>
@@ -658,6 +733,13 @@
 </li>
       </ul></li>
       <li>
+    agentscope.parsers.regex_tagged_content_parser
+
+      <ul>
+        <li><a href="agentscope.parsers.regex_tagged_content_parser.html#module-agentscope.parsers.regex_tagged_content_parser">module</a>
+</li>
+      </ul></li>
+      <li>
     agentscope.parsers.tagged_content_parser
 
       <ul>
@@ -693,12 +775,42 @@
 </li>
       </ul></li>
       <li>
+    agentscope.rag
+
+      <ul>
+        <li><a href="agentscope.rag.html#module-agentscope.rag">module</a>
+</li>
+      </ul></li>
+      <li>
+    agentscope.rag.knowledge
+
+      <ul>
+        <li><a href="agentscope.rag.knowledge.html#module-agentscope.rag.knowledge">module</a>
+</li>
+      </ul></li>
+      <li>
+    agentscope.rag.knowledge_bank
+
+      <ul>
+        <li><a href="agentscope.rag.knowledge_bank.html#module-agentscope.rag.knowledge_bank">module</a>
+</li>
+      </ul></li>
+      <li>
+    agentscope.rag.llama_index_knowledge
+
+      <ul>
+        <li><a href="agentscope.rag.llama_index_knowledge.html#module-agentscope.rag.llama_index_knowledge">module</a>
+</li>
+      </ul></li>
+      <li>
     agentscope.rpc
 
       <ul>
         <li><a href="agentscope.rpc.html#module-agentscope.rpc">module</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     agentscope.rpc.rpc_agent_client
 
@@ -713,8 +825,6 @@
         <li><a href="agentscope.rpc.rpc_agent_pb2.html#module-agentscope.rpc.rpc_agent_pb2">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     agentscope.rpc.rpc_agent_pb2_grpc
 
@@ -811,6 +921,13 @@
 
       <ul>
         <li><a href="agentscope.service.multi_modality.dashscope_services.html#module-agentscope.service.multi_modality.dashscope_services">module</a>
+</li>
+      </ul></li>
+      <li>
+    agentscope.service.multi_modality.openai_services
+
+      <ul>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#module-agentscope.service.multi_modality.openai_services">module</a>
 </li>
       </ul></li>
       <li>
@@ -940,6 +1057,20 @@
 </li>
       </ul></li>
       <li>
+    agentscope.strategy
+
+      <ul>
+        <li><a href="agentscope.strategy.html#module-agentscope.strategy">module</a>
+</li>
+      </ul></li>
+      <li>
+    agentscope.strategy.mixture_of_agent
+
+      <ul>
+        <li><a href="agentscope.strategy.mixture_of_agent.html#module-agentscope.strategy.mixture_of_agent">module</a>
+</li>
+      </ul></li>
+      <li>
     agentscope.studio
 
       <ul>
@@ -1051,6 +1182,10 @@
         <li><a href="agentscope.web.workstation.workflow_utils.html#module-agentscope.web.workstation.workflow_utils">module</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.exception.html#agentscope.exception.AgentServerError">AgentServerError</a>
+</li>
+      <li><a href="agentscope.exception.html#agentscope.exception.AgentServerNotAliveError">AgentServerNotAliveError</a>
+</li>
       <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer">AgentServerServicer (class in agentscope.server)</a>
 
       <ul>
@@ -1103,20 +1238,20 @@
 <h2 id="C">C</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.call_func">call_func() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.call_agent_func">call_agent_func() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
 
       <ul>
-        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.call_func">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.call_agent_func">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
 </li>
-        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.call_func">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.call_agent_func">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
 </li>
-        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.call_func">(agentscope.rpc.RpcAgentClient method)</a>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.call_agent_func">(agentscope.rpc.RpcAgentClient method)</a>
 </li>
-        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.call_func">(agentscope.rpc.RpcAgentServicer method)</a>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.call_agent_func">(agentscope.rpc.RpcAgentServicer method)</a>
 </li>
-        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.call_func">(agentscope.server.AgentServerServicer method)</a>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.call_agent_func">(agentscope.server.AgentServerServicer method)</a>
 </li>
-        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.call_func">(agentscope.server.servicer.AgentServerServicer method)</a>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.call_agent_func">(agentscope.server.servicer.AgentServerServicer method)</a>
 </li>
       </ul></li>
       <li><a href="agentscope.rpc.html#agentscope.rpc.call_in_thread">call_in_thread() (in module agentscope.rpc)</a>
@@ -1127,21 +1262,11 @@
       </ul></li>
       <li><a href="agentscope.utils.common.html#agentscope.utils.common.chdir">chdir() (in module agentscope.utils.common)</a>
 </li>
-      <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.check_and_delete_agent">check_and_delete_agent() (agentscope.server.AgentServerServicer method)</a>
-
-      <ul>
-        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.check_and_delete_agent">(agentscope.server.servicer.AgentServerServicer method)</a>
-</li>
-      </ul></li>
-      <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.check_and_generate_agent">check_and_generate_agent() (agentscope.server.AgentServerServicer method)</a>
-
-      <ul>
-        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.check_and_generate_agent">(agentscope.server.servicer.AgentServerServicer method)</a>
-</li>
-      </ul></li>
       <li><a href="agentscope.utils.tools.html#agentscope.utils.tools.check_port">check_port() (in module agentscope.utils.tools)</a>
 </li>
       <li><a href="agentscope.web.gradio.utils.html#agentscope.web.gradio.utils.check_uuid">check_uuid() (in module agentscope.web.gradio.utils)</a>
+</li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.ChineseSystemPromptGenerator">ChineseSystemPromptGenerator (class in agentscope.prompt)</a>
 </li>
       <li><a href="agentscope.memory.memory.html#agentscope.memory.memory.MemoryBase.clear">clear() (agentscope.memory.memory.MemoryBase method)</a>
 
@@ -1169,12 +1294,32 @@
       </ul></li>
       <li><a href="agentscope.models.html#agentscope.models.clear_model_configs">clear_model_configs() (in module agentscope.models)</a>
 </li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.clone_agent">clone_agent() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.clone_agent">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.clone_agent">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.clone_agent">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.clone_agent">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.clone_agent">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.clone_agent">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.agents.rpc_agent.html#agentscope.agents.rpc_agent.RpcAgent.clone_instances">clone_instances() (agentscope.agents.rpc_agent.RpcAgent method)</a>
 
       <ul>
         <li><a href="agentscope.agents.html#agentscope.agents.RpcAgent.clone_instances">(agentscope.agents.RpcAgent method)</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptComparer.compare_in_dialog">compare_in_dialog() (agentscope.prompt.SystemPromptComparer method)</a>
+</li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptComparer.compare_with_queries">compare_with_queries() (agentscope.prompt.SystemPromptComparer method)</a>
+</li>
       <li><a href="agentscope.web.workstation.workflow_dag.html#agentscope.web.workstation.workflow_dag.ASDiGraph.compile">compile() (agentscope.web.workstation.workflow_dag.ASDiGraph method)</a>
 
       <ul>
@@ -1306,7 +1451,17 @@
       <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.create_agent">create_agent() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
 
       <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.create_agent">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.create_agent">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
         <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.create_agent">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.create_agent">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.create_agent">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.create_agent">(agentscope.server.servicer.AgentServerServicer method)</a>
 </li>
       </ul></li>
       <li><a href="agentscope.service.html#agentscope.service.create_directory">create_directory() (in module agentscope.service)</a>
@@ -1408,7 +1563,35 @@
       <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.delete_agent">delete_agent() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
 
       <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.delete_agent">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.delete_agent">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
         <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.delete_agent">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.delete_agent">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.delete_agent">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.delete_agent">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.delete_all_agent">delete_all_agent() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.delete_all_agent">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.delete_all_agents">delete_all_agents() (agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.delete_all_agents">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.delete_all_agents">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.delete_all_agents">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.delete_all_agents">(agentscope.server.servicer.AgentServerServicer method)</a>
 </li>
       </ul></li>
   </ul></td>
@@ -1475,6 +1658,22 @@
         <li><a href="agentscope.agents.agent.html#agentscope.agents.agent.DistConf">(class in agentscope.agents.agent)</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.download_file">download_file() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.download_file">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.download_file">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.download_file">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.download_file">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.download_file">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.download_file">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.service.html#agentscope.service.download_from_url">download_from_url() (in module agentscope.service)</a>
 
       <ul>
@@ -1489,10 +1688,12 @@
 <h2 id="E">E</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.embedding">embedding (agentscope.models.ModelResponse attribute)</a>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.EnglishSystemPromptGenerator">EnglishSystemPromptGenerator (class in agentscope.prompt)</a>
+</li>
+      <li><a href="agentscope.rag.knowledge_bank.html#agentscope.rag.knowledge_bank.KnowledgeBank.equip">equip() (agentscope.rag.knowledge_bank.KnowledgeBank method)</a>
 
       <ul>
-        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.embedding">(agentscope.models.response.ModelResponse attribute)</a>
+        <li><a href="agentscope.rag.html#agentscope.rag.KnowledgeBank.equip">(agentscope.rag.KnowledgeBank method)</a>
 </li>
       </ul></li>
       <li><a href="agentscope.service.service_status.html#agentscope.service.service_status.ServiceExecStatus.ERROR">ERROR (agentscope.service.service_status.ServiceExecStatus attribute)</a>
@@ -1650,9 +1851,15 @@
 </li>
         <li><a href="agentscope.parsers.html#agentscope.parsers.MultiTaggedContentParser.format_instruction">(agentscope.parsers.MultiTaggedContentParser attribute)</a>
 </li>
+        <li><a href="agentscope.parsers.regex_tagged_content_parser.html#agentscope.parsers.regex_tagged_content_parser.RegexTaggedContentParser.format_instruction">(agentscope.parsers.regex_tagged_content_parser.RegexTaggedContentParser property)</a>
+</li>
+        <li><a href="agentscope.parsers.html#agentscope.parsers.RegexTaggedContentParser.format_instruction">(agentscope.parsers.RegexTaggedContentParser property)</a>
+</li>
         <li><a href="agentscope.parsers.tagged_content_parser.html#agentscope.parsers.tagged_content_parser.MultiTaggedContentParser.format_instruction">(agentscope.parsers.tagged_content_parser.MultiTaggedContentParser attribute)</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.message.html#agentscope.message.Msg.formatted_str">formatted_str() (agentscope.message.Msg method)</a>
+</li>
       <li><a href="agentscope.exception.html#agentscope.exception.FunctionCallError">FunctionCallError</a>
 </li>
       <li><a href="agentscope.exception.html#agentscope.exception.FunctionCallFormatError">FunctionCallFormatError</a>
@@ -1679,6 +1886,8 @@
       </ul></li>
       <li><a href="agentscope.models.gemini_model.html#agentscope.models.gemini_model.GeminiWrapperBase">GeminiWrapperBase (class in agentscope.models.gemini_model)</a>
 </li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptGeneratorBase.generate">generate() (agentscope.prompt.SystemPromptGeneratorBase method)</a>
+</li>
       <li><a href="agentscope.agents.agent.html#agentscope.agents.agent.AgentBase.generate_agent_id">generate_agent_id() (agentscope.agents.agent.AgentBase class method)</a>
 
       <ul>
@@ -1688,6 +1897,8 @@
       <li><a href="agentscope.utils.tools.html#agentscope.utils.tools.generate_id_from_seed">generate_id_from_seed() (in module agentscope.utils.tools)</a>
 </li>
       <li><a href="agentscope.web.gradio.utils.html#agentscope.web.gradio.utils.generate_image_from_name">generate_image_from_name() (in module agentscope.web.gradio.utils)</a>
+</li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptOptimizer.generate_notes">generate_notes() (agentscope.prompt.SystemPromptOptimizer method)</a>
 </li>
       <li><a href="agentscope.server.launcher.html#agentscope.server.launcher.RpcAgentServerLauncher.generate_server_id">generate_server_id() (agentscope.server.launcher.RpcAgentServerLauncher class method)</a>
 
@@ -1711,10 +1922,48 @@
         <li><a href="agentscope.service.html#agentscope.service.ServiceToolkit.get">(agentscope.service.ServiceToolkit class method)</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.get_agent">get_agent() (agentscope.server.AgentServerServicer method)</a>
+
+      <ul>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.get_agent">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.agents.agent.html#agentscope.agents.agent.AgentBase.get_agent_class">get_agent_class() (agentscope.agents.agent.AgentBase class method)</a>
 
       <ul>
         <li><a href="agentscope.agents.html#agentscope.agents.AgentBase.get_agent_class">(agentscope.agents.AgentBase class method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.get_agent_list">get_agent_list() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.get_agent_list">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.get_agent_list">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.get_agent_list">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.get_agent_list">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.get_agent_list">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.get_agent_list">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.get_agent_memory">get_agent_memory() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.get_agent_memory">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.get_agent_memory">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.get_agent_memory">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.get_agent_memory">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.get_agent_memory">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.get_agent_memory">(agentscope.server.servicer.AgentServerServicer method)</a>
 </li>
       </ul></li>
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.get_all_agents">get_all_agents() (in module agentscope.web.workstation.workflow_node)</a>
@@ -1739,6 +1988,14 @@
 </li>
       <li><a href="agentscope.service.html#agentscope.service.get_help">get_help() (in module agentscope.service)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="agentscope.rag.knowledge_bank.html#agentscope.rag.knowledge_bank.KnowledgeBank.get_knowledge">get_knowledge() (agentscope.rag.knowledge_bank.KnowledgeBank method)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.html#agentscope.rag.KnowledgeBank.get_knowledge">(agentscope.rag.KnowledgeBank method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.memory.memory.html#agentscope.memory.memory.MemoryBase.get_memory">get_memory() (agentscope.memory.memory.MemoryBase method)</a>
 
       <ul>
@@ -1759,8 +2016,6 @@
         <li><a href="agentscope.utils.html#agentscope.utils.MonitorBase.get_metric">(agentscope.utils.MonitorBase method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="agentscope.utils.monitor.html#agentscope.utils.monitor.DummyMonitor.get_metrics">get_metrics() (agentscope.utils.monitor.DummyMonitor method)</a>
 
       <ul>
@@ -1797,6 +2052,22 @@
 
       <ul>
         <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.ResponseStub.get_response">(agentscope.rpc.rpc_agent_client.ResponseStub method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.get_server_info">get_server_info() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.get_server_info">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.get_server_info">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.get_server_info">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.get_server_info">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.get_server_info">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.get_server_info">(agentscope.server.servicer.AgentServerServicer method)</a>
 </li>
       </ul></li>
       <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.get_task_id">get_task_id() (agentscope.server.AgentServerServicer method)</a>
@@ -1842,6 +2113,14 @@
   </ul></td>
 </tr></table>
 
+<h2 id="H">H</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="agentscope.exception.html#agentscope.exception.AgentServerError.host">host (agentscope.exception.AgentServerError attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
 <h2 id="I">I</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
@@ -1861,14 +2140,6 @@
       </ul></li>
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.IfElsePipelineNode">IfElsePipelineNode (class in agentscope.web.workstation.workflow_node)</a>
 </li>
-      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.image_urls">image_urls (agentscope.models.ModelResponse attribute)</a>
-
-      <ul>
-        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.image_urls">(agentscope.models.response.ModelResponse attribute)</a>
-</li>
-      </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="agentscope.web.gradio.studio.html#agentscope.web.gradio.studio.import_function_from_path">import_function_from_path() (in module agentscope.web.gradio.studio)</a>
 </li>
       <li><a href="agentscope.utils.tools.html#agentscope.utils.tools.ImportErrorReporter">ImportErrorReporter (class in agentscope.utils.tools)</a>
@@ -1883,9 +2154,35 @@
 </li>
       <li><a href="agentscope.web.gradio.utils.html#agentscope.web.gradio.utils.init_uid_queues">init_uid_queues() (in module agentscope.web.gradio.utils)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.is_alive">is_alive() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.is_alive">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.is_alive">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.is_alive">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.is_alive">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.is_alive">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.is_alive">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.web.workstation.workflow_utils.html#agentscope.web.workstation.workflow_utils.is_callable_expression">is_callable_expression() (in module agentscope.web.workstation.workflow_utils)</a>
 </li>
+      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.is_stream_exhausted">is_stream_exhausted (agentscope.models.ModelResponse property)</a>
+
+      <ul>
+        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.is_stream_exhausted">(agentscope.models.response.ModelResponse property)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.service.web.web_digest.html#agentscope.service.web.web_digest.is_valid_url">is_valid_url() (in module agentscope.service.web.web_digest)</a>
+</li>
+      <li><a href="agentscope.utils.tools.html#agentscope.utils.tools.is_web_accessible">is_web_accessible() (in module agentscope.utils.tools)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -1941,6 +2238,18 @@
       </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="agentscope.rag.html#agentscope.rag.Knowledge">Knowledge (class in agentscope.rag)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.knowledge.html#agentscope.rag.knowledge.Knowledge">(class in agentscope.rag.knowledge)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rag.html#agentscope.rag.KnowledgeBank">KnowledgeBank (class in agentscope.rag)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.knowledge_bank.html#agentscope.rag.knowledge_bank.KnowledgeBank">(class in agentscope.rag.knowledge_bank)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.web.workstation.workflow_utils.html#agentscope.web.workstation.workflow_utils.kwarg_converter">kwarg_converter() (in module agentscope.web.workstation.workflow_utils)</a>
 </li>
   </ul></td>
@@ -1955,8 +2264,6 @@
         <li><a href="agentscope.server.html#agentscope.server.RpcAgentServerLauncher.launch">(agentscope.server.RpcAgentServerLauncher method)</a>
 </li>
       </ul></li>
-      <li><a href="agentscope.prompt.html#agentscope.prompt.PromptType.LIST">LIST (agentscope.prompt.PromptType attribute)</a>
-</li>
       <li><a href="agentscope.service.html#agentscope.service.list_directory_content">list_directory_content() (in module agentscope.service)</a>
 
       <ul>
@@ -1973,6 +2280,18 @@
       </ul></li>
       <li><a href="agentscope.models.litellm_model.html#agentscope.models.litellm_model.LiteLLMWrapperBase">LiteLLMWrapperBase (class in agentscope.models.litellm_model)</a>
 </li>
+      <li><a href="agentscope.agents.html#agentscope.agents.LlamaIndexAgent">LlamaIndexAgent (class in agentscope.agents)</a>
+
+      <ul>
+        <li><a href="agentscope.agents.rag_agent.html#agentscope.agents.rag_agent.LlamaIndexAgent">(class in agentscope.agents.rag_agent)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rag.html#agentscope.rag.LlamaIndexKnowledge">LlamaIndexKnowledge (class in agentscope.rag)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.llama_index_knowledge.html#agentscope.rag.llama_index_knowledge.LlamaIndexKnowledge">(class in agentscope.rag.llama_index_knowledge)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.memory.memory.html#agentscope.memory.memory.MemoryBase.load">load() (agentscope.memory.memory.MemoryBase method)</a>
 
       <ul>
@@ -1986,6 +2305,8 @@
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="agentscope.web.workstation.workflow.html#agentscope.web.workstation.workflow.load_config">load_config() (in module agentscope.web.workstation.workflow)</a>
+</li>
+      <li><a href="agentscope.models.html#agentscope.models.load_config_by_name">load_config_by_name() (in module agentscope.models)</a>
 </li>
       <li><a href="agentscope.agents.agent.html#agentscope.agents.agent.AgentBase.load_from_config">load_from_config() (agentscope.agents.agent.AgentBase method)</a>
 
@@ -2009,7 +2330,11 @@
       </ul></li>
       <li><a href="agentscope.message.html#agentscope.message.PlaceholderMessage.LOCAL_ATTRS">LOCAL_ATTRS (agentscope.message.PlaceholderMessage attribute)</a>
 </li>
-      <li><a href="agentscope.logging.html#agentscope.logging.log_studio">log_studio() (in module agentscope.logging)</a>
+      <li><a href="agentscope.logging.html#agentscope.logging.log_gradio">log_gradio() (in module agentscope.logging)</a>
+</li>
+      <li><a href="agentscope.logging.html#agentscope.logging.log_msg">log_msg() (in module agentscope.logging)</a>
+</li>
+      <li><a href="agentscope.logging.html#agentscope.logging.log_stream_msg">log_stream_msg() (in module agentscope.logging)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -2043,6 +2368,8 @@
         <li><a href="agentscope.memory.memory.html#agentscope.memory.memory.MemoryBase">(class in agentscope.memory.memory)</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.exception.html#agentscope.exception.AgentServerError.message">message (agentscope.exception.AgentServerError attribute)</a>
+</li>
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.WorkflowNodeType.MESSAGE">MESSAGE (agentscope.web.workstation.workflow_node.WorkflowNodeType attribute)</a>
 </li>
       <li><a href="agentscope.message.html#agentscope.message.MessageBase">MessageBase (class in agentscope.message)</a>
@@ -2053,6 +2380,12 @@
 </li>
       <li><a href="agentscope.exception.html#agentscope.exception.TagNotFoundError.missing_end_tag">missing_end_tag (agentscope.exception.TagNotFoundError attribute)</a>
 </li>
+      <li><a href="agentscope.strategy.html#agentscope.strategy.MixtureOfAgents">MixtureOfAgents (class in agentscope.strategy)</a>
+
+      <ul>
+        <li><a href="agentscope.strategy.mixture_of_agent.html#agentscope.strategy.mixture_of_agent.MixtureOfAgents">(class in agentscope.strategy.mixture_of_agent)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.WorkflowNodeType.MODEL">MODEL (agentscope.web.workstation.workflow_node.WorkflowNodeType attribute)</a>
 </li>
       <li><a href="agentscope.models.dashscope_model.html#agentscope.models.dashscope_model.DashScopeChatWrapper.model_name">model_name (agentscope.models.dashscope_model.DashScopeChatWrapper attribute)</a>
@@ -2207,6 +2540,8 @@
 </li>
         <li><a href="agentscope.agents.operator.html#module-agentscope.agents.operator">agentscope.agents.operator</a>
 </li>
+        <li><a href="agentscope.agents.rag_agent.html#module-agentscope.agents.rag_agent">agentscope.agents.rag_agent</a>
+</li>
         <li><a href="agentscope.agents.react_agent.html#module-agentscope.agents.react_agent">agentscope.agents.react_agent</a>
 </li>
         <li><a href="agentscope.agents.rpc_agent.html#module-agentscope.agents.rpc_agent">agentscope.agents.rpc_agent</a>
@@ -2263,6 +2598,8 @@
 </li>
         <li><a href="agentscope.parsers.parser_base.html#module-agentscope.parsers.parser_base">agentscope.parsers.parser_base</a>
 </li>
+        <li><a href="agentscope.parsers.regex_tagged_content_parser.html#module-agentscope.parsers.regex_tagged_content_parser">agentscope.parsers.regex_tagged_content_parser</a>
+</li>
         <li><a href="agentscope.parsers.tagged_content_parser.html#module-agentscope.parsers.tagged_content_parser">agentscope.parsers.tagged_content_parser</a>
 </li>
         <li><a href="agentscope.pipelines.html#module-agentscope.pipelines">agentscope.pipelines</a>
@@ -2272,6 +2609,14 @@
         <li><a href="agentscope.pipelines.pipeline.html#module-agentscope.pipelines.pipeline">agentscope.pipelines.pipeline</a>
 </li>
         <li><a href="agentscope.prompt.html#module-agentscope.prompt">agentscope.prompt</a>
+</li>
+        <li><a href="agentscope.rag.html#module-agentscope.rag">agentscope.rag</a>
+</li>
+        <li><a href="agentscope.rag.knowledge.html#module-agentscope.rag.knowledge">agentscope.rag.knowledge</a>
+</li>
+        <li><a href="agentscope.rag.knowledge_bank.html#module-agentscope.rag.knowledge_bank">agentscope.rag.knowledge_bank</a>
+</li>
+        <li><a href="agentscope.rag.llama_index_knowledge.html#module-agentscope.rag.llama_index_knowledge">agentscope.rag.llama_index_knowledge</a>
 </li>
         <li><a href="agentscope.rpc.html#module-agentscope.rpc">agentscope.rpc</a>
 </li>
@@ -2306,6 +2651,8 @@
         <li><a href="agentscope.service.multi_modality.html#module-agentscope.service.multi_modality">agentscope.service.multi_modality</a>
 </li>
         <li><a href="agentscope.service.multi_modality.dashscope_services.html#module-agentscope.service.multi_modality.dashscope_services">agentscope.service.multi_modality.dashscope_services</a>
+</li>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#module-agentscope.service.multi_modality.openai_services">agentscope.service.multi_modality.openai_services</a>
 </li>
         <li><a href="agentscope.service.retrieval.html#module-agentscope.service.retrieval">agentscope.service.retrieval</a>
 </li>
@@ -2342,6 +2689,10 @@
         <li><a href="agentscope.service.web.search.html#module-agentscope.service.web.search">agentscope.service.web.search</a>
 </li>
         <li><a href="agentscope.service.web.web_digest.html#module-agentscope.service.web.web_digest">agentscope.service.web.web_digest</a>
+</li>
+        <li><a href="agentscope.strategy.html#module-agentscope.strategy">agentscope.strategy</a>
+</li>
+        <li><a href="agentscope.strategy.mixture_of_agent.html#module-agentscope.strategy.mixture_of_agent">agentscope.strategy.mixture_of_agent</a>
 </li>
         <li><a href="agentscope.studio.html#module-agentscope.studio">agentscope.studio</a>
 </li>
@@ -2538,14 +2889,50 @@
       </ul></li>
       <li><a href="agentscope.models.ollama_model.html#agentscope.models.ollama_model.OllamaWrapperBase">OllamaWrapperBase (class in agentscope.models.ollama_model)</a>
 </li>
+      <li><a href="agentscope.service.html#agentscope.service.openai_audio_to_text">openai_audio_to_text() (in module agentscope.service)</a>
+
+      <ul>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#agentscope.service.multi_modality.openai_services.openai_audio_to_text">(in module agentscope.service.multi_modality.openai_services)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.service.html#agentscope.service.openai_create_image_variation">openai_create_image_variation() (in module agentscope.service)</a>
+
+      <ul>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#agentscope.service.multi_modality.openai_services.openai_create_image_variation">(in module agentscope.service.multi_modality.openai_services)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.service.html#agentscope.service.openai_edit_image">openai_edit_image() (in module agentscope.service)</a>
+
+      <ul>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#agentscope.service.multi_modality.openai_services.openai_edit_image">(in module agentscope.service.multi_modality.openai_services)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.service.html#agentscope.service.openai_image_to_text">openai_image_to_text() (in module agentscope.service)</a>
+
+      <ul>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#agentscope.service.multi_modality.openai_services.openai_image_to_text">(in module agentscope.service.multi_modality.openai_services)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="agentscope.service.html#agentscope.service.openai_text_to_audio">openai_text_to_audio() (in module agentscope.service)</a>
+
+      <ul>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#agentscope.service.multi_modality.openai_services.openai_text_to_audio">(in module agentscope.service.multi_modality.openai_services)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.service.html#agentscope.service.openai_text_to_image">openai_text_to_image() (in module agentscope.service)</a>
+
+      <ul>
+        <li><a href="agentscope.service.multi_modality.openai_services.html#agentscope.service.multi_modality.openai_services.openai_text_to_image">(in module agentscope.service.multi_modality.openai_services)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.models.html#agentscope.models.OpenAIChatWrapper">OpenAIChatWrapper (class in agentscope.models)</a>
 
       <ul>
         <li><a href="agentscope.models.openai_model.html#agentscope.models.openai_model.OpenAIChatWrapper">(class in agentscope.models.openai_model)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="agentscope.models.html#agentscope.models.OpenAIDALLEWrapper">OpenAIDALLEWrapper (class in agentscope.models)</a>
 
       <ul>
@@ -2607,6 +2994,10 @@
 </li>
         <li><a href="agentscope.parsers.html#agentscope.parsers.ParserBase.parse">(agentscope.parsers.ParserBase method)</a>
 </li>
+        <li><a href="agentscope.parsers.regex_tagged_content_parser.html#agentscope.parsers.regex_tagged_content_parser.RegexTaggedContentParser.parse">(agentscope.parsers.regex_tagged_content_parser.RegexTaggedContentParser method)</a>
+</li>
+        <li><a href="agentscope.parsers.html#agentscope.parsers.RegexTaggedContentParser.parse">(agentscope.parsers.RegexTaggedContentParser method)</a>
+</li>
         <li><a href="agentscope.parsers.tagged_content_parser.html#agentscope.parsers.tagged_content_parser.MultiTaggedContentParser.parse">(agentscope.parsers.tagged_content_parser.MultiTaggedContentParser method)</a>
 </li>
       </ul></li>
@@ -2626,12 +3017,6 @@
 
       <ul>
         <li><a href="agentscope.parsers.html#agentscope.parsers.TaggedContent.parse_json">(agentscope.parsers.TaggedContent attribute)</a>
-</li>
-      </ul></li>
-      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.parsed">parsed (agentscope.models.ModelResponse attribute)</a>
-
-      <ul>
-        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.parsed">(agentscope.models.response.ModelResponse attribute)</a>
 </li>
       </ul></li>
       <li><a href="agentscope.parsers.html#agentscope.parsers.ParserBase">ParserBase (class in agentscope.parsers)</a>
@@ -2658,6 +3043,14 @@
 </li>
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.PlaceHolderNode">PlaceHolderNode (class in agentscope.web.workstation.workflow_node)</a>
 </li>
+      <li><a href="agentscope.exception.html#agentscope.exception.AgentServerError.port">port (agentscope.exception.AgentServerError attribute)</a>
+</li>
+      <li><a href="agentscope.rag.html#agentscope.rag.Knowledge.post_processing">post_processing() (agentscope.rag.Knowledge method)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.knowledge.html#agentscope.rag.knowledge.Knowledge.post_processing">(agentscope.rag.knowledge.Knowledge method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.models.html#agentscope.models.PostAPIChatWrapper">PostAPIChatWrapper (class in agentscope.models)</a>
 
       <ul>
@@ -2674,17 +3067,9 @@
         <li><a href="agentscope.models.post_model.html#agentscope.models.post_model.PostAPIModelWrapperBase">(class in agentscope.models.post_model)</a>
 </li>
       </ul></li>
-      <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.process_messages">process_messages() (agentscope.server.AgentServerServicer method)</a>
-
-      <ul>
-        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.process_messages">(agentscope.server.servicer.AgentServerServicer method)</a>
-</li>
-      </ul></li>
       <li><a href="agentscope.service.service_toolkit.html#agentscope.service.service_toolkit.ServiceFunction.processed_func">processed_func (agentscope.service.service_toolkit.ServiceFunction attribute)</a>
 </li>
       <li><a href="agentscope.prompt.html#agentscope.prompt.PromptEngine">PromptEngine (class in agentscope.prompt)</a>
-</li>
-      <li><a href="agentscope.prompt.html#agentscope.prompt.PromptType">PromptType (class in agentscope.prompt)</a>
 </li>
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.PythonServiceNode">PythonServiceNode (class in agentscope.web.workstation.workflow_node)</a>
 </li>
@@ -2722,12 +3107,6 @@
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
-      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.raw">raw (agentscope.models.ModelResponse attribute)</a>
-
-      <ul>
-        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.raw">(agentscope.models.response.ModelResponse attribute)</a>
-</li>
-      </ul></li>
       <li><a href="agentscope.exception.html#agentscope.exception.ResponseParsingError.raw_response">raw_response (agentscope.exception.ResponseParsingError attribute)</a>
 </li>
       <li><a href="agentscope.agents.html#agentscope.agents.ReActAgent">ReActAgent (class in agentscope.agents)</a>
@@ -2756,6 +3135,18 @@
 </li>
       <li><a href="agentscope.utils.tools.html#agentscope.utils.tools.reform_dialogue">reform_dialogue() (in module agentscope.utils.tools)</a>
 </li>
+      <li><a href="agentscope.rag.llama_index_knowledge.html#agentscope.rag.llama_index_knowledge.LlamaIndexKnowledge.refresh_index">refresh_index() (agentscope.rag.llama_index_knowledge.LlamaIndexKnowledge method)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.html#agentscope.rag.LlamaIndexKnowledge.refresh_index">(agentscope.rag.LlamaIndexKnowledge method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.parsers.html#agentscope.parsers.RegexTaggedContentParser">RegexTaggedContentParser (class in agentscope.parsers)</a>
+
+      <ul>
+        <li><a href="agentscope.parsers.regex_tagged_content_parser.html#agentscope.parsers.regex_tagged_content_parser.RegexTaggedContentParser">(class in agentscope.parsers.regex_tagged_content_parser)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.utils.monitor.html#agentscope.utils.monitor.DummyMonitor.register">register() (agentscope.utils.monitor.DummyMonitor method)</a>
 
       <ul>
@@ -2807,6 +3198,10 @@
 </li>
         <li><a href="agentscope.agents.html#agentscope.agents.DictDialogAgent.reply">(agentscope.agents.DictDialogAgent method)</a>
 </li>
+        <li><a href="agentscope.agents.html#agentscope.agents.LlamaIndexAgent.reply">(agentscope.agents.LlamaIndexAgent method)</a>
+</li>
+        <li><a href="agentscope.agents.rag_agent.html#agentscope.agents.rag_agent.LlamaIndexAgent.reply">(agentscope.agents.rag_agent.LlamaIndexAgent method)</a>
+</li>
         <li><a href="agentscope.agents.react_agent.html#agentscope.agents.react_agent.ReActAgent.reply">(agentscope.agents.react_agent.ReActAgent method)</a>
 </li>
         <li><a href="agentscope.agents.html#agentscope.agents.ReActAgent.reply">(agentscope.agents.ReActAgent method)</a>
@@ -2856,6 +3251,16 @@
 
       <ul>
         <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.ResponseStub">(class in agentscope.rpc.rpc_agent_client)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rag.html#agentscope.rag.Knowledge.retrieve">retrieve() (agentscope.rag.Knowledge method)</a>
+
+      <ul>
+        <li><a href="agentscope.rag.knowledge.html#agentscope.rag.knowledge.Knowledge.retrieve">(agentscope.rag.knowledge.Knowledge method)</a>
+</li>
+        <li><a href="agentscope.rag.llama_index_knowledge.html#agentscope.rag.llama_index_knowledge.LlamaIndexKnowledge.retrieve">(agentscope.rag.llama_index_knowledge.LlamaIndexKnowledge method)</a>
+</li>
+        <li><a href="agentscope.rag.html#agentscope.rag.LlamaIndexKnowledge.retrieve">(agentscope.rag.LlamaIndexKnowledge method)</a>
 </li>
       </ul></li>
       <li><a href="agentscope.memory.temporary_memory.html#agentscope.memory.temporary_memory.TemporaryMemory.retrieve_by_embedding">retrieve_by_embedding() (agentscope.memory.temporary_memory.TemporaryMemory method)</a>
@@ -2957,8 +3362,6 @@
 </li>
         <li><a href="agentscope.message.html#agentscope.message.PlaceholderMessage.serialize">(agentscope.message.PlaceholderMessage method)</a>
 </li>
-        <li><a href="agentscope.message.html#agentscope.message.Tht.serialize">(agentscope.message.Tht method)</a>
-</li>
         <li><a href="agentscope.message.html#agentscope.message.serialize">(in module agentscope.message)</a>
 </li>
       </ul></li>
@@ -2996,6 +3399,22 @@
         <li><a href="agentscope.service.service_toolkit.html#agentscope.service.service_toolkit.ServiceToolkit">(class in agentscope.service.service_toolkit)</a>
 </li>
       </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.set_model_configs">set_model_configs() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.set_model_configs">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.set_model_configs">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.set_model_configs">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.set_model_configs">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.set_model_configs">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.set_model_configs">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.agents.dict_dialog_agent.html#agentscope.agents.dict_dialog_agent.DictDialogAgent.set_parser">set_parser() (agentscope.agents.dict_dialog_agent.DictDialogAgent method)</a>
 
       <ul>
@@ -3012,8 +3431,6 @@
         <li><a href="agentscope.utils.html#agentscope.utils.MonitorBase.set_quota">(agentscope.utils.MonitorBase method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="agentscope.rpc.html#agentscope.rpc.ResponseStub.set_response">set_response() (agentscope.rpc.ResponseStub method)</a>
 
       <ul>
@@ -3022,6 +3439,8 @@
       </ul></li>
       <li><a href="agentscope.logging.html#agentscope.logging.setup_logger">setup_logger() (in module agentscope.logging)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="agentscope.constants.html#agentscope.constants.ShrinkPolicy">ShrinkPolicy (class in agentscope.constants)</a>
 </li>
       <li><a href="agentscope.server.launcher.html#agentscope.server.launcher.RpcAgentServerLauncher.shutdown">shutdown() (agentscope.server.launcher.RpcAgentServerLauncher method)</a>
@@ -3063,9 +3482,27 @@
       <ul>
         <li><a href="agentscope.agents.html#agentscope.agents.RpcAgent.stop">(agentscope.agents.RpcAgent method)</a>
 </li>
-      </ul></li>
-      <li><a href="agentscope.prompt.html#agentscope.prompt.PromptType.STRING">STRING (agentscope.prompt.PromptType attribute)</a>
+        <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.stop">(agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
 </li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.stop">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.stop">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.stop">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.stop">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.stop">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.stop">(agentscope.server.servicer.AgentServerServicer method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.stream">stream (agentscope.models.ModelResponse property)</a>
+
+      <ul>
+        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.stream">(agentscope.models.response.ModelResponse property)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.exception.html#agentscope.exception.StudioError">StudioError</a>
 </li>
       <li><a href="agentscope.exception.html#agentscope.exception.StudioRegisterError">StudioRegisterError</a>
@@ -3105,6 +3542,12 @@
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.SwitchPipelineNode">SwitchPipelineNode (class in agentscope.web.workstation.workflow_node)</a>
 </li>
       <li><a href="agentscope.service.execute_code.exec_python.html#agentscope.service.execute_code.exec_python.sys_python_guard">sys_python_guard() (in module agentscope.service.execute_code.exec_python)</a>
+</li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptComparer">SystemPromptComparer (class in agentscope.prompt)</a>
+</li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptGeneratorBase">SystemPromptGeneratorBase (class in agentscope.prompt)</a>
+</li>
+      <li><a href="agentscope.prompt.html#agentscope.prompt.SystemPromptOptimizer">SystemPromptOptimizer (class in agentscope.prompt)</a>
 </li>
   </ul></td>
 </tr></table>
@@ -3162,14 +3605,14 @@
         <li><a href="agentscope.memory.temporary_memory.html#agentscope.memory.temporary_memory.TemporaryMemory">(class in agentscope.memory.temporary_memory)</a>
 </li>
       </ul></li>
-      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.text">text (agentscope.models.ModelResponse attribute)</a>
-
-      <ul>
-        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.text">(agentscope.models.response.ModelResponse attribute)</a>
-</li>
-      </ul></li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="agentscope.models.html#agentscope.models.ModelResponse.text">text (agentscope.models.ModelResponse property)</a>
+
+      <ul>
+        <li><a href="agentscope.models.response.html#agentscope.models.response.ModelResponse.text">(agentscope.models.response.ModelResponse property)</a>
+</li>
+      </ul></li>
       <li><a href="agentscope.agents.html#agentscope.agents.TextToImageAgent">TextToImageAgent (class in agentscope.agents)</a>
 
       <ul>
@@ -3177,8 +3620,6 @@
 </li>
       </ul></li>
       <li><a href="agentscope.web.workstation.workflow_node.html#agentscope.web.workstation.workflow_node.TextToImageAgentNode">TextToImageAgentNode (class in agentscope.web.workstation.workflow_node)</a>
-</li>
-      <li><a href="agentscope.message.html#agentscope.message.Tht">Tht (class in agentscope.message)</a>
 </li>
       <li><a href="agentscope.utils.common.html#agentscope.utils.common.timer">timer() (in module agentscope.utils.common)</a>
 </li>
@@ -3200,16 +3641,6 @@
 </li>
       <li><a href="agentscope.utils.tools.html#agentscope.utils.tools.to_openai_dict">to_openai_dict() (in module agentscope.utils.tools)</a>
 </li>
-      <li><a href="agentscope.message.html#agentscope.message.MessageBase.to_str">to_str() (agentscope.message.MessageBase method)</a>
-
-      <ul>
-        <li><a href="agentscope.message.html#agentscope.message.Msg.to_str">(agentscope.message.Msg method)</a>
-</li>
-        <li><a href="agentscope.message.html#agentscope.message.PlaceholderMessage.to_str">(agentscope.message.PlaceholderMessage method)</a>
-</li>
-        <li><a href="agentscope.message.html#agentscope.message.Tht.to_str">(agentscope.message.Tht method)</a>
-</li>
-      </ul></li>
       <li><a href="agentscope.service.service_toolkit.html#agentscope.service.service_toolkit.ServiceToolkit.tools_calling_format">tools_calling_format (agentscope.service.service_toolkit.ServiceToolkit property)</a>
 
       <ul>
@@ -3250,6 +3681,22 @@
 
       <ul>
         <li><a href="agentscope.models.html#agentscope.models.ModelWrapperBase.update_monitor">(agentscope.models.ModelWrapperBase method)</a>
+</li>
+      </ul></li>
+      <li><a href="agentscope.rpc.rpc_agent_client.html#agentscope.rpc.rpc_agent_client.RpcAgentClient.update_placeholder">update_placeholder() (agentscope.rpc.rpc_agent_client.RpcAgentClient method)</a>
+
+      <ul>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent.update_placeholder">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgent static method)</a>
+</li>
+        <li><a href="agentscope.rpc.rpc_agent_pb2_grpc.html#agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer.update_placeholder">(agentscope.rpc.rpc_agent_pb2_grpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentClient.update_placeholder">(agentscope.rpc.RpcAgentClient method)</a>
+</li>
+        <li><a href="agentscope.rpc.html#agentscope.rpc.RpcAgentServicer.update_placeholder">(agentscope.rpc.RpcAgentServicer method)</a>
+</li>
+        <li><a href="agentscope.server.html#agentscope.server.AgentServerServicer.update_placeholder">(agentscope.server.AgentServerServicer method)</a>
+</li>
+        <li><a href="agentscope.server.servicer.html#agentscope.server.servicer.AgentServerServicer.update_placeholder">(agentscope.server.servicer.AgentServerServicer method)</a>
 </li>
       </ul></li>
   </ul></td>
