@@ -73,6 +73,7 @@
 <li class="toctree-l1"><a class="reference internal" href="208-distribute.html">Distribution</a></li>
 <li class="toctree-l1"><a class="reference internal" href="209-gui.html">AgentScope Studio</a></li>
 <li class="toctree-l1"><a class="reference internal" href="210-rag.html">A Quick Introduction to RAG in AgentScope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="211-web.html">Web Browser Control</a></li>
 <li class="toctree-l1"><a class="reference internal" href="105-logging.html">Logging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="207-monitor.html">Monitor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="104-usecase.html">Example: Werewolf Game</a></li>
@@ -283,25 +284,31 @@ It corresponds to the <code class="docutils literal notranslate"><span class="pr
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;litellm_chat&quot;</span></code></p></td>
 <td><p>-</p></td>
 </tr>
-<tr class="row-odd"><td><p>Post Request based API</p></td>
+<tr class="row-odd"><td><p>Yi API</p></td>
+<td><p>Chat</p></td>
+<td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/yi_model.py"><code class="docutils literal notranslate"><span class="pre">YiChatWrapper</span></code></a></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;yi_chat&quot;</span></code></p></td>
+<td><p>yi-large, yi-medium, …</p></td>
+</tr>
+<tr class="row-even"><td><p>Post Request based API</p></td>
 <td><p>-</p></td>
 <td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIModelWrapperBase</span></code></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;post_api&quot;</span></code></p></td>
 <td><p>-</p></td>
 </tr>
-<tr class="row-even"><td><p></p></td>
+<tr class="row-odd"><td><p></p></td>
 <td><p>Chat</p></td>
 <td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIChatWrapper</span></code></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;post_api_chat&quot;</span></code></p></td>
 <td><p>meta-llama/Meta-Llama-3-8B-Instruct, …</p></td>
 </tr>
-<tr class="row-odd"><td><p></p></td>
+<tr class="row-even"><td><p></p></td>
 <td><p>Image Synthesis</p></td>
 <td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIDALLEWrapper</span></code></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">post_api_dall_e</span></code></p></td>
 <td><p>-</p></td>
 </tr>
-<tr class="row-even"><td><p></p></td>
+<tr class="row-odd"><td><p></p></td>
 <td><p>Embedding</p></td>
 <td><p><a class="reference external" href="https://github.com/modelscope/agentscope/blob/main/src/agentscope/models/post_model.py"><code class="docutils literal notranslate"><span class="pre">PostAPIEmbeddingWrapper</span></code></a></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">post_api_embedding</span></code></p></td>

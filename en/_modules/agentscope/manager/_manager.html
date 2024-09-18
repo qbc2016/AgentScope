@@ -66,6 +66,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../../tutorial/208-distribute.html">Distribution</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../tutorial/209-gui.html">AgentScope Studio</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../tutorial/210-rag.html">A Quick Introduction to RAG in AgentScope</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../tutorial/211-web.html">Web Browser Control</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../tutorial/105-logging.html">Logging</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../tutorial/207-monitor.html">Monitor</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../../tutorial/104-usecase.html">Example: Werewolf Game</a></li>
@@ -118,6 +119,7 @@
 <span class="sd">&quot;&quot;&quot;A manager for AgentScope.&quot;&quot;&quot;</span>
 <span class="kn">import</span> <span class="nn">os</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Any</span>
+<span class="kn">from</span> <span class="nn">copy</span> <span class="kn">import</span> <span class="n">deepcopy</span>
 
 <span class="kn">from</span> <span class="nn">loguru</span> <span class="kn">import</span> <span class="n">logger</span>
 
@@ -125,7 +127,8 @@
 <span class="kn">from</span> <span class="nn">._file</span> <span class="kn">import</span> <span class="n">FileManager</span>
 <span class="kn">from</span> <span class="nn">._model</span> <span class="kn">import</span> <span class="n">ModelManager</span>
 <span class="kn">from</span> <span class="nn">..logging</span> <span class="kn">import</span> <span class="n">LOG_LEVEL</span><span class="p">,</span> <span class="n">setup_logger</span>
-<span class="kn">from</span> <span class="nn">..utils.tools</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span> <span class="nn">.._version</span> <span class="kn">import</span> <span class="n">__version__</span>
+<span class="kn">from</span> <span class="nn">..utils.common</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">_generate_random_code</span><span class="p">,</span>
     <span class="n">_get_process_creation_time</span><span class="p">,</span>
     <span class="n">_get_timestamp</span><span class="p">,</span>
@@ -287,6 +290,8 @@
             <span class="n">k</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__serialized_attrs</span>
         <span class="p">}</span>
 
+        <span class="n">serialized_data</span><span class="p">[</span><span class="s2">&quot;agentscope_version&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">__version__</span>
+
         <span class="n">serialized_data</span><span class="p">[</span><span class="s2">&quot;file&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span>
         <span class="n">serialized_data</span><span class="p">[</span><span class="s2">&quot;model&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span>
         <span class="n">serialized_data</span><span class="p">[</span><span class="s2">&quot;logger&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
@@ -295,7 +300,7 @@
         <span class="n">serialized_data</span><span class="p">[</span><span class="s2">&quot;studio&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_studio_client</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span>
         <span class="n">serialized_data</span><span class="p">[</span><span class="s2">&quot;monitor&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">monitor</span><span class="o">.</span><span class="n">state_dict</span><span class="p">()</span>
 
-        <span class="k">return</span> <span class="n">serialized_data</span></div>
+        <span class="k">return</span> <span class="n">deepcopy</span><span class="p">(</span><span class="n">serialized_data</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="ASManager.load_dict">

@@ -77,6 +77,9 @@
 <li class="toctree-l1"><a class="reference internal" href="208-distribute.html">分布式</a></li>
 <li class="toctree-l1"><a class="reference internal" href="209-gui.html">AgentScope Studio</a></li>
 <li class="toctree-l1"><a class="reference internal" href="210-rag.html">简要介绍AgentScope中的RAG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="211-web.html">预备</a></li>
+<li class="toctree-l1"><a class="reference internal" href="211-web.html#guidance">Guidance</a></li>
+<li class="toctree-l1"><a class="reference internal" href="211-web.html#id2">与智能体结合</a></li>
 <li class="toctree-l1"><a class="reference internal" href="105-logging.html">日志</a></li>
 <li class="toctree-l1"><a class="reference internal" href="207-monitor.html">监控</a></li>
 <li class="toctree-l1"><a class="reference internal" href="104-usecase.html">样例：狼人杀游戏</a></li>
@@ -153,7 +156,6 @@
             <span class="n">sys_prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
             <span class="n">model_config_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
             <span class="n">use_memory</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-            <span class="n">memory_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 
     <span class="c1"># ... [code omitted for brevity]</span>
@@ -206,15 +208,11 @@
 <td><p>与用户互动以收集输入，生成可能包括URL或基于所需键的额外具体信息的消息。</p></td>
 <td><p>为agent收集用户输入</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">TextToImageAgent</span></code></p></td>
-<td><p>将用户输入的文本转化为图片</p></td>
-<td><p>提供文生图功能</p></td>
-</tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ReActAgent</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ReActAgent</span></code></p></td>
 <td><p>实现了 ReAct 算法的 Agent，能够自动调用工具处理较为复杂的任务。</p></td>
 <td><p>借助工具解决复杂任务</p></td>
 </tr>
-<tr class="row-even"><td><p><em>更多agent</em></p></td>
+<tr class="row-odd"><td><p><em>更多agent</em></p></td>
 <td><p>AgentScope 正在不断扩大agent池，加入更多专门化的agent，以适应多样化的应用。</p></td>
 <td><p></p></td>
 </tr>
