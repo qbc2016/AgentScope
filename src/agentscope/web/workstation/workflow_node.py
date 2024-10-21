@@ -953,7 +953,7 @@ class CodeNode(WorkflowNode):
         """
         Code template
         """
-        template = dedent(
+        template_str = dedent(
             f"""
             {self.code_tags}
             import json
@@ -963,14 +963,14 @@ class CodeNode(WorkflowNode):
             else:
                 inputs_obj = {self.input_tags}
 
-            output_obj = main(*inputs_obj)
+            output_obj = function(*inputs_obj)
 
             output_json = json.dumps(output_obj, indent=4)
             result = f'''{self.output_tags}{{output_json}}{self.output_tags}'''
             print(result)
             """,
         )
-        return template
+        return template_str
 
     def extract_result(self, content: str) -> Any:
         """
@@ -1000,7 +1000,7 @@ class CodeNode(WorkflowNode):
             out = self.pipeline(code)
             if out.status == ServiceExecStatus.SUCCESS:
                 content = self.extract_result(out.content)
-                return json.loads(content)
+                return Msg(**json.loads(content))
             return out
         except Exception as e:
             raise RuntimeError(
@@ -1009,13 +1009,13 @@ class CodeNode(WorkflowNode):
 
     def compile(self) -> dict:
         code = self.opt_kwargs.get("code", "").replace(
-            "def main",
-            f"def main_{self.node_id}",
+            "def function",
+            f"def function_{self.node_id}",
         )
         return {
             "imports": code,
             "inits": "",
-            "execs": f"{DEFAULT_FLOW_VAR} = main_{self.node_id}"
+            "execs": f"{DEFAULT_FLOW_VAR} = function_{self.node_id}"
             f"(*[{DEFAULT_FLOW_VAR}])",
         }
 

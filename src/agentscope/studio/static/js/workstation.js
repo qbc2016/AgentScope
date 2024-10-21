@@ -839,7 +839,7 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             const CodeID = editor.addNode('Code', 1, 1,
                 pos_x, pos_y, 'Code', {
                     "args": {
-                        "code": "\ndef main(arg1, arg2):\n    return {\n        \"content\": arg1 + arg2\n    }\n"
+                        "code": "def function(msg1: \"Msg\") -> \"Msg\":\n    content1 = msg1.get(\"content\", \"\")\n    return {\n        \"role\": \"assistant\",\n        \"content\": content1,\n        \"name\": \"function\",\n    }"
                     }
                 }, htmlSourceCode);
             break;
