@@ -206,7 +206,7 @@
     "tool-image-composition-Spacing": "间距",
     "tool-image-composition-titleHeight": "标题高度",
     "tool-image-composition-fontName": "字体名称",
-    "tool-image-motion-readme": "将图片转化为mp4或者gif格式",
+    "tool-image-motion-readme": "通过视角移动将图片转化为mp4或者gif格式",
     "tool-image-motion-outputPath": "输出路径",
     "tool-image-motion-outputFormat": "输出格式",
     "tool-image-motion-labelDuration": "持续时间",

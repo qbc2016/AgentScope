@@ -88,7 +88,7 @@ def replace_flow_name(
     )
 
     # Split the string by the first equals sign, if present
-    parts = string.rsplit("=", 1)
+    parts = string.split("=", 1)
     left_part = parts[0] if parts else ""
     right_part = parts[1] if len(parts) > 1 else ""
 

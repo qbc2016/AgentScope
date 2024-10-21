@@ -206,7 +206,7 @@
     "tool-image-composition-Spacing": "Spacing",
     "tool-image-composition-titleHeight": "Title height",
     "tool-image-composition-fontName": "Font name",
-    "tool-image-motion-readme": "Convert an image to an mp4 or a gif",
+    "tool-image-motion-readme": "Convert an image to an mp4 or a gif by shifting the perspective",
     "tool-image-motion-outputPath": "Output path",
     "tool-image-motion-outputFormat": "Output Format",
     "tool-image-motion-labelDuration": "Duration",
