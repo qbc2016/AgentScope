@@ -11,6 +11,8 @@
 
     --workstation-sidebar-item-font-size: 18px;
     --workstation-sidebar-subitem-font-size: 15px;
+
+    --logo-font-color: #000000;
 }
 
 html {
@@ -111,6 +113,8 @@ body {
     border-radius: 10px;
     margin: 0 5px;
     cursor: pointer;
+    position: relative;
+    position: relative;
 }
 
 .menu-btn:hover {
@@ -211,7 +215,7 @@ body {
     padding: 5px 10px;
 }
 
-.lock-btn{
+.lock-btn {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -876,6 +880,7 @@ pre[class*="language-"] {
     border-radius: 5px;
     background-color: #fff;
 }
+
 .overlay {
     position: absolute;
     top: 0;
@@ -890,7 +895,7 @@ pre[class*="language-"] {
     display: none;
 }
 
-.guide-Example{
+.guide-Example {
     background: #fff;
     height: fit-content;
     border-radius: 4px;
@@ -899,7 +904,7 @@ pre[class*="language-"] {
     z-index: 2;
 }
 
-.guide-skip{
+.guide-skip {
     padding: 8px 12px;
     margin: 4px;
     border: none;
@@ -910,6 +915,7 @@ pre[class*="language-"] {
     font-size: 16px;
     margin-top: 10px;
 }
+
 .notification {
     position: fixed;
     flex-direction: column;
@@ -953,20 +959,24 @@ pre[class*="language-"] {
     font-weight: bold;
     transition: transform 0.5s, color 0.5s;
 }
+
 .notification-close:hover {
     color: #000;
     transform: rotate(180deg);
 }
+
 .notification-close:mouseout {
     color: #ccc;
     transform: rotate(0deg);
 }
-.notification-clickBotton-box{
+
+.notification-clickBotton-box {
     align-self: end;
     display: flex;
     gap: 5px;
 }
-.notification-btn{
+
+.notification-btn {
     padding: 8px 12px;
     margin: 4px;
     border: none;
@@ -974,17 +984,21 @@ pre[class*="language-"] {
     cursor: pointer;
     font-size: 16px;
 }
-.notification-btn:hover{
+
+.notification-btn:hover {
     transform: translateY(-2px);
 }
-.notification-btn.confirmBotton{
+
+.notification-btn.confirmBotton {
     background-color: var(--main-color);
     color: white;
 }
-.notification-btn.cancelBotton{
-    background-color:#ccc;
+
+.notification-btn.cancelBotton {
+    background-color: #ccc;
 }
-.notification-progress{
+
+.notification-progress {
     position: absolute;
     bottom: 0;
     left: 0;
@@ -993,6 +1007,7 @@ pre[class*="language-"] {
     background-color: #4CAF50;
     transition: width 0.1s linear;
 }
+
 .code-content {
     display: flex;
     width: var(--code-content-width);
@@ -1000,4 +1015,148 @@ pre[class*="language-"] {
     height: 100%;
     overflow: auto;
     white-space: pre;
+}
+
+.two-column-layout {
+    display: flex;
+    width: 100%;
+    height: var(--page-content-height);
+}
+
+.sidebar {
+    flex-basis: var(--page-sidebar-width);
+    box-sizing: border-box;
+    padding: 50px 10px;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+    width: 100%;
+}
+
+
+.tabs {
+    display: block;
+    padding: 0;
+    margin: 50px 0 20px 0;
+
+}
+
+.tab-button {
+    cursor: pointer;
+    padding: 10px;
+    border: none;
+    margin-right: 20px;
+    border-radius: 15px;
+}
+
+.tab-button.active {
+    background-color: var(--main-color-light);
+}
+
+.tab {
+    display: none;
+}
+
+.tab.active {
+    display: block;
+}
+
+
+.grid-container {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1rem;
+    padding: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem;
+}
+
+
+.grid-item {
+    background-color: #f0f0f0;
+    border-radius: 15px;
+    overflow: hidden;
+    width: 200px;
+    height: 200px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s ease-in-out;
+}
+
+.grid-item:hover {
+    transform: scale(1.05);
+}
+
+.thumbnail {
+    width: 100%;
+    flex-grow: 1;
+    background-size: cover;
+    background-position: center;
+}
+
+.caption {
+    width: 100%;
+    height: auto;
+    text-align: center;
+    background-color: white;
+}
+
+.caption h6, .caption p {
+    margin: 1px 0;
+    font-size: 10px;
+}
+
+.caption .button {
+    background-color: #007aff;
+    color: white;
+    padding: 2px 7px;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.caption .load-button {
+    margin-top: 5px;
+}
+
+.caption .delete-button {
+    margin-top: 5px;
+    padding: 2px 3px;
+}
+
+.tooltip {
+    visibility: hidden;
+    width: 120px;
+    background-color: black;
+    color: rgb(0, 0, 0);
+    text-align: center;
+    border-radius: 5px;
+    padding: 5px;
+    position: absolute;
+    z-index: 1;
+    top: 100%;
+    left: 50%;
+    margin-left: -30px;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.menu-btn:hover .tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+#navigation-bar-logo {
+    font-family: 'krypton', sans-serif;
+    font-size: 20px;
+    color: var(--logo-font-color);
+    white-space: nowrap;
+}
+
+#navigation-bar-logo:hover {
+    cursor: pointer;
 }
