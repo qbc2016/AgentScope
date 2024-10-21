@@ -8,20 +8,24 @@
             </svg>
             <span>BroadcastAgent</span>
         </div>
-        <button class="button copy-button">Copy</button>
+        <button class="button copy-button"
+                i18n="agent-broadcast-Copy">Copy</button>
         <span class="toggle-arrow">&#x25B2;</span></div>
     <div class="box">
         <div class="readme">
-            A broadcast agent that only broadcasts the messages it receives
+            <span i18n="agent-broadcast-readme">
+            An agent that only broadcasts its content
+            </span>
             <div>Node ID: <span class="node-id">ID_PLACEHOLDER</span></div>
         </div>
 
-        <label>Name</label>
+        <label i18n="agent-broadcast-labelName">Name</label>
         <input type="text" df-args-name placeholder="Assistant"
+               i18n="agent-broadcast-labelName-Assistant"
                data-required="true">
         <br>
 
-        <label>content</label>
+        <label i18n="agent-broadcast-content">content</label>
         <textarea type="text" df-args-content class="text-input"
                   data-required="true"></textarea>
     </div>
