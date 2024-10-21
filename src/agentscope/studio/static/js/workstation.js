@@ -89,71 +89,6 @@ async function fetchHtml(fileName) {
     }
 }
 
-
-class ConditionOperator {
-    constructor() {
-        this.initialize()
-    }
-
-    async loadTemplate() {
-        let templateUrl = 'condition-template.html'
-        const templateText = await fetchHtml(templateUrl);
-        const templateContainer = document.createElement('div');
-        templateContainer.innerHTML = templateText;
-        document.body.appendChild(templateContainer.querySelector('template'));
-
-        const templates = document.querySelectorAll('.condition-operator-wrapper');
-        const conditionOperatorTemplate = document.getElementById('condition-operator-template').content;
-
-        templates.forEach(wrapper => {
-            const clone = document.importNode(conditionOperatorTemplate, true);
-            wrapper.appendChild(clone);
-        });
-    }
-
-    setupConditionListeners(box) {
-        const conditionOp = box.querySelector('.condition_op');
-        const targetContainer = box.querySelector('.target-container');
-
-        function updateTargetVisibility() {
-            const condition_op = conditionOp ? conditionOp.value : '';
-            const hideConditions = ['','is empty', 'is null', 'is not empty', 'is not null'];
-            if (hideConditions.includes(condition_op)) {
-                targetContainer.style.display = 'none';
-            } else {
-                targetContainer.style.display = 'block';
-            }
-        }
-
-        if (conditionOp) {
-            conditionOp.addEventListener('input', updateTargetVisibility);
-            updateTargetVisibility();
-        }
-    }
-
-    async initialize() {
-        await this.loadTemplate();
-        document.querySelectorAll('.box').forEach(box => {
-            this.setupConditionListeners(box);
-        });
-    }
-
-    async handleNodeCreated(nodeId) {
-        const newNode = document.getElementById(`node-${nodeId}`);
-        if (newNode) {
-            const templates = newNode.querySelectorAll('.condition-operator-wrapper');
-            const conditionOperatorTemplate = document.getElementById('condition-operator-template').content;
-
-            templates.forEach(wrapper => {
-                const clone = document.importNode(conditionOperatorTemplate, true);
-                wrapper.appendChild(clone);
-            });
-
-            this.setupConditionListeners(newNode);
-        }
-    }
-}
-
 async function initializeWorkstationPage() {
     console.log("Initialize Workstation Page")
     // Initialize the Drawflow editor
@@ -212,7 +147,6 @@ async function initializeWorkstationPage() {
     const welcomeID = editor.addNode('welcome', 0, 0, 50, 50, 'welcome', {}, welcome);
     setupNodeListeners(welcomeID);
 
-    const condition_manager = new ConditionOperator();
     editor.on('nodeCreated', function (id) {
         console.log("Node created " + id);
         disableButtons();
@@ -221,7 +155,7 @@ async function initializeWorkstationPage() {
         setupNodeCopyListens(id);
         addEventListenersToNumberInputs(id);
         setupTextInputListeners(id);
-        condition_manager.handleNodeCreated(id)
+        reloadi18n();
     })
 
     editor.on('nodeRemoved', function (id) {
@@ -426,9 +360,10 @@ async function initializeWorkstationPage() {
 
     setTimeout(showSurveyModal, 30000);
 
-    if(!localStorage.getItem('firstGuide')){
+    if (!localStorage.getItem('firstGuide')) {
         startGuide();
     }
+    reloadi18n();
 }
 
 
@@ -855,13 +790,6 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                     "cases": [],
                 }
             }, htmlSourceCode);
-            setupSwitchPipelineListeners(SwitchPipelineID);
-            const caseContainer = document.querySelector(`#node-${SwitchPipelineID} .case-container`);
-            if (caseContainer) {
-                addDefaultCase(caseContainer);
-            } else {
-                console.error(`Case container not found in node-${SwitchPipelineID}.`);
-            }
             break;
 
         // Workflow-Service
@@ -910,7 +838,6 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                         "sample_rate": ""
                     }
                 }, htmlSourceCode);
-                updateSampleRate(TextToAudioServiceID)
             break;
         case 'TextToImageService':
             editor.addNode('TextToImageService', 0, 0,
@@ -919,7 +846,7 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                         "model": "",
                         "api_key": "",
                         "n": 1,
-                        "size":""
+                        "size": ""
                     }
                 }, htmlSourceCode);
             break;
@@ -945,7 +872,6 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                         "code": "\ndef main(arg1, arg2):\n    return {\n        \"content\": arg1 + arg2\n    }\n"
                     }
                 }, htmlSourceCode);
-                initializeMonacoEditor(CodeID)
             break;
         // case 'IF/ELSE':
         //     const IfelseID = editor.addNode('IF/ELSE', 1, 2,
@@ -977,7 +903,7 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                         "target_height": "",
                         "fps": "",
                     }
-               }, htmlSourceCode);
+                }, htmlSourceCode);
             break;
 
         case 'Post':
@@ -1018,7 +944,6 @@ function initializeMonacoEditor(nodeId) {
 
         const codeContentElement = parentNode.querySelector(`.code-content`);
         if (!codeContentElement) {
-            console.error(`Code content element not found within parent node ${parentSelector}.`);
             return;
         }
 
@@ -1081,6 +1006,7 @@ function updateSampleRate(nodeId) {
     }
 
     const modelNameInput = newNode.querySelector('#model_name');
+
     function updateSampleRateValue() {
         const modelName = modelNameInput ? modelNameInput.value : '';
 
@@ -1330,9 +1256,38 @@ function hideShowGroupNodes(groupId, show) {
     }
 }
 
+function setupConditionListeners(nodeId) {
+    const newNode = document.getElementById(`node-${nodeId}`);
+    if (newNode) {
+        const conditionOp = newNode.querySelector('#condition_op');
+        const targetContainer = newNode.querySelector('#target-container');
+        console.log(conditionOp, targetContainer);
+
+        function updateTargetVisibility() {
+            const condition_op = conditionOp ? conditionOp.value : '';
+            const hideConditions = ['', 'is empty', 'is null', 'is not empty', 'is not null'];
+            if (hideConditions.includes(condition_op)) {
+                targetContainer.style.display = 'none';
+            } else {
+                targetContainer.style.display = 'block';
+            }
+        }
+
+        if (conditionOp) {
+            conditionOp.addEventListener('input', updateTargetVisibility);
+            updateTargetVisibility();
+        }
+    }
+}
+
 function setupNodeListeners(nodeId) {
     const newNode = document.getElementById(`node-${nodeId}`);
     if (newNode) {
+
+        initializeMonacoEditor(nodeId);
+        setupConditionListeners(nodeId);
+        updateSampleRate(nodeId);
+        setupSwitchPipelineListeners(nodeId);
 
         const titleBox = newNode.querySelector('.title-box');
         const contentBox = newNode.querySelector('.box') ||
@@ -1412,7 +1367,6 @@ function setupSwitchPipelineListeners(nodeId) {
     }
     const addCaseButton = newNode.querySelector('.add-case');
     if (!addCaseButton) {
-        console.error(`Add Case button not found in node-${nodeId}.`);
         return;
     }
     addCaseButton.addEventListener('click', function () {
@@ -1458,7 +1412,6 @@ function setupSwitchPipelineListeners(nodeId) {
 
     const removeCaseButton = newNode.querySelector('.remove-case');
     if (!removeCaseButton) {
-        console.error(`Remove Case button not found in node-${nodeId}.`);
         return;
     }
     removeCaseButton.addEventListener('click', function () {
@@ -1472,6 +1425,47 @@ function setupSwitchPipelineListeners(nodeId) {
         }
         editor.updateConnectionNodes('node-' + nodeId);
     });
+
+    var caseContainer = newNode.querySelector('.case-container');
+    if (!caseContainer) {
+        console.error(`Case container not found in node-${nodeId}.`);
+        return;
+    }
+
+    var defaultCaseElement = caseContainer.querySelector('.default-case');
+    if (defaultCaseElement) {
+        caseContainer.removeChild(defaultCaseElement);
+    }
+
+    var cases = editor.getNodeFromId(nodeId).data.args.cases;
+    for (var caseCount = 0; caseCount < cases.length; caseCount++) {
+
+        var caseElement = document.createElement('div');
+        caseElement.classList.add('case-placeholder');
+
+        var caseText = document.createTextNode(`Case ${caseCount + 1}: `);
+        caseElement.appendChild(caseText);
+
+        var inputElement = document.createElement('input');
+        inputElement.type = 'text';
+        inputElement.placeholder = `Case Pattern`;
+        inputElement.value = cases[caseCount];
+
+        inputElement.dataset.caseIndex = caseCount;
+
+        caseElement.appendChild(inputElement);
+        caseContainer.appendChild(caseElement);
+
+        inputElement.addEventListener('input', function (e) {
+            var nodeData = editor.getNodeFromId(nodeId).data;
+            console.log("nodeData", nodeData);
+            var index = e.target.dataset.caseIndex;
+            console.log("index", index);
+            nodeData.args.cases[index] = e.target.value;
+            editor.updateNodeDataFromId(nodeId, nodeData);
+        });
+    }
+    addDefaultCase(caseContainer);
 }
 
 function addDefaultCase(caseContainer) {
@@ -2466,7 +2460,8 @@ function fetchExample(index, processData) {
         },
         body: JSON.stringify({
             data: index,
-            lang: getCookie('locale') || 'en',
+            // lang: getCookie('locale') || 'en',
+            lang: 'en',
         })
     }).then(response => {
         if (!response.ok) {
@@ -2479,6 +2474,7 @@ function fetchExample(index, processData) {
 
 
 function importExample(index) {
+
     fetchExample(index, data => {
         const dataToImport = data.json;
 
@@ -2497,13 +2493,14 @@ function importExample(index) {
                         }
                     }
                 });
+                reloadi18n();
             });
     })
 }
 
 
 function importExample_step(index) {
-    if(!localStorage.getItem('firstGuide')){
+    if (!localStorage.getItem('firstGuide')) {
         localStorage.setItem('firstGuide', 'true');
         skipGuide();
     }
@@ -2524,6 +2521,7 @@ function updateImportButtons() {
         <= 1;
     document.getElementById('import-next').disabled = currentImportIndex >= importQueue.length;
     document.getElementById('import-skip').disabled = currentImportIndex >= importQueue.length;
+    reloadi18n()
 }
 
 
@@ -2556,21 +2554,22 @@ function initializeImport(data) {
     importQueue = Object.keys(dataToImportStep.drawflow.Home.data);
 
     const importButtonsDiv = document.getElementById('import-buttons');
+
     createElement('div', 'step-info', '', importButtonsDiv);
     createElement('button', 'import-prev',
-        '<i class="fas fa-arrow-left"></i> <span>Previous</span>',
+        '<i class="fas fa-arrow-left"></i> <span i18n="workstarionjs-import-prev">Previous</span>',
         importButtonsDiv).onclick = importPreviousComponent;
     createElement('button', 'import-next',
-        '<i class="fas fa-arrow-right"></i> <span>Next</span>',
+        '<i class="fas fa-arrow-right"></i> <span i18n="workstarionjs-import-next">Next</span>',
         importButtonsDiv).onclick = importNextComponent;
     createElement('button', 'import-skip',
-        '<i class="fas fa-forward"></i> <span>Skip</span>',
+        '<i class="fas fa-forward"></i> <span i18n="workstarionjs-import-skip">Skip</span>',
         importButtonsDiv).onclick = importSkipComponent;
     createElement('button', 'import-quit',
-        '<i class="fas fa-sign-out-alt"></i> <span>Quit</span>',
+        '<i class="fas fa-sign-out-alt"></i> <span i18n="workstarionjs-import-quit">Quit</span>',
         importButtonsDiv).onclick = importQuitComponent;
     createElement('div', 'step-warning',
-        'Caution: You are currently in the tutorial mode where modifications are restricted.<br>Please click <strong>Quit</strong> to exit and start creating your custom multi-agent applications.', document.body);
+        '<span i18n="workstarionjs-import-caution">Caution: You are currently in the tutorial mode where modifications are restricted.</span><br><span i18n="workstarionjs-import-Caution-click">Please click</span> <strong i18n="workstarionjs-import-Caution-quit">Quit</strong> <span  i18n="workstarionjs-import-Caution-exit"> to exit and start creating your custom multi-agent applications. </span>', document.body);
 
     accumulatedImportData = {};
     currentImportIndex = 0;
@@ -2668,7 +2667,26 @@ function hideSurveyModal() {
     document.getElementById("surveyModal").style.display = "none";
 }
 
-function startGuide(){
+function reloadi18n() {
+    let currentLang = getCookie('locale') || 'en';
+    $("[i18n]").i18n({
+        defaultLang: currentLang,
+        filePath: "../static/i18n/",
+        filePrefix: "i18n_",
+        fileSuffix: "",
+        forever: true,
+        callback: function () {
+        }
+    });
+}
+
+window.addEventListener('storage', function (event) {
+    if (event.key === 'locale') {
+        reloadi18n()
+    }
+}, false);
+
+function startGuide() {
     const targetElement = document.querySelector('.guide-Example');
     const element = document.querySelector('.tour-guide');
     positionElementRightOf(element, targetElement);
@@ -2678,20 +2696,20 @@ function getElementCoordinates(targetElement) {
     const style = window.getComputedStyle(targetElement);
     const rect = targetElement.getBoundingClientRect();
     return {
-      left: rect.left + (parseFloat(style.left) || 0),
-      top: rect.top + (parseFloat(style.top) || 0),
-      right: rect.right + (parseFloat(style.top) || 0),
-      bottom: rect.bottom + (parseFloat(style.top) || 0),
-      width: rect.width,
-      height: rect.height,
-      x: rect.x,
-      y: rect.y,
+        left: rect.left + (parseFloat(style.left) || 0),
+        top: rect.top + (parseFloat(style.top) || 0),
+        right: rect.right + (parseFloat(style.top) || 0),
+        bottom: rect.bottom + (parseFloat(style.top) || 0),
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y,
     };
 }
 
 function positionElementRightOf(element, targetElement) {
     const targetCoordinates = getElementCoordinates(targetElement);
-    const mask  = document.querySelector(".overlay");
+    const mask = document.querySelector(".overlay");
     mask.style.display = "block";
     element.style.position = 'absolute';
     element.style.display = 'block';
@@ -2699,24 +2717,27 @@ function positionElementRightOf(element, targetElement) {
     element.style.top = `${targetCoordinates.y}px`;
 }
 
-function skipGuide(){
+function skipGuide() {
     const element = document.querySelector(".tour-guide");
-    const mask  = document.querySelector(".overlay");
+    const mask = document.querySelector(".overlay");
     localStorage.setItem('firstGuide', 'true');
-    if(element){
+    if (element) {
         element.style.display = "none";
         element.remove();
         mask.style.display = "none";
         mask.remove();
     }
 }
+
 class Notification {
     static count = 0;
     static instances = [];
+
     static clearInstances() {
         Notification.count = 0;
         Notification.instances = [];
     }
+
     constructor(props) {
         Notification.count += 1;
         Notification.instances.push(this);
@@ -2734,47 +2755,51 @@ class Notification {
         this.reduceNumber = 0;
         this.init(props);
     }
-    init(props){
+
+    init(props) {
         this.setDefaultValues(props);
         this.element = document.createElement('div');
         // init notification-box css
         this.element.className = 'notification';
         // render title
-        this.title && this.renderTitle(this.title);
+        this.title && this.renderTitle(getCookie("locale") == "zh" ? props.i18nTitle : this.title);
         // render closeButtion
         this.closeBtn && this.renderCloseButton();
         // render content
-        this.content && this.renderContent(this.content);
+        this.content && this.renderContent(getCookie("locale") == "zh" ? props.i18nContent : this.content);
         // render confirmBtn
         (this.confirmBtn || this.cancelBtn) && this.renderClickButton();
         this.progress && this.renderProgressBar();
         // set position
         this.setPosition(this.position);
         document.body.appendChild(this.element);
-        setTimeout(()=>{
+        setTimeout(() => {
             this.show();
-        },10)
+        }, 10)
     }
+
     // check if string is HTML
-    isHTMLString(string){
+    isHTMLString(string) {
         const doc = new DOMParser().parseFromString(string, 'text/html');
         return Array.from(doc.body.childNodes).some(node => node.nodeType === 1);
     }
+
     // render closeButtion
-    renderCloseButton(){
+    renderCloseButton() {
         this.closeBtn = document.createElement('span');
         this.closeBtn.className = 'notification-close';
         this.closeBtn.innerText = 'X';
         this.closeBtn.onclick = this.destroyAll.bind(this);
         this.title.appendChild(this.closeBtn);
     }
+
     // render title string or HTML
-    renderTitle(component){
-        if(this.isHTMLString(component)){
+    renderTitle(component) {
+        if (this.isHTMLString(component)) {
             this.title = document.createElement('div');
             this.title.className = 'notification-title';
             this.title.innerHTML = component;
-        }else{
+        } else {
             this.title = document.createElement('div');
             this.titleText = document.createElement('div');
             this.title.className = 'notification-title';
@@ -2784,59 +2809,63 @@ class Notification {
         }
         this.element.appendChild(this.title);
     }
+
     // render content string or HTML
-    renderContent(component){
-        if(this.isHTMLString(component)){
+    renderContent(component) {
+        if (this.isHTMLString(component)) {
             this.content = document.createElement('div');
             this.content.className = 'notification-content';
             this.content.innerHTML = component;
-        }else{
+        } else {
             this.content = document.createElement('div');
             this.content.className = 'notification-content';
             this.content.innerText = component;
         }
         this.element.appendChild(this.content);
     }
+
     // render clickbtn
-    renderClickButton(){
-        if(this.confirmBtn || this.cancelBtn){
+    renderClickButton() {
+        if (this.confirmBtn || this.cancelBtn) {
             this.clickBottonBox = document.createElement('div');
             this.clickBottonBox.className = 'notification-clickBotton-box';
         }
-        if(this.confirmBtn){
+        if (this.confirmBtn) {
             this.confirmBotton = document.createElement('button');
             this.confirmBotton.className = 'notification-btn confirmBotton';
-            this.confirmBotton.innerText = this.confirmBtn;
+            this.confirmBotton.innerText = getCookie("locale") == "zh" ? this.i18nConfirmBtn : this.confirmBtn;
             this.confirmBotton.onclick = this.onConfirmCallback.bind(this);
             this.clickBottonBox.appendChild(this.confirmBotton);
         }
-        if(this.cancelBtn){
+        if (this.cancelBtn) {
             this.cancelBotton = document.createElement('button');
             this.cancelBotton.className = 'notification-btn cancelBotton';
-            this.cancelBotton.innerText = this.cancelBtn;
+            this.cancelBotton.innerText = getCookie("locale") == "zh" ? this.i18nCancelBtn : this.cancelBtn;
             this.cancelBotton.onclick = this.onCancelCallback.bind(this);
             this.clickBottonBox.appendChild(this.cancelBotton);
         }
         this.element.appendChild(this.clickBottonBox);
     }
+
     // render progress bar
-    renderProgressBar(){
+    renderProgressBar() {
         this.progressBar = document.createElement('div');
         this.progressBar.className = 'notification-progress';
         this.element.appendChild(this.progressBar);
     }
+
     // stepProgressBar
-    stepProgressBar(callback){
+    stepProgressBar(callback) {
         let startTime = performance.now();
         const step = (timestamp) => {
             const progress = Math.min((timestamp + this.reduceNumber - startTime) / this.intervalTime, 1);
-            this.progressBar.style.width = ( 1- progress ) * 100 + '%';
+            this.progressBar.style.width = (1 - progress) * 100 + '%';
             if (progress < 1 && this.pause == false) {
                 requestAnimationFrame(step)
-            }else{
-                this.reduceNumber  = timestamp + this.reduceNumber - startTime
+            } else {
+                this.reduceNumber = timestamp + this.reduceNumber - startTime
             }
-            if(progress == 1){
+            if (progress == 1) {
                 this.pause == true;
                 this.reduceNumber = 0;
                 callback();
@@ -2845,15 +2874,17 @@ class Notification {
         }
         requestAnimationFrame(step);
     }
+
     setDefaultValues(props) {
         for (const key in props) {
             if (props[key] === undefined) {
-               return ;
+                return;
             } else {
                 this[key] = props[key];
             }
         }
     }
+
     setPosition() {
         switch (this.position) {
             case 'top-left':
@@ -2874,6 +2905,7 @@ class Notification {
                 break;
         }
     }
+
     show() {
         this.element.style.display = 'flex';
         switch (this.position) {
@@ -2895,6 +2927,7 @@ class Notification {
                 break;
         }
     }
+
     // hide() {
     //     // this.element.style.display = 'none';
     // }
@@ -2904,6 +2937,7 @@ class Notification {
         }
         Notification.clearInstances();
     }
+
     removeChild() {
         let removeIndex;
         for (let i = 0; i < Notification.instances.length; i++) {
@@ -2917,6 +2951,7 @@ class Notification {
         }
         this.element.remove();
     }
+
     addCloseListener() {
         this.closeBtn.addEventListener('click', () => {
             this.removeChild();
@@ -2933,41 +2968,318 @@ class Notification {
     onConfirmCallback() {
         if (typeof this.onConfirm === 'function') {
             this.pause = !this.pause
-            if(!this.pause){
+            if (!this.pause) {
                 this.stepProgressBar(this.onConfirm);
-                this.confirmBotton.innerText = 'pause'
-            }else{
+                this.confirmBotton.innerText = getCookie("locale") == "zh" ? '暂停' : 'pause'
+            } else {
                 this.confirmBotton.innerText = this.confirmBtn
             }
         }
     }
 }
 
-function createNotification({
-    title = 'Notification',
-    content = 'Notification content',
-    position = 'top-right',
-    intervalTime = 3000,
-    progress = true,
-    confirmBtn = 'Yes',
-    cancelBtn = 'No',
-    closeBtn = true,
-    onConfirm = () => {
-    },
-    onCancel = () => {
+function createNotification(props) {
+    new Notification(props);
+}
 
+function setCookie(name, value, days) {
+    var expires = "";
+    if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+        expires = "; expires=" + date.toUTCString();
     }
-}) {
-    const notice = new Notification({
-        title: title,
-        content: content,
-        position: position,
-        closeBtn: closeBtn,
-        intervalTime: intervalTime,
-        progress: progress,
-        confirmBtn: confirmBtn,
-        cancelBtn: cancelBtn,
-        onConfirm: onConfirm,
-        onCancel: onCancel
+    document.cookie = name + "=" + (value || "") + expires + "; path=/";
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    showTab('tab1');
+});
+
+
+function sendWorkflow(fileName) {
+    Swal.fire({
+        text: 'Are you sure you want to import this workflow?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, import it!',
+        cancelButtonText: 'Cancel'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const workstationUrl = '/workstation?filename=' + encodeURIComponent(fileName);
+            window.location.href = workstationUrl;
+        }
     });
+}
+
+
+function showEditorTab() {
+    document.getElementById('col-right').style.display = 'block';
+    document.getElementById('col-right2').style.display = 'none';
+    console.log('Show Editor');
+}
+function importGalleryWorkflow(data) {
+    try {
+        const parsedData = JSON.parse(data);
+        addHtmlAndReplacePlaceHolderBeforeImport(parsedData)
+            .then(() => {
+                editor.clear();
+                editor.import(parsedData);
+                importSetupNodes(parsedData);
+                Swal.fire({
+                    title: 'Imported!',
+                    icon: 'success',
+                    showConfirmButton: true
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        showEditorTab();
+                    }
+                });
+            });
+    } catch (error) {
+        Swal.showValidationMessage(`Import error: ${error}`);
+    }
+}
+
+function deleteWorkflow(fileName) {
+    Swal.fire({
+        title: 'Are you sure?',
+        text: "Workflow will be deleted!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            fetch('/delete-workflow', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    filename: fileName,
+                })
+            }).then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        Swal.fire('Error', data.error, 'error');
+                    } else {
+                        showLoadWorkflowList('tab2');
+                        Swal.fire('Deleted!', 'Your workflow has been deleted.', 'success');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    Swal.fire('Error', 'Delete workflow error.', 'error');
+                });
+        }
+    });
+}
+
+
+function showTab(tabId) {
+    var tabs = document.getElementsByClassName("tab");
+    for (var i = 0; i < tabs.length; i++) {
+        tabs[i].classList.remove("active");
+        tabs[i].style.display = "none";
+    }
+    var tab = document.getElementById(tabId);
+    if (tab) {
+        tab.classList.add("active");
+        tab.style.display = "block";
+
+        var tabButtons = document.getElementsByClassName("tab-button");
+        for (var j = 0; j < tabButtons.length; j++) {
+            tabButtons[j].classList.remove("active");
+        }
+        var activeTabButton = document.querySelector(`.tab-button[onclick*="${tabId}"]`);
+        if (activeTabButton) {
+            activeTabButton.classList.add("active");
+        }
+
+        if (tabId === "tab2") {
+            showLoadWorkflowList(tabId);
+        } else if (tabId === "tab1") {
+            showGalleryWorkflowList(tabId);
+        }
+    }
+}
+
+let galleryWorkflows = [];
+
+function showGalleryWorkflowList(tabId) {
+    const container = document.getElementById(tabId).querySelector('.grid-container');
+    container.innerHTML = '';
+    fetch('/fetch-gallery', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({})
+    })
+    .then(response => response.json())
+    .then(data => {
+        galleryWorkflows = data.json || []; // 存储获取到的工作流数据
+        galleryWorkflows.forEach((workflow, index) => {
+            const meta = workflow.meta;
+            const title = meta.title;
+            const author = meta.author;
+            const time = meta.time;
+            const thumbnail = meta.thumbnail || generateThumbnailFromContent(meta);
+            createGridItem(title, container, thumbnail, author, time, false, index); // 将index传递给createGridItem
+        });
+    })
+    .catch(error => {
+        console.error('Error fetching gallery workflows:', error);
+    });
+}
+
+function createGridItem(workflowName, container, thumbnail, author = '', time = '', showDeleteButton = false, index) {
+    var gridItem = document.createElement('div');
+    gridItem.className = 'grid-item';
+    gridItem.style.borderRadius = '15px';
+    var gridItem = document.createElement('div');
+    gridItem.className = 'grid-item';
+    gridItem.style.borderRadius = '15px';
+    gridItem.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+
+    var img = document.createElement('div');
+    img.className = 'thumbnail';
+    img.style.backgroundImage = `url('${thumbnail}')`;
+    img.style.backgroundSize = 'cover';
+    img.style.backgroundPosition = 'center';
+    gridItem.appendChild(img);
+
+    var caption = document.createElement('div');
+    caption.className = 'caption';
+    caption.style.backgroundColor = 'white';
+
+    var h6 = document.createElement('h6');
+    h6.textContent = workflowName;
+    h6.style.margin = '1px 0';
+
+    var pAuthor = document.createElement('p');
+    pAuthor.textContent = `Author: ${author}`;
+    pAuthor.style.margin = '1px 0';
+    pAuthor.style.fontSize = '10px';
+
+    var pTime = document.createElement('p');
+    pTime.textContent = `Date: ${time}`;
+    pTime.style.margin = '1px 0';
+    pTime.style.fontSize = '10px';
+
+    var button = document.createElement('button');
+    button.textContent = ' Load ';
+    button.className = 'button';
+    button.style.backgroundColor = '#007aff';
+    button.style.color = 'white';
+    button.style.padding = '2px 7px';
+    button.style.border = 'none';
+    button.style.borderRadius = '8px';
+    button.style.fontSize = '12px';
+    button.style.cursor = 'pointer';
+    button.style.transition = 'background 0.3s';
+
+    button.addEventListener('mouseover', function () {
+        button.style.backgroundColor = '#005bb5';
+    });
+
+    button.addEventListener('mouseout', function () {
+        button.style.backgroundColor = '#007aff';
+    });
+    button.onclick = function (e) {
+        e.preventDefault();
+        if (showDeleteButton) {
+            sendWorkflow(workflowName);
+        } else {
+            const workflowData = galleryWorkflows[index];
+            importGalleryWorkflow(JSON.stringify(workflowData));
+        }
+    };
+
+    caption.appendChild(h6);
+    if (author) caption.appendChild(pAuthor);
+    if (time) caption.appendChild(pTime);
+    caption.appendChild(button);
+
+    if (showDeleteButton) {
+        var deleteButton = document.createElement('button');
+        deleteButton.textContent = 'Delete';
+        deleteButton.className = 'button';
+        deleteButton.style.backgroundColor = '#007aff';
+        deleteButton.style.color = 'white';
+        deleteButton.style.padding = '2px 3px';
+        deleteButton.style.border = 'none';
+        deleteButton.style.borderRadius = '8px';
+        deleteButton.style.fontSize = '12px';
+        deleteButton.style.cursor = 'pointer';
+        deleteButton.style.transition = 'background 0.3s';
+
+        deleteButton.addEventListener('mouseover', function () {
+            deleteButton.style.backgroundColor = '#005bb5';
+        });
+        deleteButton.addEventListener('mouseout', function () {
+            deleteButton.style.backgroundColor = '#007aff';
+        });
+
+        deleteButton.onclick = function (e) {
+            e.preventDefault();
+            deleteWorkflow(workflowName);
+        };
+
+        caption.appendChild(deleteButton);
+    }
+
+    gridItem.appendChild(caption);
+    container.appendChild(gridItem);
+    console.log('Grid item appended:', gridItem);
+}
+
+function showLoadWorkflowList(tabId) {
+    fetch('/list-workflows', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({})
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (!Array.isArray(data.files)) {
+                throw new TypeError('The return data is not an array');
+            }
+
+            const container = document.getElementById(tabId).querySelector('.grid-container');
+            container.innerHTML = '';
+
+            data.files.forEach(workflowName => {
+                const title = workflowName.replace(/\.json$/, '');
+                const thumbnail = generateThumbnailFromContent({title});
+                createGridItem(title, container, thumbnail, '', '', true);
+            });
+        })
+        .catch(error => {
+            console.error('Error fetching workflow list:', error);
+            alert('Fetch workflow list error.');
+        });
+}
+
+
+function generateThumbnailFromContent(content) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 150;
+    canvas.height = 150;
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.font = 'italic bold 14px "Helvetica Neue", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#333';
+
+    ctx.fillText(content.title, canvas.width / 2, canvas.height / 2 + 20);
+
+    return canvas.toDataURL();
 }
