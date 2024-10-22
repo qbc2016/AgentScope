@@ -869,7 +869,7 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             const CodeID = editor.addNode('Code', 1, 1,
                 pos_x, pos_y, 'Code', {
                     "args": {
-                        "code": "def function(msg1: \"Msg\") -> \"Msg\":\n    content1 = msg1.get(\"content\", \"\")\n    return {\n        \"role\": \"assistant\",\n        \"content\": content1,\n        \"name\": \"function\",\n    }"
+                        "code": "def function(msg1: Msg) -> Msg:\n    content1 = msg1.get(\"content\", \"\")\n    return {\n        \"role\": \"assistant\",\n        \"content\": content1,\n        \"name\": \"function\",\n    }"
                     }
                 }, htmlSourceCode);
             break;
@@ -969,15 +969,7 @@ function initializeMonacoEditor(nodeId) {
         editorInstance.onDidChangeModelContent(function () {
             const updatedNode = editor.getNodeFromId(nodeId);
             if (updatedNode) {
-                updatedNode.data.args.code = editorInstance.getValue();
-                editor.updateNodeDataFromId(nodeId, updatedNode.data);
-            }
-        });
-
-        editorInstance.onDidChangeModelContent(function () {
-            const updatedNode = editor.getNodeFromId(nodeId);
-            if (updatedNode) {
-                updatedNode.data.args.code = editorInstance.getValue();
+                updatedNode.data.args.code = editorInstance.getValue().trim();
                 editor.updateNodeDataFromId(nodeId, updatedNode.data);
             }
         });
@@ -1710,6 +1702,20 @@ function checkConditions() {
                     title: 'Invalid Configuration',
                     text:
                         ` ${childNode.name} contained in ${node.name} is not a Pipeline node.`,
+                    icon: 'error',
+                    confirmButtonText: 'Ok'
+                });
+                return false;
+            }
+        }
+        if (node.name === 'Code') {
+            const code = node.data.args.code;
+            const pattern = /\bdef\s+function\s*\(/;
+
+            if (!pattern.test(code)) {
+                Swal.fire({
+                    title: 'Invalid Code Function Name',
+                    text: `${node.name} only support "function" as the function name.`,
                     icon: 'error',
                     confirmButtonText: 'Ok'
                 });

@@ -981,6 +981,7 @@ class CodeNode(WorkflowNode):
         """
         template_str = dedent(
             f"""
+            from agentscope.message import Msg
             {self.code_tags}
             import json
 
@@ -1039,7 +1040,7 @@ class CodeNode(WorkflowNode):
             f"def function_{self.node_id}",
         )
         return {
-            "imports": code,
+            "imports": f"from agentscope.message import Msg\n{code}",
             "inits": "",
             "execs": f"{DEFAULT_FLOW_VAR} = function_{self.node_id}"
             f"(*[{DEFAULT_FLOW_VAR}])",
