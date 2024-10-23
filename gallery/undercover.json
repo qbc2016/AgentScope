@@ -16,25 +16,18 @@
             "data": {
                 "2": {
                     "id": 2,
-                    "name": "post_api_chat",
+                    "name": "dashscope_chat",
                     "data": {
                         "args": {
-                            "config_name": "gpt",
-                            "api_url": "******",
-                            "headers": {
-                                "content_type": "application/json",
-                                "authorization": "********"
-                            },
-                            "json_args": {
-                                "model": "gpt-4",
-                                "temperature": 0,
-                                "seed": 0
-                            },
-                            "model_type": "post_api_chat",
-                            "messages_key": "messages"
+                            "config_name": "qwen",
+                            "model_name": "qwen-max",
+                            "api_key": "****",
+                            "temperature": 0,
+                            "seed": 0,
+                            "model_type": "dashscope_chat"
                         }
                     },
-                    "class": "post_api_chat",
+                    "class": "dashscope_chat",
                     "typenode": false,
                     "inputs": {},
                     "outputs": {},
@@ -50,8 +43,8 @@
                         ],
                         "args": {
                             "announcement": {
-                                "name": "moderator",
-                                "content": "Game starts."
+                                "name": "主持人",
+                                "content": "游戏开始！"
                             }
                         }
                     },
@@ -80,7 +73,7 @@
                         "args": {
                             "max_loop": 5,
                             "condition_op": "contains",
-                            "target_value": "over"
+                            "target_value": "结束"
                         }
                     },
                     "class": "GROUP",
@@ -139,9 +132,9 @@
                     "name": "BroadcastAgent",
                     "data": {
                         "args": {
-                            "name": "moderator",
-                            "content": "It's the description phase now, and you need to describe your word in one sentence."
-                        }
+                            "name": "主持人",
+                            "content": "现在是描述阶段，你需要用一句话来描述你的词。"
+                         }
                     },
                     "class": "BroadcastAgent",
                     "typenode": false,
@@ -163,9 +156,9 @@
                     "name": "DialogAgent",
                     "data": {
                         "args": {
-                            "name": "player1",
-                            "sys_prompt": "\"Who's the Undercover\" Game Rules:\n\nOverview:\n\"Who's the Undercover\" is a deduction-based guessing game for 5 players: player1, player2, player3, player4, and player5.\n\nObjective:\nTo uncover the undercover player among the participants through strategic description and voting, while the undercover aims to remain undetected.\n\nGame Setup:\n- At the beginning of the game, each player is secretly assigned a word. Four players receive the same word, while the remaining player gets a different word and becomes the undercover.\n- The undercover's word should remain a secret from the other players.\n\nGameplay:\nThe game consists of rounds, each divided into two phases: the Description Phase and the Voting Phase.\n\n1. Description Phase:\n   - Players take turns describing their word in one sentence, aiming to subtly indicate their word to fellow players without revealing it to the undercover.\n\n2. Voting Phase:\n   - Players vote for whom they suspect is the undercover. The player with the majority of votes is eliminated. In case of a tie, the game moves to the next round.\n   - You are eliminated if and only if voter has announced that you are eliminated.\n   - Eliminated players can only respond \"This player has been eliminated\" during their turn.\n\nWinning Conditions:\n- If only two players remain and one is the undercover, the undercover wins.\n- If the undercover is eliminated before this point, the other players win.\n\nStrategies:\n- Players should describe their word vaguely to prevent the undercover from catching on.\n- Voting should be used strategically to identify and eliminate the undercover.\n\nNote:\nOnce eliminated, a player's only permissible response is \"This player has been eliminated.\"\n\n\nYour name is player1. Your secret word is 'car'. Engage in the game using the first-person perspective, and remember to avoid using your designated name in your responses. Your goal is to subtly describe your word and to cast votes in an effort to identify the undercover without revealing your identity.",
-                            "model_config_name": "gpt"
+                            "name": "玩家1",
+                            "sys_prompt": "《谁是卧底》游戏规则：\n\n概览：\n《谁是卧底》是一款基于推理的猜谜游戏，适合5名玩家：玩家1、玩家2、玩家3、玩家4和玩家5。\n\n目标：\n通过战略性的描述和投票揭露参与者中的卧底玩家，同时卧底的目标是保持不被发现。\n\n游戏设置：\n- 在游戏开始时，每位玩家秘密被分配一个词。四名玩家收到相同的词，而剩余的一名玩家得到一个不同的词，成为卧底。\n- 卧底的词应对其他玩家保密。\n\n游戏玩法：\n游戏由多个轮次组成，每个轮次分为两个阶段：描述阶段和投票阶段。\n\n1. 描述阶段：\n    - 玩家轮流用一句话描述他们的词，目标是微妙地向其他玩家指示自己的词，而不将其泄露给卧底。\n2. 投票阶段：\n    - 玩家投票选出他们怀疑是卧底的人。得票最多的玩家被淘汰。如果出现平票，游戏进入下一轮。\n    - 被淘汰的玩家在他们的回合中只能回应“该玩家已被淘汰”。\n    \n获胜条件：\n- 如果只剩下两名玩家，其中一名是卧底，卧底获胜。\n- 如果在此之前卧底被淘汰，其他玩家获胜。\n\n策略：\n- 玩家应该模糊地描述他们的词，以防卧底察觉。\n- 投票应被战略性地使用来识别并淘汰卧底。\n\n注意：\n一旦被淘汰，该玩家唯一允许的回复是“该玩家已被淘汰。”\n你的名字是玩家1。你的秘密词是“凤凰”。在游戏中使用第一人称视角进行交流，并记得在你的回复中避免使用你的名字。你的目标是微妙地描述你的词，并通过投票努力识别卧底，同时不暴露你的身份。回复中不要包含你的思考过程。只有在“计票员”说你被淘汰，你才是被淘汰。不要在回复中带有你的名字。",
+                            "model_config_name": "qwen"
                         }
                     },
                     "class": "DialogAgent",
@@ -188,9 +181,9 @@
                     "name": "DialogAgent",
                     "data": {
                         "args": {
-                            "name": "player2",
-                            "sys_prompt": "\"Who's the Undercover\" Game Rules:\n\nOverview:\n\"Who's the Undercover\" is a deduction-based guessing game for 5 players: player1, player2, player3, player4, and player5.\n\nObjective:\nTo uncover the undercover player among the participants through strategic description and voting, while the undercover aims to remain undetected.\n\nGame Setup:\n- At the beginning of the game, each player is secretly assigned a word. Four players receive the same word, while the remaining player gets a different word and becomes the undercover.\n- The undercover's word should remain a secret from the other players.\n\nGameplay:\nThe game consists of rounds, each divided into two phases: the Description Phase and the Voting Phase.\n\n1. Description Phase:\n   - Players take turns describing their word in one sentence, aiming to subtly indicate their word to fellow players without revealing it to the undercover.\n\n2. Voting Phase:\n   - Players vote for whom they suspect is the undercover. The player with the majority of votes is eliminated. In case of a tie, the game moves to the next round.\n   - You are eliminated if and only if voter has announced that you are eliminated.\n   - Eliminated players can only respond \"This player has been eliminated\" during their turn.\n\nWinning Conditions:\n- If only two players remain and one is the undercover, the undercover wins.\n- If the undercover is eliminated before this point, the other players win.\n\nStrategies:\n- Players should describe their word vaguely to prevent the undercover from catching on.\n- Voting should be used strategically to identify and eliminate the undercover.\n\nNote:\nOnce eliminated, a player's only permissible response is \"This player has been eliminated.\"\n\n\nYour name is player2. Your secret word is 'car'. Engage in the game using the first-person perspective, and remember to avoid using your designated name in your responses. Your goal is to subtly describe your word and to cast votes in an effort to identify the undercover without revealing your identity.",
-                            "model_config_name": "gpt"
+                            "name": "玩家2",
+                            "sys_prompt": "《谁是卧底》游戏规则：\n\n概览：\n《谁是卧底》是一款基于推理的猜谜游戏，适合5名玩家：玩家1、玩家2、玩家3、玩家4和玩家5。\n\n目标：\n通过战略性的描述和投票揭露参与者中的卧底玩家，同时卧底的目标是保持不被发现。\n\n游戏设置：\n- 在游戏开始时，每位玩家秘密被分配一个词。四名玩家收到相同的词，而剩余的一名玩家得到一个不同的词，成为卧底。\n- 卧底的词应对其他玩家保密。\n\n游戏玩法：\n游戏由多个轮次组成，每个轮次分为两个阶段：描述阶段和投票阶段。\n\n1. 描述阶段：\n    - 玩家轮流用一句话描述他们的词，目标是微妙地向其他玩家指示自己的词，而不将其泄露给卧底。\n2. 投票阶段：\n    - 玩家投票选出他们怀疑是卧底的人。得票最多的玩家被淘汰。如果出现平票，游戏进入下一轮。\n    - 被淘汰的玩家在他们的回合中只能回应“该玩家已被淘汰”。\n    \n获胜条件：\n- 如果只剩下两名玩家，其中一名是卧底，卧底获胜。\n- 如果在此之前卧底被淘汰，其他玩家获胜。\n\n策略：\n- 玩家应该模糊地描述他们的词，以防卧底察觉。\n- 投票应被战略性地使用来识别并淘汰卧底。\n\n注意：\n一旦被淘汰，该玩家唯一允许的回复是“该玩家已被淘汰。”\n你的名字是玩家2。你的秘密词是“凤凰”。在游戏中使用第一人称视角进行交流，并记得在你的回复中避免使用你的名字。你的目标是微妙地描述你的词，并通过投票努力识别卧底，同时不暴露你的身份。回复中不要包含你的思考过程。只有在“计票员”说你被淘汰，你才是被淘汰。不要在回复中带有你的名字。",
+                            "model_config_name": "qwen"
                         }
                     },
                     "class": "DialogAgent",
@@ -213,9 +206,9 @@
                     "name": "DialogAgent",
                     "data": {
                         "args": {
-                            "name": "player3",
-                            "sys_prompt": "\"Who's the Undercover\" Game Rules:\n\nOverview:\n\"Who's the Undercover\" is a deduction-based guessing game for 5 players: player1, player2, player3, player4, and player5.\n\nObjective:\nTo uncover the undercover player among the participants through strategic description and voting, while the undercover aims to remain undetected.\n\nGame Setup:\n- At the beginning of the game, each player is secretly assigned a word. Four players receive the same word, while the remaining player gets a different word and becomes the undercover.\n- The undercover's word should remain a secret from the other players.\n\nGameplay:\nThe game consists of rounds, each divided into two phases: the Description Phase and the Voting Phase.\n\n1. Description Phase:\n   - Players take turns describing their word in one sentence, aiming to subtly indicate their word to fellow players without revealing it to the undercover.\n\n2. Voting Phase:\n   - Players vote for whom they suspect is the undercover. The player with the majority of votes is eliminated. In case of a tie, the game moves to the next round.\n   - You are eliminated if and only if voter has announced that you are eliminated.\n   - Eliminated players can only respond \"This player has been eliminated\" during their turn.\n\nWinning Conditions:\n- If only two players remain and one is the undercover, the undercover wins.\n- If the undercover is eliminated before this point, the other players win.\n\nStrategies:\n- Players should describe their word vaguely to prevent the undercover from catching on.\n- Voting should be used strategically to identify and eliminate the undercover.\n\nNote:\nOnce eliminated, a player's only permissible response is \"This player has been eliminated.\"\n\n\nYour name is player3. Your secret word is 'bike'. Engage in the game using the first-person perspective, and remember to avoid using your designated name in your responses. Your goal is to subtly describe your word and to cast votes in an effort to identify the undercover without revealing your identity.",
-                            "model_config_name": "gpt"
+                            "name": "玩家3",
+                            "sys_prompt": "《谁是卧底》游戏规则：\n\n概览：\n《谁是卧底》是一款基于推理的猜谜游戏，适合5名玩家：玩家1、玩家2、玩家3、玩家4和玩家5。\n\n目标：\n通过战略性的描述和投票揭露参与者中的卧底玩家，同时卧底的目标是保持不被发现。\n\n游戏设置：\n- 在游戏开始时，每位玩家秘密被分配一个词。四名玩家收到相同的词，而剩余的一名玩家得到一个不同的词，成为卧底。\n- 卧底的词应对其他玩家保密。\n\n游戏玩法：\n游戏由多个轮次组成，每个轮次分为两个阶段：描述阶段和投票阶段。\n\n1. 描述阶段：\n    - 玩家轮流用一句话描述他们的词，目标是微妙地向其他玩家指示自己的词，而不将其泄露给卧底。\n2. 投票阶段：\n    - 玩家投票选出他们怀疑是卧底的人。得票最多的玩家被淘汰。如果出现平票，游戏进入下一轮。\n    - 被淘汰的玩家在他们的回合中只能回应“该玩家已被淘汰”。\n    \n获胜条件：\n- 如果只剩下两名玩家，其中一名是卧底，卧底获胜。\n- 如果在此之前卧底被淘汰，其他玩家获胜。\n\n策略：\n- 玩家应该模糊地描述他们的词，以防卧底察觉。\n- 投票应被战略性地使用来识别并淘汰卧底。\n\n注意：\n一旦被淘汰，该玩家唯一允许的回复是“该玩家已被淘汰。”\n你的名字是玩家3。你的秘密词是“孔雀”。在游戏中使用第一人称视角进行交流，并记得在你的回复中避免使用你的名字。你的目标是微妙地描述你的词，并通过投票努力识别卧底，同时不暴露你的身份。回复中不要包含你的思考过程。只有在“计票员”说你被淘汰，你才是被淘汰。不要在回复中带有你的名字。",
+                            "model_config_name": "qwen"
                         }
                     },
                     "class": "DialogAgent",
@@ -238,9 +231,9 @@
                     "name": "DialogAgent",
                     "data": {
                         "args": {
-                            "name": "player4",
-                            "sys_prompt": "\"Who's the Undercover\" Game Rules:\n\nOverview:\n\"Who's the Undercover\" is a deduction-based guessing game for 5 players: player1, player2, player3, player4, and player5.\n\nObjective:\nTo uncover the undercover player among the participants through strategic description and voting, while the undercover aims to remain undetected.\n\nGame Setup:\n- At the beginning of the game, each player is secretly assigned a word. Four players receive the same word, while the remaining player gets a different word and becomes the undercover.\n- The undercover's word should remain a secret from the other players.\n\nGameplay:\nThe game consists of rounds, each divided into two phases: the Description Phase and the Voting Phase.\n\n1. Description Phase:\n   - Players take turns describing their word in one sentence, aiming to subtly indicate their word to fellow players without revealing it to the undercover.\n\n2. Voting Phase:\n   - Players vote for whom they suspect is the undercover. The player with the majority of votes is eliminated. In case of a tie, the game moves to the next round.\n   - You are eliminated if and only if voter has announced that you are eliminated.\n   - Eliminated players can only respond \"This player has been eliminated\" during their turn.\n\nWinning Conditions:\n- If only two players remain and one is the undercover, the undercover wins.\n- If the undercover is eliminated before this point, the other players win.\n\nStrategies:\n- Players should describe their word vaguely to prevent the undercover from catching on.\n- Voting should be used strategically to identify and eliminate the undercover.\n\nNote:\nOnce eliminated, a player's only permissible response is \"This player has been eliminated.\"\n\n\nYour name is player4. Your secret word is 'car'. Engage in the game using the first-person perspective, and remember to avoid using your designated name in your responses. Your goal is to subtly describe your word and to cast votes in an effort to identify the undercover without revealing your identity.",
-                            "model_config_name": "gpt"
+                            "name": "玩家4",
+                            "sys_prompt": "《谁是卧底》游戏规则：\n\n概览：\n《谁是卧底》是一款基于推理的猜谜游戏，适合5名玩家：玩家1、玩家2、玩家3、玩家4和玩家5。\n\n目标：\n通过战略性的描述和投票揭露参与者中的卧底玩家，同时卧底的目标是保持不被发现。\n\n游戏设置：\n- 在游戏开始时，每位玩家秘密被分配一个词。四名玩家收到相同的词，而剩余的一名玩家得到一个不同的词，成为卧底。\n- 卧底的词应对其他玩家保密。\n\n游戏玩法：\n游戏由多个轮次组成，每个轮次分为两个阶段：描述阶段和投票阶段。\n\n1. 描述阶段：\n    - 玩家轮流用一句话描述他们的词，目标是微妙地向其他玩家指示自己的词，而不将其泄露给卧底。\n2. 投票阶段：\n    - 玩家投票选出他们怀疑是卧底的人。得票最多的玩家被淘汰。如果出现平票，游戏进入下一轮。\n    - 被淘汰的玩家在他们的回合中只能回应“该玩家已被淘汰”。\n    \n获胜条件：\n- 如果只剩下两名玩家，其中一名是卧底，卧底获胜。\n- 如果在此之前卧底被淘汰，其他玩家获胜。\n\n策略：\n- 玩家应该模糊地描述他们的词，以防卧底察觉。\n- 投票应被战略性地使用来识别并淘汰卧底。\n\n注意：\n一旦被淘汰，该玩家唯一允许的回复是“该玩家已被淘汰。”\n你的名字是玩家4。你的秘密词是“凤凰”。在游戏中使用第一人称视角进行交流，并记得在你的回复中避免使用你的名字。你的目标是微妙地描述你的词，并通过投票努力识别卧底，同时不暴露你的身份。回复中不要包含你的思考过程。只有在“计票员”说你被淘汰，你才是被淘汰。不要在回复中带有你的名字。",
+                            "model_config_name": "qwen"
                         }
                     },
                     "class": "DialogAgent",
@@ -263,9 +256,9 @@
                     "name": "DialogAgent",
                     "data": {
                         "args": {
-                            "name": "player5",
-                            "sys_prompt": "\"Who's the Undercover\" Game Rules:\n\nOverview:\n\"Who's the Undercover\" is a deduction-based guessing game for 5 players: player1, player2, player3, player4, and player5.\n\nObjective:\nTo uncover the undercover player among the participants through strategic description and voting, while the undercover aims to remain undetected.\n\nGame Setup:\n- At the beginning of the game, each player is secretly assigned a word. Four players receive the same word, while the remaining player gets a different word and becomes the undercover.\n- The undercover's word should remain a secret from the other players.\n\nGameplay:\nThe game consists of rounds, each divided into two phases: the Description Phase and the Voting Phase.\n\n1. Description Phase:\n   - Players take turns describing their word in one sentence, aiming to subtly indicate their word to fellow players without revealing it to the undercover.\n\n2. Voting Phase:\n   - Players vote for whom they suspect is the undercover. The player with the majority of votes is eliminated. In case of a tie, the game moves to the next round.\n   - You are eliminated if and only if voter has announced that you are eliminated.\n   - Eliminated players can only respond \"This player has been eliminated\" during their turn.\n\nWinning Conditions:\n- If only two players remain and one is the undercover, the undercover wins.\n- If the undercover is eliminated before this point, the other players win.\n\nStrategies:\n- Players should describe their word vaguely to prevent the undercover from catching on.\n- Voting should be used strategically to identify and eliminate the undercover.\n\nNote:\nOnce eliminated, a player's only permissible response is \"This player has been eliminated.\"\n\n\nYour name is player5. Your secret word is 'car'. Engage in the game using the first-person perspective, and remember to avoid using your designated name in your responses. Your goal is to subtly describe your word and to cast votes in an effort to identify the undercover without revealing your identity.",
-                            "model_config_name": "gpt"
+                            "name": "玩家5",
+                            "sys_prompt": "《谁是卧底》游戏规则：\n\n概览：\n《谁是卧底》是一款基于推理的猜谜游戏，适合5名玩家：玩家1、玩家2、玩家3、玩家4和玩家5。\n\n目标：\n通过战略性的描述和投票揭露参与者中的卧底玩家，同时卧底的目标是保持不被发现。\n\n游戏设置：\n- 在游戏开始时，每位玩家秘密被分配一个词。四名玩家收到相同的词，而剩余的一名玩家得到一个不同的词，成为卧底。\n- 卧底的词应对其他玩家保密。\n\n游戏玩法：\n游戏由多个轮次组成，每个轮次分为两个阶段：描述阶段和投票阶段。\n\n1. 描述阶段：\n    - 玩家轮流用一句话描述他们的词，目标是微妙地向其他玩家指示自己的词，而不将其泄露给卧底。\n2. 投票阶段：\n    - 玩家投票选出他们怀疑是卧底的人。得票最多的玩家被淘汰。如果出现平票，游戏进入下一轮。\n    - 被淘汰的玩家在他们的回合中只能回应“该玩家已被淘汰”。\n    \n获胜条件：\n- 如果只剩下两名玩家，其中一名是卧底，卧底获胜。\n- 如果在此之前卧底被淘汰，其他玩家获胜。\n\n策略：\n- 玩家应该模糊地描述他们的词，以防卧底察觉。\n- 投票应被战略性地使用来识别并淘汰卧底。\n\n注意：\n一旦被淘汰，该玩家唯一允许的回复是“该玩家已被淘汰。”\n你的名字是玩家5。你的秘密词是“凤凰”。在游戏中使用第一人称视角进行交流，并记得在你的回复中避免使用你的名字。你的目标是微妙地描述你的词，并通过投票努力识别卧底，同时不暴露你的身份。回复中不要包含你的思考过程。只有在“计票员”说你被淘汰，你才是被淘汰。不要在回复中带有你的名字。",
+                            "model_config_name": "qwen"
                         }
                     },
                     "class": "DialogAgent",
@@ -288,8 +281,8 @@
                     "name": "BroadcastAgent",
                     "data": {
                         "args": {
-                            "name": "moderator",
-                            "content": "It's the voting phase now, and you need to vote for the player you think is most likely the undercover. Do not vote for players who have been eliminated. Respond only with the player's name."
+                            "name": "主持人",
+                            "content": "现在是投票阶段，你需要为你认为最可能是卧底的玩家投票。不要投给已经被淘汰的玩家。只需回答玩家的名字。"
                         }
                     },
                     "class": "BroadcastAgent",
@@ -427,9 +420,9 @@
                     "name": "DialogAgent",
                     "data": {
                         "args": {
-                            "name": "voter",
-                            "sys_prompt": "As the vote counter in the 'Who's the Undercover' game, it is your duty to accurately tally the votes from the players' selections and determine the outcome.\nFollow these guidelines:\n- If there is a tie between multiple players receiving the highest number of votes, your response should be: 'Tie, no player is eliminated.'.\n- If one player receives the highest number of votes, for instance, player1, announce the outcome with: 'player1 is eliminated.'.\n- Do not respond anything else, including your analysis and thoughts.",
-                            "model_config_name": "gpt"
+                            "name": "计票员",
+                            "sys_prompt": "作为《谁是卧底》游戏中的计票员，你的职责是准确地统计玩家的选择投票，并确定结果。遵循以下准则：\n- 如果多名玩家获得最高票数并出现平票，例如玩家1和玩家2，你应该回应：“平票，没有玩家被淘汰。\n- 如果某一名玩家获得最高票数，例如玩家1，你应宣布结果为：“玩家1被淘汰。\n- 不要回应其他任何内容，包括你的分析和想法。",
+                            "model_config_name": "qwen"
                         }
                     },
                     "class": "DialogAgent",
@@ -452,9 +445,9 @@
                     "name": "DialogAgent",
                     "data": {
                         "args": {
-                            "name": "checker",
-                            "sys_prompt": "\"Who's the Undercover\" Game Rules:\n\nOverview:\n\"Who's the Undercover\" is a deduction-based guessing game for 5 players: player1, player2, player3, player4, and player5.\n\nObjective:\nTo uncover the undercover player among the participants through strategic description and voting, while the undercover aims to remain undetected.\n\nGame Setup:\n- At the beginning of the game, each player is secretly assigned a word. Four players receive the same word, while the remaining player gets a different word and becomes the undercover.\n- The undercover's word should remain a secret from the other players.\n\nGameplay:\nThe game consists of rounds, each divided into two phases: the Description Phase and the Voting Phase.\n\n1. Description Phase:\n   - Players take turns describing their word in one sentence, aiming to subtly indicate their word to fellow players without revealing it to the undercover.\n\n2. Voting Phase:\n   - Players vote for whom they suspect is the undercover. The player with the majority of votes is eliminated. In case of a tie, the game moves to the next round.\n   - You are eliminated if and only if voter has announced that you are eliminated.\n   - Eliminated players can only respond \"This player has been eliminated\" during their turn.\n\nWinning Conditions:\n- If only two players remain and one is the undercover, the undercover wins.\n- If the undercover is eliminated before this point, the other players win.\n\nStrategies:\n- Players should describe their word vaguely to prevent the undercover from catching on.\n- Voting should be used strategically to identify and eliminate the undercover.\n\nNote:\nOnce eliminated, a player's only permissible response is \"This player has been eliminated.\"\n\n\nIn your role as the inspector during 'Who's the Undercover' game sessions, your sole responsibility is to assess whether the game has reached its conclusion:\n- Should player3, who is the undercover, be eliminated, issue the statement: 'Game over, the undercover loses.'\n- If player3 remains and only two players are left in the game, declare: 'Game over, the undercover wins.'.\n- In all other situations, simply state: 'The game continues.'.\nPlease limit your communication to these specific outcomes without adding any personal commentary, analysis, or additional remarks.",
-                            "model_config_name": "gpt"
+                            "name": "裁判",
+                            "sys_prompt": "《谁是卧底》游戏规则：\n\n概览：\n《谁是卧底》是一款基于推理的猜谜游戏，适合5名玩家：玩家1、玩家2、玩家3、玩家4和玩家5。\n\n目标：\n通过战略性的描述和投票揭露参与者中的卧底玩家，同时卧底的目标是保持不被发现。\n\n游戏设置：\n- 在游戏开始时，每位玩家秘密被分配一个词。四名玩家收到相同的词，而剩余的一名玩家得到一个不同的词，成为卧底。\n- 卧底的词应对其他玩家保密。\n\n游戏玩法：\n游戏由多个轮次组成，每个轮次分为两个阶段：描述阶段和投票阶段。\n\n1. 描述阶段：\n    - 玩家轮流用一句话描述他们的词，目标是微妙地向其他玩家指示自己的词，而不将其泄露给卧底。\n2. 投票阶段：\n    - 玩家投票选出他们怀疑是卧底的人。得票最多的玩家被淘汰。如果出现平票，游戏进入下一轮。\n    - 被淘汰的玩家在他们的回合中只能回应“该玩家已被淘汰”。\n    \n获胜条件：\n- 如果只剩下两名玩家，其中一名是卧底，卧底获胜。\n- 如果在此之前卧底被淘汰，其他玩家获胜。\n\n策略：\n- 玩家应该模糊地描述他们的词，以防卧底察觉。\n- 投票应被战略性地使用来识别并淘汰卧底。\n\n注意：\n一旦被淘汰，该玩家唯一允许的回复是“该玩家已被淘汰。”\n作为《谁是卧底》游戏中的裁判角色，你的唯一责任是评估游戏是否已达到其结局：\n如果卧底玩家3被淘汰，则回复：“游戏结束，卧底输了。”\n如果玩家3存活，并且游戏中只剩下两名玩家，则回复：“游戏结束，卧底赢了。”\n在所有其他情况下，简单地声明：“游戏继续。” 请将你的回复限制在这些具体的结果上，不要添加任何个人评论、分析或其他备注。\"\"\",",
+                            "model_config_name": "qwen"
                         }
                     },
                     "class": "DialogAgent",
