@@ -2738,6 +2738,16 @@ function skipGuide() {
 }
 
 class Notification {
+  static initStatics() {
+    this.count = 0;
+    this.instances = [];
+  }
+
+  static clearInstances() {
+    Notification.count = 0;
+    Notification.instances = [];
+  }
+
   constructor(props) {
     Notification.count += 1;
     Notification.instances.push(this);
@@ -2760,16 +2770,6 @@ class Notification {
     this.onConfirmCallback = this.onConfirmCallback.bind(this);
 
     this.init(props);
-  }
-
-  static initStatics() {
-    this.count = 0;
-    this.instances = [];
-  }
-
-  static clearInstances() {
-    Notification.count = 0;
-    Notification.instances = [];
   }
 
   init(props) {
