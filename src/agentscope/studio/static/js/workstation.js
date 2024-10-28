@@ -11,7 +11,7 @@ let accumulatedImportData;
 let descriptionStep;
 
 
-let nameToHtmlFile = {
+const nameToHtmlFile = {
     'welcome': 'welcome.html',
     'dashscope_chat': 'model-dashscope-chat.html',
     'openai_chat': 'model-openai-chat.html',
@@ -49,7 +49,7 @@ let nameToHtmlFile = {
 }
 
 const ModelNames48k = [
-    'sambert-zhinan-v1',
+    "sambert-zhinan-v1",
     "sambert-zhiqi-v1",
     "sambert-zhichu-v1",
     "sambert-zhide-v1",
@@ -58,15 +58,15 @@ const ModelNames48k = [
     "sambert-zhiqian-v1",
     "sambert-zhixiang-v1",
     "sambert-zhiwei-v1",
-]
+];
 
 // Cache the loaded html files
-let htmlCache = {};
+const htmlCache = {};
 
 // When clicking the sidebar item, it will expand/collapse the next content
 function onClickSidebarSubItem(element) {
     element.classList.toggle("active");
-    let content = element.nextElementSibling;
+    const content = element.nextElementSibling;
     if (content.style.display === "block") {
         content.style.display = "none";
     } else {
@@ -78,10 +78,10 @@ function onClickSidebarSubItem(element) {
 // Load html source code dynamically
 async function fetchHtml(fileName) {
     try {
-        let filePath = 'static/html-drag-components/' + fileName;
+        const filePath = "static/html-drag-components/" + fileName;
         const response = await fetch(filePath);
         if (!response.ok) {
-            throw new Error('Fail to load ' + filePath);
+            throw new Error("Fail to load " + filePath);
         }
         return await response.text();
     } catch (error) {
@@ -90,20 +90,20 @@ async function fetchHtml(fileName) {
 }
 
 async function initializeWorkstationPage() {
-    console.log("Initialize Workstation Page")
+    console.log("Initialize Workstation Page");
     // Initialize the Drawflow editor
-    let id = document.getElementById("drawflow");
+    const id = document.getElementById("drawflow");
     editor = new Drawflow(id);
     editor.reroute = true;
     editor.createCurvature = function createCurvature(start_pos_x, start_pos_y, end_pos_x, end_pos_y, curvature_value, type) {
-        var line_x = start_pos_x;
-        var line_y = start_pos_y;
-        var x = end_pos_x;
-        var y = end_pos_y;
-        var curvature = curvature_value;
+        const line_x = start_pos_x;
+        const line_y = start_pos_y;
+        const x = end_pos_x;
+        const y = end_pos_y;
+        const curvature = curvature_value;
         //type openclose open close other
         switch (type) {
-            case 'open':
+            case "open":
                 if (start_pos_x >= end_pos_x) {
                     var hx1 = line_x + Math.abs(x - line_x) * curvature;
                     var hx2 = x - Math.abs(x - line_x) * (curvature * -1);
@@ -111,9 +111,9 @@ async function initializeWorkstationPage() {
                     var hx1 = line_x + Math.abs(x - line_x) * curvature;
                     var hx2 = x - Math.abs(x - line_x) * curvature;
                 }
-                return ' M ' + line_x + ' ' + line_y + ' C ' + hx1 + ' ' + line_y + ' ' + hx2 + ' ' + y + ' ' + x + '  ' + y;
+                return " M " + line_x + " " + line_y + " C " + hx1 + " " + line_y + " " + hx2 + " " + y + " " + x + "  " + y;
 
-            case 'close':
+            case "close":
                 if (start_pos_x >= end_pos_x) {
                     var hx1 = line_x + Math.abs(x - line_x) * (curvature * -1);
                     var hx2 = x - Math.abs(x - line_x) * curvature;
@@ -121,9 +121,9 @@ async function initializeWorkstationPage() {
                     var hx1 = line_x + Math.abs(x - line_x) * curvature;
                     var hx2 = x - Math.abs(x - line_x) * curvature;
                 }                                                                                                                  //M0 75H10L5 80L0 75Z
-                return ' M ' + line_x + ' ' + line_y + ' C ' + hx1 + ' ' + line_y + ' ' + hx2 + ' ' + y + ' ' + x + '  ' + y + ' M ' + (x - 11) + ' ' + y + ' L' + (x - 20) + ' ' + (y - 5) + '  L' + (x - 20) + ' ' + (y + 5) + 'Z';
+                return " M " + line_x + " " + line_y + " C " + hx1 + " " + line_y + " " + hx2 + " " + y + " " + x + "  " + y + " M " + (x - 11) + " " + y + " L" + (x - 20) + " " + (y - 5) + "  L" + (x - 20) + " " + (y + 5) + "Z";
 
-            case 'other':
+            case "other":
                 if (start_pos_x >= end_pos_x) {
                     var hx1 = line_x + Math.abs(x - line_x) * (curvature * -1);
                     var hx2 = x - Math.abs(x - line_x) * (curvature * -1);
@@ -131,23 +131,23 @@ async function initializeWorkstationPage() {
                     var hx1 = line_x + Math.abs(x - line_x) * curvature;
                     var hx2 = x - Math.abs(x - line_x) * curvature;
                 }
-                return ' M ' + line_x + ' ' + line_y + ' C ' + hx1 + ' ' + line_y + ' ' + hx2 + ' ' + y + ' ' + x + '  ' + y;
+                return " M " + line_x + " " + line_y + " C " + hx1 + " " + line_y + " " + hx2 + " " + y + " " + x + "  " + y;
 
             default:
                 var hx1 = line_x + Math.abs(x - line_x) * curvature;
                 var hx2 = x - Math.abs(x - line_x) * curvature;
 
-                return ' M ' + line_x + ' ' + line_y + ' C ' + hx1 + ' ' + line_y + ' ' + hx2 + ' ' + y + ' ' + x + '  ' + y + ' M ' + (x - 11) + ' ' + y + ' L' + (x - 20) + ' ' + (y - 5) + '  L' + (x - 20) + ' ' + (y + 5) + 'Z';
+                return " M " + line_x + " " + line_y + " C " + hx1 + " " + line_y + " " + hx2 + " " + y + " " + x + "  " + y + " M " + (x - 11) + " " + y + " L" + (x - 20) + " " + (y - 5) + "  L" + (x - 20) + " " + (y + 5) + "Z";
         }
-    }
+    };
     editor.start();
     editor.zoom_out();
 
-    let welcome = await fetchHtml('welcome.html');
-    const welcomeID = editor.addNode('welcome', 0, 0, 50, 50, 'welcome', {}, welcome);
+    const welcome = await fetchHtml("welcome.html");
+    const welcomeID = editor.addNode("welcome", 0, 0, 50, 50, "welcome", {}, welcome);
     setupNodeListeners(welcomeID);
 
-    editor.on('nodeCreated', function (id) {
+    editor.on("nodeCreated", function (id) {
         console.log("Node created " + id);
         disableButtons();
         makeNodeTop(id);
@@ -156,14 +156,14 @@ async function initializeWorkstationPage() {
         addEventListenersToNumberInputs(id);
         setupTextInputListeners(id);
         reloadi18n();
-    })
+    });
 
-    editor.on('nodeRemoved', function (id) {
+    editor.on("nodeRemoved", function (id) {
         console.log("Node removed " + id);
         disableButtons();
         Object.keys(editor.drawflow.drawflow[editor.module].data).forEach(nodeKey => {
-            var node = editor.drawflow.drawflow[editor.module].data[nodeKey];
-            var nodeData =
+            const node = editor.drawflow.drawflow[editor.module].data[nodeKey];
+            const nodeData =
                 editor.drawflow.drawflow[editor.module].data[nodeKey].data;
             console.log("nodeKey", nodeKey);
             console.log("node", node);
@@ -171,12 +171,12 @@ async function initializeWorkstationPage() {
             console.log("id", id);
 
             if (nodeData && nodeData.copies) {
-                console.log("Array.isArray(nodeData.copies)", Array.isArray(nodeData.copies))
+                console.log("Array.isArray(nodeData.copies)", Array.isArray(nodeData.copies));
                 if (nodeData.copies.includes(id)) {
                     console.log("nodeData.copies", nodeData.copies);
                     console.log("nodeData.copies.includes(id)",
                         nodeData.copies.includes(id));
-                    var index = nodeData.copies.indexOf(id);
+                    const index = nodeData.copies.indexOf(id);
                     console.log("index", index);
                     if (index > -1) {
                         nodeData.copies.splice(index, 1);
@@ -184,64 +184,59 @@ async function initializeWorkstationPage() {
                     }
                 }
             }
-        })
-    })
+        });
+    });
 
-    editor.on('nodeSelected', function (id) {
+    editor.on("nodeSelected", function (id) {
         console.log("Node selected " + id);
         makeNodeTop(id);
-    })
+    });
 
-    editor.on('moduleCreated', function (name) {
+    editor.on("moduleCreated", function (name) {
         console.log("Module Created " + name);
-    })
+    });
 
-    editor.on('moduleChanged', function (name) {
+    editor.on("moduleChanged", function (name) {
         console.log("Module Changed " + name);
-    })
+    });
 
-    editor.on('connectionCreated', function (connection) {
-        console.log('Connection created');
+    editor.on("connectionCreated", function (connection) {
+        console.log("Connection created");
         console.log(connection);
         disableButtons();
-    })
+    });
 
-    editor.on('connectionRemoved', function (connection) {
-        console.log('Connection removed');
+    editor.on("connectionRemoved", function (connection) {
+        console.log("Connection removed");
         console.log(connection);
         disableButtons();
-    })
+    });
 
-    editor.on('mouseMove', function (position) {
+    editor.on("mouseMove", function (position) {
         // console.log('Position mouse x:' + position.x + ' y:' + position.y);
-    })
+    });
 
-    editor.on('nodeMoved', function (id) {
-        console.log("Node moved " + id);
-        disableButtons();
-    })
+    editor.on("zoom", function (zoom) {
+        console.log("Zoom level " + zoom);
+    });
 
-    editor.on('zoom', function (zoom) {
-        console.log('Zoom level ' + zoom);
-    })
+    editor.on("translate", function (position) {
+        console.log("Translate x:" + position.x + " y:" + position.y);
+    });
 
-    editor.on('translate', function (position) {
-        console.log('Translate x:' + position.x + ' y:' + position.y);
-    })
-
-    editor.on('addReroute', function (id) {
+    editor.on("addReroute", function (id) {
         console.log("Reroute added " + id);
-    })
+    });
 
-    editor.on('removeReroute', function (id) {
+    editor.on("removeReroute", function (id) {
         console.log("Reroute removed " + id);
-    })
+    });
 
     editor.selectNode = function (id) {
         if (this.node_selected != null) {
             this.node_selected.classList.remove("selected");
             if (this.node_selected !== this.ele_selected) {
-                this.dispatch('nodeUnselected', true);
+                this.dispatch("nodeUnselected", true);
             }
         }
         const element = document.querySelector(`#node-${id}`);
@@ -250,11 +245,11 @@ async function initializeWorkstationPage() {
         this.node_selected.classList.add("selected");
         if (this.node_selected !== this.ele_selected) {
             this.node_selected = element;
-            this.node_selected.classList.add('selected');
-            this.dispatch('nodeSelected', this.ele_selected.id.slice(5));
+            this.node_selected.classList.add("selected");
+            this.dispatch("nodeSelected", this.ele_selected.id.slice(5));
         }
-        console.log(id)
-    }
+        console.log(id);
+    };
 
     let last_x = 0;
     let last_y = 0;
@@ -262,7 +257,7 @@ async function initializeWorkstationPage() {
 
     editor.on("mouseMove", ({x, y}) => {
         const hoverEles = document.elementsFromPoint(x, y);
-        const nextGroup = hoverEles.find(ele => ele.classList.contains('GROUP') && (!editor.node_selected || ele.id !== editor.node_selected.id));
+        const nextGroup = hoverEles.find(ele => ele.classList.contains("GROUP") && (!editor.node_selected || ele.id !== editor.node_selected.id));
 
         if (nextGroup) {
             if (dragElementHover !== nextGroup) {
@@ -279,8 +274,8 @@ async function initializeWorkstationPage() {
 
         if (editor.node_selected && editor.drag) {
             const selectedNodeId = editor.node_selected.id.slice(5);
-            var dx = (last_x - x) * editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom);
-            var dy = (last_y - y) * editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom);
+            const dx = Math.ceil((last_x - x) * editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom));
+            const dy = Math.ceil((last_y - y) * editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom));
 
             if (editor.node_selected.classList.contains("GROUP")) {
                 moveGroupNodes(selectedNodeId, -dx, -dy);
@@ -309,9 +304,9 @@ async function initializeWorkstationPage() {
                     dropNodeInfoData.elements.push(dragNode);
                     editor.updateNodeDataFromId(dropNode, dropNodeInfoData);
                     // remove connections
-                    editor.removeConnectionNodeId('node-' + id);
+                    editor.removeConnectionNodeId("node-" + id);
                     // Hide the ports when node is inside the group
-                    togglePortsDisplay(dragNode, 'none');
+                    togglePortsDisplay(dragNode, "none");
                     const dragNodeData = editor.getNodeFromId(dragNode);
                     if (dragNodeData.class !== "GROUP") {
                         collapseNode(dragNode);
@@ -321,10 +316,11 @@ async function initializeWorkstationPage() {
             dragElementHover = null;
         } else {
             // If the node is moved outside of any group, show the ports
-            togglePortsDisplay(dragNode, '');
+            togglePortsDisplay(dragNode, "");
             removeOfGroupNode(dragNode);
         }
-    })
+        disableButtons();
+    });
 
     editor.on("nodeRemoved", (id) => {
         removeOfGroupNode(id);
@@ -334,33 +330,33 @@ async function initializeWorkstationPage() {
 
     /* Mouse and Touch Actions */
 
-    var elements = document.getElementsByClassName('workstation-sidebar-dragitem');
-    for (var i = 0; i < elements.length; i++) {
-        elements[i].addEventListener('touchend', drop, false);
-        elements[i].addEventListener('touchmove', positionMobile, false);
-        elements[i].addEventListener('touchstart', drag, false);
+    const elements = document.getElementsByClassName("workstation-sidebar-dragitem");
+    for (let i = 0; i < elements.length; i++) {
+        elements[i].addEventListener("touchend", drop, false);
+        elements[i].addEventListener("touchmove", positionMobile, false);
+        elements[i].addEventListener("touchstart", drag, false);
     }
 
-    mobile_item_selec = '';
+    mobile_item_selec = "";
     mobile_last_move = null;
 
     importQueue = [];
     currentImportIndex = 0;
     accumulatedImportData = {};
     descriptionStep = [];
-    console.log("importQueue", importQueue)
+    console.log("importQueue", importQueue);
 
-    document.getElementById('surveyButton').addEventListener('click', function () {
-        window.open('https://survey.aliyun.com/apps/zhiliao/vgpTppn22', '_blank');
+    document.getElementById("surveyButton").addEventListener("click", function () {
+        window.open("https://survey.aliyun.com/apps/zhiliao/vgpTppn22", "_blank");
     });
 
-    document.getElementById('surveyClose').addEventListener('click', function () {
+    document.getElementById("surveyClose").addEventListener("click", function () {
         hideSurveyModal();
     });
 
     setTimeout(showSurveyModal, 30000);
 
-    if (!localStorage.getItem('firstGuide')) {
+    if (!localStorage.getItem("firstGuide")) {
         startGuide();
     }
     reloadi18n();
@@ -376,7 +372,7 @@ function makeNodeTop(id) {
         currentZIndex += 1;
         node.style.zIndex = currentZIndex;
 
-        if (nodeInfo.class === 'GROUP') {
+        if (nodeInfo.class === "GROUP") {
             nodeInfo.data.elements.forEach((elementId) => {
                 makeNodeTop(elementId);
             });
@@ -419,10 +415,10 @@ function moveGroupNodes(groupId, dx, dy) {
 
 function collapseNode(nodeId) {
     const nodeElement = document.getElementById(`node-${nodeId}`);
-    const contentBox = nodeElement.querySelector('.box');
-    const toggleArrow = nodeElement.querySelector('.toggle-arrow');
+    const contentBox = nodeElement.querySelector(".box");
+    const toggleArrow = nodeElement.querySelector(".toggle-arrow");
 
-    contentBox.classList.add('hidden');
+    contentBox.classList.add("hidden");
     toggleArrow.textContent = "\u25BC";
 }
 
@@ -430,8 +426,8 @@ function collapseNode(nodeId) {
 function togglePortsDisplay(nodeId, displayStyle) {
     const nodeElement = document.querySelector(`#node-${nodeId}`);
     if (nodeElement) {
-        const inputs = nodeElement.querySelectorAll('.inputs .input');
-        const outputs = nodeElement.querySelectorAll('.outputs .output');
+        const inputs = nodeElement.querySelectorAll(".inputs .input");
+        const outputs = nodeElement.querySelectorAll(".outputs .output");
         inputs.forEach(input => {
             input.style.display = displayStyle;
         });
@@ -450,7 +446,7 @@ function removeOfGroupNode(id) {
                 editor.drawflow.drawflow[editor.module].data[ele].data.elements.splice(findIndex, 1);
             }
         }
-    })
+    });
 }
 
 
@@ -466,23 +462,23 @@ function allowDrop(ev) {
 
 function drag(ev) {
     if (ev.type === "touchstart") {
-        mobile_item_selec = ev.target.closest(".workstation-sidebar-dragitem").getAttribute('data-node');
+        mobile_item_selec = ev.target.closest(".workstation-sidebar-dragitem").getAttribute("data-node");
     } else {
-        ev.dataTransfer.setData("node", ev.target.getAttribute('data-node'));
+        ev.dataTransfer.setData("node", ev.target.getAttribute("data-node"));
     }
 }
 
 
 function drop(ev) {
     if (ev.type === "touchend") {
-        var parentdrawflow = document.elementFromPoint(mobile_last_move.touches[0].clientX, mobile_last_move.touches[0].clientY).closest("#drawflow");
+        const parentdrawflow = document.elementFromPoint(mobile_last_move.touches[0].clientX, mobile_last_move.touches[0].clientY).closest("#drawflow");
         if (parentdrawflow != null) {
             addNodeToDrawFlow(mobile_item_selec, mobile_last_move.touches[0].clientX, mobile_last_move.touches[0].clientY);
         }
-        mobile_item_selec = '';
+        mobile_item_selec = "";
     } else {
         ev.preventDefault();
-        var data = ev.dataTransfer.getData("node");
+        const data = ev.dataTransfer.getData("node");
         addNodeToDrawFlow(data, ev.clientX, ev.clientY);
     }
 
@@ -490,143 +486,144 @@ function drop(ev) {
 
 
 async function addNodeToDrawFlow(name, pos_x, pos_y) {
-    if (editor.editor_mode === 'fixed') {
+    if (editor.editor_mode === "fixed") {
         return false;
     }
-    pos_x = pos_x * (editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom)) - (editor.precanvas.getBoundingClientRect().x * (editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom)));
-    pos_y = pos_y * (editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom)) - (editor.precanvas.getBoundingClientRect().y * (editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom)));
+    pos_x = Math.ceil(pos_x * (editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom)) - (editor.precanvas.getBoundingClientRect().x * (editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom))));
+    pos_y = Math.ceil(pos_y * (editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom)) - (editor.precanvas.getBoundingClientRect().y * (editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom))));
 
-    var htmlSourceCode = await fetchHtmlSourceCodeByName(name);
+    const htmlSourceCode = await fetchHtmlSourceCodeByName(name);
 
     switch (name) {
         // Workflow-Model
-        case 'dashscope_chat':
-            editor.addNode('dashscope_chat', 0, 0, pos_x,
+        case "dashscope_chat":
+            editor.addNode("dashscope_chat", 0, 0, pos_x,
                 pos_y,
-                'dashscope_chat', {
+                "dashscope_chat", {
                     "args":
                         {
-                            "config_name": '',
-                            "model_name": '',
-                            "api_key": '',
+                            "config_name": "",
+                            "model_name": "",
+                            "api_key": "",
                             "temperature": 0.0,
                             "seed": 0,
-                            "model_type": 'dashscope_chat'
+                            "model_type": "dashscope_chat"
                         }
                 },
                 htmlSourceCode);
             break;
 
-        case 'openai_chat':
-            editor.addNode('openai_chat', 0, 0, pos_x,
+        case "openai_chat":
+            editor.addNode("openai_chat", 0, 0, pos_x,
                 pos_y,
-                'openai_chat', {
+                "openai_chat", {
                     "args":
                         {
-                            "config_name": '',
-                            "model_name": '',
-                            "api_key": '',
+                            "config_name": "",
+                            "model_name": "",
+                            "api_key": "",
                             "temperature": 0.0,
                             "seed": 0,
-                            "model_type": 'openai_chat'
+                            "model_type": "openai_chat"
                         }
                 },
                 htmlSourceCode);
             break;
 
-        case 'post_api_chat':
-            editor.addNode('post_api_chat', 0, 0, pos_x, pos_y,
-                'post_api_chat', {
+        case "post_api_chat":
+            editor.addNode("post_api_chat", 0, 0, pos_x, pos_y,
+                "post_api_chat", {
                     "args":
                         {
-                            "config_name": '',
-                            "api_url": '',
+                            "config_name": "",
+                            "api_url": "",
                             "headers": {
-                                "content_type": 'application/json',
-                                "authorization": '',
+                                "content_type": "application/json",
+                                "authorization": "",
                             },
                             "json_args": {
-                                "model": '',
+                                "model": "",
                                 "temperature": 0.0,
                                 "seed": 0,
                             },
-                            "model_type": 'post_api_chat',
-                            "messages_key": 'messages'
+                            "model_type": "post_api_chat",
+                            "messages_key": "messages"
                         }
                 },
                 htmlSourceCode);
             break;
 
-        case 'post_api_dall_e':
-            editor.addNode('post_api_dall_e', 0,
+        case "post_api_dall_e":
+            editor.addNode("post_api_dall_e", 0,
                 0,
                 pos_x, pos_y,
-                'post_api_dall_e', {
+                "post_api_dall_e", {
                     "args":
                         {
-                            "config_name": '',
-                            "api_url": '',
+                            "config_name": "",
+                            "api_url": "",
                             "headers": {
-                                "content_type": 'application/json',
-                                "authorization": '',
+                                "content_type": "application/json",
+                                "authorization": "",
                             },
                             "json_args": {
-                                "model": '',
+                                "model": "",
                                 "n": 1,
                                 "size": "",
                                 "temperature": 0.0,
                                 "seed": 0,
                             },
-                            "model_type": 'post_api_dall_e',
-                            "messages_key": 'prompt'
+                            "model_type": "post_api_dall_e",
+                            "messages_key": "prompt"
                         }
                 },
                 htmlSourceCode);
             break;
 
-        case 'dashscope_image_synthesis':
-            editor.addNode('dashscope_image_synthesis', 0,
+        case "dashscope_image_synthesis":
+            editor.addNode("dashscope_image_synthesis", 0,
                 0,
                 pos_x, pos_y,
-                'dashscope_image_synthesis', {
+                "dashscope_image_synthesis", {
                     "args":
                         {
-                            "config_name": '',
-                            "model_name": '',
+                            "config_name": "",
+                            "model_name": "",
                             "generate_args": {
                                 "n": 1,
                                 "size": "",
                                 "temperature": 0.0,
                                 "seed": 0,
                             },
-                            "model_type": 'dashscope_image_synthesis'
+                            "model_type": "dashscope_image_synthesis"
                         }
                 }, htmlSourceCode);
             break;
 
         // Message
-        case 'Message':
-            editor.addNode('Message', 1, 1, pos_x,
-                pos_y, 'Message', {
+        case "Message":
+            editor.addNode("Message", 1, 1, pos_x,
+                pos_y, "Message", {
                     "args":
                         {
-                            "name": '',
-                            "content": '',
-                            "url": ''
+                            "name": "",
+                            "content": "",
+                            "url": ""
                         }
                 }, htmlSourceCode);
             break;
 
+
         // Workflow-Agent
-        case 'DialogAgent':
-            const DialogAgentID = editor.addNode('DialogAgent', 1, 1,
+        case "DialogAgent":
+            const DialogAgentID = editor.addNode("DialogAgent", 1, 1,
                 pos_x,
                 pos_y,
-                'DialogAgent', {
+                "DialogAgent", {
                     "args": {
-                        "name": '',
-                        "sys_prompt": '',
-                        "model_config_name": ''
+                        "name": "",
+                        "sys_prompt": "",
+                        "model_config_name": ""
                     }
                 }, htmlSourceCode);
             var nodeElement = document.querySelector(`#node-${DialogAgentID} .node-id`);
@@ -635,10 +632,10 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             }
             break;
 
-        case 'UserAgent':
-            const UserAgentID = editor.addNode('UserAgent', 1, 1, pos_x,
-                pos_y, 'UserAgent', {
-                    "args": {"name": 'User'}
+        case "UserAgent":
+            const UserAgentID = editor.addNode("UserAgent", 1, 1, pos_x,
+                pos_y, "UserAgent", {
+                    "args": {"name": "User"}
                 }, htmlSourceCode);
             var nodeElement = document.querySelector(`#node-${UserAgentID} .node-id`);
             if (nodeElement) {
@@ -646,14 +643,14 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             }
             break;
 
-        case 'TextToImageAgent':
+        case "TextToImageAgent":
             const TextToImageAgentID =
-                editor.addNode('TextToImageAgent', 1,
+                editor.addNode("TextToImageAgent", 1,
                     1, pos_x, pos_y,
-                    'TextToImageAgent', {
+                    "TextToImageAgent", {
                         "args": {
-                            "name": '',
-                            "model_config_name": ''
+                            "name": "",
+                            "model_config_name": ""
                         }
                     }, htmlSourceCode);
             var nodeElement = document.querySelector(`#node-${TextToImageAgentID} .node-id`);
@@ -662,16 +659,16 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             }
             break;
 
-        case 'DictDialogAgent':
-            const DictDialogAgentID = editor.addNode('DictDialogAgent', 1,
+        case "DictDialogAgent":
+            const DictDialogAgentID = editor.addNode("DictDialogAgent", 1,
                 1, pos_x, pos_y,
-                'DictDialogAgent', {
+                "DictDialogAgent", {
                     "args": {
-                        "name": '',
-                        "sys_prompt": '',
-                        "model_config_name": '',
-                        "parse_func": '',
-                        "fault_handler": '',
+                        "name": "",
+                        "sys_prompt": "",
+                        "model_config_name": "",
+                        "parse_func": "",
+                        "fault_handler": "",
                         "max_retries": 3,
                     }
                 }, htmlSourceCode);
@@ -681,16 +678,16 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             }
             break;
 
-        case 'ReActAgent':
-            const ReActAgentID = editor.addNode('ReActAgent', 1, 1, pos_x, pos_y,
-                'GROUP', {
+        case "ReActAgent":
+            const ReActAgentID = editor.addNode("ReActAgent", 1, 1, pos_x, pos_y,
+                "GROUP", {
                     elements: [],
                     "args": {
-                        "name": '',
-                        "sys_prompt": '',
-                        "model_config_name": '',
+                        "name": "",
+                        "sys_prompt": "",
+                        "model_config_name": "",
                         "max_iters": 10,
-                        "verbose": '',
+                        "verbose": "",
                     }
                 }, htmlSourceCode);
             var nodeElement = document.querySelector(`#node-${ReActAgentID} .node-id`);
@@ -699,14 +696,14 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             }
             break;
 
-        case 'BroadcastAgent':
-            const BroadcastAgentID = editor.addNode('BroadcastAgent', 1, 1,
+        case "BroadcastAgent":
+            const BroadcastAgentID = editor.addNode("BroadcastAgent", 1, 1,
                 pos_x,
                 pos_y,
-                'BroadcastAgent', {
+                "BroadcastAgent", {
                     "args": {
-                        "name": '',
-                        "content": ''
+                        "name": "",
+                        "content": ""
                     }
                 }, htmlSourceCode);
             var nodeElement = document.querySelector(`#node-${BroadcastAgentID} .node-id`);
@@ -715,11 +712,11 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             }
             break;
 
-        case 'CopyNode':
-            const CopyNodeID = editor.addNode('CopyNode', 1, 1,
+        case "CopyNode":
+            const CopyNodeID = editor.addNode("CopyNode", 1, 1,
                 pos_x,
                 pos_y,
-                'CopyNode', {
+                "CopyNode", {
                 }, htmlSourceCode);
             var nodeElement = document.querySelector(`#node-${CopyNodeID} .node-id`);
             if (nodeElement) {
@@ -728,32 +725,32 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
             break;
 
         // Workflow-Pipeline
-        case 'Placeholder':
-            editor.addNode('Placeholder', 1, 1,
-                pos_x, pos_y, 'Placeholder', {}, htmlSourceCode);
+        case "Placeholder":
+            editor.addNode("Placeholder", 1, 1,
+                pos_x, pos_y, "Placeholder", {}, htmlSourceCode);
             break;
 
-        case 'MsgHub':
-            editor.addNode('MsgHub', 1, 1, pos_x, pos_y,
-                'GROUP', {
+        case "MsgHub":
+            editor.addNode("MsgHub", 1, 1, pos_x, pos_y,
+                "GROUP", {
                     elements: [],
                     "args": {
                         "announcement": {
-                            "name": '',
-                            "content": ''
+                            "name": "",
+                            "content": ""
                         }
                     }
                 }, htmlSourceCode);
             break;
 
-        case 'SequentialPipeline':
-            editor.addNode('SequentialPipeline', 1, 1, pos_x, pos_y,
-                'GROUP', {elements: []}, htmlSourceCode);
+        case "SequentialPipeline":
+            editor.addNode("SequentialPipeline", 1, 1, pos_x, pos_y,
+                "GROUP", {elements: []}, htmlSourceCode);
             break;
 
-        case 'ForLoopPipeline':
-            editor.addNode('ForLoopPipeline', 1, 1, pos_x, pos_y,
-                'GROUP', {
+        case "ForLoopPipeline":
+            editor.addNode("ForLoopPipeline", 1, 1, pos_x, pos_y,
+                "GROUP", {
                     elements: [],
                     "args": {
                         "max_loop": 3,
@@ -763,19 +760,19 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                 }, htmlSourceCode);
             break;
 
-        case 'WhileLoopPipeline':
-            editor.addNode('WhileLoopPipeline', 1, 1, pos_x, pos_y,
-                'GROUP', {
+        case "WhileLoopPipeline":
+            editor.addNode("WhileLoopPipeline", 1, 1, pos_x, pos_y,
+                "GROUP", {
                     elements: [],
                     "args": {
-                        "condition_func": ''
+                        "condition_func": ""
                     }
                 }, htmlSourceCode);
             break;
 
-        case 'IfElsePipeline':
-            editor.addNode('IfElsePipeline', 1,
-                1, pos_x, pos_y, 'GROUP', {
+        case "IfElsePipeline":
+            editor.addNode("IfElsePipeline", 1,
+                1, pos_x, pos_y, "GROUP", {
                     elements: [], args: {
                         "condition_op": "",
                         "target_value": "",
@@ -783,19 +780,19 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                 }, htmlSourceCode);
             break;
 
-        case 'SwitchPipeline':
-            const SwitchPipelineID = editor.addNode('SwitchPipeline', 1, 1, pos_x, pos_y, 'GROUP', {
+        case "SwitchPipeline":
+            const SwitchPipelineID = editor.addNode("SwitchPipeline", 1, 1, pos_x, pos_y, "GROUP", {
                 elements: [], args: {
-                    "condition_func": '',
+                    "condition_func": "",
                     "cases": [],
                 }
             }, htmlSourceCode);
             break;
 
         // Workflow-Service
-        case 'BingSearchService':
-            editor.addNode('BingSearchService', 0, 0,
-                pos_x, pos_y, 'BingSearchService', {
+        case "BingSearchService":
+            editor.addNode("BingSearchService", 0, 0,
+                pos_x, pos_y, "BingSearchService", {
                     "args": {
                         "api_key": "",
                         "num_results": 3,
@@ -803,9 +800,9 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                 }, htmlSourceCode);
             break;
 
-        case 'GoogleSearchService':
-            editor.addNode('GoogleSearchService', 0, 0,
-                pos_x, pos_y, 'GoogleSearchService', {
+        case "GoogleSearchService":
+            editor.addNode("GoogleSearchService", 0, 0,
+                pos_x, pos_y, "GoogleSearchService", {
                     "args": {
                         "api_key": "",
                         "cse_id": "",
@@ -814,24 +811,24 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                 }, htmlSourceCode);
             break;
 
-        case 'PythonService':
-            editor.addNode('PythonService', 0, 0,
-                pos_x, pos_y, 'PythonService', {}, htmlSourceCode);
+        case "PythonService":
+            editor.addNode("PythonService", 0, 0,
+                pos_x, pos_y, "PythonService", {}, htmlSourceCode);
             break;
 
-        case 'ReadTextService':
-            editor.addNode('ReadTextService', 0, 0,
-                pos_x, pos_y, 'ReadTextService', {}, htmlSourceCode);
+        case "ReadTextService":
+            editor.addNode("ReadTextService", 0, 0,
+                pos_x, pos_y, "ReadTextService", {}, htmlSourceCode);
             break;
 
-        case 'WriteTextService':
-            editor.addNode('WriteTextService', 0, 0,
-                pos_x, pos_y, 'WriteTextService', {}, htmlSourceCode);
+        case "WriteTextService":
+            editor.addNode("WriteTextService", 0, 0,
+                pos_x, pos_y, "WriteTextService", {}, htmlSourceCode);
             break;
 
-        case 'TextToAudioService':
-            const TextToAudioServiceID = editor.addNode('TextToAudioService', 0, 0,
-                pos_x, pos_y, 'TextToAudioService', {
+        case "TextToAudioService":
+            const TextToAudioServiceID = editor.addNode("TextToAudioService", 0, 0,
+                pos_x, pos_y, "TextToAudioService", {
                     "args": {
                         "model": "",
                         "api_key": "",
@@ -839,9 +836,9 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                     }
                 }, htmlSourceCode);
             break;
-        case 'TextToImageService':
-            editor.addNode('TextToImageService', 0, 0,
-                pos_x, pos_y, 'TextToImageService', {
+        case "TextToImageService":
+            editor.addNode("TextToImageService", 0, 0,
+                pos_x, pos_y, "TextToImageService", {
                     "args": {
                         "model": "",
                         "api_key": "",
@@ -851,9 +848,9 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                 }, htmlSourceCode);
             break;
 
-        case 'ImageComposition':
-            editor.addNode('ImageComposition', 1, 1,
-                pos_x, pos_y, 'ImageComposition', {
+        case "ImageComposition":
+            editor.addNode("ImageComposition", 1, 1,
+                pos_x, pos_y, "ImageComposition", {
                     "args": {
                         "titles": "",
                         "output_path": "",
@@ -865,9 +862,9 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                     }
                 }, htmlSourceCode);
             break;
-        case 'Code':
-            const CodeID = editor.addNode('Code', 1, 1,
-                pos_x, pos_y, 'Code', {
+        case "Code":
+            const CodeID = editor.addNode("Code", 1, 1,
+                pos_x, pos_y, "Code", {
                     "args": {
                         "code": "def function(msg1: Msg) -> Msg:\n    content1 = msg1.get(\"content\", \"\")\n    return {\n        \"role\": \"assistant\",\n        \"content\": content1,\n        \"name\": \"function\",\n    }"
                     }
@@ -883,9 +880,9 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
         //         }, htmlSourceCode);
         //     break;
 
-        case 'ImageMotion':
-            editor.addNode('ImageMotion', 1, 1,
-                pos_x, pos_y, 'ImageMotion', {
+        case "ImageMotion":
+            editor.addNode("ImageMotion", 1, 1,
+                pos_x, pos_y, "ImageMotion", {
                     "args": {
                         "output_path": "",
                         "output_format": "",
@@ -894,9 +891,9 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                 }, htmlSourceCode);
             break;
 
-        case 'VideoComposition':
-            editor.addNode('VideoComposition', 1, 1,
-                pos_x, pos_y, 'VideoComposition', {
+        case "VideoComposition":
+            editor.addNode("VideoComposition", 1, 1,
+                pos_x, pos_y, "VideoComposition", {
                     "args": {
                         "output_path": "",
                         "target_width": "",
@@ -906,15 +903,15 @@ async function addNodeToDrawFlow(name, pos_x, pos_y) {
                 }, htmlSourceCode);
             break;
 
-        case 'Post':
-            editor.addNode('Post', 1, 1,
-                pos_x, pos_y, 'Post', {
+        case "Post":
+            editor.addNode("Post", 1, 1,
+                pos_x, pos_y, "Post", {
                     "args": {
                         "url": "",
-                        "headers": '',
-                        "data": '',
-                        "json": '',
-                        "kwargs": '',
+                        "headers": "",
+                        "data": "",
+                        "json": "",
+                        "kwargs": "",
                         "output_path": "",
                         "output_type": "",
                     }
@@ -942,7 +939,7 @@ function initializeMonacoEditor(nodeId) {
             return;
         }
 
-        const codeContentElement = parentNode.querySelector(`.code-content`);
+        const codeContentElement = parentNode.querySelector(".code-content");
         if (!codeContentElement) {
             return;
         }
@@ -966,20 +963,65 @@ function initializeMonacoEditor(nodeId) {
             readOnly: false,
         });
 
-        editorInstance.onDidChangeModelContent(function () {
-            const updatedNode = editor.getNodeFromId(nodeId);
-            if (updatedNode) {
-                updatedNode.data.args.code = editorInstance.getValue().trim();
-                editor.updateNodeDataFromId(nodeId, updatedNode.data);
+        require(["vs/editor/editor.main"], function () {
+            const parentSelector = `#node-${nodeId}`;
+            const parentNode = document.querySelector(parentSelector);
+
+            if (!parentNode) {
+                console.error(`Parent node with selector ${parentSelector} not found.`);
+                return;
             }
+
+            const codeContentElement = parentNode.querySelector(`.code-content`);
+            if (!codeContentElement) {
+                return;
+            }
+
+            const node = editor.getNodeFromId(nodeId);
+            if (!node) {
+                console.error(`Node with ID ${nodeId} not found.`);
+                return;
+            }
+
+            const editorInstance = monaco.editor.create(codeContentElement, {
+                value: node.data.args.code,
+                language: "python",
+                theme: "vs-light",
+                minimap: {
+                    enabled: false,
+                },
+                wordWrap: "on",
+                lineNumbersMinChars: 1,
+                scrollBeyondLastLine: false,
+                readOnly: false,
+            });
+
+            editorInstance.onDidChangeModelContent(function () {
+                const updatedNode = editor.getNodeFromId(nodeId);
+                if (updatedNode) {
+                    updatedNode.data.args.code = editorInstance.getValue().trim();
+                    editor.updateNodeDataFromId(nodeId, updatedNode.data);
+                }
+            });
+
+            const resizeObserver = new ResizeObserver(() => {
+                editorInstance.layout();
+            });
+            resizeObserver.observe(parentNode);
+
+            parentNode.addEventListener('DOMNodeRemoved', function () {
+                resizeObserver.disconnect();
+            });
+
+        }, function (error) {
+            console.error("Error encountered while loading monaco editor: ", error);
         });
 
         const resizeObserver = new ResizeObserver(() => {
             editorInstance.layout();
         });
         resizeObserver.observe(parentNode);
-
-        parentNode.addEventListener('DOMNodeRemoved', function () {
+        parentNode.addEventListener("DOMNodeRemoved", function () {
             resizeObserver.disconnect();
         });
 
@@ -989,7 +1031,6 @@ function initializeMonacoEditor(nodeId) {
 }
 
 
-
 function updateSampleRate(nodeId) {
     const newNode = document.getElementById(`node-${nodeId}`);
     if (!newNode) {
@@ -997,34 +1038,34 @@ function updateSampleRate(nodeId) {
         return;
     }
 
-    const modelNameInput = newNode.querySelector('#model_name');
+    const modelNameInput = newNode.querySelector("#model_name");
 
     function updateSampleRateValue() {
-        const modelName = modelNameInput ? modelNameInput.value : '';
+        const modelName = modelNameInput ? modelNameInput.value : "";
 
         if (ModelNames48k.includes(modelName)) {
-            sampleRate = 48000
+            sampleRate = 48000;
         } else {
-            sampleRate = 16000
+            sampleRate = 16000;
         }
 
-        const sampleRateInput = newNode.querySelector('#sample_rate');
+        const sampleRateInput = newNode.querySelector("#sample_rate");
 
         if (sampleRateInput) {
             sampleRateInput.value = sampleRate;
-            var nodeData = editor.getNodeFromId(nodeId).data;
-            nodeData.args.sample_rate = sampleRate
-            nodeData.args.model = modelName
+            const nodeData = editor.getNodeFromId(nodeId).data;
+            nodeData.args.sample_rate = sampleRate;
+            nodeData.args.model = modelName;
             editor.updateNodeDataFromId(nodeId, nodeData);
 
             console.log(`${modelName} sample rate updated to: ${sampleRate}`);
         } else {
-            console.log(`Sample Rate input not found.`);
+            console.log("Sample Rate input not found.");
         }
     }
 
     if (modelNameInput) {
-        modelNameInput.addEventListener('input', updateSampleRateValue);
+        modelNameInput.addEventListener("input", updateSampleRateValue);
     }
 }
 
@@ -1034,9 +1075,9 @@ function setupTextInputListeners(nodeId) {
         const stopPropagation = function (event) {
             event.stopPropagation();
         };
-        newNode.addEventListener('mousedown', function (event) {
+        newNode.addEventListener("mousedown", function (event) {
             const target = event.target;
-            if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.closest('.code-content')) {
+            if (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.closest(".code-content")) {
                 stopPropagation(event);
             }
         }, false);
@@ -1044,7 +1085,7 @@ function setupTextInputListeners(nodeId) {
 }
 
 function toggleAdvanced() {
-    var advancedBox = document.querySelector('.advanced-box');
+    const advancedBox = document.querySelector(".advanced-box");
     if (advancedBox.style.display === "none") {
         advancedBox.style.display = "block";
     } else {
@@ -1056,20 +1097,20 @@ function toggleAdvanced() {
 function handleInputChange(event) {
     const input = event.target;
 
-    if (input.type === 'number') {
+    if (input.type === "number") {
         const value = input.value;
         const floatValue = parseFloat(value);
-        const nodeId = input.closest('.drawflow_content_node').parentElement.id.slice(5);
+        const nodeId = input.closest(".drawflow_content_node").parentElement.id.slice(5);
 
         if (!isNaN(floatValue)) {
             const node = editor.getNodeFromId(nodeId);
             const dataAttributes =
                 Array.from(input.attributes).filter(attr =>
-                    attr.name.startsWith('df-args-'));
+                    attr.name.startsWith("df-args-"));
             dataAttributes.forEach(attr => {
                 const attrName = attr.name;
-                if (attrName.startsWith('df-args-json_args-')) {
-                    const dataAttribute = attrName.substring(18)
+                if (attrName.startsWith("df-args-json_args-")) {
+                    const dataAttribute = attrName.substring(18);
                     if
                     (node.data.args.json_args.hasOwnProperty(dataAttribute)) {
                         node.data.args.json_args[dataAttribute] = floatValue;
@@ -1093,9 +1134,9 @@ function handleInputChange(event) {
 function addEventListenersToNumberInputs(nodeId) {
     const nodeElement = document.getElementById(`node-${nodeId}`);
     if (nodeElement) {
-        const numberInputs = nodeElement.querySelectorAll('input[type=number]');
+        const numberInputs = nodeElement.querySelectorAll("input[type=number]");
         numberInputs.forEach(input => {
-            input.addEventListener('change', handleInputChange);
+            input.addEventListener("change", handleInputChange);
         });
     }
 }
@@ -1104,9 +1145,9 @@ function addEventListenersToNumberInputs(nodeId) {
 function validateTemperature(input) {
     const value = input.valueAsNumber;
     if (isNaN(value) || value < 0 || value >= 2) {
-        input.setCustomValidity('Temperature must be greater or equal than 0 and less than 2!');
+        input.setCustomValidity("Temperature must be greater or equal than 0 and less than 2!");
     } else {
-        input.setCustomValidity('');
+        input.setCustomValidity("");
     }
     input.reportValidity();
 }
@@ -1115,9 +1156,9 @@ function validateTemperature(input) {
 function validateSeed(input) {
     const value = parseInt(input.value, 10); // Parse the value as an integer.
     if (isNaN(value) || value < 0 || !Number.isInteger(parseFloat(input.value))) {
-        input.setCustomValidity('Seed must be a non-negative integer!');
+        input.setCustomValidity("Seed must be a non-negative integer!");
     } else {
-        input.setCustomValidity('');
+        input.setCustomValidity("");
     }
     input.reportValidity();
 }
@@ -1125,38 +1166,38 @@ function validateSeed(input) {
 function validateDuration(input) {
     const value = parseInt(input.value, 10); // Parse the value as an integer.
     if (isNaN(value) || value < 0 || !Number.isInteger(parseFloat(input.value))) {
-        input.setCustomValidity('Duration must be a non-negative integer!');
+        input.setCustomValidity("Duration must be a non-negative integer!");
     } else {
-        input.setCustomValidity('');
+        input.setCustomValidity("");
     }
     input.reportValidity();
 }
 
 
-document.addEventListener('input', function (event) {
+document.addEventListener("input", function (event) {
     const input = event.target;
 
-    if (input.getAttribute('df-args-temperature') !== null ||
-        input.getAttribute('df-args-json_args-temperature') !== null) {
+    if (input.getAttribute("df-args-temperature") !== null ||
+        input.getAttribute("df-args-json_args-temperature") !== null) {
         validateTemperature(input);
     }
 
-    if (input.getAttribute('df-args-seed') !== null ||
-        input.getAttribute('df-args-json_args-seed') !== null) {
+    if (input.getAttribute("df-args-seed") !== null ||
+        input.getAttribute("df-args-json_args-seed") !== null) {
         validateSeed(input);
     }
 
-    if (input.getAttribute('df-args-duration') !== null) {
-        validateDuration(input)
+    if (input.getAttribute("df-args-duration") !== null) {
+        validateDuration(input);
     }
 });
 
-var transform = '';
+var transform = "";
 
 
 function updateReadmeAndTrimExtrasInHTML(htmlString, nodeId) {
     const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlString, 'text/html');
+    const doc = parser.parseFromString(htmlString, "text/html");
     const containerDiv = doc.body.firstChild;
 
     removeNonReadmeChildren(containerDiv);
@@ -1166,11 +1207,11 @@ function updateReadmeAndTrimExtrasInHTML(htmlString, nodeId) {
 }
 
 function updateReadmeContent(containerDiv, nodeId) {
-    const readmeDiv = containerDiv.querySelector('.readme');
+    const readmeDiv = containerDiv.querySelector(".readme");
     if (readmeDiv) {
         console.log("readmeDiv", readmeDiv);
 
-        let newDiv = document.createElement('div');
+        const newDiv = document.createElement("div");
         newDiv.innerHTML = `Copy from Node ID: ${nodeId}`;
         readmeDiv.appendChild(newDiv);
 
@@ -1179,24 +1220,26 @@ function updateReadmeContent(containerDiv, nodeId) {
 }
 
 function removeNonReadmeChildren(containerDiv) {
-    const boxDiv = containerDiv.querySelector('.box');
+    const boxDiv = containerDiv.querySelector(".box");
     if (boxDiv) {
-        boxDiv.querySelectorAll('*:not(.readme)').forEach(child => child.remove());
+        boxDiv.querySelectorAll("*:not(.readme)").forEach(child => child.remove());
     }
 }
 
 function createNodeHTML(node, isCopy, originalNodeId) {
-    let modifiedHtml = isCopy ? processNodeCopyHTML(node.html) : node.html;
+    const modifiedHtml = isCopy ? processNodeCopyHTML(node.html) : node.html;
     return updateReadmeAndTrimExtrasInHTML(modifiedHtml, originalNodeId);
 }
 
 function processNodeCopyHTML(htmlString) {
     const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlString, 'text/html');
+    const doc = parser.parseFromString(htmlString, "text/html");
 
-    ['.copy-button', 'div .node-id'].forEach(selector => {
+    [".copy-button", "div .node-id"].forEach(selector => {
         const element = doc.querySelector(selector);
-        if (element) element.remove();
+        if (element) {
+            element.remove();
+        }
     });
 
     return doc.body.innerHTML;
@@ -1212,16 +1255,16 @@ function copyNode(originalNodeId) {
     editor.addNode("CopyNode",
         Object.keys(originalNode.inputs).length,
         Object.keys(originalNode.outputs).length,
-        posX, posY, 'node-' + originalNode.name, {elements: [originalNodeId.toString()]},
+        posX, posY, "node-" + originalNode.name, {elements: [originalNodeId.toString()]},
         newNodeHTML);
 }
 
 function setupNodeCopyListens(nodeId) {
     const newNode = document.getElementById(`node-${nodeId}`);
     if (newNode) {
-        const copyButton = newNode.querySelector('.copy-button');
+        const copyButton = newNode.querySelector(".copy-button");
         if (copyButton) {
-            copyButton.addEventListener('click', function () {
+            copyButton.addEventListener("click", function () {
                 copyNode(nodeId);
             });
         }
@@ -1230,17 +1273,17 @@ function setupNodeCopyListens(nodeId) {
 
 function hideShowGroupNodes(groupId, show) {
     const groupInfo = editor.getNodeFromId(groupId);
-    if (groupInfo && groupInfo.class === 'GROUP') {
+    if (groupInfo && groupInfo.class === "GROUP") {
         groupInfo.data.elements.forEach(elementNodeId => {
             const elementNode = document.getElementById(`node-${elementNodeId}`);
             const childNodeInfo = editor.getNodeFromId(elementNodeId);
-            const contentBox = elementNode.querySelector('.box') ||
-                elementNode.querySelector('.box-highlight');
+            const contentBox = elementNode.querySelector(".box") ||
+                elementNode.querySelector(".box-highlight");
             if (elementNode) {
-                elementNode.style.display = show ? '' : 'none';
+                elementNode.style.display = show ? "" : "none";
             }
-            if (childNodeInfo.class === 'GROUP') {
-                if (!show || (contentBox && !contentBox.classList.contains('hidden'))) {
+            if (childNodeInfo.class === "GROUP") {
+                if (!show || (contentBox && !contentBox.classList.contains("hidden"))) {
                     hideShowGroupNodes(elementNodeId, show);
                 }
             }
@@ -1251,22 +1294,22 @@ function hideShowGroupNodes(groupId, show) {
 function setupConditionListeners(nodeId) {
     const newNode = document.getElementById(`node-${nodeId}`);
     if (newNode) {
-        const conditionOp = newNode.querySelector('#condition_op');
-        const targetContainer = newNode.querySelector('#target-container');
+        const conditionOp = newNode.querySelector("#condition_op");
+        const targetContainer = newNode.querySelector("#target-container");
         console.log(conditionOp, targetContainer);
 
         function updateTargetVisibility() {
-            const condition_op = conditionOp ? conditionOp.value : '';
-            const hideConditions = ['', 'is empty', 'is null', 'is not empty', 'is not null'];
+            const condition_op = conditionOp ? conditionOp.value : "";
+            const hideConditions = ["", "is empty", "is null", "is not empty", "is not null"];
             if (hideConditions.includes(condition_op)) {
-                targetContainer.style.display = 'none';
+                targetContainer.style.display = "none";
             } else {
-                targetContainer.style.display = 'block';
+                targetContainer.style.display = "block";
             }
         }
 
         if (conditionOp) {
-            conditionOp.addEventListener('input', updateTargetVisibility);
+            conditionOp.addEventListener("input", updateTargetVisibility);
             updateTargetVisibility();
         }
     }
@@ -1281,45 +1324,45 @@ function setupNodeListeners(nodeId) {
         updateSampleRate(nodeId);
         setupSwitchPipelineListeners(nodeId);
 
-        const titleBox = newNode.querySelector('.title-box');
-        const contentBox = newNode.querySelector('.box') ||
-            newNode.querySelector('.box-highlight');
+        const titleBox = newNode.querySelector(".title-box");
+        const contentBox = newNode.querySelector(".box") ||
+            newNode.querySelector(".box-highlight");
 
         // Add resize handle to the bottom right corner of the node
-        const resizeHandleSE = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        const resizeHandleSE = document.createElementNS("http://www.w3.org/2000/svg", "svg");
 
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', 'M932.37602347 512.88874453l-420.37602347 420.37602347 56.43525867 56.43525867 420.37602453-420.37602347-56.43525973-56.43525867z m-3.55497707-474.58942293L34.29997333 933.264768l56.43525867 56.43525867L985.25630613 95.1789536l-56.43525973-56.879632z');
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M932.37602347 512.88874453l-420.37602347 420.37602347 56.43525867 56.43525867 420.37602453-420.37602347-56.43525973-56.43525867z m-3.55497707-474.58942293L34.29997333 933.264768l56.43525867 56.43525867L985.25630613 95.1789536l-56.43525973-56.879632z");
 
-        resizeHandleSE.setAttribute('viewBox', '0 0 1024 1024');
+        resizeHandleSE.setAttribute("viewBox", "0 0 1024 1024");
         resizeHandleSE.appendChild(path);
 
-        resizeHandleSE.classList.add('resize-handle-se');
+        resizeHandleSE.classList.add("resize-handle-se");
 
         contentBox.appendChild(resizeHandleSE);
 
-        const toggleArrow = newNode.querySelector('.toggle-arrow');
+        const toggleArrow = newNode.querySelector(".toggle-arrow");
 
         if (toggleArrow && contentBox && titleBox) {
-            toggleArrow.addEventListener('click', function () {
-                contentBox.classList.toggle('hidden');
+            toggleArrow.addEventListener("click", function () {
+                contentBox.classList.toggle("hidden");
 
-                if (contentBox.classList.contains('hidden')) {
+                if (contentBox.classList.contains("hidden")) {
                     toggleArrow.textContent = "\u25BC";
                     hideShowGroupNodes(nodeId, false);
                 } else {
                     toggleArrow.textContent = "\u25B2";
                     hideShowGroupNodes(nodeId, true);
                 }
-                editor.updateConnectionNodes('node-' + nodeId);
+                editor.updateConnectionNodes("node-" + nodeId);
             });
 
             let startX, startY, startWidth, startHeight;
 
-            resizeHandleSE.addEventListener('mousedown', function (e) {
+            resizeHandleSE.addEventListener("mousedown", function (e) {
                 e.stopPropagation();
-                document.addEventListener('mousemove', doDragSE, false);
-                document.addEventListener('mouseup', stopDragSE, false);
+                document.addEventListener("mousemove", doDragSE, false);
+                document.addEventListener("mouseup", stopDragSE, false);
 
                 startX = e.clientX;
                 startY = e.clientY;
@@ -1328,23 +1371,23 @@ function setupNodeListeners(nodeId) {
             });
 
             function doDragSE(e) {
-                newNode.style.width = 'auto';
+                newNode.style.width = "auto";
 
                 const newWidth = (startWidth + e.clientX - startX);
                 if (newWidth > 200) {
-                    contentBox.style.width = newWidth + 'px';
-                    titleBox.style.width = newWidth + 'px';
+                    contentBox.style.width = newWidth + "px";
+                    titleBox.style.width = newWidth + "px";
                 }
 
                 const newHeight = (startHeight + e.clientY - startY);
-                contentBox.style.height = newHeight + 'px';
+                contentBox.style.height = newHeight + "px";
 
-                editor.updateConnectionNodes('node-' + nodeId);
+                editor.updateConnectionNodes("node-" + nodeId);
             }
 
             function stopDragSE(e) {
-                document.removeEventListener('mousemove', doDragSE, false);
-                document.removeEventListener('mouseup', stopDragSE, false);
+                document.removeEventListener("mousemove", doDragSE, false);
+                document.removeEventListener("mouseup", stopDragSE, false);
             }
 
         }
@@ -1357,90 +1400,90 @@ function setupSwitchPipelineListeners(nodeId) {
         console.error(`Node with ID node-${nodeId} not found.`);
         return;
     }
-    const addCaseButton = newNode.querySelector('.add-case');
+    const addCaseButton = newNode.querySelector(".add-case");
     if (!addCaseButton) {
         return;
     }
-    addCaseButton.addEventListener('click', function () {
-        var caseContainer = newNode.querySelector('.case-container');
+    addCaseButton.addEventListener("click", function () {
+        const caseContainer = newNode.querySelector(".case-container");
         if (!caseContainer) {
             console.error(`Case container not found in node-${nodeId}.`);
             return;
         }
-        var defaultCaseElement = caseContainer.querySelector('.default-case');
+        const defaultCaseElement = caseContainer.querySelector(".default-case");
         if (defaultCaseElement) {
             caseContainer.removeChild(defaultCaseElement);
         }
-        var caseCount = caseContainer.getElementsByClassName('case-placeholder').length;
-        var caseElement = document.createElement('div');
-        caseElement.classList.add('case-placeholder');
+        const caseCount = caseContainer.getElementsByClassName("case-placeholder").length;
+        const caseElement = document.createElement("div");
+        caseElement.classList.add("case-placeholder");
 
-        var caseText = document.createTextNode(`Case ${caseCount + 1}: `);
+        const caseText = document.createTextNode(`Case ${caseCount + 1}: `);
         caseElement.appendChild(caseText);
 
-        var inputElement = document.createElement('input');
-        inputElement.type = 'text';
-        inputElement.placeholder = `Case Pattern`;
+        const inputElement = document.createElement("input");
+        inputElement.type = "text";
+        inputElement.placeholder = "Case Pattern";
 
         inputElement.dataset.caseIndex = caseCount;
 
         caseElement.appendChild(inputElement);
         caseContainer.appendChild(caseElement);
 
-        inputElement.addEventListener('input', function (e) {
-            var nodeData = editor.getNodeFromId(nodeId).data;
+        inputElement.addEventListener("input", function (e) {
+            const nodeData = editor.getNodeFromId(nodeId).data;
             console.log("nodeData", nodeData);
-            var index = e.target.dataset.caseIndex;
+            const index = e.target.dataset.caseIndex;
             console.log("index", index);
             nodeData.args.cases[index] = e.target.value;
             editor.updateNodeDataFromId(nodeId, nodeData);
         });
 
-        editor.getNodeFromId(nodeId).data.args.cases.push('');
+        editor.getNodeFromId(nodeId).data.args.cases.push("");
 
         addDefaultCase(caseContainer);
-        editor.updateConnectionNodes('node-' + nodeId);
+        editor.updateConnectionNodes("node-" + nodeId);
     });
 
-    const removeCaseButton = newNode.querySelector('.remove-case');
+    const removeCaseButton = newNode.querySelector(".remove-case");
     if (!removeCaseButton) {
         return;
     }
-    removeCaseButton.addEventListener('click', function () {
-        var caseContainer = newNode.querySelector('.case-container');
-        var cases = caseContainer.getElementsByClassName('case-placeholder');
+    removeCaseButton.addEventListener("click", function () {
+        const caseContainer = newNode.querySelector(".case-container");
+        const cases = caseContainer.getElementsByClassName("case-placeholder");
         if (cases.length > 1) {
             caseContainer.removeChild(cases[cases.length - 2]);
-            var nodeData = editor.getNodeFromId(nodeId).data;
+            const nodeData = editor.getNodeFromId(nodeId).data;
             nodeData.args.cases.splice(nodeData.args.cases.length - 1, 1);
             editor.updateNodeDataFromId(nodeId, nodeData);
         }
-        editor.updateConnectionNodes('node-' + nodeId);
+        editor.updateConnectionNodes("node-" + nodeId);
     });
 
-    var caseContainer = newNode.querySelector('.case-container');
+    const caseContainer = newNode.querySelector(".case-container");
     if (!caseContainer) {
         console.error(`Case container not found in node-${nodeId}.`);
         return;
     }
 
-    var defaultCaseElement = caseContainer.querySelector('.default-case');
+    const defaultCaseElement = caseContainer.querySelector(".default-case");
     if (defaultCaseElement) {
         caseContainer.removeChild(defaultCaseElement);
     }
 
-    var cases = editor.getNodeFromId(nodeId).data.args.cases;
-    for (var caseCount = 0; caseCount < cases.length; caseCount++) {
+    const cases = editor.getNodeFromId(nodeId).data.args.cases;
+    for (let caseCount = 0; caseCount < cases.length; caseCount++) {
 
-        var caseElement = document.createElement('div');
-        caseElement.classList.add('case-placeholder');
+        const caseElement = document.createElement("div");
+        caseElement.classList.add("case-placeholder");
 
-        var caseText = document.createTextNode(`Case ${caseCount + 1}: `);
+        const caseText = document.createTextNode(`Case ${caseCount + 1}: `);
         caseElement.appendChild(caseText);
 
-        var inputElement = document.createElement('input');
-        inputElement.type = 'text';
-        inputElement.placeholder = `Case Pattern`;
+        const inputElement = document.createElement("input");
+        inputElement.type = "text";
+        inputElement.placeholder = "Case Pattern";
         inputElement.value = cases[caseCount];
 
         inputElement.dataset.caseIndex = caseCount;
@@ -1448,10 +1491,10 @@ function setupSwitchPipelineListeners(nodeId) {
         caseElement.appendChild(inputElement);
         caseContainer.appendChild(caseElement);
 
-        inputElement.addEventListener('input', function (e) {
-            var nodeData = editor.getNodeFromId(nodeId).data;
+        inputElement.addEventListener("input", function (e) {
+            const nodeData = editor.getNodeFromId(nodeId).data;
             console.log("nodeData", nodeData);
-            var index = e.target.dataset.caseIndex;
+            const index = e.target.dataset.caseIndex;
             console.log("index", index);
             nodeData.args.cases[index] = e.target.value;
             editor.updateNodeDataFromId(nodeId, nodeData);
@@ -1461,9 +1504,9 @@ function setupSwitchPipelineListeners(nodeId) {
 }
 
 function addDefaultCase(caseContainer) {
-    var defaultCaseElement = document.createElement('div');
-    defaultCaseElement.classList.add('case-placeholder', 'default-case');
-    defaultCaseElement.textContent = `Default Case`;
+    const defaultCaseElement = document.createElement("div");
+    defaultCaseElement.classList.add("case-placeholder", "default-case");
+    defaultCaseElement.textContent = "Default Case";
     caseContainer.appendChild(defaultCaseElement);
 }
 
@@ -1472,54 +1515,54 @@ function closemodal(e) {
     e.target.closest(".drawflow-node").style.zIndex = "2";
     e.target.parentElement.parentElement.style.display = "none";
     editor.precanvas.style.transform = transform;
-    editor.precanvas.style.left = '0px';
-    editor.precanvas.style.top = '0px';
+    editor.precanvas.style.left = "0px";
+    editor.precanvas.style.top = "0px";
     editor.editor_mode = "edit";
 }
 
 
 function changeModule(event) {
-    var all = document.querySelectorAll(".menu ul li");
-    for (var i = 0; i < all.length; i++) {
-        all[i].classList.remove('selected');
+    const all = document.querySelectorAll(".menu ul li");
+    for (let i = 0; i < all.length; i++) {
+        all[i].classList.remove("selected");
     }
-    event.target.classList.add('selected');
+    event.target.classList.add("selected");
 }
 
 
 function changeLockMode(option) {
-    let lockSvg = document.getElementById('lock-svg');
-    let unlockSvg = document.getElementById('unlock-svg');
-    if (option === 'lock') {
-        editor.editor_mode = 'edit';
-        lockSvg.style.display = 'none';
-        unlockSvg.style.display = 'block';
+    const lockSvg = document.getElementById("lock-svg");
+    const unlockSvg = document.getElementById("unlock-svg");
+    if (option === "lock") {
+        editor.editor_mode = "edit";
+        lockSvg.style.display = "none";
+        unlockSvg.style.display = "block";
     } else {
-        editor.editor_mode = 'fixed';
-        lockSvg.style.display = 'block';
-        unlockSvg.style.display = 'none';
+        editor.editor_mode = "fixed";
+        lockSvg.style.display = "block";
+        unlockSvg.style.display = "none";
     }
 }
 
 
 function toggleDraggable(element) {
-    var content = element.nextElementSibling;
-    if (content.classList.contains('visible')) {
-        content.classList.remove('visible');
+    const content = element.nextElementSibling;
+    if (content.classList.contains("visible")) {
+        content.classList.remove("visible");
     } else {
-        content.classList.add('visible');
+        content.classList.add("visible");
     }
 }
 
 
 function filterEmptyValues(obj) {
     return Object.entries(obj).reduce((acc, [key, value]) => {
-        if (typeof value === 'object' && value !== null) {
+        if (typeof value === "object" && value !== null) {
             const filteredNestedObj = filterEmptyValues(value);
             if (Object.keys(filteredNestedObj).length > 0) {
                 acc[key] = filteredNestedObj;
             }
-        } else if (value !== '') {
+        } else if (value !== "") {
             acc[key] = value;
         }
         return acc;
@@ -1538,7 +1581,7 @@ function reorganizeAndFilterConfigForAgentScope(inputData) {
     Object.entries(homeTab.data).forEach(([key, node]) => {
         // Skip the node if the name is 'welcome' or 'readme'
         const nodeName = node.name.toLowerCase();
-        if (nodeName === 'welcome' || nodeName === 'readme') {
+        if (nodeName === "welcome" || nodeName === "readme") {
             return;
         }
 
@@ -1572,9 +1615,9 @@ function sortElementsByPosition(inputData) {
     Object.keys(inputData.drawflow).forEach((moduleKey) => {
         const moduleData = inputData.drawflow[moduleKey];
         Object.entries(moduleData.data).forEach(([nodeId, node]) => {
-            if (node.class === 'GROUP') {
-                let elements = node.data.elements;
-                let elementsWithPosition = elements.map(elementId => {
+            if (node.class === "GROUP") {
+                const elements = node.data.elements;
+                const elementsWithPosition = elements.map(elementId => {
                     const elementNode = document.querySelector(`#node-${elementId}`);
                     return elementNode ? {
                         id: elementId,
@@ -1587,8 +1630,8 @@ function sortElementsByPosition(inputData) {
 
                 try {
                     elementsWithPosition.sort((a, b) => {
-                        let y1 = parseInt(a.position.y, 10);
-                        let y2 = parseInt(b.position.y, 10);
+                        const y1 = parseInt(a.position.y, 10);
+                        const y2 = parseInt(b.position.y, 10);
                         if (y1 === y2) {
                             throw new Error(`Two elements have the same y position: Element ${a.id} and Element ${b.id}`);
                         }
@@ -1609,34 +1652,34 @@ function sortElementsByPosition(inputData) {
 function checkConditions() {
     let hasModelTypeError = false;
     let hasAgentError = false;
-    let agentModelConfigNames = new Set();
-    let modelConfigNames = new Set();
+    const agentModelConfigNames = new Set();
+    const modelConfigNames = new Set();
     let isApiKeyEmpty = false;
     const nodesData = editor.export().drawflow.Home.data;
 
-    for (let nodeId in nodesData) {
-        let node = nodesData[nodeId];
+    for (const nodeId in nodesData) {
+        const node = nodesData[nodeId];
         console.log("node", node);
         console.log("node.inputs", node.inputs);
 
-        let nodeElement = document.getElementById('node-' + nodeId);
-        const requiredInputs = nodeElement.querySelectorAll('input[data-required="true"]');
+        const nodeElement = document.getElementById("node-" + nodeId);
+        const requiredInputs = nodeElement.querySelectorAll("input[data-required=\"true\"]");
 
-        let titleBox = nodeElement.querySelector('.title-box');
+        const titleBox = nodeElement.querySelector(".title-box");
 
-        let titleText = titleBox.getAttribute("data-class");
+        const titleText = titleBox.getAttribute("data-class");
 
         for (const input of requiredInputs) {
-            if (input.value.trim() === '') {
-                let inputLabel = input.previousElementSibling;
+            if (input.value.trim() === "") {
+                const inputLabel = input.previousElementSibling;
                 if (inputLabel && inputLabel.tagName.toLowerCase() === "label") {
-                    let labelText = inputLabel.textContent.trim();
+                    const labelText = inputLabel.textContent.trim();
 
                     Swal.fire({
-                        title: 'Value Missing!',
+                        title: "Value Missing!",
                         text: `${labelText} is missing in ${titleText}.`,
-                        icon: 'error',
-                        confirmButtonText: 'Ok'
+                        icon: "error",
+                        confirmButtonText: "Ok"
                     });
                     return false;
                 }
@@ -1650,114 +1693,114 @@ function checkConditions() {
                 isApiKeyEmpty = isApiKeyEmpty || true;
             }
         }
-        if (node.name.includes('Agent') && "model_config_name" in node.data.args) {
+        if (node.name.includes("Agent") && "model_config_name" in node.data.args) {
             hasAgentError = false;
             if (node.data && node.data.args) {
                 agentModelConfigNames.add(node.data.args.model_config_name);
             }
         }
-        if (node.name === 'ReActAgent') {
+        if (node.name === "ReActAgent") {
             const elements = node.data.elements;
             for (const nodeId of elements) {
-                const childNode = nodesData[nodeId]
-                if (!childNode || !childNode.name.includes('Service')) {
+                const childNode = nodesData[nodeId];
+                if (!childNode || !childNode.name.includes("Service")) {
                     Swal.fire({
-                        title: 'Invalid ReActAgent Configuration',
+                        title: "Invalid ReActAgent Configuration",
                         text:
-                            `ReActAgent must only contain Tool nodes as child nodes.`,
-                        icon: 'error',
-                        confirmButtonText: 'Ok'
+                            "ReActAgent must only contain Tool nodes as child nodes.",
+                        icon: "error",
+                        confirmButtonText: "Ok"
                     });
                     return false;
                 }
             }
         }
-        if (node.name === 'IfElsePipeline') {
+        if (node.name === "IfElsePipeline") {
             const elementsSize = node.data.elements.length;
             if (elementsSize !== 1 && elementsSize !== 2) {
                 Swal.fire({
-                    title: 'Invalid IfElsePipeline Configuration',
+                    title: "Invalid IfElsePipeline Configuration",
                     text: `IfElsePipeline should have 1 or 2 elements, but has ${elementsSize}.`,
-                    icon: 'error',
-                    confirmButtonText: 'Ok'
+                    icon: "error",
+                    confirmButtonText: "Ok"
                 });
                 return false;
             }
         }
-        if (['ForLoopPipeline', 'WhileLoopPipeline', 'MsgHub'].includes(node.name)) {
+        if (["ForLoopPipeline", "WhileLoopPipeline", "MsgHub"].includes(node.name)) {
             if (node.data.elements.length !== 1) {
                 hasError = true;
                 Swal.fire({
-                    title: 'Invalid Configuration',
+                    title: "Invalid Configuration",
                     text: `${node.name} must have exactly one element.`,
-                    icon: 'error',
-                    confirmButtonText: 'Ok'
+                    icon: "error",
+                    confirmButtonText: "Ok"
                 });
                 return false;
             }
-            let childNodeId = node.data.elements[0];
-            let childNode = nodesData[childNodeId];
-            if (!childNode || !childNode.name.includes('Pipeline')) {
+            const childNodeId = node.data.elements[0];
+            const childNode = nodesData[childNodeId];
+            if (!childNode || !childNode.name.includes("Pipeline")) {
                 Swal.fire({
-                    title: 'Invalid Configuration',
+                    title: "Invalid Configuration",
                     text:
                         ` ${childNode.name} contained in ${node.name} is not a Pipeline node.`,
-                    icon: 'error',
-                    confirmButtonText: 'Ok'
+                    icon: "error",
+                    confirmButtonText: "Ok"
                 });
                 return false;
             }
         }
-        if (node.name === 'Code') {
+        if (node.name === "Code") {
             const code = node.data.args.code;
             const pattern = /\bdef\s+function\s*\(/;
 
             if (!pattern.test(code)) {
                 Swal.fire({
-                    title: 'Invalid Code Function Name',
+                    title: "Invalid Code Function Name",
                     text: `${node.name} only support "function" as the function name.`,
-                    icon: 'error',
-                    confirmButtonText: 'Ok'
+                    icon: "error",
+                    confirmButtonText: "Ok"
                 });
                 return false;
             }
         }
     }
 
-    let unmatchedConfigNames = [...agentModelConfigNames].filter(name => !modelConfigNames.has(name));
+    const unmatchedConfigNames = [...agentModelConfigNames].filter(name => !modelConfigNames.has(name));
     console.log("modelConfigNames", modelConfigNames);
     console.log("agentModelConfigNames", agentModelConfigNames);
     console.log("unmatchedConfigNames", unmatchedConfigNames);
     if (hasModelTypeError) {
         Swal.fire({
-            title: 'Error!',
+            title: "Error!",
             text:
-                'Error: At least one Model node must be present.',
-            icon: 'error',
-            confirmButtonText: 'Ok'
+                "Error: At least one Model node must be present.",
+            icon: "error",
+            confirmButtonText: "Ok"
         });
     } else if (hasAgentError) {
         Swal.fire({
-            title: 'No Agent Nodes Found',
+            title: "No Agent Nodes Found",
             text: "Error: At least one Agent node must be present.",
-            icon: 'error',
-            confirmButtonText: 'Ok'
+            icon: "error",
+            confirmButtonText: "Ok"
         });
     } else if (unmatchedConfigNames.length > 0) {
         Swal.fire({
-            title: 'Configuration Mismatch',
+            title: "Configuration Mismatch",
             html:
-                "Each Agent's 'Model config name' must match a Model node's 'Config Name'.<br> Unmatched: " + unmatchedConfigNames.join(', '),
-            icon: 'error',
-            confirmButtonText: 'Ok'
+                "Each Agent's 'Model config name' must match a Model node's 'Config Name'.<br> Unmatched: " + unmatchedConfigNames.join(", "),
+            icon: "error",
+            confirmButtonText: "Ok"
         });
     } else if (isApiKeyEmpty) {
         Swal.fire({
-            title: 'API KEY Missing',
+            title: "API KEY Missing",
             text:
                 "API KEY is missing in your model nodes. Please either enter the API KEY in the corresponding position, or enter a random bit of content and replace it with the real value in the exported files.",
-            icon: 'error',
-            confirmButtonText: 'Ok'
+            icon: "error",
+            confirmButtonText: "Ok"
         });
     } else {
         return true;
@@ -1766,35 +1809,35 @@ function checkConditions() {
 
 
 function showCheckPopup() {
-    var btnCovers = document.querySelectorAll('.btn-cover');
+    const btnCovers = document.querySelectorAll(".btn-cover");
     if (checkConditions()) {
         Swal.fire({
-            title: 'Validation Success',
+            title: "Validation Success",
             text: "All checks are passed!",
-            icon: 'success',
-            confirmButtonText: 'Great!'
+            icon: "success",
+            confirmButtonText: "Great!"
         });
         btnCovers.forEach(function (btnCover) {
-            var button = btnCover.querySelector('.btn-disabled');
+            const button = btnCover.querySelector(".btn-disabled");
             if (button) {
-                button.classList.remove('btn-disabled');
+                button.classList.remove("btn-disabled");
             }
-            btnCover.removeAttribute('data-title');
+            btnCover.removeAttribute("data-title");
         });
     }
 }
 
 
 function disableButtons() {
-    var btnCovers = document.querySelectorAll('.btn-cover');
+    const btnCovers = document.querySelectorAll(".btn-cover");
 
     btnCovers.forEach(function (btnCover) {
-        var button = btnCover.querySelector('div');
+        const button = btnCover.querySelector("div");
         if (button) {
-            button.classList.add('btn-disabled');
+            button.classList.add("btn-disabled");
         }
-        btnCover.setAttribute('data-title',
-            'Please click the "Check" button first.');
+        btnCover.setAttribute("data-title",
+            "Please click the \"Check\" button first.");
     });
 }
 
@@ -1811,50 +1854,50 @@ function showExportPyPopup() {
         const filteredData = reorganizeAndFilterConfigForAgentScope(rawData);
 
         Swal.fire({
-            title: 'Processing...',
-            text: 'Please wait.',
+            title: "Processing...",
+            text: "Please wait.",
             allowOutsideClick: false,
             willOpen: () => {
-                Swal.showLoading()
+                Swal.showLoading();
             }
         });
 
-        fetch('/convert-to-py', {
-            method: 'POST',
+        fetch("/convert-to-py", {
+            method: "POST",
             headers: {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
             },
             body: JSON.stringify({
                 data: JSON.stringify(filteredData, null, 4),
             })
         }).then(response => {
             if (!response.ok) {
-                throw new Error('Network error.');
+                throw new Error("Network error.");
             }
             return response.json();
         })
             .then(data => {
                 Swal.close();
-                if (data.is_success === 'True') {
+                if (data.is_success === "True") {
                     Swal.fire({
-                        title: '<b>Workflow Python Code</b>',
+                        title: "<b>Workflow Python Code</b>",
                         html:
-                            '<p>Save as main.py<br>' +
-                            'Then run the following command in your terminal:<br>' +
-                            '<div class="code-snippet">python main.py</div><br>' +
-                            'or <div class="code-snippet">as_gradio main.py</div></p>' +
-                            '<pre class="line-numbers"><code class="language-py" id="export-data">' +
+                            "<p>Save as main.py<br>" +
+                            "Then run the following command in your terminal:<br>" +
+                            "<div class=\"code-snippet\">python main.py</div><br>" +
+                            "or <div class=\"code-snippet\">as_gradio main.py</div></p>" +
+                            "<pre class=\"line-numbers\"><code class=\"language-py\" id=\"export-data\">" +
                             data.py_code +
-                            '</code></pre>',
+                            "</code></pre>",
                         showCloseButton: true,
                         showCancelButton: true,
-                        confirmButtonText: 'Copy',
-                        cancelButtonText: 'Close',
+                        confirmButtonText: "Copy",
+                        cancelButtonText: "Close",
                         willOpen: (element) => {
-                            const codeElement = element.querySelector('code');
+                            const codeElement = element.querySelector("code");
                             Prism.highlightElement(codeElement);
                             const copyButton = Swal.getConfirmButton();
-                            copyButton.addEventListener('click', () => {
+                            copyButton.addEventListener("click", () => {
                                 copyToClipboard(codeElement.textContent);
                             });
                         }
@@ -1865,25 +1908,25 @@ function showExportPyPopup() {
                 <pre class="line-numbers"><code class="language-py">${data.py_code}</code></pre>
         `;
                     Swal.fire({
-                        title: 'Error!',
+                        title: "Error!",
                         html: errorMessage,
-                        icon: 'error',
+                        icon: "error",
                         customClass: {
-                            popup: 'error-popup'
+                            popup: "error-popup"
                         },
-                        confirmButtonText: 'Close',
+                        confirmButtonText: "Close",
                         willOpen: (element) => {
-                            const codeElement = element.querySelector('code');
+                            const codeElement = element.querySelector("code");
                             Prism.highlightElement(codeElement);
                         }
                     });
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
-                Swal.fire('Failed!',
-                    'There was an error generating your code.',
-                    'error');
+                console.error("Error:", error);
+                Swal.fire("Failed!",
+                    "There was an error generating your code.",
+                    "error");
             });
     }
 }
@@ -1908,50 +1951,50 @@ function showExportRunLocalPopup() {
         const filteredData = reorganizeAndFilterConfigForAgentScope(rawData);
 
         Swal.fire({
-            title: 'Processing...',
-            text: 'Please wait.',
+            title: "Processing...",
+            text: "Please wait.",
             allowOutsideClick: false,
             willOpen: () => {
-                Swal.showLoading()
+                Swal.showLoading();
             }
         });
 
-        fetch('/convert-to-py-and-run', {
-            method: 'POST',
+        fetch("/convert-to-py-and-run", {
+            method: "POST",
             headers: {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
             },
             body: JSON.stringify({
                 data: JSON.stringify(filteredData, null, 4),
             })
         }).then(response => {
             if (!response.ok) {
-                throw new Error('Network error.');
+                throw new Error("Network error.");
             }
             return response.json();
         })
             .then(data => {
                 Swal.close();
-                if (data.is_success === 'True') {
+                if (data.is_success === "True") {
                     Swal.fire({
-                        title: '<b>Application Running in Background</b>',
+                        title: "<b>Application Running in Background</b>",
                         html:
-                            '<p>Your application has been successfully run ' +
-                            'in background.<br>' +
-                            '<p><strong>Task ID:</strong>' +
-                            data.run_id + '</p>' +
-                            '<pre class="line-numbers"><code class="language-py" id="export-data">' +
+                            "<p>Your application has been successfully run " +
+                            "in background.<br>" +
+                            "<p><strong>Task ID:</strong>" +
+                            data.run_id + "</p>" +
+                            "<pre class=\"line-numbers\"><code class=\"language-py\" id=\"export-data\">" +
                             data.py_code +
-                            '</code></pre>',
+                            "</code></pre>",
                         showCloseButton: true,
                         showCancelButton: true,
-                        confirmButtonText: 'Copy Code',
-                        cancelButtonText: 'Close',
+                        confirmButtonText: "Copy Code",
+                        cancelButtonText: "Close",
                         willOpen: (element) => {
-                            const codeElement = element.querySelector('code');
+                            const codeElement = element.querySelector("code");
                             Prism.highlightElement(codeElement);
                             const copyButton = Swal.getConfirmButton();
-                            copyButton.addEventListener('click', () => {
+                            copyButton.addEventListener("click", () => {
                                 copyToClipboard(codeElement.textContent);
                             });
                         }
@@ -1962,37 +2005,37 @@ function showExportRunLocalPopup() {
         <pre class="line-numbers"><code class="language-py">${data.py_code}</code></pre>
     `;
                     Swal.fire({
-                        title: 'Error!',
+                        title: "Error!",
                         html: errorMessage,
-                        icon: 'error',
+                        icon: "error",
                         customClass: {
-                            popup: 'error-popup'
+                            popup: "error-popup"
                         },
-                        confirmButtonText: 'Close',
+                        confirmButtonText: "Close",
                         willOpen: (element) => {
-                            const codeElement = element.querySelector('code');
+                            const codeElement = element.querySelector("code");
                             Prism.highlightElement(codeElement);
                         }
                     });
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
+                console.error("Error:", error);
                 Swal.close();
-                Swal.fire('Failed!',
-                    'There was an error running your workflow.',
-                    'error');
+                Swal.fire("Failed!",
+                    "There was an error running your workflow.",
+                    "error");
             });
     }
 }
 
 
 function filterOutApiKey(obj) {
-    for (let key in obj) {
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
+    for (const key in obj) {
+        if (typeof obj[key] === "object" && obj[key] !== null) {
             filterOutApiKey(obj[key]);
         }
-        if (key === 'api_key') {
+        if (key === "api_key") {
             delete obj[key];
         }
     }
@@ -2002,18 +2045,18 @@ function filterOutApiKey(obj) {
 function showExportRunMSPopup() {
     if (checkConditions()) {
         Swal.fire({
-            title: 'Are you sure to run the workflow in ModelScope Studio?',
+            title: "Are you sure to run the workflow in ModelScope Studio?",
             text:
                 "You are about to navigate to another page. " +
                 "Please make sure all the configurations are set " +
                 "besides your api-key " +
                 "(your api-key should be set in ModelScope Studio page).",
-            icon: 'warning',
+            icon: "warning",
             showCancelButton: true,
-            confirmButtonColor: '#3085d6',
-            cancelButtonColor: '#d33',
-            confirmButtonText: 'Yes, create it!',
-            cancelButtonText: 'Close'
+            confirmButtonColor: "#3085d6",
+            cancelButtonColor: "#d33",
+            confirmButtonText: "Yes, create it!",
+            cancelButtonText: "Close"
         }).then((result) => {
             if (result.isConfirmed) {
                 const rawData = editor.export();
@@ -2022,20 +2065,20 @@ function showExportRunMSPopup() {
                     return;
                 }
                 const filteredData = reorganizeAndFilterConfigForAgentScope(rawData);
-                filterOutApiKey(filteredData)
+                filterOutApiKey(filteredData);
 
                 Swal.fire({
-                    title: 'Processing...',
-                    text: 'Please wait.',
+                    title: "Processing...",
+                    text: "Please wait.",
                     allowOutsideClick: false,
                     willOpen: () => {
-                        Swal.showLoading()
+                        Swal.showLoading();
                     }
                 });
-                fetch('/upload-to-oss', {
-                    method: 'POST',
+                fetch("/upload-to-oss", {
+                    method: "POST",
                     headers: {
-                        'Content-Type': 'application/json',
+                        "Content-Type": "application/json",
                     },
                     body: JSON.stringify({
                         data: JSON.stringify(filteredData, null, 4),
@@ -2043,20 +2086,20 @@ function showExportRunMSPopup() {
                 })
                     .then(response => response.json())
                     .then(data => {
-                        const params = {'CONFIG_URL': data.config_url};
+                        const params = {"CONFIG_URL": data.config_url};
                         const paramsStr = encodeURIComponent(JSON.stringify(params));
                         const org = "agentscope";
                         const fork_repo = "agentscope_workstation";
                         const url = `https://www.modelscope.cn/studios/fork?target=${org}/${fork_repo}&overwriteEnv=${paramsStr}`;
-                        window.open(url, '_blank');
-                        Swal.fire('Success!', '', 'success');
+                        window.open(url, "_blank");
+                        Swal.fire("Success!", "", "success");
                     })
                     .catch(error => {
-                        console.error('Error:', error);
-                        Swal.fire('Failed', data.message || 'An error occurred while uploading to oss', 'error');
+                        console.error("Error:", error);
+                        Swal.fire("Failed", data.message || "An error occurred while uploading to oss", "error");
                     });
             }
-        })
+        });
     }
 }
 
@@ -2074,23 +2117,23 @@ function showExportHTMLPopup() {
     const exportData = JSON.stringify(rawData, null, 4);
 
     const escapedExportData = exportData
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 
     Swal.fire({
-        title: '<b>Workflow HTML</b>',
+        title: "<b>Workflow HTML</b>",
         html:
-            '<p>This is used for generating HTML code, not for running.<br>' +
-            '<pre class="line-numbers"><code class="language-javascript" id="export-data">'
+            "<p>This is used for generating HTML code, not for running.<br>" +
+            "<pre class=\"line-numbers\"><code class=\"language-javascript\" id=\"export-data\">"
             + escapedExportData +
-            '</code></pre>',
+            "</code></pre>",
         showCloseButton: true,
         showCancelButton: true,
-        confirmButtonText: 'Copy',
-        cancelButtonText: 'Close',
+        confirmButtonText: "Copy",
+        cancelButtonText: "Close",
         willOpen: (element) => {
             // Find the code element inside the Swal content
-            const codeElement = element.querySelector('code');
+            const codeElement = element.querySelector("code");
 
             // Now highlight the code element with Prism
             Prism.highlightElement(codeElement);
@@ -2098,7 +2141,7 @@ function showExportHTMLPopup() {
             // Copy to clipboard logic
             const content = codeElement.textContent;
             const copyButton = Swal.getConfirmButton();
-            copyButton.addEventListener('click', () => {
+            copyButton.addEventListener("click", () => {
                 copyToClipboard(content);
             });
         }
@@ -2108,21 +2151,21 @@ function showExportHTMLPopup() {
 
 function isValidDataStructure(data) {
     if (
-        data.hasOwnProperty('drawflow') &&
-        data.drawflow.hasOwnProperty('Home') &&
-        data.drawflow.Home.hasOwnProperty('data')
+        data.hasOwnProperty("drawflow") &&
+        data.drawflow.hasOwnProperty("Home") &&
+        data.drawflow.Home.hasOwnProperty("data")
     ) {
 
         for (const nodeId in data.drawflow.Home.data) {
             const node = data.drawflow.Home.data[nodeId];
 
             if (
-                !node.hasOwnProperty('id') ||
-                typeof node.id !== 'number' ||
-                !node.hasOwnProperty('name') ||
-                typeof node.name !== 'string' ||
-                !node.hasOwnProperty('class') ||
-                typeof node.class !== 'string'
+                !node.hasOwnProperty("id") ||
+                typeof node.id !== "number" ||
+                !node.hasOwnProperty("name") ||
+                typeof node.name !== "string" ||
+                !node.hasOwnProperty("class") ||
+                typeof node.class !== "string"
             ) {
                 return false;
             }
@@ -2135,36 +2178,36 @@ function isValidDataStructure(data) {
 
 function showImportHTMLPopup() {
     Swal.fire({
-        title: 'Import Workflow Data',
+        title: "Import Workflow Data",
         html:
             "<p>Please paste your HTML data below. Ensure that the source of the HTML data is trusted, as importing HTML from unknown or untrusted sources may pose security risks.</p>",
-        input: 'textarea',
-        inputLabel: 'Paste your HTML data here:',
+        input: "textarea",
+        inputLabel: "Paste your HTML data here:",
         inputPlaceholder:
-            'Paste your HTML data generated from `Export HTML` button...',
+            "Paste your HTML data generated from `Export HTML` button...",
         inputAttributes: {
-            'aria-label': 'Paste your HTML data here',
-            'class': 'code'
+            "aria-label": "Paste your HTML data here",
+            "class": "code"
         },
         customClass: {
-            input: 'code'
+            input: "code"
         },
         showCancelButton: true,
-        confirmButtonText: 'Import',
-        cancelButtonText: 'Cancel',
+        confirmButtonText: "Import",
+        cancelButtonText: "Cancel",
         inputValidator: (value) => {
             if (!value) {
-                return 'You need to paste code generated from `Export HTML` button!';
+                return "You need to paste code generated from `Export HTML` button!";
             }
             try {
                 const parsedData = JSON.parse(value);
                 if (isValidDataStructure(parsedData)) {
 
                 } else {
-                    return 'The data is invalid. Please check your data and try again.';
+                    return "The data is invalid. Please check your data and try again.";
                 }
             } catch (e) {
-                return 'Invalid data! You need to paste code generated from `Export HTML` button!';
+                return "Invalid data! You need to paste code generated from `Export HTML` button!";
             }
         },
         preConfirm: (data) => {
@@ -2177,7 +2220,7 @@ function showImportHTMLPopup() {
                         editor.clear();
                         editor.import(parsedData);
                         importSetupNodes(parsedData);
-                        Swal.fire('Imported!', '', 'success');
+                        Swal.fire("Imported!", "", "success");
                     });
 
             } catch (error) {
@@ -2190,12 +2233,12 @@ function showImportHTMLPopup() {
 
 function showSaveWorkflowPopup() {
     Swal.fire({
-        title: 'Save Workflow',
-        input: 'text',
-        inputPlaceholder: 'Enter filename',
+        title: "Save Workflow",
+        input: "text",
+        inputPlaceholder: "Enter filename",
         showCancelButton: true,
-        confirmButtonText: 'Save',
-        cancelButtonText: 'Cancel'
+        confirmButtonText: "Save",
+        cancelButtonText: "Cancel"
     }).then(result => {
         if (result.isConfirmed) {
             const filename = result.value;
@@ -2206,16 +2249,16 @@ function showSaveWorkflowPopup() {
 
 function saveWorkflow(fileName) {
     const rawData = editor.export();
-    filterOutApiKey(rawData)
+    filterOutApiKey(rawData);
 
     // Remove the html attribute from the nodes to avoid inconsistencies in html
     removeHtmlFromUsers(rawData);
 
     const exportData = JSON.stringify(rawData, null, 4);
-    fetch('/save-workflow', {
-        method: 'POST',
+    fetch("/save-workflow", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
         },
         body: JSON.stringify({
             filename: fileName,
@@ -2225,47 +2268,47 @@ function saveWorkflow(fileName) {
     }).then(response => response.json())
         .then(data => {
             if (data.message === "Workflow file saved successfully") {
-                Swal.fire('Success', data.message, 'success');
+                Swal.fire("Success", data.message, "success");
             } else {
-                Swal.fire('Error', data.message || 'An error occurred while saving the workflow.', 'error');
+                Swal.fire("Error", data.message || "An error occurred while saving the workflow.", "error");
             }
         })
         .catch(error => {
-            console.error('Error:', error);
-            Swal.fire('Error', 'An error occurred while saving the workflow.', 'error');
+            console.error("Error:", error);
+            Swal.fire("Error", "An error occurred while saving the workflow.", "error");
         });
 }
 
 function showLoadWorkflowPopup() {
-    fetch('/list-workflows', {
-        method: 'POST',
+    fetch("/list-workflows", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
         },
         body: JSON.stringify({})
     })
         .then(response => response.json())
         .then(data => {
             if (!Array.isArray(data.files)) {
-                throw new TypeError('The return data is not an array');
+                throw new TypeError("The return data is not an array");
             }
             const inputOptions = data.files.reduce((options, file) => {
                 options[file] = file;
                 return options;
             }, {});
             Swal.fire({
-                title: 'Loading Workflow from Disks',
-                input: 'select',
+                title: "Loading Workflow from Disks",
+                input: "select",
                 inputOptions: inputOptions,
-                inputPlaceholder: 'Select',
+                inputPlaceholder: "Select",
                 showCancelButton: true,
                 showDenyButton: true,
-                confirmButtonText: 'Load',
-                cancelButtonText: 'Cancel',
-                denyButtonText: 'Delete',
+                confirmButtonText: "Load",
+                cancelButtonText: "Cancel",
+                denyButtonText: "Delete",
                 didOpen: () => {
                     const selectElement = Swal.getInput();
-                    selectElement.addEventListener('change', (event) => {
+                    selectElement.addEventListener("change", (event) => {
                         selectedFilename = event.target.value;
                     });
                 }
@@ -2276,12 +2319,12 @@ function showLoadWorkflowPopup() {
                     Swal.fire({
                         title: `Are you sure to delete ${selectedFilename}?`,
                         text: "This operation cannot be undone!",
-                        icon: 'warning',
+                        icon: "warning",
                         showCancelButton: true,
-                        confirmButtonColor: '#d33',
-                        cancelButtonColor: '#3085d6',
-                        confirmButtonText: 'Delete',
-                        cancelButtonText: 'Cancel'
+                        confirmButtonColor: "#d33",
+                        cancelButtonColor: "#3085d6",
+                        confirmButtonText: "Delete",
+                        cancelButtonText: "Cancel"
                     }).then((deleteResult) => {
                         if (deleteResult.isConfirmed) {
                             deleteWorkflow(selectedFilename);
@@ -2291,17 +2334,17 @@ function showLoadWorkflowPopup() {
             });
         })
         .catch(error => {
-            console.error('Error:', error);
-            Swal.fire('Error', 'An error occurred while loading the workflow.', 'error');
+            console.error("Error:", error);
+            Swal.fire("Error", "An error occurred while loading the workflow.", "error");
         });
 }
 
 
 function loadWorkflow(fileName) {
-    fetch('/load-workflow', {
-        method: 'POST',
+    fetch("/load-workflow", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
         },
         body: JSON.stringify({
             filename: fileName,
@@ -2309,37 +2352,37 @@ function loadWorkflow(fileName) {
     }).then(response => response.json())
         .then(data => {
             if (data.error) {
-                Swal.fire('Error', data.error, 'error');
+                Swal.fire("Error", data.error, "error");
             } else {
-                console.log(data)
+                console.log(data);
                 try {
                     // Add html source code to the nodes data
                     addHtmlAndReplacePlaceHolderBeforeImport(data)
                         .then(() => {
-                            console.log(data)
+                            console.log(data);
                             editor.clear();
                             editor.import(data);
                             importSetupNodes(data);
-                            Swal.fire('Imported!', '', 'success');
+                            Swal.fire("Imported!", "", "success");
                         });
 
                 } catch (error) {
                     Swal.showValidationMessage(`Import error: ${error}`);
                 }
-                Swal.fire('Success', 'Workflow loaded successfully', 'success');
+                Swal.fire("Success", "Workflow loaded successfully", "success");
             }
         })
         .catch(error => {
-            console.error('Error:', error);
-            Swal.fire('Error', 'An error occurred while loading the workflow.', 'error');
+            console.error("Error:", error);
+            Swal.fire("Error", "An error occurred while loading the workflow.", "error");
         });
 }
 
 function deleteWorkflow(fileName) {
-    fetch('/delete-workflow', {
-        method: 'POST',
+    fetch("/delete-workflow", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
         },
         body: JSON.stringify({
             filename: fileName,
@@ -2347,14 +2390,14 @@ function deleteWorkflow(fileName) {
     }).then(response => response.json())
         .then(data => {
             if (data.error) {
-                Swal.fire('Error', data.error, 'error');
+                Swal.fire("Error", data.error, "error");
             } else {
-                Swal.fire('Deleted!', 'Workflow has been deleted.', 'success');
+                Swal.fire("Deleted!", "Workflow has been deleted.", "success");
             }
         })
         .catch(error => {
-            console.error('Error:', error);
-            Swal.fire('Error', 'An error occurred while deleting the workflow.', 'error');
+            console.error("Error:", error);
+            Swal.fire("Error", "An error occurred while deleting the workflow.", "error");
         });
 }
 
@@ -2375,7 +2418,7 @@ async function fetchHtmlSourceCodeByName(name) {
     }
 
     // Load the HTML source code
-    let htmlSourceCode = await fetchHtml(nameToHtmlFile[name]);
+    const htmlSourceCode = await fetchHtml(nameToHtmlFile[name]);
     htmlCache[name] = htmlSourceCode;
     return htmlSourceCode;
 }
@@ -2424,11 +2467,17 @@ async function addHtmlAndReplacePlaceHolderBeforeImport(data) {
 
 function importSetupNodes(dataToImport) {
     Object.keys(dataToImport.drawflow.Home.data).forEach((nodeId) => {
+        // import the node use addNode function
+        disableButtons();
+        makeNodeTop(nodeId);
         setupNodeListeners(nodeId);
-
+        setupNodeCopyListens(nodeId);
+        addEventListenersToNumberInputs(nodeId);
+        setupTextInputListeners(nodeId);
+        reloadi18n();
         const nodeElement = document.getElementById(`node-${nodeId}`);
         if (nodeElement) {
-            const copyButton = nodeElement.querySelector('.button.copy-button');
+            const copyButton = nodeElement.querySelector(".button.copy-button");
             if (copyButton) {
                 setupNodeCopyListens(nodeId);
             }
@@ -2438,40 +2487,40 @@ function importSetupNodes(dataToImport) {
 
 
 function copyToClipboard(contentToCopy) {
-    var tempTextarea = document.createElement("textarea");
+    const tempTextarea = document.createElement("textarea");
     tempTextarea.value = contentToCopy;
     document.body.appendChild(tempTextarea);
     tempTextarea.select();
     tempTextarea.setSelectionRange(0, 99999);
 
     try {
-        var successful = document.execCommand("copy");
+        const successful = document.execCommand("copy");
         if (successful) {
-            Swal.fire('Copied!', '', 'success');
+            Swal.fire("Copied!", "", "success");
         } else {
-            Swal.fire('Failed to copy', '', 'error');
+            Swal.fire("Failed to copy", "", "error");
         }
     } catch (err) {
-        Swal.fire('Failed to copy', '', 'error');
+        Swal.fire("Failed to copy", "", "error");
     }
     document.body.removeChild(tempTextarea);
 }
 
 
 function fetchExample(index, processData) {
-    fetch('/read-examples', {
-        method: 'POST',
+    fetch("/read-examples", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
         },
         body: JSON.stringify({
             data: index,
             // lang: getCookie('locale') || 'en',
-            lang: 'en',
+            lang: "en",
         })
     }).then(response => {
         if (!response.ok) {
-            throw new Error('Network error.');
+            throw new Error("Network error.");
         }
         return response.json();
     })
@@ -2493,7 +2542,7 @@ function importExample(index) {
                     setupTextInputListeners(nodeId);
                     const nodeElement = document.getElementById(`node-${nodeId}`);
                     if (nodeElement) {
-                        const copyButton = nodeElement.querySelector('.button.copy-button');
+                        const copyButton = nodeElement.querySelector(".button.copy-button");
                         if (copyButton) {
                             setupNodeCopyListens(nodeId);
                         }
@@ -2501,13 +2550,13 @@ function importExample(index) {
                 });
                 reloadi18n();
             });
-    })
+    });
 }
 
 
 function importExample_step(index) {
-    if (!localStorage.getItem('firstGuide')) {
-        localStorage.setItem('firstGuide', 'true');
+    if (!localStorage.getItem("firstGuide")) {
+        localStorage.setItem("firstGuide", "true");
         skipGuide();
     }
     fetchExample(index, data => {
@@ -2517,22 +2566,22 @@ function importExample_step(index) {
             descriptionStep = ["Readme", "Model", "UserAgent",
                 "DialogAgent"];
             initializeImport(dataToImportStep);
-        })
+        });
     });
 }
 
 
 function updateImportButtons() {
-    document.getElementById('import-prev').disabled = currentImportIndex
+    document.getElementById("import-prev").disabled = currentImportIndex
         <= 1;
-    document.getElementById('import-next').disabled = currentImportIndex >= importQueue.length;
-    document.getElementById('import-skip').disabled = currentImportIndex >= importQueue.length;
-    reloadi18n()
+    document.getElementById("import-next").disabled = currentImportIndex >= importQueue.length;
+    document.getElementById("import-skip").disabled = currentImportIndex >= importQueue.length;
+    reloadi18n();
 }
 
 
-function createElement(tag, id, html = '', parent = document.body) {
-    let element = document.getElementById(id) || document.createElement(tag);
+function createElement(tag, id, html = "", parent = document.body) {
+    const element = document.getElementById(id) || document.createElement(tag);
     element.id = id;
     element.innerHTML = html;
     if (!element.parentNode) {
@@ -2543,39 +2592,39 @@ function createElement(tag, id, html = '', parent = document.body) {
 
 
 function initializeImport(data) {
-    ['menu-btn', 'menu-btn-svg'].forEach(cls => {
-        let containers = document.getElementsByClassName(cls);
-        Array.from(containers).forEach(container => container.style.display = 'none');
+    ["menu-btn", "menu-btn-svg"].forEach(cls => {
+        const containers = document.getElementsByClassName(cls);
+        Array.from(containers).forEach(container => container.style.display = "none");
     });
 
-    createElement('div', 'left-sidebar-blur', '', document.body).style.cssText = `
+    createElement("div", "left-sidebar-blur", "", document.body).style.cssText = `
             position: fixed; top: 60px; left: 0; bottom: 0; width: 250px;
             background: rgba(128, 128, 128, 0.7);
             filter: blur(2px); z-index: 1000; cursor: not-allowed;
         `;
 
-    createElement('div', 'import-buttons', '', document.body);
+    createElement("div", "import-buttons", "", document.body);
 
     dataToImportStep = data;
     importQueue = Object.keys(dataToImportStep.drawflow.Home.data);
 
-    const importButtonsDiv = document.getElementById('import-buttons');
+    const importButtonsDiv = document.getElementById("import-buttons");
 
-    createElement('div', 'step-info', '', importButtonsDiv);
-    createElement('button', 'import-prev',
-        '<i class="fas fa-arrow-left"></i> <span i18n="workstarionjs-import-prev">Previous</span>',
+    createElement("div", "step-info", "", importButtonsDiv);
+    createElement("button", "import-prev",
+        "<i class=\"fas fa-arrow-left\"></i> <span i18n=\"workstarionjs-import-prev\">Previous</span>",
         importButtonsDiv).onclick = importPreviousComponent;
-    createElement('button', 'import-next',
-        '<i class="fas fa-arrow-right"></i> <span i18n="workstarionjs-import-next">Next</span>',
+    createElement("button", "import-next",
+        "<i class=\"fas fa-arrow-right\"></i> <span i18n=\"workstarionjs-import-next\">Next</span>",
         importButtonsDiv).onclick = importNextComponent;
-    createElement('button', 'import-skip',
-        '<i class="fas fa-forward"></i> <span i18n="workstarionjs-import-skip">Skip</span>',
+    createElement("button", "import-skip",
+        "<i class=\"fas fa-forward\"></i> <span i18n=\"workstarionjs-import-skip\">Skip</span>",
         importButtonsDiv).onclick = importSkipComponent;
-    createElement('button', 'import-quit',
-        '<i class="fas fa-sign-out-alt"></i> <span i18n="workstarionjs-import-quit">Quit</span>',
+    createElement("button", "import-quit",
+        "<i class=\"fas fa-sign-out-alt\"></i> <span i18n=\"workstarionjs-import-quit\">Quit</span>",
         importButtonsDiv).onclick = importQuitComponent;
-    createElement('div', 'step-warning',
-        '<span i18n="workstarionjs-import-caution">Caution: You are currently in the tutorial mode where modifications are restricted.</span><br><span i18n="workstarionjs-import-Caution-click">Please click</span> <strong i18n="workstarionjs-import-Caution-quit">Quit</strong> <span  i18n="workstarionjs-import-Caution-exit"> to exit and start creating your custom multi-agent applications. </span>', document.body);
+    createElement("div", "step-warning",
+        "<span i18n=\"workstarionjs-import-caution\">Caution: You are currently in the tutorial mode where modifications are restricted.</span><br><span i18n=\"workstarionjs-import-Caution-click\">Please click</span> <strong i18n=\"workstarionjs-import-Caution-quit\">Quit</strong> <span  i18n=\"workstarionjs-import-Caution-exit\"> to exit and start creating your custom multi-agent applications. </span>", document.body);
 
     accumulatedImportData = {};
     currentImportIndex = 0;
@@ -2618,20 +2667,20 @@ function importSkipComponent() {
 
 function importQuitComponent() {
     clearModuleSelected();
-    ['menu-btn', 'menu-btn-svg'].forEach(cls => {
-        let containers = document.getElementsByClassName(cls);
-        Array.from(containers).forEach(container => container.style.display = '');
+    ["menu-btn", "menu-btn-svg"].forEach(cls => {
+        const containers = document.getElementsByClassName(cls);
+        Array.from(containers).forEach(container => container.style.display = "");
     });
 }
 
 
 function updateStepInfo() {
-    let stepInfoDiv = document.getElementById('step-info');
+    const stepInfoDiv = document.getElementById("step-info");
     if (stepInfoDiv && currentImportIndex > 0) {
         stepInfoDiv.innerHTML =
             `Current Step (${currentImportIndex}/${importQueue.length}) <br> ${descriptionStep[currentImportIndex - 1]}`;
     } else if (stepInfoDiv) {
-        stepInfoDiv.innerHTML = 'No steps to display.';
+        stepInfoDiv.innerHTML = "No steps to display.";
     }
 }
 
@@ -2639,17 +2688,17 @@ function updateStepInfo() {
 function clearModuleSelected() {
     editor.clearModuleSelected();
 
-    let importButtonsDiv = document.getElementById("import-buttons");
+    const importButtonsDiv = document.getElementById("import-buttons");
     if (importButtonsDiv) {
         importButtonsDiv.remove();
     }
 
-    let stepWarningDiv = document.getElementById("step-warning");
+    const stepWarningDiv = document.getElementById("step-warning");
     if (stepWarningDiv) {
         stepWarningDiv.remove();
     }
 
-    let blurDiv = document.getElementById('left-sidebar-blur');
+    const blurDiv = document.getElementById("left-sidebar-blur");
     if (blurDiv) {
         blurDiv.remove();
     }
@@ -2657,8 +2706,8 @@ function clearModuleSelected() {
 
 
 function getCookie(name) {
-    var matches = document.cookie.match(new RegExp(
-        "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
+    const matches = document.cookie.match(new RegExp(
+        "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, "\\$1") + "=([^;]*)"
     ));
     return matches ? decodeURIComponent(matches[1]) : undefined;
 }
@@ -2674,7 +2723,7 @@ function hideSurveyModal() {
 }
 
 function reloadi18n() {
-    let currentLang = getCookie('locale') || 'en';
+    const currentLang = getCookie("locale") || "en";
     $("[i18n]").i18n({
         defaultLang: currentLang,
         filePath: "../static/i18n/",
@@ -2686,15 +2735,15 @@ function reloadi18n() {
     });
 }
 
-window.addEventListener('storage', function (event) {
-    if (event.key === 'locale') {
-        reloadi18n()
+window.addEventListener("storage", function (event) {
+    if (event.key === "locale") {
+        reloadi18n();
     }
 }, false);
 
 function startGuide() {
-    const targetElement = document.querySelector('.guide-Example');
-    const element = document.querySelector('.tour-guide');
+    const targetElement = document.querySelector(".guide-Example");
+    const element = document.querySelector(".tour-guide");
     positionElementRightOf(element, targetElement);
 }
 
@@ -2717,8 +2766,8 @@ function positionElementRightOf(element, targetElement) {
     const targetCoordinates = getElementCoordinates(targetElement);
     const mask = document.querySelector(".overlay");
     mask.style.display = "block";
-    element.style.position = 'absolute';
-    element.style.display = 'block';
+    element.style.position = "absolute";
+    element.style.display = "block";
     element.style.left = `${targetCoordinates.x + targetCoordinates.right}px`;
     element.style.top = `${targetCoordinates.y}px`;
 }
@@ -2726,7 +2775,7 @@ function positionElementRightOf(element, targetElement) {
 function skipGuide() {
     const element = document.querySelector(".tour-guide");
     const mask = document.querySelector(".overlay");
-    localStorage.setItem('firstGuide', 'true');
+    localStorage.setItem("firstGuide", "true");
     if (element) {
         element.style.display = "none";
         element.remove();
@@ -2736,21 +2785,13 @@ function skipGuide() {
 }
 
 class Notification {
-    static count = 0;
-    static instances = [];
-
-    static clearInstances() {
-        Notification.count = 0;
-        Notification.instances = [];
-    }
-
     constructor(props) {
         Notification.count += 1;
         Notification.instances.push(this);
         this.currentIndex = Notification.count;
-        this.position = 'bottom-right';
-        this.title = 'Notification Title';
-        this.content = 'Notification Content';
+        this.position = "bottom-right";
+        this.title = "Notification Title";
+        this.content = "Notification Content";
         this.element = null;
         this.closeBtn = true;
         this.progress = false;
@@ -2759,133 +2800,134 @@ class Notification {
         this.cancelBtn = false;
         this.pause = true;
         this.reduceNumber = 0;
+
+        // 绑定 this
+        this.destroyAll = this.destroyAll.bind(this);
+        this.onCancelCallback = this.onCancelCallback.bind(this);
+        this.onConfirmCallback = this.onConfirmCallback.bind(this);
+
         this.init(props);
+    }
+
+    static initStatics() {
+        this.count = 0;
+        this.instances = [];
+    }
+
+    static clearInstances() {
+        Notification.count = 0;
+        Notification.instances = [];
     }
 
     init(props) {
         this.setDefaultValues(props);
-        this.element = document.createElement('div');
-        // init notification-box css
-        this.element.className = 'notification';
-        // render title
+        this.element = document.createElement("div");
+        this.element.className = "notification";
         this.title && this.renderTitle(getCookie("locale") == "zh" ? props.i18nTitle : this.title);
-        // render closeButtion
         this.closeBtn && this.renderCloseButton();
-        // render content
         this.content && this.renderContent(getCookie("locale") == "zh" ? props.i18nContent : this.content);
-        // render confirmBtn
         (this.confirmBtn || this.cancelBtn) && this.renderClickButton();
         this.progress && this.renderProgressBar();
-        // set position
         this.setPosition(this.position);
         document.body.appendChild(this.element);
         setTimeout(() => {
             this.show();
-        }, 10)
+        }, 10);
     }
 
-    // check if string is HTML
     isHTMLString(string) {
-        const doc = new DOMParser().parseFromString(string, 'text/html');
+        const doc = new DOMParser().parseFromString(string, "text/html");
         return Array.from(doc.body.childNodes).some(node => node.nodeType === 1);
     }
 
-    // render closeButtion
     renderCloseButton() {
-        this.closeBtn = document.createElement('span');
-        this.closeBtn.className = 'notification-close';
-        this.closeBtn.innerText = 'X';
-        this.closeBtn.onclick = this.destroyAll.bind(this);
+        this.closeBtn = document.createElement("span");
+        this.closeBtn.className = "notification-close";
+        this.closeBtn.innerText = "X";
+        this.closeBtn.onclick = this.destroyAll;
         this.title.appendChild(this.closeBtn);
     }
 
-    // render title string or HTML
     renderTitle(component) {
         if (this.isHTMLString(component)) {
-            this.title = document.createElement('div');
-            this.title.className = 'notification-title';
+            this.title = document.createElement("div");
+            this.title.className = "notification-title";
             this.title.innerHTML = component;
         } else {
-            this.title = document.createElement('div');
-            this.titleText = document.createElement('div');
-            this.title.className = 'notification-title';
-            this.titleText.className = 'notification-titleText';
+            this.title = document.createElement("div");
+            this.titleText = document.createElement("div");
+            this.title.className = "notification-title";
+            this.titleText.className = "notification-titleText";
             this.titleText.innerText = component;
             this.title.appendChild(this.titleText);
         }
         this.element.appendChild(this.title);
     }
 
-    // render content string or HTML
     renderContent(component) {
         if (this.isHTMLString(component)) {
-            this.content = document.createElement('div');
-            this.content.className = 'notification-content';
+            this.content = document.createElement("div");
+            this.content.className = "notification-content";
             this.content.innerHTML = component;
         } else {
-            this.content = document.createElement('div');
-            this.content.className = 'notification-content';
+            this.content = document.createElement("div");
+            this.content.className = "notification-content";
             this.content.innerText = component;
         }
         this.element.appendChild(this.content);
     }
 
-    // render clickbtn
     renderClickButton() {
         if (this.confirmBtn || this.cancelBtn) {
-            this.clickBottonBox = document.createElement('div');
-            this.clickBottonBox.className = 'notification-clickBotton-box';
+            this.clickBottonBox = document.createElement("div");
+            this.clickBottonBox.className = "notification-clickBotton-box";
         }
         if (this.confirmBtn) {
-            this.confirmBotton = document.createElement('button');
-            this.confirmBotton.className = 'notification-btn confirmBotton';
+            this.confirmBotton = document.createElement("button");
+            this.confirmBotton.className = "notification-btn confirmBotton";
             this.confirmBotton.innerText = getCookie("locale") == "zh" ? this.i18nConfirmBtn : this.confirmBtn;
-            this.confirmBotton.onclick = this.onConfirmCallback.bind(this);
+            this.confirmBotton.onclick = this.onConfirmCallback;
             this.clickBottonBox.appendChild(this.confirmBotton);
         }
         if (this.cancelBtn) {
-            this.cancelBotton = document.createElement('button');
-            this.cancelBotton.className = 'notification-btn cancelBotton';
+            this.cancelBotton = document.createElement("button");
+            this.cancelBotton.className = "notification-btn cancelBotton";
             this.cancelBotton.innerText = getCookie("locale") == "zh" ? this.i18nCancelBtn : this.cancelBtn;
-            this.cancelBotton.onclick = this.onCancelCallback.bind(this);
+            this.cancelBotton.onclick = this.onCancelCallback;
             this.clickBottonBox.appendChild(this.cancelBotton);
         }
         this.element.appendChild(this.clickBottonBox);
     }
 
-    // render progress bar
     renderProgressBar() {
-        this.progressBar = document.createElement('div');
-        this.progressBar.className = 'notification-progress';
+        this.progressBar = document.createElement("div");
+        this.progressBar.className = "notification-progress";
         this.element.appendChild(this.progressBar);
     }
 
-    // stepProgressBar
     stepProgressBar(callback) {
-        let startTime = performance.now();
+        const startTime = performance.now();
         const step = (timestamp) => {
             const progress = Math.min((timestamp + this.reduceNumber - startTime) / this.intervalTime, 1);
-            this.progressBar.style.width = (1 - progress) * 100 + '%';
-            if (progress < 1 && this.pause == false) {
-                requestAnimationFrame(step)
+            this.progressBar.style.width = (1 - progress) * 100 + "%";
+            if (progress < 1 && this.pause === false) {
+                requestAnimationFrame(step);
             } else {
-                this.reduceNumber = timestamp + this.reduceNumber - startTime
+                this.reduceNumber = timestamp + this.reduceNumber - startTime;
             }
-            if (progress == 1) {
-                this.pause == true;
+            if (progress === 1) {
+                this.pause = true;
                 this.reduceNumber = 0;
                 callback();
                 this.removeChild();
             }
-        }
+        };
         requestAnimationFrame(step);
     }
 
     setDefaultValues(props) {
         for (const key in props) {
-            if (props[key] === undefined) {
-                return;
-            } else {
+            if (props[key] !== undefined) {
                 this[key] = props[key];
             }
         }
@@ -2893,50 +2935,47 @@ class Notification {
 
     setPosition() {
         switch (this.position) {
-            case 'top-left':
-                this.element.style.top = '25px';
-                this.element.style.left = '-100%';
+            case "top-left":
+                this.element.style.top = "25px";
+                this.element.style.left = "-100%";
                 break;
-            case 'top-right':
-                this.element.style.top = '25px';
-                this.element.style.right = '-100%';
+            case "top-right":
+                this.element.style.top = "25px";
+                this.element.style.right = "-100%";
                 break;
-            case 'bottom-right':
-                this.element.style.bottom = '25px';
-                this.element.style.right = '-100%';
+            case "bottom-right":
+                this.element.style.bottom = "25px";
+                this.element.style.right = "-100%";
                 break;
-            case 'bottom-left':
-                this.element.style.bottom = '25px';
-                this.element.style.left = '-100%';
+            case "bottom-left":
+                this.element.style.bottom = "25px";
+                this.element.style.left = "-100%";
                 break;
         }
     }
 
     show() {
-        this.element.style.display = 'flex';
+        this.element.style.display = "flex";
         switch (this.position) {
-            case 'top-left':
-                this.element.style.top = '25px';
-                this.element.style.left = '25px';
+            case "top-left":
+                this.element.style.top = "25px";
+                this.element.style.left = "25px";
                 break;
-            case 'top-right':
-                this.element.style.top = '25px';
-                this.element.style.right = '25px';
+            case "top-right":
+                this.element.style.top = "25px";
+                this.element.style.right = "25px";
                 break;
-            case 'bottom-right':
-                this.element.style.bottom = '25px';
-                this.element.style.right = '25px';
+            case "bottom-right":
+                this.element.style.bottom = "25px";
+                this.element.style.right = "25px";
                 break;
-            case 'bottom-left':
-                this.element.style.bottom = '25px';
-                this.element.style.left = '25px';
+            case "bottom-left":
+                this.element.style.bottom = "25px";
+                this.element.style.left = "25px";
                 break;
         }
     }
 
-    // hide() {
-    //     // this.element.style.display = 'none';
-    // }
     destroyAll() {
         for (const instance of Notification.instances) {
             document.body.removeChild(instance.element);
@@ -2959,60 +2998,63 @@ class Notification {
     }
 
     addCloseListener() {
-        this.closeBtn.addEventListener('click', () => {
+        this.closeBtn.addEventListener("click", () => {
             this.removeChild();
         });
     }
 
     onCancelCallback() {
-        if (typeof this.onCancel === 'function') {
+        if (typeof this.onCancel === "function") {
             this.onCancel();
             this.removeChild();
         }
     }
 
     onConfirmCallback() {
-        if (typeof this.onConfirm === 'function') {
-            this.pause = !this.pause
+        if (typeof this.onConfirm === "function") {
+            this.pause = !this.pause;
             if (!this.pause) {
                 this.stepProgressBar(this.onConfirm);
-                this.confirmBotton.innerText = getCookie("locale") == "zh" ? '暂停' : 'pause'
+                this.confirmBotton.innerText = getCookie("locale") === "zh" ? "暂停" : "pause";
             } else {
-                this.confirmBotton.innerText = this.confirmBtn
+                this.confirmBotton.innerText = this.confirmBtn;
             }
         }
     }
 }
+
+// 初始化静态属性
+Notification.initStatics();
 
 function createNotification(props) {
     new Notification(props);
 }
 
 function setCookie(name, value, days) {
-    var expires = "";
+    let expires = "";
     if (days) {
-        var date = new Date();
+        const date = new Date();
         date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
         expires = "; expires=" + date.toUTCString();
     }
     document.cookie = name + "=" + (value || "") + expires + "; path=/";
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    showTab('tab1');
+document.addEventListener("DOMContentLoaded", function () {
+    showTab("tab1");
 });
 
 
 function sendWorkflow(fileName) {
     Swal.fire({
-        text: 'Are you sure you want to import this workflow?',
-        icon: 'warning',
+        text: "Are you sure you want to import this workflow?",
+        icon: "warning",
         showCancelButton: true,
-        confirmButtonText: 'Yes, import it!',
-        cancelButtonText: 'Cancel'
+        confirmButtonText: "Yes, import it!",
+        cancelButtonText: "Cancel"
     }).then((result) => {
         if (result.isConfirmed) {
-            const workstationUrl = '/workstation?filename=' + encodeURIComponent(fileName);
+            const workstationUrl = "/workstation?filename=" + encodeURIComponent(fileName);
             window.location.href = workstationUrl;
         }
     });
@@ -3020,10 +3062,11 @@ function sendWorkflow(fileName) {
 
 
 function showEditorTab() {
-    document.getElementById('col-right').style.display = 'block';
-    document.getElementById('col-right2').style.display = 'none';
-    console.log('Show Editor');
+    document.getElementById("col-right").style.display = "block";
+    document.getElementById("col-right2").style.display = "none";
+    console.log("Show Editor");
 }
+
 function importGalleryWorkflow(data) {
     try {
         const parsedData = JSON.parse(data);
@@ -3033,8 +3076,8 @@ function importGalleryWorkflow(data) {
                 editor.import(parsedData);
                 importSetupNodes(parsedData);
                 Swal.fire({
-                    title: 'Imported!',
-                    icon: 'success',
+                    title: "Imported!",
+                    icon: "success",
                     showConfirmButton: true
                 }).then((result) => {
                     if (result.isConfirmed) {
@@ -3049,19 +3092,19 @@ function importGalleryWorkflow(data) {
 
 function deleteWorkflow(fileName) {
     Swal.fire({
-        title: 'Are you sure?',
+        title: "Are you sure?",
         text: "Workflow will be deleted!",
-        icon: 'warning',
+        icon: "warning",
         showCancelButton: true,
-        confirmButtonColor: '#3085d6',
-        cancelButtonColor: '#d33',
-        confirmButtonText: 'Yes, delete it!'
+        confirmButtonColor: "#3085d6",
+        cancelButtonColor: "#d33",
+        confirmButtonText: "Yes, delete it!"
     }).then((result) => {
         if (result.isConfirmed) {
-            fetch('/delete-workflow', {
-                method: 'POST',
+            fetch("/delete-workflow", {
+                method: "POST",
                 headers: {
-                    'Content-Type': 'application/json',
+                    "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
                     filename: fileName,
@@ -3069,15 +3112,15 @@ function deleteWorkflow(fileName) {
             }).then(response => response.json())
                 .then(data => {
                     if (data.error) {
-                        Swal.fire('Error', data.error, 'error');
+                        Swal.fire("Error", data.error, "error");
                     } else {
-                        showLoadWorkflowList('tab2');
-                        Swal.fire('Deleted!', 'Your workflow has been deleted.', 'success');
+                        showLoadWorkflowList("tab2");
+                        Swal.fire("Deleted!", "Your workflow has been deleted.", "success");
                     }
                 })
                 .catch(error => {
-                    console.error('Error:', error);
-                    Swal.fire('Error', 'Delete workflow error.', 'error');
+                    console.error("Error:", error);
+                    Swal.fire("Error", "Delete workflow error.", "error");
                 });
         }
     });
@@ -3085,21 +3128,21 @@ function deleteWorkflow(fileName) {
 
 
 function showTab(tabId) {
-    var tabs = document.getElementsByClassName("tab");
-    for (var i = 0; i < tabs.length; i++) {
+    const tabs = document.getElementsByClassName("tab");
+    for (let i = 0; i < tabs.length; i++) {
         tabs[i].classList.remove("active");
         tabs[i].style.display = "none";
     }
-    var tab = document.getElementById(tabId);
+    const tab = document.getElementById(tabId);
     if (tab) {
         tab.classList.add("active");
         tab.style.display = "block";
 
-        var tabButtons = document.getElementsByClassName("tab-button");
-        for (var j = 0; j < tabButtons.length; j++) {
+        const tabButtons = document.getElementsByClassName("tab-button");
+        for (let j = 0; j < tabButtons.length; j++) {
             tabButtons[j].classList.remove("active");
         }
-        var activeTabButton = document.querySelector(`.tab-button[onclick*="${tabId}"]`);
+        const activeTabButton = document.querySelector(`.tab-button[onclick*="${tabId}"]`);
         if (activeTabButton) {
             activeTabButton.classList.add("active");
         }
@@ -3115,84 +3158,84 @@ function showTab(tabId) {
 let galleryWorkflows = [];
 
 function showGalleryWorkflowList(tabId) {
-    const container = document.getElementById(tabId).querySelector('.grid-container');
-    container.innerHTML = '';
-    fetch('/fetch-gallery', {
-        method: 'POST',
+    const container = document.getElementById(tabId).querySelector(".grid-container");
+    container.innerHTML = "";
+    fetch("/fetch-gallery", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
         },
         body: JSON.stringify({})
     })
-    .then(response => response.json())
-    .then(data => {
-        galleryWorkflows = data.json || []; // 存储获取到的工作流数据
-        galleryWorkflows.forEach((workflow, index) => {
-            const meta = workflow.meta;
-            const title = meta.title;
-            const author = meta.author;
-            const time = meta.time;
-            const thumbnail = meta.thumbnail || generateThumbnailFromContent(meta);
-            createGridItem(title, container, thumbnail, author, time, false, index); // 将index传递给createGridItem
+        .then(response => response.json())
+        .then(data => {
+            galleryWorkflows = data.json || []; // 存储获取到的工作流数据
+            galleryWorkflows.forEach((workflow, index) => {
+                const meta = workflow.meta;
+                const title = meta.title;
+                const author = meta.author;
+                const time = meta.time;
+                const thumbnail = meta.thumbnail || generateThumbnailFromContent(meta);
+                createGridItem(title, container, thumbnail, author, time, false, index); // 将index传递给createGridItem
+            });
+        })
+        .catch(error => {
+            console.error("Error fetching gallery workflows:", error);
         });
-    })
-    .catch(error => {
-        console.error('Error fetching gallery workflows:', error);
-    });
 }
 
-function createGridItem(workflowName, container, thumbnail, author = '', time = '', showDeleteButton = false, index) {
-    var gridItem = document.createElement('div');
-    gridItem.className = 'grid-item';
-    gridItem.style.borderRadius = '15px';
-    var gridItem = document.createElement('div');
-    gridItem.className = 'grid-item';
-    gridItem.style.borderRadius = '15px';
-    gridItem.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
+function createGridItem(workflowName, container, thumbnail, author = "", time = "", showDeleteButton = false, index) {
+    var gridItem = document.createElement("div");
+    gridItem.className = "grid-item";
+    gridItem.style.borderRadius = "15px";
+    var gridItem = document.createElement("div");
+    gridItem.className = "grid-item";
+    gridItem.style.borderRadius = "15px";
+    gridItem.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.2)";
 
-    var img = document.createElement('div');
-    img.className = 'thumbnail';
+    const img = document.createElement("div");
+    img.className = "thumbnail";
     img.style.backgroundImage = `url('${thumbnail}')`;
-    img.style.backgroundSize = 'cover';
-    img.style.backgroundPosition = 'center';
+    img.style.backgroundSize = "cover";
+    img.style.backgroundPosition = "center";
     gridItem.appendChild(img);
 
-    var caption = document.createElement('div');
-    caption.className = 'caption';
-    caption.style.backgroundColor = 'white';
+    const caption = document.createElement("div");
+    caption.className = "caption";
+    caption.style.backgroundColor = "white";
 
-    var h6 = document.createElement('h6');
+    const h6 = document.createElement("h6");
     h6.textContent = workflowName;
-    h6.style.margin = '1px 0';
+    h6.style.margin = "1px 0";
 
-    var pAuthor = document.createElement('p');
+    const pAuthor = document.createElement("p");
     pAuthor.textContent = `Author: ${author}`;
-    pAuthor.style.margin = '1px 0';
-    pAuthor.style.fontSize = '10px';
+    pAuthor.style.margin = "1px 0";
+    pAuthor.style.fontSize = "10px";
 
-    var pTime = document.createElement('p');
+    const pTime = document.createElement("p");
     pTime.textContent = `Date: ${time}`;
-    pTime.style.margin = '1px 0';
-    pTime.style.fontSize = '10px';
+    pTime.style.margin = "1px 0";
+    pTime.style.fontSize = "10px";
 
-    var button = document.createElement('button');
-    button.textContent = ' Load ';
-    button.className = 'button';
-    button.style.backgroundColor = '#007aff';
-    button.style.color = 'white';
-    button.style.padding = '2px 7px';
-    button.style.border = 'none';
-    button.style.borderRadius = '8px';
-    button.style.fontSize = '12px';
-    button.style.cursor = 'pointer';
-    button.style.transition = 'background 0.3s';
+    const button = document.createElement("button");
+    button.textContent = " Load ";
+    button.className = "button";
+    button.style.backgroundColor = "#007aff";
+    button.style.color = "white";
+    button.style.padding = "2px 7px";
+    button.style.border = "none";
+    button.style.borderRadius = "8px";
+    button.style.fontSize = "12px";
+    button.style.cursor = "pointer";
+    button.style.transition = "background 0.3s";
 
-    button.addEventListener('mouseover', function () {
-        button.style.backgroundColor = '#005bb5';
+    button.addEventListener("mouseover", function () {
+        button.style.backgroundColor = "#005bb5";
     });
 
-    button.addEventListener('mouseout', function () {
-        button.style.backgroundColor = '#007aff';
+    button.addEventListener("mouseout", function () {
+        button.style.backgroundColor = "#007aff";
     });
     button.onclick = function (e) {
         e.preventDefault();
@@ -3205,28 +3248,32 @@ function createGridItem(workflowName, container, thumbnail, author = '', time = 
     };
 
     caption.appendChild(h6);
-    if (author) caption.appendChild(pAuthor);
-    if (time) caption.appendChild(pTime);
+    if (author) {
+        caption.appendChild(pAuthor);
+    }
+    if (time) {
+        caption.appendChild(pTime);
+    }
     caption.appendChild(button);
 
     if (showDeleteButton) {
-        var deleteButton = document.createElement('button');
-        deleteButton.textContent = 'Delete';
-        deleteButton.className = 'button';
-        deleteButton.style.backgroundColor = '#007aff';
-        deleteButton.style.color = 'white';
-        deleteButton.style.padding = '2px 3px';
-        deleteButton.style.border = 'none';
-        deleteButton.style.borderRadius = '8px';
-        deleteButton.style.fontSize = '12px';
-        deleteButton.style.cursor = 'pointer';
-        deleteButton.style.transition = 'background 0.3s';
+        const deleteButton = document.createElement("button");
+        deleteButton.textContent = "Delete";
+        deleteButton.className = "button";
+        deleteButton.style.backgroundColor = "#007aff";
+        deleteButton.style.color = "white";
+        deleteButton.style.padding = "2px 3px";
+        deleteButton.style.border = "none";
+        deleteButton.style.borderRadius = "8px";
+        deleteButton.style.fontSize = "12px";
+        deleteButton.style.cursor = "pointer";
+        deleteButton.style.transition = "background 0.3s";
 
-        deleteButton.addEventListener('mouseover', function () {
-            deleteButton.style.backgroundColor = '#005bb5';
+        deleteButton.addEventListener("mouseover", function () {
+            deleteButton.style.backgroundColor = "#005bb5";
         });
-        deleteButton.addEventListener('mouseout', function () {
-            deleteButton.style.backgroundColor = '#007aff';
+        deleteButton.addEventListener("mouseout", function () {
+            deleteButton.style.backgroundColor = "#007aff";
         });
 
         deleteButton.onclick = function (e) {
@@ -3239,51 +3286,51 @@ function createGridItem(workflowName, container, thumbnail, author = '', time = 
 
     gridItem.appendChild(caption);
     container.appendChild(gridItem);
-    console.log('Grid item appended:', gridItem);
+    console.log("Grid item appended:", gridItem);
 }
 
 function showLoadWorkflowList(tabId) {
-    fetch('/list-workflows', {
-        method: 'POST',
+    fetch("/list-workflows", {
+        method: "POST",
         headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
         },
         body: JSON.stringify({})
     })
         .then(response => response.json())
         .then(data => {
             if (!Array.isArray(data.files)) {
-                throw new TypeError('The return data is not an array');
+                throw new TypeError("The return data is not an array");
             }
 
-            const container = document.getElementById(tabId).querySelector('.grid-container');
-            container.innerHTML = '';
+            const container = document.getElementById(tabId).querySelector(".grid-container");
+            container.innerHTML = "";
 
             data.files.forEach(workflowName => {
-                const title = workflowName.replace(/\.json$/, '');
+                const title = workflowName.replace(/\.json$/, "");
                 const thumbnail = generateThumbnailFromContent({title});
-                createGridItem(title, container, thumbnail, '', '', true);
+                createGridItem(title, container, thumbnail, "", "", true);
             });
         })
         .catch(error => {
-            console.error('Error fetching workflow list:', error);
-            alert('Fetch workflow list error.');
+            console.error("Error fetching workflow list:", error);
+            alert("Fetch workflow list error.");
         });
 }
 
 
 function generateThumbnailFromContent(content) {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = 150;
     canvas.height = 150;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
 
-    ctx.fillStyle = '#f0f0f0';
+    ctx.fillStyle = "#f0f0f0";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.font = 'italic bold 14px "Helvetica Neue", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#333';
+    ctx.font = "italic bold 14px \"Helvetica Neue\", sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#333";
 
     ctx.fillText(content.title, canvas.width / 2, canvas.height / 2 + 20);
 
