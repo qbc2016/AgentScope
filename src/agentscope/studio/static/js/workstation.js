@@ -963,58 +963,12 @@ function initializeMonacoEditor(nodeId) {
       readOnly: false,
     });
 
-    require(["vs/editor/editor.main"], function () {
-      const parentSelector = `#node-${nodeId}`;
-      const parentNode = document.querySelector(parentSelector);
-
-      if (!parentNode) {
-        console.error(`Parent node with selector ${parentSelector} not found.`);
-        return;
+    editorInstance.onDidChangeModelContent(function () {
+      const updatedNode = editor.getNodeFromId(nodeId);
+      if (updatedNode) {
+        updatedNode.data.args.code = editorInstance.getValue().trim();
+        editor.updateNodeDataFromId(nodeId, updatedNode.data);
       }
-
-      const codeContentElement = parentNode.querySelector(".code-content");
-      if (!codeContentElement) {
-        return;
-      }
-
-      const node = editor.getNodeFromId(nodeId);
-      if (!node) {
-        console.error(`Node with ID ${nodeId} not found.`);
-        return;
-      }
-
-      const editorInstance = monaco.editor.create(codeContentElement, {
-        value: node.data.args.code,
-        language: "python",
-        theme: "vs-light",
-        minimap: {
-          enabled: false,
-        },
-        wordWrap: "on",
-        lineNumbersMinChars: 1,
-        scrollBeyondLastLine: false,
-        readOnly: false,
-      });
-
-      editorInstance.onDidChangeModelContent(function () {
-        const updatedNode = editor.getNodeFromId(nodeId);
-        if (updatedNode) {
-          updatedNode.data.args.code = editorInstance.getValue().trim();
-          editor.updateNodeDataFromId(nodeId, updatedNode.data);
-        }
-      });
-
-      const resizeObserver = new ResizeObserver(() => {
-        editorInstance.layout();
-      });
-      resizeObserver.observe(parentNode);
-
-      parentNode.addEventListener("DOMNodeRemoved", function () {
-        resizeObserver.disconnect();
-      });
-
-    }, function (error) {
-      console.error("Error encountered while loading monaco editor: ", error);
     });
 
     const resizeObserver = new ResizeObserver(() => {
@@ -1024,7 +978,6 @@ function initializeMonacoEditor(nodeId) {
     parentNode.addEventListener("DOMNodeRemoved", function () {
       resizeObserver.disconnect();
     });
-
   }, function (error) {
     console.error("Error encountered while loading monaco editor: ", error);
   });
