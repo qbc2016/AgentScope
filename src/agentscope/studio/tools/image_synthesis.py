@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """Text to Image"""
-import os
 from typing import Optional, Literal
 
 from agentscope.message import Msg
-from agentscope.models import DashScopeImageSynthesisWrapper
-from agentscope.utils.common import _download_file
+from agentscope.service import dashscope_text_to_image, ServiceExecStatus
 
 
 def image_synthesis(
@@ -37,53 +35,28 @@ def image_synthesis(
     Returns:
         Msg
     """
-    text2img = DashScopeImageSynthesisWrapper(
-        config_name="dashscope-text-to-image-service",  # Just a placeholder
-        model_name=model,
+
+    res = dashscope_text_to_image(
+        prompt=msg.content,
         api_key=api_key,
+        n=n,
+        size=size,
+        model=model,
+        save_dir=save_dir,
     )
-    try:
-        res = text2img(
-            prompt=msg.content,
-            n=n,
-            size=size,
-        )
-        urls = res.image_urls
 
-        # save images to save_dir
-        if urls is not None:
-            if save_dir:
-                os.makedirs(save_dir, exist_ok=True)
-                urls_local = []
-                # Obtain the image file names in the url
-                for url in urls:
-                    image_name = url.split("/")[-1]
-                    image_path = os.path.abspath(
-                        os.path.join(save_dir, image_name),
-                    )
-                    # Download the image
-                    _download_file(url, image_path)
-                    urls_local.append(image_path)
-
-            return Msg(
-                name="ImageSynthesis",
-                content=urls,
-                url=urls,
-                role="assistant",
-                echo=True,
-            )
-        else:
-            return Msg(
-                name="ImageSynthesis",
-                content="Error: Failed to generate images",
-                role="assistant",
-                echo=True,
-            )
-
-    except Exception as e:
+    if res.status == ServiceExecStatus.SUCCESS:
         return Msg(
             name="ImageSynthesis",
-            content=str(e),
+            content=res.content,
+            url=res.content["image_urls"],
+            role="assistant",
+            echo=True,
+        )
+    else:
+        return Msg(
+            name="ImageSynthesis",
+            content=res.content,
             role="assistant",
             echo=True,
         )
