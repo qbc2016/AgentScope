@@ -21,7 +21,6 @@ const nameToHtmlFile = {
   "Message": "message-msg.html",
   "DialogAgent": "agent-dialogagent.html",
   "UserAgent": "agent-useragent.html",
-  // TODO: rename in config,
   "ImageSynthesis": "tool-image-synthesis.html",
   "DictDialogAgent": "agent-dictdialogagent.html",
   "ReActAgent": "agent-reactagent.html",
@@ -2373,7 +2372,6 @@ async function addHtmlAndReplacePlaceHolderBeforeImport(data) {
   const classToReadmeDescription = {
     "node-DialogAgent": "A dialog agent that can interact with users or other agents",
     "node-UserAgent": "A proxy agent for user",
-    // "node-TextToImageAgent": "Agent for text to image generation",
     "node-DictDialogAgent": "Agent that generates response in a dict format",
     "node-ReActAgent": "Agent for ReAct (reasoning and acting) with tools",
     "node-BroadcastAgent": "A broadcast agent that only broadcasts the messages it receives"
