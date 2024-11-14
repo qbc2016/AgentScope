@@ -860,7 +860,10 @@ class ImageSynthesisNode(WorkflowNode):
 
     def _post_init(self) -> None:
         super()._post_init()
-        self.pipeline = partial(image_synthesis, **self.opt_kwargs)
+        self.process = partial(image_synthesis, **self.opt_kwargs)
+
+    def __call__(self, x: dict = None) -> dict:
+        return self.process(x)
 
     def compile(self) -> dict:
         return {
@@ -883,12 +886,12 @@ class ImageCompositionNode(WorkflowNode):
 
     def _post_init(self) -> None:
         super()._post_init()
-        self.pipeline = partial(stitch_images_with_grid, **self.opt_kwargs)
+        self.process = partial(stitch_images_with_grid, **self.opt_kwargs)
 
     def __call__(self, x: list = None) -> dict:
         if isinstance(x, dict):
             x = [x]
-        return self.pipeline(x)
+        return self.process(x)
 
     def compile(self) -> dict:
         return {
@@ -911,13 +914,13 @@ class ImageMotionNode(WorkflowNode):
 
     def _post_init(self) -> None:
         super()._post_init()
-        self.pipeline = partial(
+        self.process = partial(
             create_video_or_gif_from_image,
             **self.opt_kwargs,
         )
 
     def __call__(self, x: dict = None) -> dict:
-        return self.pipeline(x)
+        return self.process(x)
 
     def compile(self) -> dict:
         return {
@@ -941,10 +944,10 @@ class VideoCompositionNode(WorkflowNode):
 
     def _post_init(self) -> None:
         super()._post_init()
-        self.pipeline = partial(merge_videos, **self.opt_kwargs)
+        self.process = partial(merge_videos, **self.opt_kwargs)
 
     def __call__(self, x: dict = None) -> dict:
-        return self.pipeline(x)
+        return self.process(x)
 
     def compile(self) -> dict:
         return {
