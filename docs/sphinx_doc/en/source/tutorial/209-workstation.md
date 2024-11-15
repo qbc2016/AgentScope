@@ -4,11 +4,11 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
   In this tutorial, you will learn how to use AgentScope Workstation to build multi-agent applications without writing any code. We will introduce the functionalities of the Workstation and how to utilize them in depth through the following five sections.
 
-  - Principle
-  - Terms
-  - Examples
-  - Advanced
-  - Look-up Table for Workflow nodes
+  1. [Principle](#1-principal)
+  2. [Terms](#2-terms)
+  3. [Examples](#3-examples)
+  4. [Building Multimodal Complex Applications](#4-Building-Multimodal-Complex-Applications)
+  5. [Look-up Table for Workflow nodes](#5-Look-up-Table-for-Workflow-nodes)
 
   ### 1. principal
 
@@ -62,7 +62,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
   ![img](https://img.alicdn.com/imgextra/i3/O1CN01pyESTz264WHHFGyLO_!!6000000007608-2-tps-1500-781.png)
 
-  ### 3. Example
+  ### 3. Examples
 
   Click on "Conversation" under "Example" in the left navigation bar to enter the tutorial page, and click the "Next" button to learn how to build a "User-Agent Dialogue" application step by step.
 
@@ -194,7 +194,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
 
 
-  ### 5. Workflow Node Comparison Table
+  ### 5. Look-up Table for Workflow nodes
 
 | **Type**                      | **Terms**          | **Descriptions**                                             | **Remark (Visit the URL to obtain an API Key and activate the corresponding model/service.)** |
 | ----------------------------- | ------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
