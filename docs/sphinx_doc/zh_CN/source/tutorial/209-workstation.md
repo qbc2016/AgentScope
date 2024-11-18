@@ -1,6 +1,8 @@
 (209-workstation-en)=
 
-AgentScope Workstation是一个基于AgentScope的零代码创建多智能体应用的平台。在这里，您可以通过拖拽的方式，轻松地创建您的应用。您可以在安装好AgentScope完整版本后在命令行输入`as_studio`使用离线版本；也可以不安装，进入 https://agentscope.io/体验AgentScope Workstation的在线版本。
+AgentScope Workstation是一个基于AgentScope
+的零代码创建多智能体应用的平台。在这里，您可以通过拖拽的方式，轻松地创建您的应用。您可以在安装好AgentScope
+完整版本后在命令行输入`as_studio`使用离线版本；也可以不安装，进入 https://agentscope.io/ 体验AgentScope Workstation的在线版本。
 
 在这个教程中，您将学会如何利用AgentScope Workstation零代码构建多智能应用。现在我们将按照以下5个部分来从浅入深介绍Workstation的各项功能以及如何使用它。
 
@@ -132,7 +134,7 @@ if __name__ == "__main__":
     main()
 ```
 
-将上述代码保存到`main.py`文件。使用AgentScope集成好的Gradio WebUI运行应用。在命令行输入 `as_gradio main.py`运行可视化界面，输入内容获得结果，你也可以二次编辑该Python文件进行二次定制。
+将上述代码保存到`main.py`文件。使用AgentScope集成好的Gradio WebUI运行应用。在命令行输入 `as_gradio main.py`运行可视化界面，输入内容获得结果，您也可以二次编辑该Python文件进行二次定制。
 
 ![img](https://img.alicdn.com/imgextra/i3/O1CN01e5zZ0W1Y5FypeuscQ_!!6000000003007-2-tps-1500-664.png)
 
