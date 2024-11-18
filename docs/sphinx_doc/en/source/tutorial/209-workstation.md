@@ -71,9 +71,9 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
   Once entered, click "Next" to proceed with the workflow construction learning:
 
   - Step 1: Drag out a model node.
-  - Step 2: Drag out a loop logic node.
-  - Step 3: Drag out a sequential execution logic node and place it inside the loop node.
-  - Step 4: Drag out a user node and a dialogue agent node, both of which should be placed inside the sequential execution logic node.
+  - Step 2: Drag out a WhileLoopPipeline node.
+  - Step 3: Drag out a SequentialPipeline node and place it inside the WhileLoopPipeline node.
+  - Step 4: Drag out a user node and a dialogue agent node, both of which should be placed inside the SequentialPipeline node.
 
   After completing the above four steps, a "User-Agent Dialogue" application is successfully set up.
 
