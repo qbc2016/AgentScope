@@ -140,7 +140,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
   1. Game host agent conducts the story flow -->
   2. Scene agent generates Wanxiang prompts -->
-  3. Image generation tool creates images -->
+  3. Image synthesis tool creates images -->
   4. Users make adventure choices -->
   5. Enter a loop, and the game host continues the game...
 
@@ -158,7 +158,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
   ![img](https://img.alicdn.com/imgextra/i3/O1CN01YngTye1OkLLucIm0A_!!6000000001743-2-tps-1500-783.png)
 
-  Step 4: Drag two Dialog Agents and one UserAgent node from the Agents section on the left, and an Image Synthesis node from the Tools section. Arrange these nodes in the SequentialPipeline from top to bottom in the following order: DialogAgent, DialogAgent, ImageSynthesis, UserAgent, representing the game host agent, scene agent, image generation tool, and user agent in the game, respectively.
+  Step 4: Drag two Dialog Agents and one UserAgent node from the Agents section on the left, and an Image Synthesis node from the Tools section. Arrange these nodes in the SequentialPipeline from top to bottom in the following order: DialogAgent, DialogAgent, ImageSynthesis, UserAgent, representing the game host agent, scene agent, image synthesis tool, and user agent in the game, respectively.
 
   ![img](https://img.alicdn.com/imgextra/i3/O1CN01dRWMkM1Unu7sUITsp_!!6000000002563-2-tps-1500-785.png)
 
