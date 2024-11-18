@@ -10,7 +10,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
   4. [Building Multimodal Complex Applications](#4-Building-Multimodal-Complex-Applications)
   5. [Look-up Table for Workflow nodes](#5-Look-up-Table-for-Workflow-nodes)
 
-  ### 1. principal
+  ### 1. Principal
 
   AgentScope Workstation is based on AgentScope and offers a drag-and-drop, zero-code way to create multi-agent applications. You can create a variety of interesting applications on the canvas by dragging and connecting nodes. Each node in the Workstation corresponds to the capabilities of a specific module within AgentScope. By chaining these nodes together into a flowchart, a multi-agent application is created.
 
@@ -46,7 +46,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
   ⑥ Export Python Code: Exports the application on the current canvas as Python code, which can be copied for local editing or directly run.
 
-  ⑦Run: Publishes to the ModelScope Studio to run (if entered from a local studio, it runs locally).
+  ⑦ Run: Publishes to the ModelScope Studio to run (if entered from a local studio, it runs locally).
 
   ⑧ Save JSON Code: Saves the workflow to the website (we guarantee the confidentiality and security of all user data).
 
@@ -144,7 +144,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
   4. Users make adventure choices -->
   5. Enter a loop, and the game host continues the game...
 
-  #### a. Starting the Setup
+  #### Starting building
 
   Step 1: First, drag the DashScope Chat module from the Model column and fill in the corresponding configuration.
 
