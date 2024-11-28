@@ -16,7 +16,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
   Furthermore, to facilitate the sharing and usage of flowcharts created in the Workstation by users of different levels, Workstation supports exporting the content on the canvas as JSON code. Users can re-import this workflow through the import button in Workstation and edit it again in a drag-and-drop manner. Additionally, Workstation also supports exporting flowcharts as Python code, which can be run directly or further developed by programmers through Python commands.
 
-  The exported JSON and Python codes can both be operated using AgentScope’s integrated Gradio WebUI. Applications can be run by executing `as_gradio ${YOUR_FILE_NAME}.json` or `as_gradio ${YOUR_FILE_NAME}.py` to launch a WebUI based on Gradio. Moreover, this WebUI supports one-click publication and operation in the creation space.  ![img](https://img.alicdn.com/imgextra/i3/O1CN01QawpLQ1Jm6nhuMY5i_!!6000000001070-0-tps-1500-894.jpg)
+  The exported JSON and Python codes can both be operated using AgentScope’s integrated Gradio WebUI. Applications can be run by executing `as_gradio ${YOUR_FILE_NAME}.json` or `as_gradio ${YOUR_FILE_NAME}.py` to launch a WebUI based on Gradio. Moreover, this WebUI supports one-click publication and operation in ModelScope Studio.![img](https://img.alicdn.com/imgextra/i2/O1CN01anKDRw24QNxZl2N0p_!!6000000007385-55-tps-620-372.svg)
 
   ### 2. Terms
 
@@ -46,7 +46,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 
   ⑥ Export Python Code: Exports the application on the current canvas as Python code, which can be copied for local editing or directly run.
 
-  ⑦ Run: Publishes to the ModelScope Studio to run (if entered from a local studio, it runs locally).
+  ⑦ Run: Publishes and runs in ModelScope Studio. (If executed from a local studio, it will run locally.)
 
   ⑧ Save JSON Code: Saves the workflow to the website (we guarantee the confidentiality and security of all user data).
 
@@ -200,7 +200,7 @@ AgentScope Workstation is a platform built on AgentScope that allows for the zer
 | ----------------------------- | ------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | **Model**                     | DashScope Chat     | Model for DashScope chat                                     | https://bailian.console.aliyun.com/?apiKey=1#/api-key        |
 |                               | OpenAI Chat        | Model for OpenAI chat                                        | https://platform.openai.com/api-keys                         |
-|                               | Post API           | Model for Post API                                           |                                                              |
+|                               | Post API           | Model for Post API                                           | http://doc.agentscope.io/en/tutorial/203-model.html#post-request-api |
 | **Message**                   | Msg                | The message which is responsible for storingthat the information of a message translated among workflow |                                                              |
 | **Agent**                     | DialogAgent        | Athe a  dialog agent that can interact with users or other agents |                                                              |
 |                               | UserAgent          | A proxy agent for user                                       |                                                              |

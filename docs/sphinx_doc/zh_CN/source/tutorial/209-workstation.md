@@ -20,7 +20,7 @@ AgentScope Workstation基于AgentScope，提供了一个拖拽式、零代码创
 
 导出的JSON代码和Python代码都支持通过使用AgentScope集成好的Gradio WebUI运行应用，即运行`as_gradio ${YOUR_FILE_NAME}.json` 或者 `as_gradio ${YOUR_FILE_NAME}.py`来启动一个基于Gradio实现的WebUI，同时，该WebUI支持一键在创空间发布并运行。
 
-![img](https://img.alicdn.com/imgextra/i3/O1CN01QawpLQ1Jm6nhuMY5i_!!6000000001070-0-tps-1500-894.jpg)
+![img](https://img.alicdn.com/imgextra/i2/O1CN01anKDRw24QNxZl2N0p_!!6000000007385-55-tps-620-372.svg)
 
 ### 2. 常用术语
 
@@ -200,7 +200,7 @@ if __name__ == "__main__":
 | ----------------------------- | ------------------ | --------------------------------------------- | ------------------------------------------------------------ |
 | **Model**                     | DashScope Chat     | DashScope聊天模型                             | https://bailian.console.aliyun.com/?apiKey=1#/api-key        |
 |                               | OpenAI Chat        | OpenAI聊天模型                                | https://platform.openai.com/api-keys                         |
-|                               | Post API           | Post API模型                                  |                                                              |
+|                               | Post API           | Post API模型                                  | http://doc.agentscope.io/zh_CN/tutorial/203-model.html#post-request-api |
 | **Message**                   | Msg                | 负责存储工作流中传递的消息                    |                                                              |
 | **Agent**                     | DialogAgent        | 一个可以与用户或其他智能体交互的对话智能体    |                                                              |
 |                               | UserAgent          | 用户代理智能体                                |                                                              |
