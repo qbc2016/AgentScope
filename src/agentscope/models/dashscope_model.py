@@ -230,18 +230,13 @@ class DashScopeChatWrapper(DashScopeWrapperBase):
         if stream is None:
             stream = self.stream
 
+        # Update the kwargs with either 'app_id' or 'model' based on 'api_type'
         kwargs.update(
             {
                 "messages": messages,
                 # Set the result to be "message" format.
                 "result_format": "message",
                 "stream": stream,
-            },
-        )
-
-        # Update the kwargs with either 'app_id' or 'model' based on 'api_type'
-        kwargs.update(
-            {
                 "app_id"
                 if self.api_type == "application"
                 else "model": self.model_name,
