@@ -267,7 +267,7 @@ class SchedulerPipeline(PipelineBase):
 
     def __call__(self, x: Optional[dict] = None) -> dict:
         return schedulerpipeline(
-            planner_model_config_name=self.planner_model_config_name,
+            model_config_name=self.planner_model_config_name,
             operators=self.operators,
             desc_list=self.desc_list,
             x=x,

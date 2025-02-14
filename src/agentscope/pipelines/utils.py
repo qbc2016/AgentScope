@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """utils for schedulerpipeline"""
-from collections import defaultdict, deque
+from collections import defaultdict
+import networkx as nx
 
 
 def format_dependency(steps: list[tuple]) -> str:
@@ -63,12 +64,12 @@ def topological_sort(task_list: list[tuple]) -> tuple[list[tuple], dict]:
             where each tuple represents a task with its associated details.
 
     Returns:
-        Tuple[List[Tuple], Dict[str, List[str]]]:
+        Tuple[List[Tuple], Dict[tuple, List[str]]]:
         - A list of tasks sorted in a feasible execution order based on
             the provided dependencies.
-        - A dictionary where each key is an agent name,  and the value
-            is a list of agent names that the key depends on, sorted in
-            the order of execution.
+        - A dictionary where each key is a tuple consists of ("idx",
+            "agent_name"), and the value is a list of agent names that the
+            key depends on, sorted in the order of execution.
 
     Raises:
         ValueError: If there is a circular dependency that prevents
@@ -83,57 +84,48 @@ def topological_sort(task_list: list[tuple]) -> tuple[list[tuple], dict]:
         Output: (
             [("1", "info", "AgentA", "None"), ("2", "info", "AgentB",
             "1"), ("3", "info", "AgentC", "2,1")],
-            {"AgentA": [], "AgentB": ["AgentA"], "AgentC": ["AgentA",
-            "AgentB"]}
+            {("1", "AgentA"): [], ("2", "AgentB"): ["AgentA"], ("3",
+            "AgentC"): ["AgentA", "AgentB"]}
         )
     """
-    graph = defaultdict(list)
-    in_degree = defaultdict(int)
+    G = nx.DiGraph()
+
     task_map = {task[0]: task for task in task_list}
-    dependency_dict = defaultdict(list)
+    dependencies_by_task = defaultdict(list)
 
-    for step_number, _, _, dependencies in task_list:
+    # Populate the graph and map dependencies with unique identifiers
+    for step_number, _, agent, dependencies in task_list:
+        G.add_node(step_number)
         if dependencies.strip() != "None":
-            dependent_numbers = dependencies.replace("，", ",").split(",")
-            for dep in dependent_numbers:
+            for dep in dependencies.split(","):
                 dep = dep.strip()
-                if dep not in task_map:
-                    raise ValueError(
-                        f"Task {step_number} dependent on undefined "
-                        f"task number {dep}",
-                    )
-                graph[dep].append(step_number)
-                in_degree[step_number] += 1
-                dependency_dict[step_number].append(dep)
+                G.add_edge(dep, step_number)
+                dependencies_by_task[(step_number, agent)].append(
+                    (dep, task_map[dep][2]),
+                )
 
-    queue = deque([node for node in task_map if in_degree[node] == 0])
+    # Perform topological sort
+    try:
+        sorted_task_ids = list(nx.topological_sort(G))
+    except nx.NetworkXUnfeasible as exc:
+        raise ValueError("Circular dependency detected") from exc
 
-    sorted_list = []
-    while queue:
-        node = queue.popleft()
-        sorted_list.append(node)
-        for adjacent in graph[node]:
-            in_degree[adjacent] -= 1
-            if in_degree[adjacent] == 0:
-                queue.append(adjacent)
+    # Create sorted tasks
+    sorted_tasks = [task_map[task_id] for task_id in sorted_task_ids]
 
-    if len(sorted_list) != len(task_map):
-        raise ValueError(
-            "There is a circular dependency that prevents topological "
-            "sorting",
-        )
+    # Create the dependency dictionary for each unique task
+    dependency_dict = {}
+    for task_id in sorted_task_ids:
+        agent = task_map[task_id][2]
+        key = (task_id, agent)
+        if key in dependencies_by_task:
+            # Prepare a list of agent names maintaining the task order
+            sorted_dependencies = sorted(
+                dependencies_by_task[key],
+                key=lambda x: sorted_task_ids.index(x[0]),
+            )
+            dependency_dict[key] = [dep[1] for dep in sorted_dependencies]
+        else:
+            dependency_dict[key] = []
 
-    index_map = {task_id: index for index, task_id in enumerate(sorted_list)}
-
-    sorted_dependency_dict = {}
-    for task_id in sorted_list:
-        sorted_deps = sorted(
-            dependency_dict[task_id],
-            key=lambda d: index_map[d],
-        )
-        sorted_dependency_dict[task_map[task_id][2]] = [
-            task_map[dep][2] for dep in sorted_deps
-        ]
-
-    sorted_tasks = [task_map[task_id] for task_id in sorted_list]
-    return sorted_tasks, sorted_dependency_dict
+    return sorted_tasks, dependency_dict

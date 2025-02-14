@@ -14,7 +14,11 @@ from .utils import format_dependency, topological_sort
 from ..agents.operator import Operator
 from ..message.msg import Msg
 from ..agents import DialogAgent
-
+from ..prompt._prompt_scheduler_pipeline import (
+    agent_sys_prompt_with_context,
+    agent_sys_prompt_without_context,
+    scheduler_sys_prompt,
+)
 
 # A single Operator or a Sequence of Operators
 Operators = Union[Operator, Sequence[Operator]]
@@ -186,7 +190,7 @@ def whilelooppipeline(
 
 
 def schedulerpipeline(
-    planner_model_config_name: str,
+    model_config_name: str,
     operators: Sequence[Operator],
     desc_list: list[str],
     x: Optional[dict],
@@ -194,8 +198,8 @@ def schedulerpipeline(
     """Functional version of schedulerpipeline.
 
     Args:
-        planner_model_config_name (`str`): The model config name for
-            Planner agent.
+        model_config_name (`str`): The model config name for
+            Scheduler agent.
         operators (`Operators`): Operators executed as the body of
             the pipeline.
         desc_list (`list[str]`): Descriptions corresponding to each operator.
@@ -218,90 +222,30 @@ def schedulerpipeline(
 
     candidates = candidates.strip()
 
-    planner_agent = DialogAgent(
-        name="planner",
-        sys_prompt=f"""
-You are an intelligent agent planning expert.
-Your task is to create a plan that uses candidate agents to progressively solve a given problem based on the user's questions/tasks. Each step of the plan should utilize one agent to solve a subtask.
-
-## Candidate Agents
-{candidates}
-### Basic Agent
-This is a foundational agent based on Chat LLM that can perform basic natural language generation tasks.
-
-## Output Format Requirements
-Please output the plan content in the following format, using Chinese, and do not include any other content:
-# Step-1:
-<Subtask>: The main content of this step/subtask
-<Agent>: The agent designated to solve this subtask, must be one of the candidate agents ({candidates}) from the list
-<Dependency>: The sequence number of the preceding subtask(s) it depends on, if multiple, separate with ', '
-# Step-2:
-...
-
-## Reference Examples
-Below are some examples, please note that the agents used in the examples may not be available for the current task.
-
-User Question: Help me write an email to Morgen promoting Alibaba Cloud
-# Step-1:
-<Subtask>: Gather the latest updates on Alibaba Cloud products
-<Agent>: Intelligent Retrieval Assistant
-<Dependency Information>: None
-# Step-2:
-<Subtask>: Based on the latest updates, write and send an email to Morgen
-<Agent>: Intelligent Email Assistant
-<Dependency>: 1
-""",  # noqa
-        model_config_name=planner_model_config_name,
+    scheduler_agent = DialogAgent(
+        name="scheduler",
+        sys_prompt=scheduler_sys_prompt.format(candidates=candidates),
+        model_config_name=model_config_name,
     )
 
-    agent_sys_prompt_with_context = """
-Please refer to the task background and context information to complete the given subtask.
-
-Please note:
-- The "Task Background" is for reference only; the response should focus on the subtask.
-
-## Task Background (i.e., the overall task that needs to be addressed)
-{task}
-
-## Context Information
-Please keep the following information in mind, as it will help in answering the question.
-{context}
-
-## Please complete the following subtask
-{subtask}
-"""  # noqa
-
-    agent_sys_prompt_without_context = """
-Please refer to the task background and context information to complete the given subtask.
-
-Please note:
-- The "Task Background" is for reference only; the response should focus on the subtask.
-
-## Task Background (i.e., the overall task that needs to be addressed)
-{task}
-
-## Please complete the following subtask
-{subtask}
-"""  # noqa
-
-    planner_result = planner_agent(x).content
+    scheduler_result = scheduler_agent(x)
     step_pattern = re.compile(
         r"# Step-(\d+):\n<Subtask>: (.*?)\n<Agent>: (.*?)\n<Dependency>: ("
         r".*?)(?=\n# Step|\n$|$)",
         re.DOTALL,
     )
-    matches = step_pattern.findall(planner_result)
+    matches = step_pattern.findall(scheduler_result.content)
 
     dependence = format_dependency(matches)
 
     matches, dependent_dict = topological_sort(matches)
-    agent_names = [planner_agent.name]
-    agent_results = [planner_result]
+    agent_names = [scheduler_agent.name]
+    agent_results = [scheduler_result]
 
     context_dict = {}
 
-    for _, subtask, agent_name, _ in matches:
-        dependencies = dependent_dict[agent_name]
+    for idx, subtask, agent_name, _ in matches:
+        dependencies = dependent_dict[(idx, agent_name)]
         context = "\n".join(
             "\n".join(context_dict[d])
             for d in dependencies
@@ -319,15 +263,19 @@ Please note:
                 subtask=subtask,
             )
         msg = Msg(role="assistant", name=agent_name, content=prompt)
-        app_res = desc_dict[agent_name](msg).content
-        context_dict.setdefault(agent_name, []).append(app_res)
+        app_res = desc_dict[agent_name](msg)
+        desc_dict[agent_name].memory.clear()
+        context_dict.setdefault(agent_name, []).append(app_res.content)
         agent_names.append(agent_name)
         agent_results.append(app_res)
     details = "\n".join(
         f"## {name}\n### Generation Results\n{result}\n"
-        for name, result in zip(agent_names, agent_results)
+        for name, result in zip(
+            agent_names,
+            [agent_result.content for agent_result in agent_results],
+        )
     )
-    agProgress = f"""# User Goal
+    scheduling_progress = f"""# User Goal
 {x.content}
 
 # Planning Steps
@@ -337,14 +285,13 @@ Please note:
 {details}
 
 # Execution Results
-{agent_results[-1]}
+{agent_results[-1].content}
 """
-    result = {"Progress": agProgress, "Result": agent_results[-1]}
 
     # TODO change the following to Msg
     return {
         "role": "assistant",
-        "name": "schedulerpipeline",
-        "content": agent_results[-1],
-        "metadata": result,
+        "name": agent_results[-1].name,
+        "content": agent_results[-1].content,
+        "metadata": scheduling_progress,
     }
