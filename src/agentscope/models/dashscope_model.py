@@ -239,18 +239,14 @@ class DashScopeChatWrapper(DashScopeWrapperBase):
             },
         )
 
-        if self.api_type == "application":
-            kwargs.update(
-                {
-                    "app_id": self.model_name,
-                },
-            )
-        else:
-            kwargs.update(
-                {
-                    "model": self.model_name,
-                },
-            )
+        # Update the kwargs with either 'app_id' or 'model' based on 'api_type'
+        kwargs.update(
+            {
+                "app_id"
+                if self.api_type == "application"
+                else "model": self.model_name,
+            },
+        )
 
         # Switch to the incremental_output mode
         if stream:
