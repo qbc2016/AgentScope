@@ -187,7 +187,7 @@ def whilelooppipeline(
 
 def schedulerpipeline(
     planner_model_config_name: str,
-    operators: Operators,
+    operators: Sequence[Operator],
     desc_list: list[str],
     x: Optional[dict],
 ) -> dict:
@@ -341,9 +341,10 @@ Please note:
 """
     result = {"Progress": agProgress, "Result": agent_results[-1]}
 
-    return Msg(
-        role="assistant",
-        name="schedulerpipeline",
-        content=agent_results[-1],
-        metadata=result,
-    )
+    # TODO change the following to Msg
+    return {
+        "role": "assistant",
+        "name": "schedulerpipeline",
+        "content": agent_results[-1],
+        "metadata": result,
+    }

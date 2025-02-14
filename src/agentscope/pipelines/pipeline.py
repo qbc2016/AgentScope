@@ -19,7 +19,6 @@ from .functional import (
     schedulerpipeline,
 )
 from ..agents.operator import Operator
-from ..message import Msg
 
 
 class PipelineBase(Operator):
@@ -259,14 +258,14 @@ class SchedulerPipeline(PipelineBase):
     def __init__(
         self,
         planner_model_config_name: str,
-        operators: Operators,
+        operators: Sequence[Operator],
         desc_list: list[str],
     ) -> None:
         self.planner_model_config_name = planner_model_config_name
         self.operators = operators
         self.desc_list = desc_list
 
-    def __call__(self, x: Optional[dict] = None) -> Msg:
+    def __call__(self, x: Optional[dict] = None) -> dict:
         return schedulerpipeline(
             planner_model_config_name=self.planner_model_config_name,
             operators=self.operators,
