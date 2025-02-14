@@ -190,7 +190,7 @@ def schedulerpipeline(
     operators: Operators,
     desc_list: list[str],
     x: Optional[dict],
-) -> Msg:
+) -> dict:
     """Functional version of schedulerpipeline.
 
     Args:
