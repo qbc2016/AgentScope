@@ -236,7 +236,7 @@ class AnthropicChatModel(ChatModelBase):
         structured_model: Type[BaseModel] | None = None,
     ) -> ChatResponse:
         """Given an Anthropic Message object, extract the content blocks and
-            usages from it.
+        usages from it.
 
         Args:
             start_datetime (`datetime`):
