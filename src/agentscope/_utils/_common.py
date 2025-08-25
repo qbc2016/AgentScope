@@ -226,8 +226,9 @@ def _create_tool_from_base_model(
         structured_model (`Type[BaseModel]`):
             A Pydantic BaseModel class that defines the expected structure
             for the tool's output.
-        tool_name (`str`, default `"format_output"`):
-            The name to assign to the generated tool.
+        tool_name (`str`, default `"generate_structured_output"`):
+            The tool name that used to force the LLM to generate structured
+            output by calling this function.
 
     Returns:
         `Dict[str, Any]`: A tool definition dictionary compatible with

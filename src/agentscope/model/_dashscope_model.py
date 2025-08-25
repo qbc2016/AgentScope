@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches
 """The dashscope API model classes."""
 import collections
 from datetime import datetime
@@ -215,6 +214,7 @@ class DashScopeChatModel(ChatModelBase):
 
         return parsed_response
 
+    # pylint: disable=too-many-branches
     async def _parse_dashscope_stream_response(
         self,
         start_datetime: datetime,
