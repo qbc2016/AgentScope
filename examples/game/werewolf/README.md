@@ -20,8 +20,8 @@ Running the example with AgentScope Studio provides a more interactive experienc
 
 ## Details
 
-The game is built with the ``ReActAgent`` in AgentScope, utilizing its ability to generate structured outputs to  
-control the game flow and interactions. 
+The game is built with the ``ReActAgent`` in AgentScope, utilizing its ability to generate structured outputs to
+control the game flow and interactions.
 We also use the ``MsgHub`` and pipelines in AgentScope to manage the complex interactions like discussion and voting.
 It's very interesting to see how agents play the werewolf game with different roles and objectives.
 
