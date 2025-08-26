@@ -299,14 +299,17 @@ async def main() -> None:
             )
 
             shot_player = None
-            if voted_player in [_.name for _ in hunter]:
-                shot_player = await hunter_stage(agent)
-                if shot_player:
-                    await all_players_hub.broadcast(
-                        await moderator(
-                            Prompts.to_all_hunter_shoot.format(shot_player),
-                        ),
-                    )
+            for agent in hunter:
+                if voted_player == agent.name:
+                    shot_player = await hunter_stage(agent)
+                    if shot_player:
+                        await all_players_hub.broadcast(
+                            await moderator(
+                                Prompts.to_all_hunter_shoot.format(
+                                    shot_player,
+                                ),
+                            ),
+                        )
 
             # Update alive players
             dead_today = [voted_player, shot_player]

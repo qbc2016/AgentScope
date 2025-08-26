@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Functional counterpart for Pipeline"""
+import asyncio
 from typing import Any
 from ..agent import AgentBase
 from ..message import Msg
@@ -91,16 +92,9 @@ async def fanout_pipeline(
         `list[Msg]`:
             A list of response messages from each agent.
     """
-    import copy
-
     if enable_gather:
-        import asyncio
-
-        tasks = [
-            asyncio.create_task(agent(copy.deepcopy(msg), **kwargs))
-            for agent in agents
-        ]
+        tasks = [asyncio.create_task(agent(msg, **kwargs)) for agent in agents]
 
         return await asyncio.gather(*tasks)
     else:
-        return [await agent(copy.deepcopy(msg), **kwargs) for agent in agents]
+        return [await agent(msg, **kwargs) for agent in agents]
