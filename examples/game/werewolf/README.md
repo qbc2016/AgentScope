@@ -18,6 +18,18 @@ python main.py
 
 Running the example with AgentScope Studio provides a more interactive experience.
 
+- Chinese version:
+
+<video controls>
+    <source src="https://cloud.video.taobao.com/vod/KxyR66_CWaWwu76OPTvOV2Ye1Gas3i5p4molJtzhn_s.mp4" type="video/mp4">
+</video>
+
+- English version:
+
+<video controls>
+    <source src="https://cloud.video.taobao.com/vod/bMiRTfxPg2vm76wEoaIP2eJfkCi8CUExHRas-1LyK1I.mp4" type="video/mp4">
+</video>
+
 ## Details
 
 The game is built with the ``ReActAgent`` in AgentScope, utilizing its ability to generate structured outputs to
