@@ -47,7 +47,7 @@ async def fanout_pipeline(
     msg: Msg | list[Msg] | None = None,
     enable_gather: bool = True,
     **kwargs: Any,
-) -> tuple[Msg] | list:
+) -> list[Msg]:
     """A fanout pipeline that distributes the same input to multiple agents.
     This pipeline sends the same message (or a deep copy of it) to all agents
     and collects their responses. Agents can be executed either concurrently
@@ -86,11 +86,10 @@ async def fanout_pipeline(
             If False, agents are executed sequentially.
         **kwargs (`Any`):
             Additional keyword arguments passed to each agent during execution.
-    Returns:
-        `list`:
-            A list containing the output from each agent in the same order
-            as the input agents list.
 
+    Returns:
+        `list[Msg]`:
+            A list of response messages from each agent.
     """
     import copy
 
