@@ -264,7 +264,7 @@ class OpenAIChatModel(ChatModelBase):
                     choice = chunk.choices[0]
 
                     thinking += (
-                        getattr(choice.delta, "thinking_content", None) or ""
+                        getattr(choice.delta, "reasoning_content", None) or ""
                     )
                     text += choice.delta.content or ""
 
