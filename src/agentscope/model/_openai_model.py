@@ -252,6 +252,7 @@ class OpenAIChatModel(ChatModelBase):
                     chunk = item.chunk
                 else:
                     chunk = item
+
                 if chunk.usage:
                     usage = ChatUsage(
                         input_tokens=chunk.usage.prompt_tokens,
@@ -261,31 +262,26 @@ class OpenAIChatModel(ChatModelBase):
 
                 if chunk.choices:
                     choice = chunk.choices[0]
-                    if (
-                        hasattr(choice.delta, "reasoning_content")
-                        and choice.delta.reasoning_content is not None
-                    ):
-                        thinking += choice.delta.reasoning_content
 
-                    if choice.delta.content:
-                        text += choice.delta.content
+                    thinking += (
+                        getattr(choice.delta, "reasoning_content", None) or ""
+                    )
+                    text += choice.delta.content or ""
 
-                    if choice.delta.tool_calls:
-                        for tool_call in choice.delta.tool_calls:
-                            if tool_call.index in tool_calls:
-                                if tool_call.function.arguments is not None:
-                                    tool_calls[tool_call.index][
-                                        "input"
-                                    ] += tool_call.function.arguments
+                    for tool_call in choice.delta.tool_calls or []:
+                        if tool_call.index in tool_calls:
+                            if tool_call.function.arguments is not None:
+                                tool_calls[tool_call.index][
+                                    "input"
+                                ] += tool_call.function.arguments
 
-                            else:
-                                tool_calls[tool_call.index] = {
-                                    "type": "tool_use",
-                                    "id": tool_call.id,
-                                    "name": tool_call.function.name,
-                                    "input": tool_call.function.arguments
-                                    or "",
-                                }
+                        else:
+                            tool_calls[tool_call.index] = {
+                                "type": "tool_use",
+                                "id": tool_call.id,
+                                "name": tool_call.function.name,
+                                "input": tool_call.function.arguments or "",
+                            }
 
                     contents: List[
                         TextBlock | ToolUseBlock | ThinkingBlock
@@ -310,18 +306,17 @@ class OpenAIChatModel(ChatModelBase):
                         if structured_model:
                             metadata = _json_loads_with_repair(text)
 
-                    if tool_calls:
-                        for tool_call in tool_calls.values():
-                            contents.append(
-                                ToolUseBlock(
-                                    type=tool_call["type"],
-                                    id=tool_call["id"],
-                                    name=tool_call["name"],
-                                    input=_json_loads_with_repair(
-                                        tool_call["input"] or "{}",
-                                    ),
+                    for tool_call in tool_calls.values():
+                        contents.append(
+                            ToolUseBlock(
+                                type=tool_call["type"],
+                                id=tool_call["id"],
+                                name=tool_call["name"],
+                                input=_json_loads_with_repair(
+                                    tool_call["input"] or "{}",
                                 ),
-                            )
+                            ),
+                        )
 
                     if contents:
                         res = ChatResponse(
@@ -381,18 +376,18 @@ class OpenAIChatModel(ChatModelBase):
                     ),
                 )
 
-            if choice.message.tool_calls:
-                for tool_call in choice.message.tool_calls:
-                    content_blocks.append(
-                        ToolUseBlock(
-                            type="tool_use",
-                            id=tool_call.id,
-                            name=tool_call.function.name,
-                            input=_json_loads_with_repair(
-                                tool_call.function.arguments,
-                            ),
+            for tool_call in choice.message.tool_calls or []:
+                content_blocks.append(
+                    ToolUseBlock(
+                        type="tool_use",
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        input=_json_loads_with_repair(
+                            tool_call.function.arguments,
                         ),
-                    )
+                    ),
+                )
+
             if structured_model:
                 metadata = choice.message.parsed.model_dump()
 

@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches
 """Model wrapper for Ollama models."""
 from datetime import datetime
 from typing import (
@@ -25,7 +24,7 @@ from ..tracing import trace_llm
 
 
 if TYPE_CHECKING:
-    from ollama._types import OllamaChatResponse
+    from ollama._types import ChatResponse as OllamaChatResponse
 else:
     OllamaChatResponse = "ollama._types.ChatResponse"
 
@@ -167,7 +166,7 @@ class OllamaChatModel(ChatModelBase):
     async def _parse_ollama_stream_completion_response(
         self,
         start_datetime: datetime,
-        response: AsyncIterator[Any],
+        response: AsyncIterator[OllamaChatResponse],
         structured_model: Type[BaseModel] | None = None,
     ) -> AsyncGenerator[ChatResponse, None]:
         """Given an Ollama streaming completion response, extract the
@@ -176,7 +175,7 @@ class OllamaChatModel(ChatModelBase):
         Args:
             start_datetime (`datetime`):
                 The start datetime of the response generation.
-            response (`AsyncIterator[Any]`):
+            response (`AsyncIterator[OllamaChatResponse]`):
                 Ollama streaming response async iterator to parse.
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
@@ -199,47 +198,21 @@ class OllamaChatModel(ChatModelBase):
         metadata = None
 
         async for chunk in response:
-            has_new_content = False
-            has_new_thinking = False
-
             # Handle text content
-            if hasattr(chunk, "message"):
-                msg = chunk.message
+            msg = chunk.message
+            acc_thinking_content += msg.thinking or ""
+            accumulated_text += msg.content or ""
 
-                if getattr(msg, "thinking", None):
-                    acc_thinking_content += msg.thinking
-                    has_new_thinking = True
-
-                if getattr(msg, "content", None):
-                    accumulated_text += msg.content
-                    has_new_content = True
-
-                # Handle tool calls
-                if getattr(msg, "tool_calls", None):
-                    has_new_content = True
-                    for idx, tool_call in enumerate(msg.tool_calls):
-                        function_name = (
-                            getattr(
-                                tool_call,
-                                "function",
-                                None,
-                            )
-                            and tool_call.function.name
-                            or "tool"
-                        )
-                        tool_id = getattr(
-                            tool_call,
-                            "id",
-                            f"{function_name}_{idx}",
-                        )
-                        if hasattr(tool_call, "function"):
-                            function = tool_call.function
-                            tool_calls[tool_id] = {
-                                "type": "tool_use",
-                                "id": tool_id,
-                                "name": function.name,
-                                "input": function.arguments,
-                            }
+            # Handle tool calls
+            for idx, tool_call in enumerate(msg.tool_calls or []):
+                function = tool_call.function
+                tool_id = f"{idx}_{function.name}"
+                tool_calls[tool_id] = {
+                    "type": "tool_use",
+                    "id": tool_id,
+                    "name": function.name,
+                    "input": function.arguments,
+                }
             # Calculate usage statistics
             current_time = (datetime.now() - start_datetime).total_seconds()
             usage = ChatUsage(
@@ -264,26 +237,24 @@ class OllamaChatModel(ChatModelBase):
                     metadata = _json_loads_with_repair(accumulated_text)
 
             # Add tool call blocks
-            if tool_calls:
-                for tool_call in tool_calls.values():
-                    try:
-                        input_data = tool_call["input"]
-                        if isinstance(input_data, str):
-                            input_data = _json_loads_with_repair(input_data)
-                        contents.append(
-                            ToolUseBlock(
-                                type=tool_call["type"],
-                                id=tool_call["id"],
-                                name=tool_call["name"],
-                                input=input_data,
-                            ),
-                        )
-                    except Exception as e:
-                        print(f"Error parsing tool call input: {e}")
+            for tool_call in tool_calls.values():
+                try:
+                    input_data = tool_call["input"]
+                    if isinstance(input_data, str):
+                        input_data = _json_loads_with_repair(input_data)
+                    contents.append(
+                        ToolUseBlock(
+                            type=tool_call["type"],
+                            id=tool_call["id"],
+                            name=tool_call["name"],
+                            input=input_data,
+                        ),
+                    )
+                except Exception as e:
+                    print(f"Error parsing tool call input: {e}")
 
             # Generate response when there's new content or at final chunk
-            is_final = getattr(chunk, "done", False)
-            if (has_new_thinking or has_new_content or is_final) and contents:
+            if chunk.done and contents:
                 res = ChatResponse(
                     content=contents,
                     usage=usage,
@@ -338,16 +309,15 @@ class OllamaChatModel(ChatModelBase):
             if structured_model:
                 metadata = _json_loads_with_repair(response.message.content)
 
-        if response.message.tool_calls:
-            for tool_call in response.message.tool_calls:
-                content_blocks.append(
-                    ToolUseBlock(
-                        type="tool_use",
-                        id=tool_call.function.name,
-                        name=tool_call.function.name,
-                        input=tool_call.function.arguments,
-                    ),
-                )
+        for idx, tool_call in enumerate(response.message.tool_calls or []):
+            content_blocks.append(
+                ToolUseBlock(
+                    type="tool_use",
+                    id=f"{idx}_{tool_call.function.name}",
+                    name=tool_call.function.name,
+                    input=tool_call.function.arguments,
+                ),
+            )
 
         usage = None
         if "prompt_eval_count" in response and "eval_count" in response:

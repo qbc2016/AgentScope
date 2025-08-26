@@ -136,9 +136,11 @@ class GeminiChatModel(ChatModelBase):
 
         if tools:
             config["tools"] = self._format_tools_json_schemas(tools)
+
         if tool_choice:
             self._validate_tool_choice(tool_choice, tools)
             config["tool_config"] = self._format_tool_choice(tool_choice)
+
         if structured_model:
             if tools or tool_choice:
                 logger.warning(
