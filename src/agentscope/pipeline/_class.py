@@ -56,9 +56,9 @@ class FanoutPipeline:
             agents (`list[AgentBase]`):
                 A list of agents to execute.
             enable_gather (`bool`, defaults to `True`):
-                Whether to execute agents concurrently using
-                    `asyncio.gather()`.
-                If False, agents are executed sequentially.
+                Whether to execute agents concurrently
+                using `asyncio.gather()`. If False, agents are executed
+                sequentially.
         """
         self.agents = agents
         self.enable_gather = enable_gather
@@ -67,7 +67,7 @@ class FanoutPipeline:
         self,
         msg: Msg | list[Msg] | None = None,
         **kwargs: Any,
-    ) -> tuple | list:
+    ) -> list[Msg]:
         """Execute the fanout pipeline
 
         Args:
@@ -78,9 +78,8 @@ class FanoutPipeline:
                 execution.
 
         Returns:
-            `tuple | list`:
-                A tuple/list containing the output from each agent in the same
-                order as the input agents list.
+            `list[Msg]`:
+                A list of output messages from all agents.
         """
 
         return await fanout_pipeline(
