@@ -184,7 +184,7 @@ class TestOllamaChatModel(IsolatedAsyncioTestCase):
                 TextBlock(type="text", text="I'll check the weather for you."),
                 ToolUseBlock(
                     type="tool_use",
-                    id="get_weather",
+                    id="0_get_weather",
                     name="get_weather",
                     input={"location": "Beijing"},
                 ),
