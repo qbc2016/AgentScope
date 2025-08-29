@@ -137,6 +137,12 @@ async def main() -> None:
         help="The level of dataset for evaluation.",
     )
     parser.add_argument(
+        "--use_mirror",
+        type=bool,
+        default=False,
+        help="Whether to use mirror to download dataset.",
+    )
+    parser.add_argument(
         "--result_dir",
         type=str,
         required=True,
@@ -157,6 +163,7 @@ async def main() -> None:
         benchmark=GAIABenchmark(
             data_dir=args.data_dir,
             levels=args.levels,
+            use_mirror=args.use_mirror,
         ),
         # Repeat how many times
         n_repeat=1,

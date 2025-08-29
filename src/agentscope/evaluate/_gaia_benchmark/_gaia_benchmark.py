@@ -3,6 +3,7 @@
 import json
 import os
 from typing import Generator
+from pathlib import Path
 
 from ...evaluate._gaia_benchmark._gaia_metric import GAIAAccuracy
 from .._benchmark_base import BenchmarkBase
@@ -16,12 +17,18 @@ class GAIABenchmark(BenchmarkBase):
         self,
         data_dir: str,
         levels: str = "all",
+        use_mirror: bool = False,
     ) -> None:
         """Initialize the GAIABenchmark
 
         Args:
             data_dir (`str`):
                 The directory where the dataset is downloaded and saved.
+            levels (`str`):
+                The levels of tasks to evaluate.
+            use_mirror (`bool`, defaults to `False`):
+                Whether to enable the HuggingFace mirror, which is useful for
+                users in China.
         """
         super().__init__(
             name="GAIABench",
@@ -30,6 +37,7 @@ class GAIABenchmark(BenchmarkBase):
 
         self.data_dir = os.path.abspath(data_dir)
         self.levels = levels
+        self.use_mirror = use_mirror
 
         if os.path.exists(data_dir) and not os.path.isdir(data_dir):
             raise RuntimeError(
@@ -42,8 +50,6 @@ class GAIABenchmark(BenchmarkBase):
 
     def _load_data(self) -> list:
         """Load the dataset from the data directory."""
-        from pathlib import Path
-
         valid_dir = Path(self.data_dir) / "2023/validation"
         test_dir = Path(self.data_dir) / "2023/test"
 
@@ -80,7 +86,12 @@ class GAIABenchmark(BenchmarkBase):
 
     def _download_data(self) -> None:
         """Download the data from the URL"""
-        from modelscope.hub.snapshot_download import snapshot_download
+        if self.use_mirror:
+            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+        from huggingface_hub import snapshot_download, login
+
+        login(token=os.getenv("HF_TOKEN"))
 
         snapshot_download(
             repo_id="gaia-benchmark/GAIA",
@@ -92,8 +103,6 @@ class GAIABenchmark(BenchmarkBase):
     def _data_to_task(item: dict) -> Task:
         """Convert a dataset item to a Task object."""
         # Start the simulated phone and load initial configuration
-
-        from pathlib import Path
 
         file_path = item["file_name"]
         if file_path:

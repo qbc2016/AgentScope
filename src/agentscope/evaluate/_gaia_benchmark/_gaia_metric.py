@@ -16,7 +16,7 @@ from .._solution import SolutionOutput
 from .._metric_base import MetricBase, MetricResult, MetricType
 
 
-def normalize_number_str(number_str: str) -> float:
+def _normalize_number_str(number_str: str) -> float:
     """Normalize a string representation of a number."""
     # we replace these common units and commas to allow
     # conversion to float
@@ -29,7 +29,7 @@ def normalize_number_str(number_str: str) -> float:
         return float("inf")
 
 
-def split_string(
+def _split_string(
     s: str,
     char_list: list[str] | None = None,
 ) -> list[str]:
@@ -40,7 +40,7 @@ def split_string(
     return re.split(pattern, s)
 
 
-def is_float(element: Any) -> bool:
+def _is_float(element: Any) -> bool:
     """Check if an element can be converted to float."""
     try:
         float(element)
@@ -49,7 +49,7 @@ def is_float(element: Any) -> bool:
         return False
 
 
-def normalize_str(input_str: str, remove_punct: bool = True) -> str:
+def _normalize_str(input_str: str, remove_punct: bool = True) -> str:
     """
     Normalize a string by:
     - Removing all white spaces
@@ -74,7 +74,7 @@ def normalize_str(input_str: str, remove_punct: bool = True) -> str:
         return no_spaces.lower()
 
 
-def question_scorer(
+def _question_scorer(
     model_answer: str,
     ground_truth: str,
 ) -> bool:
@@ -83,9 +83,9 @@ def question_scorer(
         model_answer = "None"
 
     # if gt is a number
-    if is_float(ground_truth):
+    if _is_float(ground_truth):
         print(f"Evaluating {model_answer} as a number.")
-        normalized_answer = normalize_number_str(model_answer)
+        normalized_answer = _normalize_number_str(model_answer)
         return normalized_answer == float(ground_truth)
 
     # if gt is a list
@@ -93,8 +93,8 @@ def question_scorer(
         print(f"Evaluating {model_answer} as a comma separated list.")
         # question with the fish: normalization removes punct
 
-        gt_elems = split_string(ground_truth)
-        ma_elems = split_string(model_answer)
+        gt_elems = _split_string(ground_truth)
+        ma_elems = _split_string(model_answer)
 
         # check length is the same
         if len(gt_elems) != len(ma_elems):
@@ -107,21 +107,21 @@ def question_scorer(
         # compare each element as float or str
         comparisons = []
         for ma_elem, gt_elem in zip(ma_elems, gt_elems):
-            if is_float(gt_elem):
-                normalized_ma_elem = normalize_number_str(ma_elem)
+            if _is_float(gt_elem):
+                normalized_ma_elem = _normalize_number_str(ma_elem)
                 comparisons.append(normalized_ma_elem == float(gt_elem))
             else:
                 # we do not remove punct since comparisons can include punct
                 comparisons.append(
-                    normalize_str(ma_elem, remove_punct=False)
-                    == normalize_str(gt_elem, remove_punct=False),
+                    _normalize_str(ma_elem, remove_punct=False)
+                    == _normalize_str(gt_elem, remove_punct=False),
                 )
         return all(comparisons)
 
     # if gt is a str
     else:
         print(f"Evaluating {model_answer} as a string.")
-        return normalize_str(model_answer) == normalize_str(ground_truth)
+        return _normalize_str(model_answer) == _normalize_str(ground_truth)
 
 
 class GAIAAccuracy(MetricBase):
@@ -150,7 +150,7 @@ class GAIAAccuracy(MetricBase):
 
         # Score the answer
         try:
-            is_correct = question_scorer(model_answer, self.ground_truth)
+            is_correct = _question_scorer(model_answer, self.ground_truth)
             return MetricResult(
                 name=self.name,
                 result=1.0 if is_correct else 0.0,
