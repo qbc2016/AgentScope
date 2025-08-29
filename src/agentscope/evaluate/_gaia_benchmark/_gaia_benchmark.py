@@ -57,7 +57,7 @@ class GAIABenchmark(BenchmarkBase):
             self._download_data()
 
         dataset = {}
-        for path, label in zip([valid_dir, test_dir], ["valid", "test"]):
+        for path, label in zip([valid_dir, test_dir], ["validation", "test"]):
             dataset[label] = []
             with open(path / "metadata.jsonl", "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -79,7 +79,9 @@ class GAIABenchmark(BenchmarkBase):
 
         levels = parse_levels(self.levels)
 
-        datas = [data for data in dataset["valid"] if data["Level"] in levels]
+        datas = [
+            data for data in dataset["validation"] if data["Level"] in levels
+        ]
         return datas
 
     def _download_data(self) -> None:
