@@ -63,8 +63,6 @@ class GAIABenchmark(BenchmarkBase):
                 lines = f.readlines()
                 for line in lines:
                     data = json.loads(line)
-                    if data["task_id"] == "0-0-0-0-0":
-                        continue
                     if data["file_name"]:
                         data["file_name"] = path / data["file_name"]
                     dataset[label].append(data)
