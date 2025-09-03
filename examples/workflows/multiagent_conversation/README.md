@@ -18,3 +18,8 @@ python examples/workflows/multiagent_conversation/main.py
 - Create multiple participant agents with different attributes (e.g., Alice, Bob, Charlie).
 - Agents introduce themselves and interact in the message hub.
 - Supports dynamic addition and removal of agents, as well as broadcasting messages.
+
+## Replace the Model and Formatter
+AgentScope provides several built-in model and formatter implementations that you can easily switch between.
+
+> Note: The model and formatter should be compatible with each other.

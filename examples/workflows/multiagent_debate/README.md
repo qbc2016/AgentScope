@@ -17,3 +17,9 @@ To run the example, first install the latest version of AgentScope, then run:
 ```bash
 python examples/workflows/multiagent_debate/main.py
 ```
+
+
+## Replace the Model and Formatter
+AgentScope provides several built-in model and formatter implementations that you can easily switch between.
+
+> Note: The model and formatter should be compatible with each other.
