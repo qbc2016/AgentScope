@@ -6,6 +6,7 @@ from typing import Any
 
 from agentscope.agent import AgentBase
 from agentscope.message import Msg
+from agentscope.pipeline import fanout_pipeline
 
 
 class ExampleAgent(AgentBase):
@@ -24,15 +25,22 @@ class ExampleAgent(AgentBase):
     async def reply(self, *args: Any, **kwargs: Any) -> Msg:
         """The reply function of the example agent."""
         # we record the start time
-        start_time = datetime.now().strftime("%H:%M:%S")
+        start_time = datetime.now().strftime("%H:%M:%S.%f")
+        await self.print(
+            Msg(
+                self.name,
+                f"begins at {start_time}",
+                "assistant",
+            ),
+        )
 
-        # Sleep 5 seconds
-        await asyncio.sleep(5)
+        # Sleep 3 seconds
+        await asyncio.sleep(3)
 
-        end_time = datetime.now().strftime("%H:%M:%S")
+        end_time = datetime.now().strftime("%H:%M:%S.%f")
         msg = Msg(
             self.name,
-            f"{self.name} begins at {start_time} " f"and finish at {end_time}",
+            f"finishes at {end_time}",
             "user",
         )
         await self.print(msg)
@@ -61,4 +69,11 @@ async def main() -> None:
 
     await asyncio.gather(*futures)
 
-    print("User fanout pipeline to run the agents concurrently:")
+    print("\n\nUser fanout pipeline to run the agents concurrently:")
+    await fanout_pipeline(
+        agents=[alice, bob, chalice],
+        enable_gather=True,
+    )
+
+
+asyncio.run(main())
