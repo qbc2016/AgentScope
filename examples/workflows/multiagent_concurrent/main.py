@@ -4,6 +4,8 @@ import asyncio
 from datetime import datetime
 from typing import Any
 
+import numpy as np
+
 from agentscope.agent import AgentBase
 from agentscope.message import Msg
 from agentscope.pipeline import fanout_pipeline
@@ -25,23 +27,27 @@ class ExampleAgent(AgentBase):
     async def reply(self, *args: Any, **kwargs: Any) -> Msg:
         """The reply function of the example agent."""
         # we record the start time
-        start_time = datetime.now().strftime("%H:%M:%S.%f")
+        start_time = datetime.now()
         await self.print(
             Msg(
                 self.name,
-                f"begins at {start_time}",
+                f"begins at {start_time.strftime('%H:%M:%S.%f')}",
                 "assistant",
             ),
         )
 
-        # Sleep 3 seconds
-        await asyncio.sleep(3)
+        # Sleep some time
+        await asyncio.sleep(np.random.choice([2, 3, 4]))
 
-        end_time = datetime.now().strftime("%H:%M:%S.%f")
+        end_time = datetime.now()
         msg = Msg(
             self.name,
-            f"finishes at {end_time}",
+            f"finishes at {end_time.strftime('%H:%M:%S.%f')}",
             "user",
+            # Add some metadata for demonstration
+            metadata={
+                "time": (end_time - start_time).total_seconds(),
+            },
         )
         await self.print(msg)
         return msg
@@ -69,11 +75,19 @@ async def main() -> None:
 
     await asyncio.gather(*futures)
 
-    print("\n\nUser fanout pipeline to run the agents concurrently:")
-    await fanout_pipeline(
+    print("\n\nUse fanout pipeline to run the agents concurrently:")
+    collected_res = await fanout_pipeline(
         agents=[alice, bob, chalice],
         enable_gather=True,
     )
+    # Print the collected results
+    print("\n\nThe collected time used by each agent:")
+    for res in collected_res:
+        print(f"{res.name}: {res.metadata['time']} seconds")
+
+    print("\nThe average time used:")
+    avg_time = np.mean([res.metadata["time"] for res in collected_res])
+    print(f"{avg_time} seconds")
 
 
 asyncio.run(main())

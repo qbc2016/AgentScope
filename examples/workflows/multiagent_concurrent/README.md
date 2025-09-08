@@ -25,3 +25,5 @@ Then run the example script:
 python main.py
 ```
 
+## Further Reading
+- [Pipelines](https://doc.agentscope.io/tutorial/task_pipeline.html)
