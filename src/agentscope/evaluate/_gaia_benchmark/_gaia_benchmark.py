@@ -100,13 +100,73 @@ class GAIABenchmark(BenchmarkBase):
         )
 
     @staticmethod
+    def _add_tags(item: dict) -> dict:
+        """Add tags to the item based on file extension and content analysis.
+
+        Args:
+            item (dict): Input item containing file information and metadata
+
+        Returns:
+            dict: Dictionary containing categorized tags
+        """
+
+        EXTENSION_TAGS = {
+            "pdf": ["pdf"],
+            "xlsx": ["excel"],
+            "xls": ["excel"],
+            "png": ["image"],
+            "jpg": ["image"],
+            "jpeg": ["image"],
+            "mp3": ["audio"],
+            "wav": ["audio"],
+            "txt": ["txt"],
+            "pptx": ["ppt"],
+            "doc": ["word"],
+            "docx": ["word"],
+            "py": ["code"],
+        }
+
+        KEYWORD_TAGS = {
+            "browser-use": ["search", "browser", "wikipedia", "web"],
+            "search-engine": ["google", "search engine"],
+            "calculator": ["calculator"],
+            "code": ["python", "c++", "run code"],
+            "ocr": ["image recognition", "ocr"],
+            "color-recognition": ["color recognition"],
+            "audio": ["audio", "speech-to-text"],
+            "video": ["video"],
+        }
+
+        tags = set()
+
+        fname = str(item.get("file_name", "")).lower()
+        for ext, tag_list in EXTENSION_TAGS.items():
+            if fname.endswith(f".{ext}"):
+                tags.update(tag_list)
+
+        metadata = item.get("Annotator Metadata", {})
+        combined_text = " ".join(
+            [
+                metadata.get("Steps", ""),
+                metadata.get("Tools", ""),
+                item.get("Question", ""),
+            ],
+        ).lower()
+
+        for tag, keywords in KEYWORD_TAGS.items():
+            if any(keyword in combined_text for keyword in keywords):
+                tags.add(tag)
+
+        return {"category": list(tags)}
+
+    @staticmethod
     def _data_to_task(item: dict) -> Task:
         """Convert a dataset item to a Task object."""
         # Start the simulated phone and load initial configuration
 
+        tags = GAIABenchmark._add_tags(item)
+
         file_path = item["file_name"]
-        if file_path:
-            file_path = str(Path(file_path).resolve())
 
         return Task(
             id=item["task_id"],
@@ -115,6 +175,7 @@ class GAIABenchmark(BenchmarkBase):
             metrics=[
                 GAIAAccuracy(item["Final answer"]),
             ],
+            tags=tags,
             metadata={
                 # The provided tools for this task, used to equip the agent
                 "Annotator Metadata": item["Annotator Metadata"],
