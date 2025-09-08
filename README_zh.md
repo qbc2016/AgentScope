@@ -102,6 +102,7 @@ AgentScope v1.0 新功能概览:
 | ...        |                                        |                                                                               |
 
 ## 📢 新闻
+- **[2025-09]** **AgentScope Runtime** 现已开源！支持沙盒化工具执行的高效智能体部署，助力打造生产级AI应用。查看 [GitHub 仓库](https://github.com/agentscope-ai/agentscope-runtime)。
 - **[2025-09]** **AgentScope Studio** 现已开源！查看 [GitHub 仓库](https://github.com/agentscope-ai/agentscope-studio)。
 - **[2025-08]** v1 版本 Tutorial 已上线！查看[tutorial](https://doc.agentscope.io/zh_CN/)了解更多详情。
 - **[2025-08]** 🎉🎉 AgentScope v1现已发布！在完全拥抱异步执行的基础上提供许多新功能和改进。查看[changelog](https://github.com/agentscope-ai/agentscope/blob/main/docs/changelog.md)了解详细变更。
@@ -122,7 +123,7 @@ AgentScope v1.0 新功能概览:
   - [💻 安装](#-%E5%AE%89%E8%A3%85)
     - [🛠️ 从源码安装](#-%E4%BB%8E%E6%BA%90%E7%A0%81%E5%AE%89%E8%A3%85)
     - [📦 从PyPi安装](#-%E4%BB%8Epypi%E5%AE%89%E8%A3%85)
-- [样例](#%E6%A0%B7%E4%BE%8B)
+- [📝 样例](#-%E6%A0%B7%E4%BE%8B)
   - [👋 Hello AgentScope！](#-hello-agentscope)
   - [🎯 实时介入](#-%E5%AE%9E%E6%97%B6%E4%BB%8B%E5%85%A5)
   - [🛠️ 细粒度 MCP 控制](#-%E7%BB%86%E7%B2%92%E5%BA%A6-mcp-%E6%8E%A7%E5%88%B6)
@@ -158,7 +159,7 @@ pip install -e .
 pip install agentscope
 ```
 
-## 样例
+## 📝 样例
 
 ### 👋 Hello AgentScope！
 
@@ -349,6 +350,7 @@ as_studio
   - 工作流
     - [多智能体辩论](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_debate)
     - [多智能体对话](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_conversation)
+    - [多智能体并发](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_concurrent)
   - 评测
     - [ACEBench](https://github.com/agentscope-ai/agentscope/tree/main/examples/evaluation/ace_bench)
   - 功能演示

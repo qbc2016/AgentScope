@@ -101,6 +101,7 @@ Quick overview of important features in **AgentScope 1.0**:
 | ...        |                                                                                    |                                                                         |
 
 ## 📢 News
+- **[2025-09]** **AgentScope Runtime** is open-sourced now! Enabling effective agent deployment with sandboxed tool execution for production-ready AI applications. Check out the [GitHub repo](https://github.com/agentscope-ai/agentscope-runtime).
 - **[2025-09]** **AgentScope Studio** is open-sourced now! Check out the [GitHub repo](https://github.com/agentscope-ai/agentscope-studio).
 - **[2025-08]** The new tutorial of v1 is online now! Check out the [tutorial](https://doc.agentscope.io) for more details.
 - **[2025-08]** 🎉🎉 AgentScope v1 is released now! This version fully embraces the asynchronous execution, providing many new features and improvements. Check out [changelog](https://github.com/agentscope-ai/agentscope/blob/main/docs/changelog.md) for detailed changes.
@@ -121,10 +122,10 @@ Welcome to join our community on
   - [💻 Installation](#-installation)
     - [🛠️ From source](#-from-source)
     - [📦 From PyPi](#-from-pypi)
-- [Example](#example)
+- [📝 Example](#-example)
   - [👋 Hello AgentScope!](#-hello-agentscope)
   - [🎯 Realtime Steering](#-realtime-steering)
-- [🛠️ Fine-Grained MCP Control](#-fine-grained-mcp-control)
+  - [🛠️ Fine-Grained MCP Control](#-fine-grained-mcp-control)
   - [🧑‍🤝‍🧑 Multi-Agent Conversation](#-multi-agent-conversation)
   - [💻 AgentScope Studio](#-agentscope-studio)
 - [📖 Documentation](#-documentation)
@@ -157,7 +158,7 @@ pip install -e .
 pip install agentscope
 ```
 
-## Example
+## 📝 Example
 
 ### 👋 Hello AgentScope!
 
@@ -211,7 +212,7 @@ Natively support **realtime interruption** in ``ReActAgent`` with robust memory 
   <img src="./assets/images/realtime_steering_en.gif" alt="Realtime Steering" width="49%"/>
 </p>
 
-## 🛠️ Fine-Grained MCP Control
+### 🛠️ Fine-Grained MCP Control
 
 Developers can obtain the MCP tool as a **local callable function**, and use it anywhere (e.g. call directly, pass to agent, wrap into a more complex tool, etc.)
 
@@ -347,6 +348,7 @@ as_studio
   - Workflow
     - [Multi-agent Debate](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_debate)
     - [Multi-agent Conversation](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_conversation)
+    - [Multi-agent Concurrent](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_concurrent)
   - Evaluation
     - [ACEBench](https://github.com/agentscope-ai/agentscope/tree/main/examples/evaluation/ace_bench)
   - Functional
