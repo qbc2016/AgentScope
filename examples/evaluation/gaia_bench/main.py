@@ -154,6 +154,12 @@ You are a general AI assistant. I will ask you a question. Report your thoughts,
     except Exception as e:
         print(f"An error occurred: {e}")
         print("Cleaning up clients...")
+        return SolutionOutput(
+            success=False,
+            output=None,
+            trajectory=[],
+            meta={"error": str(e)},
+        )
     finally:
         # Ensure both clients are always closed,
         # regardless of success or failure
