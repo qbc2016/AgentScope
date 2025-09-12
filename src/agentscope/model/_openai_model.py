@@ -381,7 +381,9 @@ class OpenAIChatModel(ChatModelBase):
             If `structured_model` is not `None`, the expected structured output
             will be stored in the metadata of the `ChatResponse`.
         """
-        content_blocks: List[TextBlock | ToolUseBlock | ThinkingBlock] = []
+        content_blocks: List[
+            TextBlock | ToolUseBlock | ThinkingBlock | AudioBlock
+        ] = []
         metadata = None
 
         if response.choices:
