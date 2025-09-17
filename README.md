@@ -357,6 +357,7 @@ as_studio
     - [Structured Output](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/structured_output)
     - [Long-Term Memory](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/long_term_memory)
     - [Session with SQLite](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/session_with_sqlite)
+    - [Audio Response](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/audio_response)
 
 ## ⚖️ License
 

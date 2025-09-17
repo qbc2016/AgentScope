@@ -359,6 +359,7 @@ as_studio
     - [结构化输出](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/structured_output)
     - [长期记忆](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/long_term_memory)
     - [基于DB的会话管理](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/session_with_sqlite)
+    - [语音回复](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/audio_response)
 
 ## ⚖️ 许可
 
