@@ -159,8 +159,7 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
         self._disable_console_output: bool = False
 
         # Audio related
-        self.pyaudio = None
-        self.stream = None
+        self._audio_infra = {}
 
     async def observe(self, msg: Msg | list[Msg] | None) -> None:
         """Receive the given message(s) without generating a reply.
@@ -182,7 +181,6 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             f"{self.__class__.__name__} class.",
         )
 
-    # pylint: disable=too-many-branches
     async def print(self, msg: Msg, last: bool = True) -> None:
         """The function to display the message.
 
@@ -196,78 +194,134 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
         if self._disable_console_output:
             return
 
-        thinking_and_text_to_print = []
         audio_prefix_name = msg.id + "-audio"
+        thinking_and_text_to_print = []
+
         for block in msg.get_content_blocks():
-            audio_prefix = self._stream_prefix.get(audio_prefix_name, "")
             if block["type"] == "audio":
-                if not audio_prefix:
-                    import pyaudio
-
-                    self.pyaudio = pyaudio.PyAudio()
-                    # TODO: make it configurable
-                    self.stream = self.pyaudio.open(
-                        format=pyaudio.paInt16,
-                        channels=1,
-                        rate=24000,
-                        output=True,
-                    )
-
-                wav_bytes = base64.b64decode(
-                    block["source"]["data"][
-                        len(
-                            audio_prefix,
-                        ) :
-                    ],
+                self._process_audio_block(block, audio_prefix_name)
+            elif block["type"] in ["text", "thinking"]:
+                self._process_text_block(
+                    block,
+                    msg,
+                    thinking_and_text_to_print,
                 )
-                audio_np = np.frombuffer(wav_bytes, dtype=np.int16)
-                self.stream.write(audio_np.tobytes())
-                self._stream_prefix[audio_prefix_name] = block["source"][
-                    "data"
-                ]
-
-            prefix = self._stream_prefix.get(msg.id, "")
-            if block["type"] in ["text", "thinking"]:
-                block_type = block["type"]
-                format_prefix = "" if block_type == "text" else "(thinking)"
-
-                thinking_and_text_to_print.append(
-                    f"{msg.name}{format_prefix}: {block[block_type]}",
-                )
-
-                to_print = "\n".join(thinking_and_text_to_print)
-                if len(to_print) > len(prefix):
-                    print(to_print[len(prefix) :], end="")
-                    self._stream_prefix[msg.id] = to_print
-
             elif last:
-                if block["type"] == "audio":
-                    continue
+                self._process_other_block(block, msg)
 
-                if prefix:
-                    if not prefix.endswith("\n"):
-                        print(
-                            "\n"
-                            + json.dumps(block, indent=4, ensure_ascii=False),
-                        )
-                    else:
-                        print(json.dumps(block, indent=4, ensure_ascii=False))
-                else:
-                    print(
-                        f"{msg.name}: "
-                        f"{json.dumps(block, indent=4, ensure_ascii=False)}",
-                    )
         if last:
-            if audio_prefix_name in self._stream_prefix:
-                self.stream.stop_stream()
-                self.stream.close()
-                self.pyaudio.terminate()
-                delattr(self, "stream")
-                delattr(self, "pyaudio")
-            if msg.id in self._stream_prefix:
-                last_prefix = self._stream_prefix.pop(msg.id)
-                if not last_prefix.endswith("\n"):
-                    print()
+            self._cleanup_resources(msg, audio_prefix_name)
+
+    def _process_audio_block(
+        self,
+        block: dict,
+        audio_prefix_name: str,
+    ) -> None:
+        """Process audio block content.
+
+        Args:
+            block: The audio content block
+            audio_prefix_name: Unique identifier for the audio stream
+        """
+        audio_prefix = self._stream_prefix.get(audio_prefix_name, "")
+        if not audio_prefix:
+            self._initialize_audio_stream()
+
+        wav_bytes = base64.b64decode(
+            block["source"]["data"][len(audio_prefix) :],
+        )
+        audio_np = np.frombuffer(wav_bytes, dtype=np.int16)
+        self._audio_infra["stream"].write(audio_np.tobytes())
+        self._stream_prefix[audio_prefix_name] = block["source"]["data"]
+
+    def _initialize_audio_stream(self) -> None:
+        """Initialize PyAudio stream with default settings."""
+        import pyaudio
+
+        self._audio_infra["pyaudio"] = pyaudio.PyAudio()
+        # TODO: make it configurable
+        self._audio_infra["stream"] = self._audio_infra["pyaudio"].open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=24000,
+            output=True,
+        )
+
+    def _process_text_block(
+        self,
+        block: dict,
+        msg: Msg,
+        thinking_and_text_to_print: list,
+    ) -> None:
+        """Process text and thinking blocks.
+
+        Args:
+            block: The text content block
+            msg: Message object containing the block
+            thinking_and_text_to_print: List to store formatted text
+        """
+        block_type = block["type"]
+        format_prefix = "" if block_type == "text" else "(thinking)"
+
+        thinking_and_text_to_print.append(
+            f"{msg.name}{format_prefix}: {block[block_type]}",
+        )
+
+        to_print = "\n".join(thinking_and_text_to_print)
+        prefix = self._stream_prefix.get(msg.id, "")
+
+        if len(to_print) > len(prefix):
+            print(to_print[len(prefix) :], end="")
+            self._stream_prefix[msg.id] = to_print
+
+    def _process_other_block(self, block: dict, msg: Msg) -> None:
+        """Process blocks of types other than audio, text, or thinking.
+
+        Args:
+            block: The content block
+            msg: Message object containing the block
+        """
+        if block["type"] == "audio":
+            return
+
+        prefix = self._stream_prefix.get(msg.id, "")
+        if prefix:
+            print_newline = "" if prefix.endswith("\n") else "\n"
+            print(
+                f"{print_newline}"
+                f"{json.dumps(block, indent=4, ensure_ascii=False)}",
+            )
+        else:
+            print(
+                f"{msg.name}:"
+                f" {json.dumps(block, indent=4, ensure_ascii=False)}",
+            )
+
+    def _cleanup_resources(self, msg: Msg, audio_prefix_name: str) -> None:
+        """Clean up audio resources and handle final printing.
+
+        Args:
+            msg: Message object
+            audio_prefix_name: Identifier for the audio stream
+        """
+        if audio_prefix_name in self._stream_prefix:
+            self._cleanup_audio_resources()
+
+        if msg.id in self._stream_prefix:
+            last_prefix = self._stream_prefix.pop(msg.id)
+            if not last_prefix.endswith("\n"):
+                print()
+
+    def _cleanup_audio_resources(self) -> None:
+        """Clean up audio stream and PyAudio resources."""
+        if "stream" in self._audio_infra:
+            self._audio_infra["stream"].stop_stream()
+            self._audio_infra["stream"].close()
+
+        if "pyaudio" in self._audio_infra:
+            self._audio_infra["pyaudio"].terminate()
+
+        self._audio_infra.clear()
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Msg:
         """Call the reply function with the given arguments."""

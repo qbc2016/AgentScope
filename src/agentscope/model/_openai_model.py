@@ -313,12 +313,16 @@ class OpenAIChatModel(ChatModelBase):
                             ),
                         )
                     if audio:
+                        media_type = self.generate_kwargs.get("audio", {}).get(
+                            "format",
+                            "wav",
+                        )
                         contents.append(
                             AudioBlock(
                                 type="audio",
                                 source=Base64Source(
                                     data=audio,
-                                    media_type="audio/mpeg",
+                                    media_type=f"audio/{media_type}",
                                     type="base64",
                                 ),
                             ),
