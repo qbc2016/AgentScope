@@ -12,7 +12,7 @@ import numpy as np
 from ._agent_meta import _AgentMeta
 from .._logging import logger
 from ..module import StateModule
-from ..message import Msg
+from ..message import Msg, ContentBlock
 from ..types import AgentHookTypes
 
 
@@ -207,14 +207,14 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
                     thinking_and_text_to_print,
                 )
             elif last:
-                self._process_other_block(block, msg)
+                self._process_last_block(block, msg)
 
         if last:
             self._cleanup_resources(msg, audio_prefix_name)
 
     def _process_audio_block(
         self,
-        block: dict,
+        block: ContentBlock,
         audio_prefix_name: str,
     ) -> None:
         """Process audio block content.
@@ -249,7 +249,7 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
 
     def _process_text_block(
         self,
-        block: dict,
+        block: ContentBlock,
         msg: Msg,
         thinking_and_text_to_print: list,
     ) -> None:
@@ -274,7 +274,7 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             print(to_print[len(prefix) :], end="")
             self._stream_prefix[msg.id] = to_print
 
-    def _process_other_block(self, block: dict, msg: Msg) -> None:
+    def _process_last_block(self, block: ContentBlock, msg: Msg) -> None:
         """Process blocks of types other than audio, text, or thinking.
 
         Args:
