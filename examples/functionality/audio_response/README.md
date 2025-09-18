@@ -3,6 +3,8 @@
 
 This example demonstrates how to create a conversational agent using AgentScope with Qwen-Omni model, featuring both text and audio output capabilities.
 
+> **Note**: When audio output is enabled, tool calling functionality may be disabled.
+
 ## Quick Start
 
 Ensure you have installed agentscope and set ``DASHSCOPE_API_KEY`` in your environment variables.

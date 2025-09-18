@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""The main entry point of the ReAct agent example."""
+"""
+A ReAct agent example that demonstrates audio output capability.
+Note: When audio output is enabled, tool calling functionality may be disabled.
+"""
 import asyncio
 import os
 from agentscope.agent import ReActAgent, UserAgent
@@ -23,6 +26,8 @@ async def main() -> None:
             },
             api_key=os.getenv("DASHSCOPE_API_KEY"),
             stream=True,
+            # More options can be found in the DashScope API docs:
+            # https://help.aliyun.com/zh/model-studio/qwen-omni
             generate_kwargs={
                 "modalities": ["text", "audio"],
                 "audio": {"voice": "Cherry", "format": "wav"},
