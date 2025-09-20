@@ -411,7 +411,7 @@ class ReActAgent(ReActAgentBase):
 
         Returns:
             `Union[Msg, None]`:
-                Return a message to the user if the `_finish_function` is
+                Return a message to the user if the `finish_function` is
                 called, otherwise return `None`.
         """
 
@@ -443,16 +443,21 @@ class ReActAgent(ReActAgentBase):
                 if (
                     tool_call["name"] != self.finish_function_name
                     or tool_call["name"] == self.finish_function_name
-                    and not chunk.metadata.get("success")
+                    and (
+                        chunk.metadata is None
+                        or not chunk.metadata.get("success")
+                    )
                 ):
                     await self.print(tool_res_msg, chunk.is_last)
 
                 # Return message if generate_response is called successfully
-                if tool_call[
-                    "name"
-                ] == self.finish_function_name and chunk.metadata.get(
-                    "success",
-                    True,
+                if (
+                    tool_call["name"] == self.finish_function_name
+                    and chunk.metadata
+                    and chunk.metadata.get(
+                        "success",
+                        True,
+                    )
                 ):
                     response_msg = chunk.metadata.get("response_msg")
 

@@ -4,12 +4,15 @@
 from dataclasses import dataclass, field
 from typing import Literal, Sequence
 
-from anthropic.types import ThinkingBlock
-
 from ._model_usage import ChatUsage
 from .._utils._common import _get_timestamp
 from .._utils._mixin import DictMixin
-from ..message import TextBlock, ToolUseBlock, AudioBlock
+from ..message import (
+    TextBlock,
+    ToolUseBlock,
+    ThinkingBlock,
+    AudioBlock,
+)
 from ..types import JSONSerializableObject
 
 
