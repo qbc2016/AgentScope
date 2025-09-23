@@ -32,7 +32,7 @@ class OmniCallback(OmniRealtimeCallback):
 
     def on_close(self, close_status_code: int, close_msg: str) -> None:
         """Handle connection close"""
-        logger.info(f"Connection closed: {close_status_code}, {close_msg}")
+        logger.info("Connection closed: %s, %s", close_status_code, close_msg)
         sys.exit(0)
 
     def on_event(self, response: dict) -> None:
@@ -41,12 +41,12 @@ class OmniCallback(OmniRealtimeCallback):
             event_type = response["type"]
             # print(response)
             if event_type == "session.created":
-                logger.info(f'Session started: {response["session"]["id"]}')
+                logger.info("Session started: %s", response["session"]["id"])
             elif (
                 event_type
                 == "conversation.item.input_audio_transcription.completed"
             ):
-                logger.info(f'Question: {response["transcript"]}')
+                logger.info("Question: %s", response["transcript"])
             elif event_type == "response.audio_transcript.delta":
                 text = response["delta"]
                 # print(f"Got LLM response delta: {text}")
@@ -80,14 +80,11 @@ class OmniCallback(OmniRealtimeCallback):
             elif event_type == "response.done":
                 logger.info("======RESPONSE DONE======")
                 logger.info(
-                    logger.info(
-                        f"[Metric] response: "
-                        f"{self.conversation.get_last_response_id()}, "
-                        f"first text delay: "
-                        f"{self.conversation.get_last_first_text_delay()}, "
-                        f"first audio delay: "
-                        f"{self.conversation.get_last_first_audio_delay()}",
-                    ),
+                    "[Metric] response: %s, first text delay: %s, "
+                    "first audio delay: %s",
+                    self.conversation.get_last_response_id(),
+                    self.conversation.get_last_first_text_delay(),
+                    self.conversation.get_last_first_audio_delay(),
                 )
 
                 # print(self.response_audio)
@@ -113,4 +110,4 @@ class OmniCallback(OmniRealtimeCallback):
 
                 self.complete_event.set()
         except Exception as e:
-            logger.info(f"[Error] {e}")
+            logger.info("[Error] %s", e)

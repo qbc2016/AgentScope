@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Realtime audio assistant agent"""
+from typing import Any
+
 # https://help.aliyun.com/zh/model-studio/realtime
 
 from dashscope.audio.qwen_omni import (
@@ -60,8 +62,16 @@ class AudioAssistantAgent(AgentBase):
             enable_turn_detection=False,
         )
 
-    def observe(self, msg: Msg | list[Msg] | None) -> None:
+    async def observe(self, msg: Msg | list[Msg] | None) -> None:
         """Process observed messages"""
+
+    async def handle_interrupt(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Msg:
+        """The post-processing logic when the reply is interrupted by the
+        user or something else."""
 
     async def reply(self, msg: Msg | list[Msg] | None) -> Msg:
         """Generate reply for input message

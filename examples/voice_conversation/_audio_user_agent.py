@@ -52,7 +52,7 @@ class MicrophoneRecorder:
             status: Stream status
         """
         if status:
-            logger.info(f"Stream callback status: {status}")
+            logger.info("Stream callback status: %s", status)
         self.frames.append(indata.copy())
 
     def start(self) -> None:
@@ -74,7 +74,7 @@ class MicrophoneRecorder:
             logger.info("Microphone recording started...")
         except Exception as e:
             self._is_recording = False
-            logger.info(f"Failed to start microphone: {e}")
+            logger.info("Failed to start microphone: %s", e)
             raise
 
     def stop(self) -> Optional[bytes]:
@@ -99,7 +99,7 @@ class MicrophoneRecorder:
             return audio_data.tobytes()
 
         except Exception as e:
-            logger.info(f"Error stopping recording: {e}")
+            logger.info("Error stopping recording: %s", e)
             return None
         finally:
             logger.info("Microphone recording stopped")
@@ -118,6 +118,22 @@ class AudioUserAgent(AgentBase):
         """
         super().__init__()
         self.name = name
+
+    async def handle_interrupt(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Msg:
+        """The post-processing logic when the reply is interrupted by the
+        user or something else."""
+
+    async def observe(self, msg: Msg | list[Msg] | None) -> None:
+        """Receive the given message(s) without generating a reply.
+
+        Args:
+            msg (`Msg | list[Msg] | None`):
+                The message(s) to be observed.
+        """
 
     def _create_audio_blocks(self, audio_data: bytes) -> list[AudioBlock]:
         """Convert audio data to AudioBlock list
@@ -197,9 +213,10 @@ class AudioUserAgent(AgentBase):
                         continue
 
                     logger.info(
-                        f"Successfully recorded audio: "
-                        f"{len(recorded_audio)} bytes",
+                        "Successfully recorded audio: %d bytes",
+                        len(recorded_audio),
                     )
+
                     return Msg(
                         name=self.name,
                         content=self._create_audio_blocks(recorded_audio),
@@ -207,7 +224,7 @@ class AudioUserAgent(AgentBase):
                     )
 
                 except Exception as e:
-                    logger.info(f"Error during recording: {e}")
+                    logger.info("Error during recording: %s", e)
                     continue
 
             # If user typed text directly, send text message
