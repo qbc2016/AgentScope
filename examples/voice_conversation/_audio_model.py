@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Audio model"""
 # https://help.aliyun.com/zh/model-studio/realtime
+import asyncio
 import sys
 import threading
+
 from dashscope.audio.qwen_omni import OmniRealtimeCallback
 
 from agentscope.message import TextBlock, AudioBlock, Base64Source
@@ -20,6 +22,11 @@ class OmniCallback(OmniRealtimeCallback):
         self.response_audio = ""
 
         self.chunks = []
+
+        async def _noop(_content_blocks: list, _is_final: bool) -> None:
+            pass
+
+        self.on_response_chunk = _noop
 
     def wait_for_complete(self) -> None:
         """Wait for response completion"""
@@ -51,32 +58,33 @@ class OmniCallback(OmniRealtimeCallback):
                 text = response["delta"]
                 # print(f"Got LLM response delta: {text}")
                 self.response_text += text
+                content_blocks = [
+                    TextBlock(type="text", text=self.response_text),
+                ]
                 self.chunks.append(
-                    ([TextBlock(type="text", text=self.response_text)], False),
+                    (content_blocks, False),
                 )
-
+                callback = self.on_response_chunk
+                if callback and callable(callback):
+                    asyncio.run(callback(content_blocks, False))
             elif event_type == "response.audio.delta":
                 audio_data = response["delta"]
                 self.response_audio += audio_data
-                self.chunks.append(
-                    (
-                        [
-                            TextBlock(
-                                type="text",
-                                text=self.response_text,
-                            ),
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    media_type="audio/wav",
-                                    data=self.response_audio,
-                                ),
-                            ),
-                        ],
-                        False,
+                content_blocks = [
+                    TextBlock(type="text", text=self.response_text),
+                    AudioBlock(
+                        type="audio",
+                        source=Base64Source(
+                            type="base64",
+                            media_type="audio/wav",
+                            data=self.response_audio,
+                        ),
                     ),
-                )
+                ]
+                self.chunks.append((content_blocks, False))
+                callback = self.on_response_chunk
+                if callback and callable(callback):
+                    asyncio.run(callback(content_blocks, False))
             elif event_type == "response.done":
                 logger.info("======RESPONSE DONE======")
                 logger.info(
@@ -88,25 +96,24 @@ class OmniCallback(OmniRealtimeCallback):
                 )
 
                 # print(self.response_audio)
-                self.chunks.append(
-                    (
-                        [
-                            TextBlock(
-                                type="text",
-                                text=self.response_text,
-                            ),
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    media_type="audio/wav",
-                                    data=self.response_audio,
-                                ),
-                            ),
-                        ],
-                        True,
+                content_blocks = [
+                    TextBlock(
+                        type="text",
+                        text=self.response_text,
                     ),
-                )
+                    AudioBlock(
+                        type="audio",
+                        source=Base64Source(
+                            type="base64",
+                            media_type="audio/wav",
+                            data=self.response_audio,
+                        ),
+                    ),
+                ]
+                self.chunks.append((content_blocks, True))
+                callback = self.on_response_chunk
+                if callback and callable(callback):
+                    asyncio.run(callback(content_blocks, True))
 
                 self.complete_event.set()
         except Exception as e:

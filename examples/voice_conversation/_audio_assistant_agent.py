@@ -85,7 +85,7 @@ class AudioAssistantAgent(AgentBase):
         # Reset response content
         self.callback.response_text = ""
         self.callback.response_audio = ""
-        self.callback.chunks = []  # 清空chunks
+        self.callback.chunks = []
 
         response_msg = Msg(self.name, [], "assistant")
 
@@ -116,10 +116,6 @@ class AudioAssistantAgent(AgentBase):
 
         # Wait for response completion
         self.callback.wait_for_complete()
-
-        for content_blocks, is_final in self.callback.chunks:
-            response_msg.content = content_blocks
-            await self.print(response_msg, is_final)
 
         self.callback.on_response_chunk = None
 
