@@ -56,7 +56,7 @@ AgentScope 目前支持的模型 API 和模型提供商包括：
 
 .. note:: 当使用 vLLM 时，您需要在部署时为不同模型配置相应的工具调用参数，例如 ``--enable-auto-tool-choice``、``--tool-call-parser`` 等参数。更多详情请参考 `vLLM 官方文档 <https://docs.vllm.ai/en/latest/features/tool_calling.html>`_。
 
-.. note:: 对于本地部署的模型，推荐使用 ``OpenAIChatModel`` 并通过 ``client_args={"base_url": "http://your-api-endpoint"}`` 参数来指定 API 地址。例如：
+.. note:: 对于支持 OpenAI API 调用格式的模型（包括使用 vLLM 本地部署的模型），推荐使用 ``OpenAIChatModel`` 并通过 ``client_args={"base_url": "http://your-api-endpoint"}`` 参数指定 API 端点。例如：
 
     .. code-block:: python
 
