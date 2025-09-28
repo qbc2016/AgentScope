@@ -56,13 +56,13 @@ The supported model APIs and providers include:
 
 .. note:: When using vLLM, you need to configure the appropriate tool calling parameters for different models during deployment, such as ``--enable-auto-tool-choice``, ``--tool-call-parser``, etc. For more details, refer to the `official vLLM documentation <https://docs.vllm.ai/en/latest/features/tool_calling.html>`_.
 
-.. note:: For models that support OpenAI API calling format (including locally deployed models with vLLM), it is recommended to use ``OpenAIChatModel`` and specify the API endpoint through the ``client_args={"base_url": "http://your-api-endpoint"}`` parameter. This recommendation applies to all models that support this API format, except for Ollama, which has its corresponding chat model ``OllamaChatModel`` and formatter ``OllamaChatFormatter``. For example:
+.. note:: For OpenAI-compatible models (e.g. vLLM, Deepseek), developers can use the ``OpenAIChatModel`` class, and specify the API endpoint by the ``client_args`` parameter: ``client_args={"base_url": "http://your-api-endpoint"}``. For example:
 
     .. code-block:: python
 
         OpenAIChatModel(client_args={"base_url": "http://localhost:8000/v1"})
 
-.. note:: Model behavior parameters (such as temperature, maximum length, etc.) can be set via the ``generate_kwargs`` parameter. For example:
+.. note:: Model behavior parameters (such as temperature, maximum length, etc.) can be preset in the constructor function via the ``generate_kwargs`` parameter. For example:
 
     .. code-block:: python
 

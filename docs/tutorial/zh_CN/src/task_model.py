@@ -54,15 +54,15 @@ AgentScope 目前支持的模型 API 和模型提供商包括：
       - ✅
       - ✅
 
-.. note:: 当使用 vLLM 时，您需要在部署时为不同模型配置相应的工具调用参数，例如 ``--enable-auto-tool-choice``、``--tool-call-parser`` 等参数。更多详情请参考 `vLLM 官方文档 <https://docs.vllm.ai/en/latest/features/tool_calling.html>`_。
+.. note:: 当使用 vLLM 时，需要在部署时为不同模型配置相应的工具调用参数，例如 ``--enable-auto-tool-choice``、``--tool-call-parser`` 等参数。更多详情请参考 `vLLM 官方文档 <https://docs.vllm.ai/en/latest/features/tool_calling.html>`_。
 
-.. note:: 对于支持 OpenAI API 调用格式的模型（包括使用 vLLM 本地部署的模型），推荐使用 ``OpenAIChatModel`` 并通过 ``client_args={"base_url": "http://your-api-endpoint"}`` 参数指定 API 端点。此建议适用于所有支持该 API 格式的模型，但 Ollama 除外，因为它有对应的聊天模型 ``OllamaChatModel`` 和格式化器 ``OllamaChatFormatter``。例如：
+.. note:: 兼容 OpenAI API 的模型（例如 vLLM 部署的模型），推荐使用 ``OpenAIChatModel``，并通过 ``client_args={"base_url": "http://your-api-endpoint"}`` 参数指定 API 端点。例如：
 
     .. code-block:: python
 
         OpenAIChatModel(client_args={"base_url": "http://localhost:8000/v1"})
 
-.. note:: 模型的行为参数（如温度、最大长度等）可以通过 ``generate_kwargs`` 参数设置。例如：
+.. note:: 模型的行为参数（如温度、最大长度等）可以通过 ``generate_kwargs`` 参数在构造函数中提前设定。例如：
 
     .. code-block:: python
 
