@@ -56,6 +56,7 @@ dev_requires = [
     "pre-commit",
     "pytest",
     "sphinx-gallery",
+    "sphinx-copybutton",
     "furo",
     "myst_parser",
     "matplotlib",
