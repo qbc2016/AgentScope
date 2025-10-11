@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """Realtime audio assistant agent"""
-from typing import Any
-
 # https://help.aliyun.com/zh/model-studio/realtime
 
+from typing import Any
 from dashscope.audio.qwen_omni import (
     OmniRealtimeConversation,
     MultiModality,
@@ -13,7 +12,9 @@ from dashscope.audio.qwen_omni import (
 from agentscope.agent import AgentBase
 from agentscope.message import Msg
 from agentscope._logging import logger
-from examples.voice_conversation._audio_model import OmniCallback
+from examples.voice_conversation._customized_omni_callback import (
+    CustomizedOmniCallback,
+)
 
 
 class AudioAssistantAgent(AgentBase):
@@ -22,9 +23,10 @@ class AudioAssistantAgent(AgentBase):
     def __init__(
         self,
         name: str,
+        sys_prompt: str = "You are a helpful assistant.",
         api_key: str | None = None,
-        voice: str = "Chelsie",
-        model: str = "qwen-omni-turbo-realtime-latest",
+        voice: str = "Cherry",
+        model: str = "qwen3-omni-flash-realtime",
     ) -> None:
         """Initialize audio assistant agent
 
@@ -36,7 +38,7 @@ class AudioAssistantAgent(AgentBase):
         """
         super().__init__()
         self.name = name
-        self.callback = OmniCallback()
+        self.callback = CustomizedOmniCallback()
 
         # Initialize DashScope
         import dashscope
@@ -60,6 +62,7 @@ class AudioAssistantAgent(AgentBase):
             enable_input_audio_transcription=True,
             input_audio_transcription_model="gummy-realtime-v1",
             enable_turn_detection=False,
+            instructions=sys_prompt,
         )
 
     async def observe(self, msg: Msg | list[Msg] | None) -> None:

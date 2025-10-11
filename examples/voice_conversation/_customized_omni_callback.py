@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Audio model"""
+"""CustomizedOmniCallback"""
 # https://help.aliyun.com/zh/model-studio/realtime
 import asyncio
 import sys
@@ -11,7 +11,7 @@ from agentscope.message import TextBlock, AudioBlock, Base64Source
 from agentscope._logging import logger
 
 
-class OmniCallback(OmniRealtimeCallback):
+class CustomizedOmniCallback(OmniRealtimeCallback):
     """Callback handler for Omni realtime conversation"""
 
     def __init__(self) -> None:
