@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Audio recording and processing utilities."""
 import base64
-from typing import Optional, Any, List
+from typing import Any, List
 import numpy as np
 import sounddevice as sd
 
@@ -66,7 +66,7 @@ class MicrophoneRecorder:
             logger.info("Failed to start microphone: %s", e)
             raise
 
-    def stop(self) -> Optional[bytes]:
+    def stop(self) -> bytes | None:
         """Stop recording and return audio data"""
         if not self._is_recording:
             return None
