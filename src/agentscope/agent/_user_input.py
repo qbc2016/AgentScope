@@ -24,7 +24,6 @@ from ..message import (
     AudioBlock,
     ImageBlock,
 )
-from .._utils._audio import MicrophoneRecorder, AudioProcessor
 
 
 @dataclass
@@ -428,8 +427,21 @@ class AudioUserInput(UserInputBase):
         chunk_size: int = 3200,
     ) -> None:
         """Initialize the audio user input."""
+        try:
+            from .._utils._audio import MicrophoneRecorder, AudioProcessor
+        except ImportError as e:
+            raise ImportError(
+                "Please install the sounddevice package to use audio input.",
+            ) from e
 
-        AudioProcessor.validate_audio_params(sample_rate, channels, chunk_size)
+        self._MicrophoneRecorder = MicrophoneRecorder
+        self._AudioProcessor = AudioProcessor
+
+        self._AudioProcessor.validate_audio_params(
+            sample_rate,
+            channels,
+            chunk_size,
+        )
 
         self.input_hint = input_hint
         self.sample_rate = sample_rate
@@ -447,7 +459,7 @@ class AudioUserInput(UserInputBase):
     ) -> UserInputData:
         """Handle the user input from microphone or terminal."""
         while True:
-            recorder = MicrophoneRecorder(
+            recorder = self._MicrophoneRecorder(
                 sample_rate=self.sample_rate,
                 channels=self.channels,
                 dtype=self.dtype,
@@ -481,9 +493,11 @@ class AudioUserInput(UserInputBase):
                             len(recorded_audio),
                         )
                         # process audio data
-                        blocks_input = AudioProcessor.create_audio_blocks(
-                            recorded_audio,
-                            self.chunk_size,
+                        blocks_input = (
+                            self._AudioProcessor.create_audio_blocks(
+                                recorded_audio,
+                                self.chunk_size,
+                            )
                         )
 
                 except Exception as e:
