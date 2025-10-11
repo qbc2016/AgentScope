@@ -6,7 +6,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 from queue import Queue
 from threading import Event
-from typing import Any, Type, List
+from typing import Any, Type, List, Sequence
 
 import jsonschema
 import numpy as np
@@ -31,7 +31,9 @@ from .._utils._audio import MicrophoneRecorder, AudioProcessor
 class UserInputData:
     """The user input data."""
 
-    blocks_input: List[TextBlock | ImageBlock | AudioBlock | VideoBlock] = None
+    blocks_input: Sequence[
+        TextBlock | ImageBlock | AudioBlock | VideoBlock
+    ] = None
     """The text input from the user"""
 
     structured_input: dict[str, Any] | None = None

@@ -3,7 +3,7 @@
 An example that demonstrates voice conversation.
 """
 import os
-from agentscope import UserAgent
+from agentscope.agent import UserAgent
 from examples.voice_conversation._audio_assistant_agent import (
     AudioAssistantAgent,
 )
