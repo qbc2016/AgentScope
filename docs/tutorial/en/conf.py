@@ -48,8 +48,11 @@ language = "en"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "furo"
-html_title = "AgentScope"
+html_title = (
+    "<span style='font-weight: 700; color: #2196f3;'>AgentScope</span> "
+)
 html_logo = "../_static/images/logo.svg"
+html_favicon = "../_static/images/logo.svg"
 html_static_path = ["../_static"]
 html_css_files = [
     "css/gallery.css",
@@ -58,6 +61,20 @@ html_css_files = [
 html_js_files = [
     "language_switch.js",
 ]
+
+html_theme_options = {
+    "light_css_variables": {
+        "color-brand-primary": "#2196f3",
+        "color-brand-content": "#2196f3",
+        "color-admonition-background": "#f8f9fa",
+    },
+    "dark_css_variables": {
+        "color-link": "#2196f3",
+        "color-link--hover": "#2196f3",
+        "color-brand-primary": "#64b5f6",
+        "color-brand-content": "#64b5f6",
+    },
+}
 
 source_suffix = [".md", ".rst"]
 
