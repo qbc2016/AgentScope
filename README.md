@@ -128,6 +128,7 @@ Welcome to join our community on
 - [🚀 Quickstart](#-quickstart)
   - [💻 Installation](#-installation)
     - [🛠️ From source](#-from-source)
+    - [🔄 Using uv (recommended for faster installs)](#-using-uv-recommended-for-faster-installs)
     - [📦 From PyPi](#-from-pypi)
 - [📝 Example](#-example)
   - [👋 Hello AgentScope!](#-hello-agentscope)
