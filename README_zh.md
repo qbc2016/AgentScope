@@ -160,10 +160,29 @@ cd agentscope
 pip install -e .
 ```
 
+#### 🔄 使用 uv 安装（推荐，安装更快）
+
+[uv](https://github.com/astral-sh/uv) 是一个用 Rust 编写的快速 Python 包安装程序和解析器。
+
+```bash
+# 克隆仓库
+git clone -b main https://github.com/agentscope-ai/agentscope.git
+cd agentscope
+
+# 使用 uv 安装
+uv pip install -e .
+```
+
 #### 📦 从PyPi安装
 
 ```bash
 pip install agentscope
+```
+
+或者使用 uv：
+
+```bash
+uv pip install agentscope
 ```
 
 ## 📝 样例
