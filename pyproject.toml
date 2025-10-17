@@ -58,6 +58,9 @@ full = [
     "qdrant-client",
 ]
 dev = [
+    # Include full dependencies from local package
+    "agentscope[full]",
+    # Development tools
     "pre-commit",
     "pytest",
     "sphinx-gallery",
@@ -81,4 +84,3 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.dynamic]
 version = {attr = "agentscope._version.__version__"}
-
