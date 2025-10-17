@@ -216,7 +216,7 @@ class DashScopeMultiModalEmbedding(EmbeddingModelBase):
 
         import dashscope
 
-        dashscope.api_key = self.api_key
+        kwargs["api_key"] = self.api_key
 
         start_time = datetime.now()
         res = dashscope.MultiModalEmbedding.call(**kwargs)
