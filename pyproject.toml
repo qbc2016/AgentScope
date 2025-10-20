@@ -73,7 +73,6 @@ dev = [
 Homepage = "https://github.com/agentscope-ai/agentscope"
 Documentation = "https://doc.agentscope.io/"
 Repository = "https://github.com/agentscope-ai/agentscope"
-Download = "https://github.com/agentscope-ai/agentscope/archive/v{version}.tar.gz"
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
