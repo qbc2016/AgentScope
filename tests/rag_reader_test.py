@@ -105,14 +105,14 @@ class RAGReaderText(IsolatedAsyncioTestCase):
             "../examples/functionality/rag/example.docx",
         )
         docs = await reader(word_path=word_path)
-        self.assertEqual(len(docs), 17)
+        self.assertEqual(len(docs), 15)
         self.assertEqual(
             [_.metadata.content["text"] for _ in docs][:2],
             [
-                "1\nThe Great Transformations: From Print to Space\n"
+                "The Great Transformations: From Print to Space\n\n"
                 "The invention of the printing press in the 15th century "
-                "marked a revolutionary change in \nhuman history.",
+                "marked a revolutionary change in human history.",
                 "Johannes Gutenberg's innovation democratized knowledge and "
-                "made books \naccessible to the common people.",
+                "made books accessible to the common people.",
             ],
         )
