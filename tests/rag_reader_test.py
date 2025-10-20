@@ -3,7 +3,7 @@
 import os
 from unittest.async_case import IsolatedAsyncioTestCase
 
-from agentscope.rag import TextReader, PDFReader
+from agentscope.rag import TextReader, PDFReader, WordReader
 
 
 class RAGReaderText(IsolatedAsyncioTestCase):
@@ -82,6 +82,29 @@ class RAGReaderText(IsolatedAsyncioTestCase):
             "../examples/functionality/rag/example.pdf",
         )
         docs = await reader(pdf_path=pdf_path)
+        self.assertEqual(len(docs), 17)
+        self.assertEqual(
+            [_.metadata.content["text"] for _ in docs][:2],
+            [
+                "1\nThe Great Transformations: From Print to Space\n"
+                "The invention of the printing press in the 15th century "
+                "marked a revolutionary change in \nhuman history.",
+                "Johannes Gutenberg's innovation democratized knowledge and "
+                "made books \naccessible to the common people.",
+            ],
+        )
+
+    async def test_word_reader(self) -> None:
+        """Test the WordReader implementation."""
+        reader = WordReader(
+            chunk_size=200,
+            split_by="sentence",
+        )
+        word_path = os.path.join(
+            os.path.abspath(os.path.dirname(__file__)),
+            "../examples/functionality/rag/example.docx",
+        )
+        docs = await reader(word_path=word_path)
         self.assertEqual(len(docs), 17)
         self.assertEqual(
             [_.metadata.content["text"] for _ in docs][:2],
