@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """The Word reader to read and chunk Word documents."""
+import base64
 import hashlib
 from typing import Any, Literal
 
 from ._reader_base import ReaderBase
 from ._text_reader import TextReader
-from .._document import Document
+from .._document import Document, DocMetadata
+from ...message import ImageBlock, Base64Source
 
 
 class WordReader(ReaderBase):
@@ -16,6 +18,7 @@ class WordReader(ReaderBase):
         chunk_size: int = 512,
         split_by: Literal["char", "sentence", "paragraph"] = "sentence",
         include_image: bool = False,
+        separate_table: bool = False,
     ) -> None:
         """Initialize the Word reader.
 
@@ -30,6 +33,10 @@ class WordReader(ReaderBase):
             include_image (`bool`, default to False):
                 Whether to include image content in the document. If True,
                 images will be extracted and included as text descriptions.
+            separate_table (`bool`, default to False):
+                Whether to treat tables as separate documents. If True,
+                each table will be extracted as a separate Document object
+                instead of being processed as regular text.
         """
         if chunk_size <= 0:
             raise ValueError(
@@ -45,6 +52,7 @@ class WordReader(ReaderBase):
         self.chunk_size = chunk_size
         self.split_by = split_by
         self.include_image = include_image
+        self.separate_table = separate_table
 
         # To avoid code duplication, we use TextReader to do the chunking.
         self._text_reader = TextReader(
@@ -75,7 +83,9 @@ class WordReader(ReaderBase):
         doc = DocxDocument(word_path)
 
         # Extract content in order (paragraphs, tables, and images)
-        content_parts = []
+        # We'll collect all content pieces in order, then process them
+        content_pieces = []  # List of (type, content) tuples: ('text',
+        # text) or ('image', image_doc)
 
         # Process all elements in document order using a more reliable approach
         # Create mappings for efficient lookup
@@ -94,223 +104,60 @@ class WordReader(ReaderBase):
         # Process elements in document order
         for element in doc.element.body:
             tag_name = self._get_tag_name(element)
-            self._process_element_by_type(
+            self._process_element_by_type_ordered(
                 element,
                 tag_name,
                 paragraph_elements,
                 table_elements,
                 processed_drawing_elements,
-                content_parts,
+                content_pieces,
+                word_path,
             )
-
-        # Join all content with double newlines to separate different elements
-        full_text = "\n\n".join(content_parts)
-
-        if not full_text.strip():
-            # If no text content found, return empty list
-            return []
 
         # Generate document ID
         doc_id = self.get_doc_id(word_path)
 
-        # Use TextReader to split the text into chunks
-        docs = await self._text_reader(full_text)
-
-        # Update document IDs to match the Word file
-        for doc in docs:
-            doc.id = doc_id
-
-        return docs
-
-    def _extract_image_info(self, drawing_element: Any) -> str | None:
-        """Extract image information from a drawing element.
-
-        Args:
-            drawing_element: The drawing element from the Word document.
-
-        Returns:
-            A string describing the image, or None if no image found.
-        """
-        try:
-            # Look for image references in the drawing element
-            for elem in drawing_element.iter():
-                if elem.tag.endswith("blip"):
-                    # Found an image reference
-                    r_embed = elem.get(
-                        "{http://schemas.openxmlformats.org/officeDocument/"
-                        "2006/relationships}embed",
-                    )
-                    if r_embed:
-                        return (
-                            f"Image embedded in document (relationship "
-                            f"ID: {r_embed})"
-                        )
-                elif elem.tag.endswith("pic"):
-                    # Found a picture element
-                    return "Image found in document"
-                elif elem.tag.endswith("drawing"):
-                    # Found a drawing element
-                    return "Drawing element found in document"
-
-            # If no specific image elements found, return a generic description
-            return "Image/drawing element found in document"
-
-        except Exception:
-            # If we can't extract image info, return a generic description
-            return "Image element found (details unavailable)"
-
-    def _extract_inline_image_info(self, run_element: Any) -> str | None:
-        """Extract detailed information from inline images in a run element.
-
-        Args:
-            run_element: The run element that may contain images.
-
-        Returns:
-            A string describing the image with detailed information,
-            or None if no image found.
-        """
-        try:
-            image_data = self._collect_image_data(run_element)
-            return self._build_image_description(image_data)
-        except Exception:
-            return "Image element found (details unavailable)"
-
-    def _collect_image_data(self, run_element: Any) -> dict:
-        """Collect image data from run element."""
-        relationship_ids = set()
-        sizes = set()
-        has_picture = False
-        has_drawing = False
-        image_names = set()
-        alt_texts = set()
-
-        for elem in run_element.iter():
-            if "blip" in elem.tag:
-                self._extract_blip_data(elem, relationship_ids)
-            elif "pic" in elem.tag:
-                has_picture = True
-                self._extract_pic_data(elem, sizes, image_names, alt_texts)
-            elif "drawing" in elem.tag:
-                has_drawing = True
-                self._extract_drawing_data(elem, sizes, image_names, alt_texts)
-            else:
-                self._extract_generic_data(elem, image_names, alt_texts)
-
-        return {
-            "relationship_ids": relationship_ids,
-            "sizes": sizes,
-            "has_picture": has_picture,
-            "has_drawing": has_drawing,
-            "image_names": image_names,
-            "alt_texts": alt_texts,
-        }
-
-    def _extract_blip_data(self, elem: Any, relationship_ids: set) -> None:
-        """Extract data from blip element."""
-        r_embed = elem.get(
-            "{http://schemas.openxmlformats.org/officeDocument"
-            "/2006/relationships}embed",
-        )
-        if r_embed:
-            relationship_ids.add(r_embed)
-
-    def _extract_pic_data(
-        self,
-        elem: Any,
-        sizes: set,
-        image_names: set,
-        alt_texts: set,
-    ) -> None:
-        """Extract data from picture element."""
-        for child in elem.iter():
-            if "ext" in child.tag:
-                self._extract_size_data(child, sizes)
-            elif "name" in child.tag and child.text:
-                image_names.add(child.text)
-            elif "alt" in child.tag and child.text:
-                alt_texts.add(child.text)
-
-    def _extract_drawing_data(
-        self,
-        elem: Any,
-        sizes: set,
-        image_names: set,
-        alt_texts: set,
-    ) -> None:
-        """Extract data from drawing element."""
-        for child in elem.iter():
-            if "ext" in child.tag:
-                self._extract_size_data(child, sizes)
-            elif "name" in child.tag and child.text:
-                image_names.add(child.text)
-            elif "alt" in child.tag and child.text:
-                alt_texts.add(child.text)
-
-    def _extract_generic_data(
-        self,
-        elem: Any,
-        image_names: set,
-        alt_texts: set,
-    ) -> None:
-        """Extract generic data from element."""
-        if "alt" in elem.tag and elem.text:
-            alt_texts.add(elem.text)
-        elif "name" in elem.tag and elem.text:
-            image_names.add(elem.text)
-
-    def _extract_size_data(self, child: Any, sizes: set) -> None:
-        """Extract size data from child element."""
-        cx = child.get("cx")
-        cy = child.get("cy")
-        if cx and cy:
-            try:
-                cx_int = int(cx) if cx else 0
-                cy_int = int(cy) if cy else 0
-
-                if cx_int > 0 and cy_int > 0:
-                    width_px = int(cx_int / 914400 * 96)
-                    height_px = int(cy_int / 914400 * 96)
-                    sizes.add(f"{width_px}x{height_px}px")
-            except (ValueError, TypeError):
-                pass
-
-    def _build_image_description(self, image_data: dict) -> str | None:
-        """Build image description from collected data."""
-        # Check if we have any meaningful data
-        # (not just False booleans or empty sets)
-        has_meaningful_data = (
-            image_data["relationship_ids"]
-            or image_data["sizes"]
-            or image_data["image_names"]
-            or image_data["alt_texts"]
-            or image_data["has_picture"]
-            or image_data["has_drawing"]
-        )
-
-        if not has_meaningful_data:
-            return None
-
-        parts = []
-        if image_data["relationship_ids"]:
-            parts.append(f"ID: {', '.join(image_data['relationship_ids'])}")
-        if image_data["sizes"]:
-            parts.append(f"Size: {', '.join(image_data['sizes'])}")
-        if image_data["image_names"]:
-            parts.append(f"Name: {', '.join(image_data['image_names'])}")
-        if image_data["alt_texts"]:
-            parts.append(f"Alt: {', '.join(image_data['alt_texts'])}")
-        if image_data["has_picture"]:
-            parts.append("Type: Picture")
-        elif image_data["has_drawing"]:
-            parts.append("Type: Drawing")
-
-        return f"Inline image ({', '.join(parts)})"
+        # Process content pieces in order
+        return await self._process_content_pieces(content_pieces, doc_id)
 
     def _get_tag_name(self, element: Any) -> str:
         """Get tag name from element."""
         return (
             element.tag.split("}")[-1] if "}" in element.tag else element.tag
         )
+
+    def _process_element_by_type_ordered(
+        self,
+        element: Any,
+        tag_name: str,
+        paragraph_elements: dict,
+        table_elements: dict,
+        processed_drawing_elements: set,
+        content_pieces: list,
+        word_path: str,
+    ) -> None:
+        """Process element based on its type and maintain order."""
+        if tag_name == "p":
+            self._process_paragraph_element_ordered(
+                element,
+                paragraph_elements,
+                content_pieces,
+                word_path,
+            )
+        elif tag_name == "tbl":
+            self._process_table_element_ordered(
+                element,
+                table_elements,
+                content_pieces,
+                word_path,
+            )
+        elif tag_name == "drawing" and self.include_image:
+            self._process_drawing_element_ordered(
+                element,
+                processed_drawing_elements,
+                content_pieces,
+                word_path,
+            )
 
     def _process_element_by_type(
         self,
@@ -319,29 +166,40 @@ class WordReader(ReaderBase):
         paragraph_elements: dict,
         table_elements: dict,
         processed_drawing_elements: set,
-        content_parts: list,
+        text_content_parts: list,
+        image_documents: list,
+        word_path: str,
     ) -> None:
         """Process element based on its type."""
         if tag_name == "p":
             self._process_paragraph_element(
                 element,
                 paragraph_elements,
-                content_parts,
+                text_content_parts,
+                image_documents,
+                word_path,
             )
         elif tag_name == "tbl":
-            self._process_table_element(element, table_elements, content_parts)
+            self._process_table_element(
+                element,
+                table_elements,
+                text_content_parts,
+            )
         elif tag_name == "drawing" and self.include_image:
             self._process_drawing_element(
                 element,
                 processed_drawing_elements,
-                content_parts,
+                image_documents,
+                word_path,
             )
 
     def _process_paragraph_element(
         self,
         element: Any,
         paragraph_elements: dict,
-        content_parts: list,
+        text_content_parts: list,
+        image_documents: list,
+        word_path: str,
     ) -> None:
         """Process paragraph element."""
         paragraph = paragraph_elements.get(element)
@@ -350,28 +208,32 @@ class WordReader(ReaderBase):
 
         text = paragraph.text.strip()
         if text:
-            content_parts.append(text)
+            text_content_parts.append(text)
 
+        # Always process images if include_image is True, even if paragraph
+        # text is empty
         if self.include_image:
-            self._process_paragraph_images(paragraph, content_parts)
+            self._process_paragraph_images(
+                paragraph,
+                image_documents,
+                word_path,
+            )
 
     def _process_paragraph_images(
         self,
         paragraph: Any,
-        content_parts: list,
+        image_documents: list,
+        word_path: str,
     ) -> None:
         """Process images in paragraph."""
-        paragraph_images = []
         for run in paragraph.runs:
             # pylint: disable=protected-access
-            image_info = self._extract_inline_image_info(run._element)
-            if image_info:
-                paragraph_images.append(image_info)
-
-        if paragraph_images:
-            unique_images = list(dict.fromkeys(paragraph_images))
-            for img in unique_images:
-                content_parts.append(f"IMAGE: {img}")
+            image_doc = self._extract_inline_image_document(
+                run._element,
+                word_path,
+            )
+            if image_doc:
+                image_documents.append(image_doc)
 
     def _process_table_element(
         self,
@@ -402,15 +264,378 @@ class WordReader(ReaderBase):
         self,
         element: Any,
         processed_drawing_elements: set,
-        content_parts: list,
+        image_documents: list,
+        word_path: str,
     ) -> None:
         """Process standalone drawing element."""
         if element not in processed_drawing_elements:
-            image_info = self._extract_image_info(element)
-            if image_info:
-                content_parts.append(f"IMAGE: {image_info}")
+            image_doc = self._extract_drawing_image_document(
+                element,
+                word_path,
+            )
+            if image_doc:
+                image_documents.append(image_doc)
+
+    def _extract_inline_image_document(
+        self,
+        run_element: Any,
+        word_path: str,
+    ) -> Document | None:
+        """Extract image document from inline image in a run element.
+
+        Args:
+            run_element: The run element that may contain images.
+            word_path: The path to the Word document.
+
+        Returns:
+            A Document object containing the image, or None if no image found.
+        """
+        try:
+            # Look for image references in the run element
+            for elem in run_element.iter():
+                if elem.tag.endswith("blip"):
+                    # Found an image reference
+                    r_embed = elem.get(
+                        "{http://schemas.openxmlformats.org/officeDocument/"
+                        "2006/relationships}embed",
+                    )
+                    if r_embed:
+                        return self._create_image_document_from_relationship(
+                            r_embed,
+                            word_path,
+                        )
+        except Exception:
+            pass
+        return None
+
+    def _extract_drawing_image_document(
+        self,
+        drawing_element: Any,
+        word_path: str,
+    ) -> Document | None:
+        """Extract image document from a drawing element.
+
+        Args:
+            drawing_element: The drawing element from the Word document.
+            word_path: The path to the Word document.
+
+        Returns:
+            A Document object containing the image, or None if no image found.
+        """
+        try:
+            # Look for image references in the drawing element
+            for elem in drawing_element.iter():
+                if elem.tag.endswith("blip"):
+                    # Found an image reference
+                    r_embed = elem.get(
+                        "{http://schemas.openxmlformats.org/officeDocument/"
+                        "2006/relationships}embed",
+                    )
+                    if r_embed:
+                        return self._create_image_document_from_relationship(
+                            r_embed,
+                            word_path,
+                        )
+        except Exception:
+            pass
+        return None
+
+    def _create_image_document_from_relationship(
+        self,
+        relationship_id: str,
+        word_path: str,
+    ) -> Document | None:
+        """Create an image document from a relationship ID.
+
+        Args:
+            relationship_id: The relationship ID of the image.
+            word_path: The path to the Word document.
+
+        Returns:
+            A Document object containing the image, or None if extraction
+            fails.
+        """
+        try:
+            from docx import Document as DocxDocument
+            from docx.opc.constants import RELATIONSHIP_TYPE as RT
+
+            # Load the Word document to access relationships
+            doc = DocxDocument(word_path)
+
+            # Find the relationship
+            for rel in doc.part.rels.values():
+                if rel.rId == relationship_id and rel.reltype == RT.IMAGE:
+                    # Get the image part
+                    image_part = rel.target_part
+                    if image_part:
+                        # Get the image data
+                        image_data = image_part.blob
+                        if image_data:
+                            # Determine media type based on content type
+                            content_type = image_part.content_type
+                            media_type = (
+                                self._get_media_type_from_content_type(
+                                    content_type,
+                                )
+                            )
+
+                            # Convert to base64
+                            base64_data = base64.b64encode(image_data).decode(
+                                "utf-8",
+                            )
+
+                            # Create ImageBlock
+                            image_block = ImageBlock(
+                                type="image",
+                                source=Base64Source(
+                                    type="base64",
+                                    media_type=media_type,
+                                    data=base64_data,
+                                ),
+                            )
+
+                            # Create Document
+                            doc_id = self.get_doc_id(word_path)
+                            return Document(
+                                metadata=DocMetadata(
+                                    content=image_block,
+                                    doc_id=doc_id,
+                                    chunk_id=0,
+                                    total_chunks=1,
+                                ),
+                            )
+        except Exception:
+            # If extraction fails, return None
+            pass
+        return None
+
+    def _get_media_type_from_content_type(self, content_type: str) -> str:
+        """Get media type from content type.
+
+        Args:
+            content_type: The content type from the image part.
+
+        Returns:
+            The media type string.
+        """
+        # Map common content types to media types
+        content_type_mapping = {
+            "image/jpeg": "image/jpeg",
+            "image/png": "image/png",
+            "image/gif": "image/gif",
+            "image/bmp": "image/bmp",
+            "image/tiff": "image/tiff",
+            "image/webp": "image/webp",
+        }
+
+        return content_type_mapping.get(content_type, "image/jpeg")
 
     def get_doc_id(self, word_path: str) -> str:
         """Get the document ID. This function can be used to check if the
         doc_id already exists in the knowledge base."""
         return hashlib.sha256(word_path.encode("utf-8")).hexdigest()
+
+    def _process_paragraph_element_ordered(
+        self,
+        element: Any,
+        paragraph_elements: dict,
+        content_pieces: list,
+        word_path: str,
+    ) -> None:
+        """Process paragraph element and maintain order."""
+        paragraph = paragraph_elements.get(element)
+        if not paragraph:
+            return
+
+        text = paragraph.text.strip()
+        if text:
+            content_pieces.append(("text", text))
+
+        # Always process images if include_image is True, even if paragraph
+        # text is empty
+        if self.include_image:
+            image_doc = self._process_paragraph_images_ordered(
+                paragraph,
+                word_path,
+            )
+            if image_doc:
+                content_pieces.append(("image", image_doc))
+
+    def _process_table_element_ordered(
+        self,
+        element: Any,
+        table_elements: dict,
+        content_pieces: list,
+        word_path: str,
+    ) -> None:
+        """Process table element and maintain order."""
+        table = table_elements.get(element)
+        if not table:
+            return
+
+        if self.separate_table:
+            # Create a separate table document
+            table_doc = self._create_table_document(table, word_path)
+            if table_doc:
+                content_pieces.append(("table", table_doc))
+        else:
+            # Extract table content as text
+            table_text = []
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    if cell_text:
+                        row_text.append(cell_text)
+                if row_text:
+                    table_text.append(" | ".join(row_text))
+
+            if table_text:
+                content_pieces.append(("text", "\n".join(table_text)))
+
+    def _process_drawing_element_ordered(
+        self,
+        element: Any,
+        processed_drawing_elements: set,
+        content_pieces: list,
+        word_path: str,
+    ) -> None:
+        """Process drawing element and maintain order."""
+        if element not in processed_drawing_elements:
+            image_doc = self._extract_drawing_image_document(
+                element,
+                word_path,
+            )
+            if image_doc:
+                content_pieces.append(("image", image_doc))
+
+    def _process_paragraph_images_ordered(
+        self,
+        paragraph: Any,
+        word_path: str,
+    ) -> Document | None:
+        """Process images in paragraph and maintain order."""
+        for run in paragraph.runs:
+            # pylint: disable=protected-access
+            image_doc = self._extract_inline_image_document(
+                run._element,
+                word_path,
+            )
+            if image_doc:
+                return image_doc
+        return None
+
+    def _create_table_document(
+        self,
+        table: Any,
+        word_path: str,
+    ) -> Document | None:
+        """Create a separate document for a table.
+
+        Args:
+            table: The table object from python-docx.
+            word_path: The path to the Word document.
+
+        Returns:
+            A Document object containing the table data, or None if table
+            is empty.
+        """
+        try:
+            # Extract table content
+            table_data = []
+            for row in table.rows:
+                row_data = []
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    row_data.append(cell_text)
+                table_data.append(row_data)
+
+            if not table_data or not any(
+                any(cell for cell in row) for row in table_data
+            ):
+                return None
+
+            # Create table text representation
+            table_text = []
+            for row in table_data:
+                if any(cell for cell in row):  # Skip empty rows
+                    table_text.append(" | ".join(cell for cell in row if cell))
+
+            if not table_text:
+                return None
+
+            # Create TextBlock for the table
+            from ...message import TextBlock
+
+            table_block = TextBlock(
+                type="text",
+                text="\n".join(table_text),
+            )
+
+            # Create Document
+            doc_id = self.get_doc_id(word_path)
+            return Document(
+                metadata=DocMetadata(
+                    content=table_block,
+                    doc_id=doc_id,
+                    chunk_id=0,  # Tables are treated as single chunks
+                    total_chunks=1,
+                ),
+            )
+
+        except Exception:
+            # If table processing fails, return None
+            pass
+        return None
+
+    async def _process_content_pieces(
+        self,
+        content_pieces: list,
+        doc_id: str,
+    ) -> list[Document]:
+        """Process content pieces in order and return documents."""
+        all_docs = []
+        current_text_parts = []
+
+        for piece_type, content in content_pieces:
+            if piece_type == "text":
+                current_text_parts.append(content)
+            elif piece_type == "image":
+                await self._process_accumulated_text(
+                    current_text_parts,
+                    all_docs,
+                    doc_id,
+                )
+                all_docs.append(content)
+            elif piece_type == "table":
+                await self._process_accumulated_text(
+                    current_text_parts,
+                    all_docs,
+                    doc_id,
+                )
+                all_docs.append(content)
+
+        # Process any remaining text
+        await self._process_accumulated_text(
+            current_text_parts,
+            all_docs,
+            doc_id,
+        )
+
+        return all_docs
+
+    async def _process_accumulated_text(
+        self,
+        current_text_parts: list,
+        all_docs: list,
+        doc_id: str,
+    ) -> None:
+        """Process accumulated text parts and add to all_docs."""
+        if current_text_parts:
+            full_text = "\n\n".join(current_text_parts)
+            if full_text.strip():
+                text_docs = await self._text_reader(full_text)
+                for doc_obj in text_docs:
+                    doc_obj.id = doc_id
+                all_docs.extend(text_docs)
+            current_text_parts.clear()
