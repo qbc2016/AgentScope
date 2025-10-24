@@ -2,8 +2,8 @@
 """The MongoDB vector store implementation using MongoDB Vector Search.
 
 This implementation provides a vector database store using MongoDB's vector
- search capabilities. It requires MongoDB with vector search support (
- MongoDB 7.0+ or Atlas) and automatically creates vector search indexes.
+ search capabilities. It requires MongoDB with vector search support and
+ automatically creates vector search indexes.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class MongoDBStore(VDBStoreBase):
 
     This class provides a vector database store implementation using MongoDB's
     vector search capabilities. It requires MongoDB with vector search support
-    (MongoDB 7.0+ or Atlas) and creates vector search indexes automatically.
+    and creates vector search indexes automatically.
 
     Parameters
     ----------
@@ -86,7 +86,7 @@ class MongoDBStore(VDBStoreBase):
         except Exception as e:  # pragma: no cover - import-time error path
             raise ImportError(
                 "Please install the latest pymongo package to use "
-                "AsyncMongoClient: `pip install pymongo>=5.0`",
+                "AsyncMongoClient: `pip install pymongo`",
             ) from e
 
         self._client: _AsyncMongoClient = _Client(
@@ -125,7 +125,7 @@ class MongoDBStore(VDBStoreBase):
         else:
             self._collection = self._db.get_collection(
                 self.collection_name,
-                self.collection_kwargs,
+                **self.collection_kwargs,
             )
 
         from pymongo.operations import SearchIndexModel
@@ -149,6 +149,32 @@ class MongoDBStore(VDBStoreBase):
             model=search_index_model,
         )
 
+    async def _wait_for_index_ready(self, timeout: int = 30) -> None:
+        """Wait for the vector search index to be ready with timeout
+            protection.
+        Args:
+            timeout: Maximum time to wait in seconds. Defaults to half minutes.
+        """
+        import asyncio
+        import time
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                indices = []
+                async for idx in await self._collection.list_search_indexes(
+                    self.index_name,
+                ):
+                    indices.append(idx)
+                if indices and indices[0].get("queryable") is True:
+                    return
+            except Exception:
+                pass
+
+            await asyncio.sleep(0.2)
+
+        raise TimeoutError(f"Index not ready after {timeout} seconds")
+
     async def add(self, documents: list[Document], **kwargs: Any) -> None:
         """Insert documents with embeddings into MongoDB.
 
@@ -164,7 +190,6 @@ class MongoDBStore(VDBStoreBase):
                 "payload": dict,          # DocMetadata as dict
             }
         """
-        # Validate collection exists
         await self._validate_db_and_collection()
 
         # Prepare documents for insertion
@@ -199,7 +224,6 @@ class MongoDBStore(VDBStoreBase):
         query_embedding: Embedding,
         limit: int,
         score_threshold: float | None = None,
-        filter: dict[str, Any] | None = None,  # pylint: disable=W0622
         **kwargs: Any,
     ) -> list[Document]:
         """Search relevant documents using MongoDB Vector Search.
@@ -213,19 +237,20 @@ class MongoDBStore(VDBStoreBase):
             limit: Maximum number of documents to return.
             score_threshold: Minimum similarity score threshold. Documents with
                 scores below this threshold will be filtered out.
-            filter: Optional filter dictionary for the search query.
             **kwargs: Additional arguments for the search operation.
 
         Returns:
             List of Document objects with embedding, score, and metadata.
 
         Note:
-            - Requires MongoDB with vector search support (MongoDB 7.0+ or
-            Atlas)
+            - Requires MongoDB with vector search support
             - Uses $vectorSearch aggregation pipeline
             - Supports both mongodb://localhost:27017 and
                 mongodb+srv://... URIs
         """
+        # Wait for index to be ready before searching
+        await self._wait_for_index_ready()
+
         # Construct aggregation pipeline for vector search
         # See: https://www.mongodb.com/docs/atlas/atlas-search/vector-search/
         num_candidates = int(
@@ -246,7 +271,6 @@ class MongoDBStore(VDBStoreBase):
                     "queryVector": list(query_embedding),
                     "numCandidates": num_candidates,
                     "limit": limit,
-                    "filter": filter or {},
                 },
             },
             {
@@ -281,26 +305,17 @@ class MongoDBStore(VDBStoreBase):
 
     async def delete(
         self,
-        ids: list[str] | None = None,
-        filter: str | None = None,  # pylint: disable=redefined-builtin
-        **kwargs: Any,
+        ids: str | list[str] | None = None,
     ) -> None:
         """Delete documents from the MongoDB collection.
 
         Args:
             ids: List of document IDs to delete. If provided, deletes documents
                 with matching doc_id in payload.
-            filter: Filter expression for documents to delete (unused).
-            **kwargs: Additional arguments for the delete operation.
-
-        Raises:
-            ValueError: If neither ids nor filter is provided.
         """
 
-        if ids is None and filter is None:
-            raise ValueError(
-                "Either ids or filter_expr must be provided for deletion.",
-            )
+        if isinstance(ids, str):
+            ids = [ids]
 
         for doc_id in ids:
             await self._collection.delete_many({"payload.doc_id": doc_id})
