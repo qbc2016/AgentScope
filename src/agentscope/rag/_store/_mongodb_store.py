@@ -28,28 +28,11 @@ class MongoDBStore(VDBStoreBase):
     vector search capabilities. It requires MongoDB with vector search support
     and creates vector search indexes automatically.
 
-    Parameters
-    ----------
-    host : str
-        MongoDB connection host, e.g., "mongodb://localhost:27017" or
-        "mongodb+srv://cluster.mongodb.net/".
-    db_name : str
-        Database name to store vector documents.
-    collection_name : str
-        Collection name to store vector documents.
-    dimensions : int
-        Embedding dimensions. Used when creating the vector search index.
-    index_name : str, default "vector_index"
-        The Vector Search index name configured on the collection.
-    distance : Literal["cosine", "euclidean", "dotProduct"], default "cosine"
-        The distance metric to use for the collection. Can be one of
-        "cosine", "euclidean", or "dotProduct".
-    client_kwargs : dict[str, Any] | None, default None
-        Optional extra kwargs for the MongoDB client.
-    db_kwargs : dict[str, Any] | None, default None
-        Optional extra kwargs for the database.
-    collection_kwargs : dict[str, Any] | None, default None
-        Optional extra kwargs for the collection.
+    .. note:: Ensure your MongoDB instance supports Vector Search
+    functionality.
+
+    .. note:: The store automatically creates database, collection, and vector
+    search index on first operation. No manual initialization is required.
     """
 
     def __init__(
@@ -67,23 +50,34 @@ class MongoDBStore(VDBStoreBase):
         """Initialize the MongoDB vector store.
 
         Args:
-            host: MongoDB connection host.
-            db_name: Database name to store vector documents.
-            collection_name: Collection name to store vector documents.
-            dimensions: Embedding dimensions for the vector search index.
-            index_name: Vector search index name. Defaults to "vector_index".
-            distance: Distance metric for vector similarity. Defaults to
-            "cosine".
-            client_kwargs: Additional kwargs for MongoDB client.
-            db_kwargs: Additional kwargs for database.
-            collection_kwargs: Additional kwargs for collection.
+            host (`str`):
+                MongoDB connection host, e.g., "mongodb://localhost:27017" or
+                "mongodb+srv://cluster.mongodb.net/".
+            db_name (`str`):
+                Database name to store vector documents.
+            collection_name (`str`):
+                Collection name to store vector documents.
+            dimensions (`int`):
+                Embedding dimensions for the vector search index.
+            index_name (`str`, defaults to "vector_index"):
+                Vector search index name.
+            distance (`Literal["cosine", "euclidean", "dotProduct"]`, \
+            defaults to "cosine"):
+                Distance metric for vector similarity. Can be one of "cosine",
+                "euclidean", or "dotProduct".
+            client_kwargs (`dict[str, Any] | None`, optional):
+                Additional kwargs for MongoDB client.
+            db_kwargs (`dict[str, Any] | None`, optional):
+                Additional kwargs for database.
+            collection_kwargs (`dict[str, Any] | None`, optional):
+                Additional kwargs for collection.
 
         Raises:
             ImportError: If pymongo is not installed.
         """
         try:
             from pymongo import AsyncMongoClient as _Client
-        except Exception as e:  # pragma: no cover - import-time error path
+        except Exception as e:
             raise ImportError(
                 "Please install the latest pymongo package to use "
                 "AsyncMongoClient: `pip install pymongo`",
@@ -108,7 +102,7 @@ class MongoDBStore(VDBStoreBase):
         """Validate the database and collection exist, create if necessary.
 
         This method ensures the database and collection are available,
-         and creates a vector search index for the collection.
+        and creates a vector search index for the collection.
 
         Raises:
             Exception: If database or collection creation fails.
@@ -151,9 +145,14 @@ class MongoDBStore(VDBStoreBase):
 
     async def _wait_for_index_ready(self, timeout: int = 30) -> None:
         """Wait for the vector search index to be ready with timeout
-            protection.
+        protection.
+
         Args:
-            timeout: Maximum time to wait in seconds. Defaults to half minutes.
+            timeout (`int`, defaults to 30):
+                Maximum time to wait in seconds.
+
+        Raises:
+            TimeoutError: If index is not ready within the timeout period.
         """
         import asyncio
         import time
@@ -178,9 +177,14 @@ class MongoDBStore(VDBStoreBase):
     async def add(self, documents: list[Document], **kwargs: Any) -> None:
         """Insert documents with embeddings into MongoDB.
 
+        This method automatically creates the database, collection, and vector
+        search index if they don't exist.
+
         Args:
-            documents: List of Document objects to insert.
-            **kwargs: Additional arguments (unused).
+            documents (`list[Document]`):
+                List of Document objects to insert.
+            **kwargs (`Any`):
+                Additional arguments (unused).
 
         Note:
             Each inserted record has structure:
@@ -229,24 +233,27 @@ class MongoDBStore(VDBStoreBase):
         """Search relevant documents using MongoDB Vector Search.
 
         This method uses MongoDB's $vectorSearch aggregation pipeline for
-        vector similarity search. It requires a vector search index to be
-        created on the collection.
+        vector similarity search. It automatically waits for the vector search
+        index to be ready before performing the search.
 
         Args:
-            query_embedding: The embedding vector to search for.
-            limit: Maximum number of documents to return.
-            score_threshold: Minimum similarity score threshold. Documents with
-                scores below this threshold will be filtered out.
-            **kwargs: Additional arguments for the search operation.
+            query_embedding (`Embedding`):
+                The embedding vector to search for.
+            limit (`int`):
+                Maximum number of documents to return.
+            score_threshold (`float | None`, optional):
+                Minimum similarity score threshold. Documents with scores below
+                this threshold will be filtered out.
+            **kwargs (`Any`):
+                Additional arguments for the search operation.
 
         Returns:
-            List of Document objects with embedding, score, and metadata.
+            `list[Document]`: List of Document objects with embedding,
+            score, and metadata.
 
         Note:
             - Requires MongoDB with vector search support
             - Uses $vectorSearch aggregation pipeline
-            - Supports both mongodb://localhost:27017 and
-                mongodb+srv://... URIs
         """
         # Wait for index to be ready before searching
         await self._wait_for_index_ready()
@@ -310,7 +317,8 @@ class MongoDBStore(VDBStoreBase):
         """Delete documents from the MongoDB collection.
 
         Args:
-            ids: List of document IDs to delete. If provided, deletes documents
+            ids (`str | list[str] | None`, optional):
+                List of document IDs to delete. If provided, deletes documents
                 with matching doc_id in payload.
         """
 
@@ -324,14 +332,14 @@ class MongoDBStore(VDBStoreBase):
         """Get the underlying MongoDB client for advanced operations.
 
         Returns:
-            The AsyncMongoClient instance.
+            `_AsyncMongoClient`: The AsyncMongoClient instance.
         """
         return self._client
 
     async def delete_collection(self) -> None:
         """Delete the entire collection.
 
-        Warning:
+        .. warning::
             This will permanently delete all documents in the collection.
         """
         await self._collection.drop()
@@ -339,7 +347,7 @@ class MongoDBStore(VDBStoreBase):
     async def delete_database(self) -> None:
         """Delete the entire database.
 
-        Warning:
+        .. warning::
             This will permanently delete the entire database and all its
             collections.
         """
