@@ -70,6 +70,11 @@ class WordReader(ReaderBase):
         Args:
             word_path (`str`):
                 The input Word document file path (.docx file).
+
+        Returns:
+            `list[Document]`:
+                A list of Document objects, where the metadata contains the
+                chunked text, doc id and chunk id.
         """
         try:
             from docx import Document as DocxDocument
@@ -121,7 +126,16 @@ class WordReader(ReaderBase):
         return await self._process_content_pieces(content_pieces, doc_id)
 
     def _get_tag_name(self, element: Any) -> str:
-        """Get tag name from element."""
+        """Get tag name from element.
+
+        Args:
+            element (`Any`):
+                XML element object.
+
+        Returns:
+            `str`:
+                The tag name.
+        """
         return (
             element.tag.split("}")[-1] if "}" in element.tag else element.tag
         )
@@ -136,7 +150,24 @@ class WordReader(ReaderBase):
         content_pieces: list,
         word_path: str,
     ) -> None:
-        """Process element based on its type and maintain order."""
+        """Process element based on its type and maintain order.
+
+        Args:
+            element (`Any`):
+                XML element from Word document.
+            tag_name (`str`):
+                The tag name of the element.
+            paragraph_elements (`dict`):
+                Dictionary mapping paragraph elements to paragraph objects.
+            table_elements (`dict`):
+                Dictionary mapping table elements to table objects.
+            processed_drawing_elements (`set`):
+                Set of drawing elements that have been processed.
+            content_pieces (`list`):
+                List to collect content pieces.
+            word_path (`str`):
+                The path to the Word document.
+        """
         if tag_name == "p":
             self._process_paragraph_element_ordered(
                 element,
@@ -170,7 +201,26 @@ class WordReader(ReaderBase):
         image_documents: list,
         word_path: str,
     ) -> None:
-        """Process element based on its type."""
+        """Process element based on its type.
+
+        Args:
+            element (`Any`):
+                XML element from Word document.
+            tag_name (`str`):
+                The tag name of the element.
+            paragraph_elements (`dict`):
+                Dictionary mapping paragraph elements to paragraph objects.
+            table_elements (`dict`):
+                Dictionary mapping table elements to table objects.
+            processed_drawing_elements (`set`):
+                Set of drawing elements that have been processed.
+            text_content_parts (`list`):
+                List to collect text content parts.
+            image_documents (`list`):
+                List to collect image documents.
+            word_path (`str`):
+                The path to the Word document.
+        """
         if tag_name == "p":
             self._process_paragraph_element(
                 element,
@@ -201,7 +251,20 @@ class WordReader(ReaderBase):
         image_documents: list,
         word_path: str,
     ) -> None:
-        """Process paragraph element."""
+        """Process paragraph element.
+
+        Args:
+            element (`Any`):
+                XML element representing a paragraph.
+            paragraph_elements (`dict`):
+                Dictionary mapping paragraph elements to paragraph objects.
+            text_content_parts (`list`):
+                List to collect text content parts.
+            image_documents (`list`):
+                List to collect image documents.
+            word_path (`str`):
+                The path to the Word document.
+        """
         paragraph = paragraph_elements.get(element)
         if not paragraph:
             return
@@ -225,7 +288,16 @@ class WordReader(ReaderBase):
         image_documents: list,
         word_path: str,
     ) -> None:
-        """Process images in paragraph."""
+        """Process images in paragraph.
+
+        Args:
+            paragraph (`Any`):
+                Paragraph object from python-docx.
+            image_documents (`list`):
+                List to collect image documents.
+            word_path (`str`):
+                The path to the Word document.
+        """
         for run in paragraph.runs:
             # pylint: disable=protected-access
             image_doc = self._extract_inline_image_document(
@@ -241,7 +313,16 @@ class WordReader(ReaderBase):
         table_elements: dict,
         content_parts: list,
     ) -> None:
-        """Process table element."""
+        """Process table element.
+
+        Args:
+            element (`Any`):
+                XML element representing a table.
+            table_elements (`dict`):
+                Dictionary mapping table elements to table objects.
+            content_parts (`list`):
+                List to collect content parts.
+        """
         table = table_elements.get(element)
         if not table:
             return
@@ -267,7 +348,18 @@ class WordReader(ReaderBase):
         image_documents: list,
         word_path: str,
     ) -> None:
-        """Process standalone drawing element."""
+        """Process standalone drawing element.
+
+        Args:
+            element (`Any`):
+                XML drawing element.
+            processed_drawing_elements (`set`):
+                Set of drawing elements that have been processed.
+            image_documents (`list`):
+                List to collect image documents.
+            word_path (`str`):
+                The path to the Word document.
+        """
         if element not in processed_drawing_elements:
             image_doc = self._extract_drawing_image_document(
                 element,
@@ -316,11 +408,15 @@ class WordReader(ReaderBase):
         """Extract image document from a drawing element.
 
         Args:
-            drawing_element: The drawing element from the Word document.
-            word_path: The path to the Word document.
+            drawing_element (`Any`):
+                The drawing element from the Word document.
+            word_path (`str`):
+                The path to the Word document.
 
         Returns:
-            A Document object containing the image, or None if no image found.
+            `Document | None`:
+                A Document object containing the image,
+                 or None if no image found.
         """
         try:
             # Look for image references in the drawing element
@@ -348,12 +444,15 @@ class WordReader(ReaderBase):
         """Create an image document from a relationship ID.
 
         Args:
-            relationship_id: The relationship ID of the image.
-            word_path: The path to the Word document.
+            relationship_id (`str`):
+                The relationship ID of the image.
+            word_path (`str`):
+                The path to the Word document.
 
         Returns:
-            A Document object containing the image, or None if extraction
-            fails.
+            `Document | None`:
+                A Document object containing the image, or None if extraction
+                fails.
         """
         try:
             from docx import Document as DocxDocument
@@ -413,10 +512,12 @@ class WordReader(ReaderBase):
         """Get media type from content type.
 
         Args:
-            content_type: The content type from the image part.
+            content_type (`str`):
+                The content type from the image part.
 
         Returns:
-            The media type string.
+            `str`:
+                The media type string.
         """
         # Map common content types to media types
         content_type_mapping = {
@@ -431,8 +532,19 @@ class WordReader(ReaderBase):
         return content_type_mapping.get(content_type, "image/jpeg")
 
     def get_doc_id(self, word_path: str) -> str:
-        """Get the document ID. This function can be used to check if the
-        doc_id already exists in the knowledge base."""
+        """Get the document ID.
+
+        This function can be used to check if the doc_id already exists in the
+        knowledge base.
+
+        Args:
+            word_path (`str`):
+                The path to the Word document file.
+
+        Returns:
+            `str`:
+                A unique document ID for the Word document.
+        """
         return hashlib.sha256(word_path.encode("utf-8")).hexdigest()
 
     def _process_paragraph_element_ordered(
@@ -442,7 +554,18 @@ class WordReader(ReaderBase):
         content_pieces: list,
         word_path: str,
     ) -> None:
-        """Process paragraph element and maintain order."""
+        """Process paragraph element and maintain order.
+
+        Args:
+            element (`Any`):
+                XML element representing a paragraph.
+            paragraph_elements (`dict`):
+                Dictionary mapping paragraph elements to paragraph objects.
+            content_pieces (`list`):
+                List to collect content pieces.
+            word_path (`str`):
+                The path to the Word document.
+        """
         paragraph = paragraph_elements.get(element)
         if not paragraph:
             return
@@ -468,7 +591,18 @@ class WordReader(ReaderBase):
         content_pieces: list,
         word_path: str,
     ) -> None:
-        """Process table element and maintain order."""
+        """Process table element and maintain order.
+
+        Args:
+            element (`Any`):
+                XML element representing a table.
+            table_elements (`dict`):
+                Dictionary mapping table elements to table objects.
+            content_pieces (`list`):
+                List to collect content pieces.
+            word_path (`str`):
+                The path to the Word document.
+        """
         table = table_elements.get(element)
         if not table:
             return
@@ -500,7 +634,18 @@ class WordReader(ReaderBase):
         content_pieces: list,
         word_path: str,
     ) -> None:
-        """Process drawing element and maintain order."""
+        """Process drawing element and maintain order.
+
+        Args:
+            element (`Any`):
+                XML drawing element.
+            processed_drawing_elements (`set`):
+                Set of drawing elements that have been processed.
+            content_pieces (`list`):
+                List to collect content pieces.
+            word_path (`str`):
+                The path to the Word document.
+        """
         if element not in processed_drawing_elements:
             image_doc = self._extract_drawing_image_document(
                 element,
@@ -514,7 +659,18 @@ class WordReader(ReaderBase):
         paragraph: Any,
         word_path: str,
     ) -> Document | None:
-        """Process images in paragraph and maintain order."""
+        """Process images in paragraph and maintain order.
+
+        Args:
+            paragraph (`Any`):
+                Paragraph object from python-docx.
+            word_path (`str`):
+                The path to the Word document.
+
+        Returns:
+            `Document | None`:
+                The first image document found, or None if no images.
+        """
         for run in paragraph.runs:
             # pylint: disable=protected-access
             image_doc = self._extract_inline_image_document(
@@ -533,12 +689,15 @@ class WordReader(ReaderBase):
         """Create a separate document for a table.
 
         Args:
-            table: The table object from python-docx.
-            word_path: The path to the Word document.
+            table (`Any`):
+                The table object from python-docx.
+            word_path (`str`):
+                The path to the Word document.
 
         Returns:
-            A Document object containing the table data, or None if table
-            is empty.
+            `Document | None`:
+                A Document object containing the table data, or None if table
+                is empty.
         """
         try:
             # Extract table content
@@ -593,7 +752,18 @@ class WordReader(ReaderBase):
         content_pieces: list,
         doc_id: str,
     ) -> list[Document]:
-        """Process content pieces in order and return documents."""
+        """Process content pieces in order and return documents.
+
+        Args:
+            content_pieces (`list`):
+                List of (type, content) tuples from document elements.
+            doc_id (`str`):
+                The document ID.
+
+        Returns:
+            `list[Document]`:
+                A list of Document objects processed from content pieces.
+        """
         all_docs = []
         current_text_parts = []
 
@@ -630,7 +800,16 @@ class WordReader(ReaderBase):
         all_docs: list,
         doc_id: str,
     ) -> None:
-        """Process accumulated text parts and add to all_docs."""
+        """Process accumulated text parts and add to all_docs.
+
+        Args:
+            current_text_parts (`list`):
+                List of text parts that have been accumulated.
+            all_docs (`list`):
+                List to collect all documents.
+            doc_id (`str`):
+                The document ID.
+        """
         if current_text_parts:
             full_text = "\n\n".join(current_text_parts)
             if full_text.strip():
