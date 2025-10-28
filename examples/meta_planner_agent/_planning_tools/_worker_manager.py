@@ -351,6 +351,8 @@ class WorkerManager(StateModule):
         """
         if tool_names is None:
             tool_names = []
+        elif isinstance(tool_names, str):
+            tool_names = json.loads(tool_names)
         worker_toolkit = Toolkit()
         share_tools(
             self.worker_full_toolkit,
