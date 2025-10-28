@@ -143,7 +143,6 @@ class ExcelReader(ReaderBase):
                 )
 
         except (
-            pd.errors.ExcelFileError,
             pd.errors.EmptyDataError,
             pd.errors.ParserError,
             FileNotFoundError,
