@@ -3,8 +3,7 @@
 import os
 from unittest.async_case import IsolatedAsyncioTestCase
 
-from agentscope.rag import TextReader, PDFReader
-from agentscope.rag._reader._ppt_reader import PowerPointReader
+from agentscope.rag import TextReader, PDFReader, PowerPointReader
 
 
 class RAGReaderText(IsolatedAsyncioTestCase):
