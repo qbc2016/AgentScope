@@ -352,7 +352,19 @@ class WorkerManager(StateModule):
         if tool_names is None:
             tool_names = []
         elif isinstance(tool_names, str):
-            tool_names = json.loads(tool_names)
+            try:
+                tool_names = json.loads(tool_names)
+            except json.JSONDecodeError:
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=f"Invalid arguments: the argument"
+                            f" {tool_names} should be a list, but got"
+                            f" {type(tool_names)}.",
+                        ),
+                    ],
+                )
         worker_toolkit = Toolkit()
         share_tools(
             self.worker_full_toolkit,
