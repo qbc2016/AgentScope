@@ -68,6 +68,15 @@ class OllamaTextEmbedding(EmbeddingModelBase):
                     "Input text must be a list of strings or TextBlock dicts.",
                 )
 
+        dimensions = kwargs.pop("dimensions", self.dimensions)
+
+        kwargs = {
+            "input": gather_text,
+            "model": self.model_name,
+            "dimensions": dimensions,
+            **kwargs,
+        }
+
         if self.embedding_cache:
             cached_embeddings = await self.embedding_cache.retrieve(
                 identifier=kwargs,
@@ -83,22 +92,17 @@ class OllamaTextEmbedding(EmbeddingModelBase):
                 )
 
         start_time = datetime.now()
-        response = await asyncio.gather(
-            *[
-                self.client.embeddings(self.model_name, _, **kwargs)
-                for _ in gather_text
-            ],
-        )
+        response = await asyncio.gather(*[self.client.embed(**kwargs)])
         time = (datetime.now() - start_time).total_seconds()
 
         if self.embedding_cache:
             await self.embedding_cache.store(
                 identifier=kwargs,
-                embeddings=[_.embedding for _ in response],
+                embeddings=[_.embeddings[0] for _ in response],
             )
 
         return EmbeddingResponse(
-            embeddings=[_.embedding for _ in response],
+            embeddings=[_.embeddings[0] for _ in response],
             usage=EmbeddingUsage(
                 time=time,
             ),
