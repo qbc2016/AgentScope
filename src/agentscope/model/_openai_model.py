@@ -37,6 +37,64 @@ else:
     AsyncStream = "openai.types.chat.AsyncStream"
 
 
+def _format_audio_for_qwen_omni(messages: list[dict]) -> list[dict]:
+    """Format messages for Qwen Omni model, adding data:audio;base64,
+    prefix to audio data.
+
+    # Qwen-omni requires different base64 audio format from openai
+
+    Args:
+        messages (`list[dict]`):
+            The list of message dictionaries from OpenAI formatter.
+
+    Returns:
+        `list[dict]`:
+            The formatted messages with proper audio data format for Qwen Omni.
+    """
+    formatted_messages = []
+
+    for message in messages:
+        formatted_message = message.copy()
+
+        # Process content blocks if they exist and are not None
+        if "content" in message and message["content"] is not None:
+            content_blocks = []
+
+            for block in message["content"]:
+                # Check if block is a dictionary and has the expected structure
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "input_audio"
+                    and "input_audio" in block
+                ):
+                    # Get the audio data and format
+                    audio_data = block["input_audio"]
+                    data = audio_data.get("data", "")
+                    format_type = audio_data.get("format", "wav")
+
+                    # Add the data:audio;base64, prefix for Qwen Omni
+                    formatted_data = f"data:;base64,{data}"
+
+                    # Create the formatted audio block
+                    formatted_block = {
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": formatted_data,
+                            "format": format_type,
+                        },
+                    }
+                    content_blocks.append(formatted_block)
+                else:
+                    # Keep other blocks unchanged
+                    content_blocks.append(block)
+
+            formatted_message["content"] = content_blocks
+
+        formatted_messages.append(formatted_message)
+
+    return formatted_messages
+
+
 class OpenAIChatModel(ChatModelBase):
     """The OpenAI chat model class."""
 
@@ -153,6 +211,10 @@ class OpenAIChatModel(ChatModelBase):
                 "Each message in the 'messages' list must contain a 'role' "
                 "and 'content' key for OpenAI API.",
             )
+
+        # Qwen-omni requires different base64 audio format from openai
+        if "omni" in self.model_name.lower():
+            messages = _format_audio_for_qwen_omni(messages)
 
         kwargs = {
             "model": self.model_name,
