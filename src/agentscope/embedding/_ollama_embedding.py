@@ -68,12 +68,10 @@ class OllamaTextEmbedding(EmbeddingModelBase):
                     "Input text must be a list of strings or TextBlock dicts.",
                 )
 
-        dimensions = kwargs.pop("dimensions", self.dimensions)
-
         kwargs = {
             "input": gather_text,
             "model": self.model_name,
-            "dimensions": dimensions,
+            "dimensions": self.dimensions,
             **kwargs,
         }
 
