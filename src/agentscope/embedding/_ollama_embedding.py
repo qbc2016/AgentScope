@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """The ollama text embedding model class."""
-import asyncio
 from datetime import datetime
 from typing import List, Any
 
@@ -90,17 +89,17 @@ class OllamaTextEmbedding(EmbeddingModelBase):
                 )
 
         start_time = datetime.now()
-        response = await asyncio.gather(*[self.client.embed(**kwargs)])
+        response = await self.client.embed(**kwargs)
         time = (datetime.now() - start_time).total_seconds()
 
         if self.embedding_cache:
             await self.embedding_cache.store(
                 identifier=kwargs,
-                embeddings=[_.embeddings[0] for _ in response],
+                embeddings=response.embeddings,
             )
 
         return EmbeddingResponse(
-            embeddings=[_.embeddings[0] for _ in response],
+            embeddings=response.embeddings,
             usage=EmbeddingUsage(
                 time=time,
             ),
