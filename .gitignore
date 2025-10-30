@@ -141,4 +141,4 @@ docs/tutorial/zh_CN/build/
 docs/tutorial/**/doctrees/
 docs/tutorial/**/.doctrees/
 *.buildinfo
-docs/tutorial/**/*.pickle
+*.pickle
