@@ -56,9 +56,10 @@ def _format_audio_data_for_qwen_omni(messages: list[dict]) -> None:
                     and "input_audio" in block
                     and isinstance(block["input_audio"].get("data"), str)
                 ):
-                    block["input_audio"] = (
-                        "data:;base64," + block["input_audio"]["data"]
-                    )
+                    if not block["input_audio"].startswith("http"):
+                        block["input_audio"] = (
+                            "data:;base64," + block["input_audio"]["data"]
+                        )
 
 
 class OpenAIChatModel(ChatModelBase):
