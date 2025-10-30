@@ -8,8 +8,8 @@ rm -rf build/ doctrees/
 # Generate the API rst files
 sphinx-apidoc -o api ../../../src/agentscope -t ../_templates -e
 
-# Key: Put doctrees outside build directory to avoid deployment
-sphinx-build -M html ./ build -d ../doctrees_zh
+# Build the html
+sphinx-build -M html ./ build
 
 # Remove temporary files (double insurance)
 rm -rf build/html/.doctrees
