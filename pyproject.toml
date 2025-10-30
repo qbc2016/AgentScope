@@ -42,7 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 full = [
     # Model
-    "ollama",
+    "ollama>=0.5.4",
     "google-genai",
     "Pillow",
     "transformers",
