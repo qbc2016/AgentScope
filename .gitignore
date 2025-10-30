@@ -138,9 +138,7 @@ docs/tutorial/en/build/
 docs/tutorial/zh_CN/build/
 
 # Sphinx build artifacts
-docs/tutorial/doctrees_en/
-docs/tutorial/doctrees_zh/
 docs/tutorial/**/doctrees/
 docs/tutorial/**/.doctrees/
-docs/tutorial/**/.buildinfo
+*.buildinfo
 docs/tutorial/**/*.pickle
