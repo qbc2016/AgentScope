@@ -57,7 +57,7 @@ def _format_audio_data_for_qwen_omni(messages: list[dict]) -> None:
                     and isinstance(block["input_audio"].get("data"), str)
                 ):
                     if not block["input_audio"]["data"].startswith("http"):
-                        block["input_audio"] = (
+                        block["input_audio"]["data"] = (
                             "data:;base64," + block["input_audio"]["data"]
                         )
 
