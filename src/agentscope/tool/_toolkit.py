@@ -541,7 +541,12 @@ class Toolkit(StateModule):
 
         # Prepare postprocess function
         if tool_func.postprocess_func:
-            partial_postprocess_func = partial(
+            # Type: partial wraps the postprocess_func with tool_call bound,
+            # reducing it from (ToolUseBlock, ToolResponse) to (ToolResponse)
+            partial_postprocess_func: (
+                Callable[[ToolResponse], ToolResponse | None]
+                | Callable[[ToolResponse], Awaitable[ToolResponse | None]]
+            ) | None = partial(
                 tool_func.postprocess_func,
                 tool_call,
             )

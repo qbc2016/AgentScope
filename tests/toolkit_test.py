@@ -674,7 +674,7 @@ class ToolkitTest(IsolatedAsyncioTestCase):
             )
 
     async def test_async_postprocess_func(self) -> None:
-        """Test postprocess function."""
+        """Test async postprocess function."""
         tool_use_block = ToolUseBlock(
             type="tool_use",
             id="123",
