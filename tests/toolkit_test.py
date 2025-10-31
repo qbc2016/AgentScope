@@ -664,7 +664,6 @@ class ToolkitTest(IsolatedAsyncioTestCase):
         res = await self.toolkit.call_tool_function(tool_use_block)
 
         async for chunk in res:
-            print(chunk)
             self.assertEqual(
                 chunk.content,
                 [
@@ -704,7 +703,6 @@ class ToolkitTest(IsolatedAsyncioTestCase):
         res = await self.toolkit.call_tool_function(tool_use_block)
 
         async for chunk in res:
-            print(chunk)
             self.assertEqual(
                 chunk.content,
                 [
