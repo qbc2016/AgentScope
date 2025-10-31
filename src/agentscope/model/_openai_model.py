@@ -39,7 +39,7 @@ else:
 
 def _format_audio_data_for_qwen_omni(messages: list[dict]) -> None:
     """Qwen-omni uses OpenAI-compatible API but requires different audio
-    data format than OpenAI with "data:audio;base64," prefix.
+    data format than OpenAI with "data:;base64," prefix.
     Refer to `Qwen-omni documentation
     <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2867839>`_
     for more details.
@@ -56,7 +56,7 @@ def _format_audio_data_for_qwen_omni(messages: list[dict]) -> None:
                     and "input_audio" in block
                     and isinstance(block["input_audio"].get("data"), str)
                 ):
-                    if not block["input_audio"].startswith("http"):
+                    if not block["input_audio"]["data"].startswith("http"):
                         block["input_audio"] = (
                             "data:;base64," + block["input_audio"]["data"]
                         )
