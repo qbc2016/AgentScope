@@ -155,52 +155,80 @@ class RAGReaderText(IsolatedAsyncioTestCase):
             ["image/png", "image/png", "image/png"],
         )
 
-    async def test_ppt_reader(self) -> None:
-        """Test the PowerPointReader implementation."""
+    async def test_ppt_reader_with_images_and_tables(self) -> None:
+        """Test the PowerPointReader implementation with images and table
+        separation."""
+        # Test with images and table separation enabled
         reader = PowerPointReader(
             chunk_size=200,
             split_by="sentence",
+            include_image=True,
+            separate_table=True,
         )
         ppt_path = os.path.join(
             os.path.abspath(os.path.dirname(__file__)),
-            "../examples/functionality/rag/example.pptx",
+            "../tests/test.pptx",
         )
         docs = await reader(ppt_path=ppt_path)
 
-        # Verify document count (should contain content from slides)
-        self.assertEqual(len(docs), 6)
+        # Verify document types match expected sequence
+        # Expected: text blocks from slides, then table, then image
+        self.assertListEqual(
+            [_.metadata.content["type"] for _ in docs],
+            ["text"] * 5 + ["image"] * 1 + ["text"],
+        )
+
+        import json
+
+        print(
+            json.dumps(
+                [_.metadata.content.get("text") for _ in docs],
+                indent=4,
+                ensure_ascii=False,
+            ),
+        )
 
         # Verify exact document content
-        doc_texts = [doc.metadata.content["text"] for doc in docs]
+        doc_texts = [_.metadata.content.get("text") for _ in docs]
 
         # Verify slide content matches exactly
         self.assertEqual(
             doc_texts[0],
-            "Slide 1\nAgentScope\nAgentScope is an innovative multi-agent "
-            "framework designed for building intelligent agent systems.",
+            "Slide 1\nAgentScope\nText content in slide 1",
         )
         self.assertEqual(
             doc_texts[1],
-            "It provides powerful tools for agent communication, "
-            "task coordination, and distributed problem solving.",
+            "Slide 2\nTitle 2\nText content above table",
         )
+        # Table should be extracted as a separate block with Markdown format
         self.assertEqual(
             doc_texts[2],
-            "Slide 2\nTransparent to Developers\nTransparent is "
-            "our\xa0FIRST principle.",
+            "| Name | Age | Career |\n"
+            "| --- | --- | --- |\n"
+            "| Alice | 25 | Teacher |\n"
+            "| Bob | 26 | Doctor |",
         )
         self.assertEqual(
             doc_texts[3],
-            "Prompt engineering, API invocation, agent building, workflow "
-            "orchestration, all are visible and controllable for developers.",
+            "Text content below table",
         )
         self.assertEqual(
             doc_texts[4],
-            "No deep encapsulation or implicit magic.",
+            "Slide 3\nTitle 3\ntext content above image",
         )
+        # Image block
+        self.assertIsNone(doc_texts[5])
         self.assertEqual(
-            doc_texts[5],
-            "Slide 3\nHighly Customizable\nTools, prompt, agent, workflow, "
-            "third-party libs & visualization, customization is encouraged "
-            "everywhere.",
+            doc_texts[6],
+            "text content below image",
+        )
+
+        # Verify image media types
+        self.assertEqual(
+            [
+                _.metadata.content["source"]["media_type"]
+                for _ in docs
+                if _.metadata.content["type"] == "image"
+            ],
+            ["image/png"],
         )
