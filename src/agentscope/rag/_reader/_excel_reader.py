@@ -3,17 +3,138 @@
 """The Excel reader to read and chunk Excel files."""
 import base64
 import hashlib
-from typing import Any, Literal, Optional
+import json
+from typing import Any, Literal
 
 from ._reader_base import ReaderBase
 from ._text_reader import TextReader
 from .._document import Document, DocMetadata
-from ...message import ImageBlock, Base64Source
+from ...message import ImageBlock, Base64Source, TextBlock
 from ..._logging import logger
 
 
+def _extract_table_data(df: Any) -> list[list[str]]:
+    """Extract table data from a DataFrame, handling NaN values.
+
+    Args:
+        df (`Any`):
+            The pandas DataFrame object.
+
+    Returns:
+        `list[list[str]]`:
+            Table data represented as a 2D list, where each inner list
+            represents a row, and each string in the row represents a cell.
+    """
+    import pandas as pd
+
+    table_data = []
+    for _, row in df.iterrows():
+        row_data = []
+        for cell_val in row:
+            # Convert NaN to empty string, preserve line breaks
+            if pd.isna(cell_val):
+                cell_text = ""
+            else:
+                cell_text = str(cell_val).strip()
+                # Normalize line breaks
+                cell_text = cell_text.replace("\r\n", "\n").replace("\r", "\n")
+            row_data.append(cell_text)
+        table_data.append(row_data)
+
+    return table_data
+
+
+def _extract_images_from_worksheet(
+    worksheet: Any,
+) -> list[tuple[int, ImageBlock]]:
+    """Extract images from a worksheet with their row positions.
+
+    Args:
+        worksheet (`Any`):
+            The openpyxl worksheet object.
+
+    Returns:
+        `list[tuple[int, ImageBlock]]`:
+            A list of tuples containing (row_index, ImageBlock), where
+            row_index is 0-based. Empty if no images found.
+    """
+    images = []
+
+    if not (hasattr(worksheet, "_images") and worksheet._images):
+        return images
+
+    for img in worksheet._images:
+        try:
+            # Get image row position (0-based)
+            row_index = 0
+            if hasattr(img, "anchor") and hasattr(img.anchor, "_from"):
+                row_index = img.anchor._from.row
+
+            # Get image data
+            img_data = img._data()
+
+            # Determine media type
+            media_type = _get_media_type_from_data(img_data)
+
+            # Convert to base64
+            base64_data = base64.b64encode(img_data).decode("utf-8")
+
+            image_block = ImageBlock(
+                type="image",
+                source=Base64Source(
+                    type="base64",
+                    media_type=media_type,
+                    data=base64_data,
+                ),
+            )
+
+            images.append((row_index, image_block))
+        except Exception as e:
+            logger.warning("Failed to extract image from worksheet: %s", e)
+
+    return images
+
+
+def _get_media_type_from_data(data: bytes) -> str:
+    """Determine media type from image data.
+
+    Args:
+        data (`bytes`):
+            The raw image data.
+
+    Returns:
+        `str`:
+            The MIME type of the image (e.g., "image/png", "image/jpeg").
+    """
+    # Image signature mapping
+    signatures = {
+        b"\x89PNG\r\n\x1a\n": "image/png",
+        b"\xff\xd8": "image/jpeg",
+        b"GIF87a": "image/gif",
+        b"GIF89a": "image/gif",
+        b"BM": "image/bmp",
+    }
+
+    # Check signatures
+    for signature, media_type in signatures.items():
+        if data.startswith(signature):
+            return media_type
+
+    # Check WebP (RIFF at start + WEBP at offset 8)
+    if len(data) > 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+
+    # Default to JPEG
+    return "image/jpeg"
+
+
 class ExcelReader(ReaderBase):
-    """The Excel reader that splits text into chunks by a fixed chunk size."""
+    """The Excel reader that supports reading text, image, and table
+    content from Excel files (.xlsx, .xls files), and chunking the text
+    content into smaller pieces.
+
+    .. note:: The table content can be extracted in Markdown or JSON format.
+    """
 
     def __init__(
         self,
@@ -23,6 +144,8 @@ class ExcelReader(ReaderBase):
         include_cell_coordinates: bool = False,
         include_image: bool = False,
         separate_sheet: bool = False,
+        separate_table: bool = False,
+        table_format: Literal["markdown", "json"] = "markdown",
     ) -> None:
         """Initialize the Excel reader.
 
@@ -46,8 +169,24 @@ class ExcelReader(ReaderBase):
                 Whether to treat each sheet as a separate document. If True,
                 each sheet will be extracted as a separate Document object
                 instead of being merged together.
+            separate_table (`bool`, default to False):
+                If True, tables will be treated as a new chunk to avoid
+                truncation. But note when the table exceeds the chunk size,
+                it will still be truncated.
+            table_format (`Literal["markdown", "json"]`, \
+            default to "markdown"):
+                The format to extract table content. Note if the table cell
+                contains `\n`, the Markdown format may not render correctly.
+                In that case, you can use the `json` format, which extracts
+                the table as a JSON string of a `list[list[str]]` object.
         """
         self._validate_init_params(chunk_size, split_by)
+
+        if table_format not in ["markdown", "json"]:
+            raise ValueError(
+                "The table_format must be one of 'markdown' or 'json', "
+                f"got {table_format}",
+            )
 
         self.chunk_size = chunk_size
         self.split_by = split_by
@@ -55,11 +194,11 @@ class ExcelReader(ReaderBase):
         self.include_cell_coordinates = include_cell_coordinates
         self.include_image = include_image
         self.separate_sheet = separate_sheet
+        self.separate_table = separate_table
+        self.table_format = table_format
 
-        # To avoid code duplication, we use TextReader to do the chunking.
+        # Use TextReader to do the chunking
         self._text_reader = TextReader(self.chunk_size, self.split_by)
-
-        # Cache for imports (none needed for direct imports)
 
     def _validate_init_params(self, chunk_size: int, split_by: str) -> None:
         """Validate initialization parameters.
@@ -86,7 +225,8 @@ class ExcelReader(ReaderBase):
         excel_path: str,
     ) -> list[Document]:
         """Read an Excel file, split it into chunks, and return a list of
-        Document objects.
+        Document objects. The text, image, and table content will be returned
+        in the same order as they appear in the Excel file.
 
         Args:
             excel_path (`str`):
@@ -100,7 +240,7 @@ class ExcelReader(ReaderBase):
         # Generate document ID
         doc_id = self.get_doc_id(excel_path)
 
-        # Initialize variables
+        # Load Excel file and workbook
         excel_file = None
         workbook = None
 
@@ -127,8 +267,7 @@ class ExcelReader(ReaderBase):
                     )
                     workbook = None
 
-            # Process sheets (images will be extracted per-sheet to
-            # maintain order)
+            # Process sheets
             if self.separate_sheet:
                 return await self._process_sheets_separately(
                     excel_file,
@@ -158,44 +297,14 @@ class ExcelReader(ReaderBase):
             if excel_file is not None:
                 excel_file.close()
 
-    def _extract_sheet_images_from_workbook(
-        self,
-        workbook: Any,
-        sheet_name: str,
-        doc_id: str,
-    ) -> list[Document]:
-        """Extract images from a specific sheet using already loaded workbook.
-
-        Args:
-            workbook (`Any`):
-                The openpyxl workbook object.
-            sheet_name (`str`):
-                The name of the sheet.
-            doc_id (`str`):
-                The document ID.
-
-        Returns:
-            `list[Document]`:
-                A list of Document objects containing images.
-        """
-        try:
-            ws = workbook[sheet_name]
-            return self._extract_sheet_images(ws, doc_id, sheet_name)
-        except Exception as e:
-            logger.warning(
-                "Failed to extract images from sheet '%s': %s",
-                sheet_name,
-                e,
-            )
-            return []
-
     async def _process_sheets_merged(
         self,
         excel_file: Any,
         doc_id: str,
         workbook: Any = None,
     ) -> list[Document]:
-        """Process all sheets as a single merged document.
+        """Process all sheets as a merged document, maintaining order of
+        text, table, and image content.
 
         Args:
             excel_file (`Any`):
@@ -207,49 +316,21 @@ class ExcelReader(ReaderBase):
 
         Returns:
             `list[Document]`:
-                A list of Document objects from all sheets merged together.
+                A list of Document objects from all sheets merged together,
+                maintaining content order.
         """
-        # Collect all text from all sheets
-        all_text_parts = []
-
-        # Collect all images from all sheets
-        all_images = []
-
+        # Get all blocks from all sheets in order
+        all_blocks = []
         for sheet_name in excel_file.sheet_names:
-            # Extract images for this sheet if requested
-            if self.include_image and workbook:
-                sheet_images = self._extract_sheet_images_from_workbook(
-                    workbook,
-                    sheet_name,
-                    doc_id,
-                )
-                all_images.extend(sheet_images)
-
-            # Process text content for this sheet
-            sheet_text = self._process_single_sheet_from_file(
+            sheet_blocks = self._get_sheet_blocks(
                 excel_file,
                 sheet_name,
+                workbook,
             )
+            all_blocks.extend(sheet_blocks)
 
-            if sheet_text:
-                all_text_parts.append(sheet_text)
-
-        # Merge all text and create documents
-        merged_text = "\n\n".join(all_text_parts)
-
-        # Add images first (if any), then merged text
-        all_docs = []
-        if all_images:
-            all_docs.extend(all_images)
-
-        if merged_text:
-            text_docs = await self._create_documents_from_text(
-                merged_text,
-                doc_id,
-            )
-            all_docs.extend(text_docs)
-
-        return all_docs
+        # Convert blocks to documents
+        return await self._blocks_to_documents(all_blocks, doc_id)
 
     async def _process_sheets_separately(
         self,
@@ -275,196 +356,133 @@ class ExcelReader(ReaderBase):
         all_docs = []
 
         for sheet_name in excel_file.sheet_names:
-            # Extract images for this sheet if requested
-            sheet_images = []
-            if self.include_image and workbook is not None:
-                sheet_images = self._extract_sheet_images_from_workbook(
-                    workbook,
-                    sheet_name,
-                    doc_id,
-                )
-
-            # Process text content for this sheet (use already loaded
-            # excel_file)
-            sheet_text = self._process_single_sheet_from_file(
+            sheet_blocks = self._get_sheet_blocks(
                 excel_file,
                 sheet_name,
+                workbook,
             )
-
-            # Add images first (if any), then text for this sheet
-            if sheet_images:
-                all_docs.extend(sheet_images)
-
-            if sheet_text:
-                sheet_docs = await self._create_documents_from_text(
-                    sheet_text,
-                    doc_id,
-                )
-                all_docs.extend(sheet_docs)
+            sheet_docs = await self._blocks_to_documents(sheet_blocks, doc_id)
+            all_docs.extend(sheet_docs)
 
         return all_docs
 
-    def _process_single_sheet_from_file(
+    def _get_sheet_blocks(
         self,
         excel_file: Any,
         sheet_name: str,
-    ) -> Optional[str]:
-        """Process a single sheet from already loaded ExcelFile and return
-        its text content.
+        workbook: Any = None,
+    ) -> list[TextBlock | ImageBlock]:
+        """Extract all data blocks from a sheet in order (text, table, image).
 
         Args:
             excel_file (`Any`):
                 The pandas ExcelFile object.
             sheet_name (`str`):
-                The name of the sheet to process.
+                The name of the sheet.
+            workbook (`Any`, optional):
+                The openpyxl workbook if available.
 
         Returns:
-            `Optional[str]`:
-                The text content of the sheet, or None if empty.
+            `list[TextBlock | ImageBlock]`:
+                A list of data blocks extracted from the sheet, maintaining
+                the order they appear in the sheet based on row positions.
         """
+        blocks: list[TextBlock | ImageBlock] = []
+        positioned_blocks: list[tuple[int, TextBlock | ImageBlock, str]] = []
+
+        # Add sheet header
+        sheet_header = (
+            f"Sheet: {sheet_name}" if self.include_sheet_names else None
+        )
+
         try:
             df = excel_file.parse(sheet_name=sheet_name)
 
             if df.empty:
-                return None
+                return blocks
 
-            sheet_texts = []
+            # Extract images with their row positions if enabled
+            images_with_positions: list[tuple[int, ImageBlock]] = []
+            if self.include_image and workbook is not None:
+                try:
+                    worksheet = workbook[sheet_name]
+                    images_with_positions = _extract_images_from_worksheet(
+                        worksheet,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to extract images from sheet '%s': %s",
+                        sheet_name,
+                        e,
+                    )
 
-            # Add sheet name if requested
-            if self.include_sheet_names:
-                sheet_texts.append(f"Sheet: {sheet_name}")
+            # Extract table data
+            table_data = _extract_table_data(df)
 
-            # Process rows
-            row_texts = self._process_dataframe_rows(df)
-            sheet_texts.extend(row_texts)
+            if self.table_format == "markdown":
+                table_text = self._table_to_markdown(table_data, sheet_header)
+            else:
+                table_text = self._table_to_json(table_data, sheet_header)
 
-            return "\n".join(sheet_texts) if sheet_texts else None
+            # Calculate table row position for sorting
+            # Row 0 is the header row in pandas (if header exists)
+            # Table data spans from row 0 to row len(df)
+            # In Excel, this is typically row 1 to row (len(df) + 1) in
+            # 1-based indexing
+            # In 0-based indexing used by openpyxl: row 0 to row len(df)
+            table_start_row = 0
+
+            # Create table block
+            table_block = TextBlock(
+                type="text",
+                text=table_text,
+            )
+
+            # Add table block with its position for sorting
+            positioned_blocks.append((table_start_row, table_block, "table"))
+
+            # Add image blocks with their positions
+            for row_index, image_block in images_with_positions:
+                positioned_blocks.append((row_index, image_block, "image"))
+
+            # Sort blocks by row position
+            positioned_blocks.sort(key=lambda x: x[0])
+
+            # Extract blocks in sorted order and merge consecutive blocks
+            # if needed
+            last_type = None
+            for row_index, block, block_type in positioned_blocks:
+                if block_type == "table":
+                    # Handle table block merging based on separate_table
+                    # Logic matches WordReader: merge if not separate_table and
+                    # last_type is "text" or "table"
+                    if not self.separate_table and last_type in [
+                        "text",
+                        "table",
+                    ]:
+                        blocks[-1]["text"] += "\n" + block["text"]
+                    else:
+                        blocks.append(block)
+                    last_type = "table"
+                elif block_type == "image":
+                    blocks.append(block)
+                    last_type = "image"
 
         except Exception as e:
             logger.warning("Failed to process sheet '%s': %s", sheet_name, e)
-            return None
 
-    def _process_dataframe_rows(self, df: Any) -> list[str]:
-        """Process DataFrame rows and return list of row texts.
+        return blocks
 
-        Args:
-            df (`Any`):
-                The pandas DataFrame to process.
-
-        Returns:
-            `list[str]`:
-                List of row texts.
-        """
-        row_texts = []
-
-        for row_idx, row in df.iterrows():
-            cell_texts = []
-
-            for col_idx, (_, cell_val) in enumerate(row.items()):
-                cell_text = self._process_cell_value(
-                    cell_val,
-                    row_idx,
-                    col_idx,
-                )
-                if cell_text:
-                    cell_texts.append(cell_text)
-
-            if cell_texts:
-                row_text = " | ".join(cell_texts)
-                row_texts.append(row_text)
-
-        return row_texts
-
-    def _process_cell_value(
+    async def _blocks_to_documents(
         self,
-        cell_val: Any,
-        row_idx: int,
-        col_idx: int,
-    ) -> Optional[str]:
-        """Process individual cell value.
-
-        Args:
-            cell_val (`Any`):
-                The cell value from the DataFrame.
-            row_idx (`int`):
-                The row index.
-            col_idx (`int`):
-                The column index.
-
-        Returns:
-            `Optional[str]`:
-                The processed cell text, or None if empty.
-        """
-        # Skip NaN values
-        import pandas as pd
-
-        if pd.isna(cell_val):
-            return None
-
-        # Convert to string and clean
-        cell_text = str(cell_val).strip()
-        if not cell_text:
-            return None
-
-        # Add cell coordinates if requested
-        if self.include_cell_coordinates:
-            col_letter = self._get_column_letter(col_idx)
-            cell_ref = f"{col_letter}{row_idx + 1}"
-            cell_text = f"{cell_ref}: {cell_text}"
-
-        # Clean text
-        return self._clean_text(cell_text)
-
-    def _clean_text(self, text: str) -> str:
-        """Clean and normalize text content.
-
-        Args:
-            text (`str`):
-                The text to clean.
-
-        Returns:
-            `str`:
-                The cleaned text.
-        """
-        # Normalize line endings
-        text = text.replace("\r\n", "\n").replace("\r", "\n")
-
-        # Remove control characters except newlines and tabs
-        cleaned_chars = []
-        for char in text:
-            char_code = ord(char)
-            if char_code >= 32 or char in "\n\t":
-                cleaned_chars.append(char)
-
-        return "".join(cleaned_chars)
-
-    def _get_column_letter(self, col_idx: int) -> str:
-        """Convert column index to Excel column letter.
-
-        Args:
-            col_idx (`int`):
-                Zero-based column index.
-
-        Returns:
-            `str`:
-                Excel column letter (A, B, C, ..., AA, AB, ...).
-        """
-        result = ""
-        while col_idx >= 0:
-            result = chr(65 + (col_idx % 26)) + result
-            col_idx = col_idx // 26 - 1
-        return result
-
-    async def _create_documents_from_text(
-        self,
-        text: str,
+        blocks: list[TextBlock | ImageBlock],
         doc_id: str,
     ) -> list[Document]:
-        """Create Document objects from text using TextReader.
+        """Convert data blocks to Document objects.
 
         Args:
-            text (`str`):
-                The text to convert to documents.
+            blocks (`list[TextBlock | ImageBlock]`):
+                A list of data blocks.
             doc_id (`str`):
                 The document ID.
 
@@ -472,154 +490,131 @@ class ExcelReader(ReaderBase):
             `list[Document]`:
                 A list of Document objects.
         """
-        try:
-            docs = await self._text_reader(text)
-            # TextReader already returns properly formatted documents,
-            # just update doc_id
-            for doc in docs:
-                doc.id = doc_id
-                doc.metadata.doc_id = doc_id
-            return docs
-        except Exception as e:
-            logger.error("Failed to create documents from text: %s", e)
-            return []
+        documents = []
 
-    def _extract_sheet_images(
-        self,
-        worksheet: Any,
-        doc_id: str,
-        sheet_name: str,
-    ) -> list[Document]:
-        """Extract images from a single worksheet.
-
-        Args:
-            worksheet (`Any`):
-                The openpyxl worksheet object.
-            doc_id (`str`):
-                The document ID.
-            sheet_name (`str`):
-                The name of the sheet.
-
-        Returns:
-            `list[Document]`:
-                A list of Document objects containing images.
-        """
-        images = []
-
-        if not (hasattr(worksheet, "_images") and worksheet._images):
-            return images
-
-        for idx, img in enumerate(worksheet._images):
-            try:
-                image_doc = self._create_image_document(
-                    img,
-                    doc_id,
-                    sheet_name,
-                    idx,
+        for block in blocks:
+            if block["type"] == "text":
+                # Process text blocks through TextReader for chunking
+                text_docs = await self._text_reader(block["text"])
+                for doc in text_docs:
+                    # Update doc_id but keep other metadata
+                    doc.metadata.doc_id = doc_id
+                    doc.id = doc_id
+                    documents.append(doc)
+            elif block["type"] == "image":
+                # Images are independent documents
+                documents.append(
+                    Document(
+                        metadata=DocMetadata(
+                            content=block,
+                            doc_id=doc_id,
+                            chunk_id=0,  # Will be set later
+                            total_chunks=1,
+                        ),
+                    ),
                 )
-                if image_doc:
-                    images.append(image_doc)
-            except Exception as e:
-                logger.warning(
-                    "Failed to process image %d from sheet '%s': %s",
-                    idx,
-                    sheet_name,
-                    e,
-                )
-                continue
 
-        return images
+        # Set chunk ids and total chunks
+        total_chunks = len(documents)
+        for idx, doc in enumerate(documents):
+            doc.metadata.chunk_id = idx
+            doc.metadata.total_chunks = total_chunks
 
-    def _create_image_document(
+        return documents
+
+    def _table_to_markdown(
         self,
-        img: Any,
-        doc_id: str,
-        sheet_name: str,
-        img_idx: int,
-    ) -> Optional[Document]:
-        """Create Document object from image.
+        table_data: list[list[str]],
+        sheet_header: str | None = None,
+    ) -> str:
+        """Convert table data to Markdown format.
 
         Args:
-            img (`Any`):
-                The image object from openpyxl.
-            doc_id (`str`):
-                The document ID.
-            sheet_name (`str`):
-                The name of the sheet containing the image.
-            img_idx (`int`):
-                The index of the image in the sheet.
-
-        Returns:
-            `Optional[Document]`:
-                A Document object containing the image, or None on error.
-        """
-        try:
-            # Get image data
-            img_data = img._data()
-
-            # Determine media type
-            media_type = self._get_media_type_from_data(img_data)
-
-            # Convert to base64
-            base64_data = base64.b64encode(img_data).decode("utf-8")
-
-            # Create ImageBlock
-            image_block = ImageBlock(
-                type="image",
-                source=Base64Source(
-                    type="base64",
-                    media_type=media_type,
-                    data=base64_data,
-                ),
-            )
-
-            # Create Document - each image is an independent document
-            metadata = DocMetadata(
-                content=image_block,
-                doc_id=doc_id,
-                chunk_id=0,
-                total_chunks=1,
-            )
-            # Add additional metadata
-            metadata["sheet_name"] = sheet_name
-            metadata["img_idx"] = img_idx
-
-            return Document(metadata=metadata)
-        except Exception as e:
-            logger.error("Failed to create image document: %s", e)
-            return None
-
-    def _get_media_type_from_data(self, data: bytes) -> str:
-        """Determine media type from image data.
-
-        Args:
-            data (`bytes`):
-                The raw image data.
+            table_data (`list[list[str]]`):
+                Table data represented as a 2D list.
+            sheet_header (`str | None`, optional):
+                Optional sheet header to prepend.
 
         Returns:
             `str`:
-                The MIME type of the image (e.g., "image/png", "image/jpeg").
+                Table in Markdown format.
         """
-        # Image signature mapping
-        signatures = {
-            b"\x89PNG\r\n\x1a\n": "image/png",
-            b"\xff\xd8": "image/jpeg",
-            b"GIF87a": "image/gif",
-            b"GIF89a": "image/gif",
-            b"BM": "image/bmp",
-        }
+        if not table_data:
+            return sheet_header or ""
 
-        # Check signatures
-        for signature, media_type in signatures.items():
-            if data.startswith(signature):
-                return media_type
+        md_table = ""
 
-        # Check WebP (RIFF at start + WEBP at offset 8)
-        if len(data) > 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-            return "image/webp"
+        # Add sheet header if provided
+        if sheet_header:
+            md_table += sheet_header + "\n"
 
-        # Default to JPEG
-        return "image/jpeg"
+        # If no rows, return header only
+        if not table_data or not table_data[0]:
+            return md_table.strip() or ""
+
+        num_cols = len(table_data[0])
+
+        # Escape pipe characters in cells to avoid breaking Markdown table
+        # structure
+        def escape_pipes(cell_text: str) -> str:
+            """Escape pipe characters in cell content."""
+            return cell_text.replace("|", "||")
+
+        # Header row (first row)
+        escaped_header = [escape_pipes(cell) for cell in table_data[0]]
+        header_row = "| " + " | ".join(escaped_header) + " |\n"
+        md_table += header_row
+
+        # Separator row
+        separator_row = "| " + " | ".join(["---"] * num_cols) + " |\n"
+        md_table += separator_row
+
+        # Data rows
+        for row in table_data[1:]:
+            # Ensure row has same number of columns as header
+            while len(row) < num_cols:
+                row.append("")
+            # Escape pipe characters in each cell
+            escaped_row = [escape_pipes(cell) for cell in row[:num_cols]]
+            data_row = "| " + " | ".join(escaped_row) + " |\n"
+            md_table += data_row
+
+        return md_table
+
+    def _table_to_json(
+        self,
+        table_data: list[list[str]],
+        sheet_header: str | None = None,
+    ) -> str:
+        """Convert table data to JSON string.
+
+        Args:
+            table_data (`list[list[str]]`):
+                Table data represented as a 2D list.
+            sheet_header (`str | None`, optional):
+                Optional sheet header to prepend.
+
+        Returns:
+            `str`:
+                Table in JSON string format.
+        """
+        json_strs = []
+
+        # Add sheet header if provided
+        if sheet_header:
+            json_strs.append(sheet_header)
+
+        # Add system info marker
+        json_strs.append(
+            "<system-info>A table loaded as a JSON array:</system-info>",
+        )
+
+        for row in table_data:
+            json_strs.append(
+                json.dumps(row, ensure_ascii=False),
+            )
+
+        return "\n".join(json_strs)
 
     def get_doc_id(self, excel_path: str) -> str:
         """Generate unique document ID from file path.
