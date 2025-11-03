@@ -10,6 +10,7 @@ from ._reader import (
     TextReader,
     PDFReader,
     ImageReader,
+    WordReader,
     ExcelReader,
 )
 from ._store import (
@@ -26,6 +27,7 @@ __all__ = [
     "TextReader",
     "PDFReader",
     "ImageReader",
+    "WordReader",
     "ExcelReader",
     "DocMetadata",
     "Document",
