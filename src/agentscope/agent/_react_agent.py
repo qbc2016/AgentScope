@@ -6,7 +6,7 @@ import asyncio
 from typing import Type, Any, AsyncGenerator, Literal
 
 import shortuuid
-from pydantic import BaseModel, ValidationError, Field
+from pydantic import BaseModel, ValidationError, Field, create_model
 
 from ._react_agent_base import ReActAgentBase
 from .._logging import logger
@@ -192,9 +192,6 @@ class ReActAgent(ReActAgentBase):
         # -------------- Tool management --------------
         # If None, a default Toolkit will be created
         self.toolkit = toolkit or Toolkit()
-        self.toolkit.register_tool_function(
-            getattr(self, self.finish_function_name),
-        )
         if self._agent_control:
             # Adding two tool functions into the toolkit to allow self-control
             self.toolkit.register_tool_function(
@@ -278,6 +275,7 @@ class ReActAgent(ReActAgentBase):
         return self._sys_prompt
 
     @trace_reply
+    # pylint: disable=too-many-branches
     async def reply(
         self,
         msg: Msg | list[Msg] | None = None,
@@ -308,15 +306,47 @@ class ReActAgent(ReActAgentBase):
         self._required_structured_model = structured_model
         # Record structured output model if provided
         if structured_model:
+            # Register generate_response tool only when structured output
+            # is required
+            if self.finish_function_name not in self.toolkit.tools:
+                self.toolkit.register_tool_function(
+                    getattr(self, self.finish_function_name),
+                )
+            # Create an extended model that includes both structured fields
+            # and response field. This allows the model to provide both
+            # structured data and a text response
+            # Check if the structured model already has a response field
+            structured_fields = structured_model.model_fields.keys()
+            if "response" in structured_fields:
+                # If response field already exists, use the structured
+                # model directly and keep response in metadata (it's part of
+                # user's structured data)
+                response_model = structured_model
+            else:
+                # Otherwise, create an extended model with response field
+                response_model = create_model(
+                    "ResponseModel",
+                    __base__=structured_model,
+                    response=(
+                        str,
+                        Field(description="The response of the agent."),
+                    ),
+                )
             self.toolkit.set_extended_model(
                 self.finish_function_name,
-                structured_model,
+                response_model,
             )
+        else:
+            # Remove generate_response tool if no structured output is required
+            if self.finish_function_name in self.toolkit.tools:
+                self.toolkit.remove_tool_function(self.finish_function_name)
 
         # The reasoning-acting loop
         reply_msg = None
         for _ in range(self.max_iters):
             msg_reasoning = await self._reasoning()
+
+            has_text: bool = msg_reasoning.has_content_blocks("text")
 
             futures = [
                 self._acting(tool_call)
@@ -336,6 +366,9 @@ class ReActAgent(ReActAgentBase):
             # Find the first non-None replying message from the acting
             for acting_msg in acting_responses:
                 reply_msg = reply_msg or acting_msg
+
+            if not reply_msg and has_text:
+                return msg_reasoning
 
             if reply_msg:
                 break
@@ -410,17 +443,18 @@ class ReActAgent(ReActAgentBase):
 
         finally:
             if msg and not msg.has_content_blocks("tool_use"):
-                # Turn plain text response into a tool call of the finish
-                # function
-                msg = Msg.from_dict(msg.to_dict())
-                msg.content = [
-                    ToolUseBlock(
-                        id=shortuuid.uuid(),
-                        type="tool_use",
-                        name=self.finish_function_name,
-                        input={"response": msg.get_text_content()},
-                    ),
-                ]
+                if self._required_structured_model:
+                    # Turn plain text response into a tool call of the finish
+                    # function
+                    msg = Msg.from_dict(msg.to_dict())
+                    msg.content = [
+                        ToolUseBlock(
+                            id=shortuuid.uuid(),
+                            type="tool_use",
+                            name=self.finish_function_name,
+                            input={"response": msg.get_text_content()},
+                        ),
+                    ]
 
             # None will be ignored by the memory
             await self.memory.add(msg)
@@ -588,20 +622,12 @@ class ReActAgent(ReActAgentBase):
 
     def generate_response(
         self,
-        response: str,
         **kwargs: Any,
     ) -> ToolResponse:
-        """Generate a response. Note only the input argument `response` is
-        visible to the others, you should include all the necessary
-        information in the `response` argument.
-
-        Args:
-            response (`str`):
-                Your response to the user.
-        """
+        """Generate a response."""
         response_msg = Msg(
             self.name,
-            response,
+            "",
             "assistant",
         )
 
