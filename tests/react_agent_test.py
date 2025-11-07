@@ -3,6 +3,8 @@
 from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
+from pydantic import BaseModel, Field
+
 from agentscope.agent import ReActAgent
 from agentscope.formatter import DashScopeChatFormatter
 from agentscope.memory import InMemoryMemory
@@ -118,25 +120,35 @@ class ReActAgentTest(IsolatedAsyncioTestCase):
             getattr(agent, "cnt_post_reasoning"),
             1,
         )
-        self.assertEqual(
-            getattr(agent, "cnt_pre_acting"),
-            1,
+        # Note: pre_acting and post_acting hooks are not called when model
+        # returns plain text without structured output, as plain text is not
+        # converted to tool call in this case
+        self.assertFalse(
+            hasattr(agent, "cnt_pre_acting"),
+            "pre_acting hook should not be called for plain text response",
         )
-        self.assertEqual(
-            getattr(agent, "cnt_post_acting"),
-            1,
+        self.assertFalse(
+            hasattr(agent, "cnt_post_acting"),
+            "post_acting hook should not be called for plain text response",
         )
+
+        # Test with structured output: generate_response should be registered
+        # and visible in tool list
+        class TestStructuredModel(BaseModel):
+            """Test structured model."""
+
+            result: str = Field(description="Test result field.")
 
         model.fake_content = [
             ToolUseBlock(
                 type="tool_use",
                 name=agent.finish_function_name,
                 id="xx",
-                input={"response": "123"},
+                input={"response": "123", "result": "test"},
             ),
         ]
 
-        await agent()
+        await agent(structured_model=TestStructuredModel)
         self.assertEqual(
             getattr(agent, "cnt_pre_reasoning"),
             2,
@@ -145,11 +157,23 @@ class ReActAgentTest(IsolatedAsyncioTestCase):
             getattr(agent, "cnt_post_reasoning"),
             2,
         )
+        # pre_acting and post_acting hooks are called only when model returns
+        # tool calls (not plain text). With structured_model, generate_response
+        # is registered and model can call it.
         self.assertEqual(
             getattr(agent, "cnt_pre_acting"),
-            2,
+            1,  # Only called once (second call with tool use)
         )
         self.assertEqual(
             getattr(agent, "cnt_post_acting"),
-            2,
+            1,  # Only called once (second call with tool use)
+        )
+
+        # Verify that generate_response is removed when no structured_model
+        # Reset model to return plain text
+        model.fake_content = [TextBlock(type="text", text="456")]
+        await agent()
+        self.assertFalse(
+            agent.finish_function_name in agent.toolkit.tools,
+            "generate_response should be removed when no structured_model",
         )
