@@ -510,6 +510,7 @@ class ReActAgent(ReActAgentBase):
                 if (
                     tool_call["name"] == self.finish_function_name
                     and chunk.metadata
+                    and chunk.metadata.get("success", False)
                 ):
                     # Only return the structured output
                     return chunk.metadata.get("structured_output")
