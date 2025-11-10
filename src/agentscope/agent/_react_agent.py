@@ -39,8 +39,8 @@ class ReActAgent(ReActAgentBase):
     """
 
     finish_function_name: str = "generate_response"
-    """The function name used to finish replying and return a response to
-    the user."""
+    """The name of the function used to generate structured output. Only
+    registered when structured output model is provided in the reply call."""
 
     def __init__(
         self,
@@ -499,16 +499,7 @@ class ReActAgent(ReActAgentBase):
                     "output"
                 ] = chunk.content
 
-                # Skip the printing of the finish function call
-                if (
-                    tool_call["name"] != self.finish_function_name
-                    or tool_call["name"] == self.finish_function_name
-                    and (
-                        chunk.metadata is None
-                        or not chunk.metadata.get("success")
-                    )
-                ):
-                    await self.print(tool_res_msg, chunk.is_last)
+                await self.print(tool_res_msg, chunk.is_last)
 
                 # Raise the CancelledError to handle the interruption in the
                 # handle_interrupt function
