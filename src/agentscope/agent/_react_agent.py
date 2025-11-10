@@ -308,8 +308,10 @@ class ReActAgent(ReActAgentBase):
             # -------------- Check for exit condition --------------
             # If structured output is still not satisfied
             if self._required_structured_model:
-                msg_hint = None
+                # Remove None results
+                structured_outputs = [_ for _ in structured_outputs if _]
 
+                msg_hint = None
                 # If the acting step generates structured outputs
                 if structured_outputs:
                     # Cache the structured output data
