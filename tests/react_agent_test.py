@@ -19,7 +19,22 @@ class MyModel(ChatModelBase):
     def __init__(self) -> None:
         """Initialize the test model."""
         super().__init__("test_model", stream=False)
-        self.fake_content = [TextBlock(type="text", text="123")]
+        self.cnt = 1
+        self.fake_content_1 = [
+            TextBlock(
+                type="text",
+                text="123",
+            ),
+        ]
+        self.fake_content_2 = [
+            TextBlock(type="text", text="456"),
+            ToolUseBlock(
+                type="tool_use",
+                name="generate_response",
+                id="xx",
+                input={"result": "789"},
+            ),
+        ]
 
     async def __call__(
         self,
@@ -27,9 +42,15 @@ class MyModel(ChatModelBase):
         **kwargs: Any,
     ) -> ChatResponse:
         """Mock model call."""
-        return ChatResponse(
-            content=self.fake_content,
-        )
+        self.cnt += 1
+        if self.cnt == 2:
+            return ChatResponse(
+                content=self.fake_content_1,
+            )
+        else:
+            return ChatResponse(
+                content=self.fake_content_2,
+            )
 
 
 async def pre_reasoning_hook(self: ReActAgent, _kwargs: Any) -> None:
@@ -139,15 +160,6 @@ class ReActAgentTest(IsolatedAsyncioTestCase):
 
             result: str = Field(description="Test result field.")
 
-        model.fake_content = [
-            ToolUseBlock(
-                type="tool_use",
-                name=agent.finish_function_name,
-                id="xx",
-                input={"response": "123", "result": "test"},
-            ),
-        ]
-
         await agent(structured_model=TestStructuredModel)
         self.assertEqual(
             getattr(agent, "cnt_pre_reasoning"),
@@ -171,7 +183,7 @@ class ReActAgentTest(IsolatedAsyncioTestCase):
 
         # Verify that generate_response is removed when no structured_model
         # Reset model to return plain text
-        model.fake_content = [TextBlock(type="text", text="456")]
+        model.fake_content_2 = [TextBlock(type="text", text="456")]
         await agent()
         self.assertFalse(
             agent.finish_function_name in agent.toolkit.tools,
