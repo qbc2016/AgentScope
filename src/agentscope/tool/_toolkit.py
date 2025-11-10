@@ -354,18 +354,24 @@ class Toolkit(StateModule):
 
         self.tools[func_name] = func_obj
 
-    def remove_tool_function(self, tool_name: str) -> None:
+    def remove_tool_function(
+        self,
+        tool_name: str,
+        allow_not_exist: bool = True,
+    ) -> None:
         """Remove tool function from the toolkit by its name.
 
         Args:
             tool_name (`str`):
                 The name of the tool function to be removed.
+            allow_not_exist (`bool`):
+                Allow the tool function to not exist when removing.
         """
 
-        if tool_name not in self.tools:
-            logger.warning(
-                "Skipping removing tool function '%s' as it does not exist.",
-                tool_name,
+        if tool_name not in self.tools and not allow_not_exist:
+            raise ValueError(
+                f"Tool function '{tool_name}' does not exist in the "
+                "toolkit.",
             )
 
         self.tools.pop(tool_name, None)
