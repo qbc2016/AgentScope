@@ -349,7 +349,7 @@ class ReActAgent(ReActAgentBase):
                     msg_hint = Msg(
                         "user",
                         "<system-hint>Structured output is "
-                        f"required, go on finish your task or call "
+                        f"required, go on to finish your task or call "
                         f"'{self.finish_function_name}' to generate the "
                         f"required structured output.</system-hint>",
                         "user",
@@ -369,6 +369,7 @@ class ReActAgent(ReActAgentBase):
 
         # When the maximum iterations are reached
         reply_msg = await self._summarizing()
+        reply_msg.metadata = structured_output
 
         # Post-process the memory, long-term memory
         if self._static_control:
