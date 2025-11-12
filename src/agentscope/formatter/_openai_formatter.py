@@ -160,6 +160,9 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
         for msg in msgs:
             content_blocks = []
             tool_calls = []
+            tool_results = (
+                []
+            )  # Collect all tool_result blocks in the current message
 
             for block in msg.get_content_blocks():
                 typ = block.get("type")
@@ -182,7 +185,8 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
-                    messages.append(
+                    # Collect tool_result first, add later
+                    tool_results.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
@@ -244,6 +248,10 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
             # When both content and tool_calls are None, skipped
             if msg_openai["content"] or msg_openai.get("tool_calls"):
                 messages.append(msg_openai)
+
+            # Add tool_result messages after adding the message containing
+            # tool_use
+            messages.extend(tool_results)
 
         return messages
 

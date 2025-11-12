@@ -76,6 +76,9 @@ class OllamaChatFormatter(TruncatedFormatterBase):
             content_blocks: list = []
             tool_calls = []
             images = []
+            tool_results = (
+                []
+            )  # Collect all tool_result blocks in the current message
 
             for block in msg.get_content_blocks():
                 typ = block.get("type")
@@ -95,7 +98,8 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
-                    messages.append(
+                    # Collect tool_result first, add later
+                    tool_results.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
@@ -138,6 +142,10 @@ class OllamaChatFormatter(TruncatedFormatterBase):
 
             if msg_ollama["content"] or msg_ollama.get("tool_calls"):
                 messages.append(msg_ollama)
+
+            # Add tool_result messages after adding the message containing
+            # tool_use
+            messages.extend(tool_results)
 
         return messages
 

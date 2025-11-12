@@ -57,6 +57,9 @@ class AnthropicChatFormatter(TruncatedFormatterBase):
         messages: list[dict] = []
         for index, msg in enumerate(msgs):
             content_blocks = []
+            tool_results = (
+                []
+            )  # Collect all tool_result blocks in the current message
 
             for block in msg.get_content_blocks():
                 typ = block.get("type")
@@ -74,6 +77,7 @@ class AnthropicChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
+                    # Collect tool_result first, add later
                     output = block.get("output")
                     if output is None:
                         content_value = [{"type": "text", "text": None}]
@@ -81,7 +85,7 @@ class AnthropicChatFormatter(TruncatedFormatterBase):
                         content_value = output
                     else:
                         content_value = [{"type": "text", "text": str(output)}]
-                    messages.append(
+                    tool_results.append(
                         {
                             "role": "user",
                             "content": [
@@ -113,6 +117,10 @@ class AnthropicChatFormatter(TruncatedFormatterBase):
             # When both content and tool_calls are None, skipped
             if msg_anthropic["content"] or msg_anthropic.get("tool_calls"):
                 messages.append(msg_anthropic)
+
+            # Add tool_result messages after adding the message containing
+            # tool_use
+            messages.extend(tool_results)
 
         return messages
 

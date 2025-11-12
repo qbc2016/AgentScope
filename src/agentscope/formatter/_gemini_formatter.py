@@ -118,6 +118,9 @@ class GeminiChatFormatter(TruncatedFormatterBase):
         messages: list = []
         for msg in msgs:
             parts = []
+            tool_results = (
+                []
+            )  # Collect all tool_result blocks in the current message
 
             for block in msg.get_content_blocks():
                 typ = block.get("type")
@@ -140,10 +143,11 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
+                    # Collect tool_result first, add later
                     text_output = self.convert_tool_result_to_string(
                         block["output"],  # type: ignore[arg-type]
                     )
-                    messages.append(
+                    tool_results.append(
                         {
                             "role": "user",
                             "parts": [
@@ -198,6 +202,10 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                         "parts": parts,
                     },
                 )
+
+            # Add tool_result messages after adding the message containing
+            # tool_use
+            messages.extend(tool_results)
 
         return messages
 

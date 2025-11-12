@@ -140,6 +140,9 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
         for msg in msgs:
             content_blocks = []
             tool_calls = []
+            tool_results = (
+                []
+            )  # Collect all tool_result blocks in the current message
             for block in msg.get_content_blocks():
                 typ = block.get("type")
 
@@ -191,7 +194,8 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
-                    formatted_msgs.append(
+                    # Collect tool_result first, add later
+                    tool_results.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
@@ -222,6 +226,10 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                 "tool_calls",
             ):
                 formatted_msgs.append(msg_dashscope)
+
+            # Add tool_result messages after adding the message containing
+            # tool_use
+            formatted_msgs.extend(tool_results)
 
         return _reformat_messages(formatted_msgs)
 
