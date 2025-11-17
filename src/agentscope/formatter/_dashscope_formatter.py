@@ -20,6 +20,47 @@ from ..message import (
 from ..token import TokenCounterBase
 
 
+def _format_dashscope_image_block(
+    image_block: ImageBlock,
+) -> dict[str, str]:
+    """Format an image block for DashScope API.
+
+    Args:
+        image_block (`ImageBlock`):
+            The image block to format.
+
+    Returns:
+        `dict[str, str]`:
+            A dictionary with "image" key and the formatted image URL or
+            data URI as value.
+
+    Raises:
+        `NotImplementedError`:
+            If the source type is not supported.
+    """
+    source = image_block["source"]
+    if source["type"] == "url":
+        url = source["url"]
+        if _is_accessible_local_file(url):
+            return {"image": "file://" + os.path.abspath(url)}
+        else:
+            # treat as web url
+            return {"image": url}
+
+    elif source["type"] == "base64":
+        media_type = source["media_type"]
+        base64_data = source["data"]
+        return {
+            "image": f"data:{media_type};base64,{base64_data}",
+        }
+
+    else:
+        raise NotImplementedError(
+            f"Unsupported source type '{source.get('type')}' "
+            f"for image block.",
+        )
+
+
 def _reformat_messages(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -120,71 +161,6 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
         ToolResultBlock,
     ]
 
-    def _extract_image_blocks_from_tool_result(
-        self,
-        output: str | list[dict[str, Any]],
-    ) -> list[ImageBlock]:
-        """Extract image blocks from tool result output.
-
-        Args:
-            output (`str | list[dict[str, Any]]`):
-                The output of the tool result, which can be a string or a list
-                of content blocks.
-
-        Returns:
-            `list[ImageBlock]`:
-                A list of image blocks extracted from the tool result output.
-                Returns an empty list if no images are found or if output is
-                a string.
-        """
-        image_blocks = []
-        if isinstance(output, list):
-            for block in output:
-                if isinstance(block, dict) and block.get("type") == "image":
-                    image_blocks.append(block)  # type: ignore[arg-type]
-        return image_blocks
-
-    def _format_image_block(
-        self,
-        image_block: ImageBlock,
-    ) -> dict[str, str]:
-        """Format an image block for DashScope API.
-
-        Args:
-            image_block (`ImageBlock`):
-                The image block to format.
-
-        Returns:
-            `dict[str, str]`:
-                A dictionary with "image" key and the formatted image URL or
-                data URI as value.
-
-        Raises:
-            `NotImplementedError`:
-                If the source type is not supported.
-        """
-        source = image_block["source"]
-        if source["type"] == "url":
-            url = source["url"]
-            if _is_accessible_local_file(url):
-                return {"image": "file://" + os.path.abspath(url)}
-            else:
-                # treat as web url
-                return {"image": url}
-
-        elif source["type"] == "base64":
-            media_type = source["media_type"]
-            base64_data = source["data"]
-            return {
-                "image": f"data:{media_type};base64,{base64_data}",
-            }
-
-        else:
-            raise NotImplementedError(
-                f"Unsupported source type '{source.get('type')}' "
-                f"for image block.",
-            )
-
     async def _format(
         self,
         msgs: list[Msg],
@@ -269,12 +245,12 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                     if self.extract_image_blocks:
                         image_blocks_raw = (
                             self._extract_image_blocks_from_tool_result(
-                                block.get("output"),  # type: ignore[arg-type]
+                                block.get("output"),
                             )
                         )
                         if image_blocks_raw:
                             image_blocks_formatted = [
-                                self._format_image_block(img_block)
+                                _format_dashscope_image_block(img_block)
                                 for img_block in image_blocks_raw
                             ]
                             formatted_msgs.append(

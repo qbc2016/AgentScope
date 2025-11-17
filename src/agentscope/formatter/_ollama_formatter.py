@@ -13,6 +13,38 @@ from ..message import Msg, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock
 from ..token import TokenCounterBase
 
 
+def _format_ollama_image_block(
+    image_block: ImageBlock,
+) -> str:
+    """Format an image block for Ollama API.
+
+    Args:
+        image_block (`ImageBlock`):
+            The image block to format.
+
+    Returns:
+        `str`:
+            Base64 encoded image data as a string.
+
+    Raises:
+        `ValueError`:
+            If the source type is not supported.
+    """
+    source = image_block["source"]
+    if source["type"] == "url":
+        return _convert_ollama_image_url_to_base64_data(source["url"])
+    elif source["type"] == "base64":
+        return source["data"]
+    else:
+        logger.warning(
+            "Unsupported image source type %s in the message, skipped.",
+            source["type"],
+        )
+        raise ValueError(
+            f"Unsupported image source type: {source['type']}",
+        )
+
+
 def _convert_ollama_image_url_to_base64_data(url: str) -> str:
     """Convert image url to base64."""
     parsed_url = urlparse(url)
@@ -54,62 +86,6 @@ class OllamaChatFormatter(TruncatedFormatterBase):
         ToolResultBlock,
     ]
     """The list of supported message blocks"""
-
-    def _extract_image_blocks_from_tool_result(
-        self,
-        output: str | list[dict[str, Any]],
-    ) -> list[ImageBlock]:
-        """Extract image blocks from tool result output.
-
-        Args:
-            output (`str | list[dict[str, Any]]`):
-                The output of the tool result, which can be a string or a list
-                of content blocks.
-
-        Returns:
-            `list[ImageBlock]`:
-                A list of image blocks extracted from the tool result output.
-                Returns an empty list if no images are found or if output is
-                a string.
-        """
-        image_blocks = []
-        if isinstance(output, list):
-            for block in output:
-                if isinstance(block, dict) and block.get("type") == "image":
-                    image_blocks.append(block)  # type: ignore[arg-type]
-        return image_blocks
-
-    def _format_image_block(
-        self,
-        image_block: ImageBlock,
-    ) -> str:
-        """Format an image block for Ollama API.
-
-        Args:
-            image_block (`ImageBlock`):
-                The image block to format.
-
-        Returns:
-            `str`:
-                Base64 encoded image data as a string.
-
-        Raises:
-            `ValueError`:
-                If the source type is not supported.
-        """
-        source = image_block["source"]
-        if source["type"] == "url":
-            return _convert_ollama_image_url_to_base64_data(source["url"])
-        elif source["type"] == "base64":
-            return source["data"]
-        else:
-            logger.warning(
-                "Unsupported image source type %s in the message, skipped.",
-                source["type"],
-            )
-            raise ValueError(
-                f"Unsupported image source type: {source['type']}",
-            )
 
     async def _format(
         self,
@@ -164,12 +140,12 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                     if self.extract_image_blocks:
                         image_blocks_raw = (
                             self._extract_image_blocks_from_tool_result(
-                                block.get("output"),  # type: ignore[arg-type]
+                                block.get("output"),
                             )
                         )
                         if image_blocks_raw:
                             image_list = [
-                                self._format_image_block(img_block)
+                                _format_ollama_image_block(img_block)
                                 for img_block in image_blocks_raw
                             ]
                             images.extend(image_list)

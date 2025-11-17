@@ -104,3 +104,27 @@ class FormatterBase:
 
         else:
             return "\n".join("- " + _ for _ in textual_output)
+
+    @staticmethod
+    def _extract_image_blocks_from_tool_result(
+        output: str | List[TextBlock | ImageBlock | AudioBlock],
+    ) -> List[ImageBlock]:
+        """Extract image blocks from tool result output.
+
+        Args:
+            output (`str | List[TextBlock | ImageBlock | AudioBlock]`):
+                The output of the tool result, which can be a string or a list
+                of content blocks.
+
+        Returns:
+            `List[ImageBlock]`:
+                A list of image blocks extracted from the tool result output.
+                Returns an empty list if no images are found or if output is
+                a string.
+        """
+        image_blocks = []
+        if isinstance(output, list):
+            for block in output:
+                if isinstance(block, dict) and block.get("type") == "image":
+                    image_blocks.append(block)
+        return image_blocks

@@ -24,6 +24,43 @@ from ..message import (
 from ..token import TokenCounterBase
 
 
+def _format_openai_image_block(
+    image_block: ImageBlock,
+) -> dict[str, Any]:
+    """Format an image block for OpenAI API.
+
+    Args:
+        image_block (`ImageBlock`):
+            The image block to format.
+
+    Returns:
+        `dict[str, Any]`:
+            A dictionary with "type" and "image_url" keys in OpenAI format.
+
+    Raises:
+        `ValueError`:
+            If the source type is not supported.
+    """
+    source = image_block["source"]
+    if source["type"] == "url":
+        url = _to_openai_image_url(source["url"])
+    elif source["type"] == "base64":
+        data = source["data"]
+        media_type = source["media_type"]
+        url = f"data:{media_type};base64,{data}"
+    else:
+        raise ValueError(
+            f"Unsupported image source type: {source['type']}",
+        )
+
+    return {
+        "type": "image_url",
+        "image_url": {
+            "url": url,
+        },
+    }
+
+
 def _to_openai_image_url(url: str) -> str:
     """Convert an image url to openai format. If the given url is a local
     file, it will be converted to base64 format. Otherwise, it will be
@@ -139,67 +176,6 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
     ]
     """Supported message blocks for OpenAI API"""
 
-    def _extract_image_blocks_from_tool_result(
-        self,
-        output: str | list[dict[str, Any]],
-    ) -> list[ImageBlock]:
-        """Extract image blocks from tool result output.
-
-        Args:
-            output (`str | list[dict[str, Any]]`):
-                The output of the tool result, which can be a string or a list
-                of content blocks.
-
-        Returns:
-            `list[ImageBlock]`:
-                A list of image blocks extracted from the tool result output.
-                Returns an empty list if no images are found or if output is
-                a string.
-        """
-        image_blocks = []
-        if isinstance(output, list):
-            for block in output:
-                if isinstance(block, dict) and block.get("type") == "image":
-                    image_blocks.append(block)  # type: ignore[arg-type]
-        return image_blocks
-
-    def _format_image_block(
-        self,
-        image_block: ImageBlock,
-    ) -> dict[str, Any]:
-        """Format an image block for OpenAI API.
-
-        Args:
-            image_block (`ImageBlock`):
-                The image block to format.
-
-        Returns:
-            `dict[str, Any]`:
-                A dictionary with "type" and "image_url" keys in OpenAI format.
-
-        Raises:
-            `ValueError`:
-                If the source type is not supported.
-        """
-        source = image_block["source"]
-        if source["type"] == "url":
-            url = _to_openai_image_url(source["url"])
-        elif source["type"] == "base64":
-            data = source["data"]
-            media_type = source["media_type"]
-            url = f"data:{media_type};base64,{data}"
-        else:
-            raise ValueError(
-                f"Unsupported image source type: {source['type']}",
-            )
-
-        return {
-            "type": "image_url",
-            "image_url": {
-                "url": url,
-            },
-        }
-
     async def _format(
         self,
         msgs: list[Msg],
@@ -256,12 +232,12 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
                     if self.extract_image_blocks:
                         image_blocks_raw = (
                             self._extract_image_blocks_from_tool_result(
-                                block.get("output"),  # type: ignore[arg-type]
+                                block.get("output"),
                             )
                         )
                         if image_blocks_raw:
                             image_blocks_formatted = [
-                                self._format_image_block(img_block)
+                                _format_openai_image_block(img_block)
                                 for img_block in image_blocks_raw
                             ]
                             messages.append(
