@@ -108,6 +108,65 @@ class GeminiChatFormatter(TruncatedFormatterBase):
         "audio": ["mp3", "wav", "aiff", "aac", "ogg", "flac"],
     }
 
+    def _extract_image_blocks_from_tool_result(
+        self,
+        output: str | list[dict[str, Any]],
+    ) -> list[ImageBlock]:
+        """Extract image/audio/video blocks from tool result output.
+
+        Args:
+            output (`str | list[dict[str, Any]]`):
+                The output of the tool result, which can be a string or a list
+                of content blocks.
+
+        Returns:
+            `list[ImageBlock]`:
+                A list of image/audio/video blocks extracted from the tool
+                result output. Returns an empty list if no media blocks are
+                found or if output is a string.
+        """
+        image_blocks = []
+        if isinstance(output, list):
+            for block in output:
+                if isinstance(block, dict) and block.get("type") == "image":
+                    image_blocks.append(block)  # type: ignore[arg-type]
+        return image_blocks
+
+    def _format_media_block(
+        self,
+        media_block: ImageBlock | AudioBlock | VideoBlock,
+    ) -> dict[str, Any]:
+        """Format an image/audio/video block for Gemini API.
+
+        Args:
+            media_block (`ImageBlock | AudioBlock | VideoBlock`):
+                The media block to format.
+
+        Returns:
+            `dict[str, Any]`:
+                A dictionary with "inline_data" key in Gemini format.
+
+        Raises:
+            `ValueError`:
+                If the source type is not supported.
+        """
+        source = media_block["source"]
+        if source["type"] == "base64":
+            return {
+                "inline_data": {
+                    "data": source["data"],
+                    "mime_type": source["media_type"],
+                },
+            }
+        elif source["type"] == "url":
+            return {
+                "inline_data": _to_gemini_inline_data(source["url"]),
+            }
+        else:
+            raise ValueError(
+                f"Unsupported source type: {source['type']}",
+            )
+
     async def _format(
         self,
         msgs: list[Msg],
@@ -159,7 +218,23 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                             ],
                         },
                     )
-
+                    if self.extract_image_blocks:
+                        media_blocks_raw = (
+                            self._extract_image_blocks_from_tool_result(
+                                block.get("output"),  # type: ignore[arg-type]
+                            )
+                        )
+                        if media_blocks_raw:
+                            media_parts = [
+                                self._format_media_block(media_block)
+                                for media_block in media_blocks_raw
+                            ]
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "parts": media_parts,
+                                },
+                            )
                 elif typ in ["image", "audio", "video"]:
                     if block["source"]["type"] == "base64":
                         media_type = block["source"]["media_type"]

@@ -24,6 +24,7 @@ class TruncatedFormatterBase(FormatterBase, ABC):
         self,
         token_counter: TokenCounterBase | None = None,
         max_tokens: int | None = None,
+        extract_image_blocks: bool = False,
     ) -> None:
         """Initialize the TruncatedFormatterBase.
 
@@ -36,6 +37,12 @@ class TruncatedFormatterBase(FormatterBase, ABC):
                 The maximum number of tokens allowed in the formatted
                 messages. If not provided, the formatter will not truncate
                 the messages.
+            extract_image_blocks (`bool`, defaults to `False`):
+                Whether to extract image blocks from tool result outputs and
+                add them as separate user messages. When set to `True`, images
+                returned by tools will be extracted from the tool result and
+                formatted as user messages, allowing the model to directly
+                process the images instead of just text descriptions.
         """
         self.token_counter = token_counter
 
@@ -43,6 +50,7 @@ class TruncatedFormatterBase(FormatterBase, ABC):
             max_tokens is None or 0 < max_tokens
         ), "max_tokens must be greater than 0"
         self.max_tokens = max_tokens
+        self.extract_image_blocks = extract_image_blocks
 
     @trace_format
     async def format(
