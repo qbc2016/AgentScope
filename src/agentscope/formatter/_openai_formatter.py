@@ -242,7 +242,7 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
                             ]
                             messages.append(
                                 {
-                                    "role": "tool",
+                                    "role": "user",
                                     "content": image_blocks_formatted,
                                 },
                             )
