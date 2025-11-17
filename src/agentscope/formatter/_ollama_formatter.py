@@ -140,7 +140,7 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                     if self.extract_image_blocks:
                         image_blocks_raw = (
                             self._extract_image_blocks_from_tool_result(
-                                block.get("output"),
+                                block.get("output"),  # type: ignore[arg-type]
                             )
                         )
                         if image_blocks_raw:

@@ -197,7 +197,7 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                     if self.extract_image_blocks:
                         media_blocks_raw = (
                             self._extract_image_blocks_from_tool_result(
-                                block.get("output"),
+                                block.get("output"),  # type: ignore[arg-type]
                             )
                         )
                         if media_blocks_raw:
