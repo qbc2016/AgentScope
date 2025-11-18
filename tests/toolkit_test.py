@@ -111,6 +111,20 @@ class StructuredModel(BaseModel):
     arg3: int = Field(description="Test argument 3.")
 
 
+class NestedModel(BaseModel):
+    """A nested model for testing $defs merging."""
+
+    name: str = Field(description="Name field")
+    value: int = Field(description="Value field")
+
+
+class ExtendedModelWithNested(BaseModel):
+    """Extended model with nested structure."""
+
+    choice: str = Field(description="A choice field")
+    nested: NestedModel = Field(description="A nested model field")
+
+
 class ToolkitTest(IsolatedAsyncioTestCase):
     """Unittest for the toolkit module."""
 
@@ -286,6 +300,81 @@ class ToolkitTest(IsolatedAsyncioTestCase):
                 ),
                 chunk,
             )
+
+    async def test_extended_model_with_nested_models(self) -> None:
+        """Test extended model with nested models to verify $defs merging."""
+
+        # Register a simple tool function
+        def simple_tool(arg1: str) -> ToolResponse:
+            """A simple tool function."""
+            return ToolResponse(
+                content=[TextBlock(type="text", text=f"arg1: {arg1}")],
+            )
+
+        self.toolkit.register_tool_function(simple_tool)
+
+        # Set extended model with nested structure
+        self.toolkit.set_extended_model(
+            "simple_tool",
+            ExtendedModelWithNested,
+        )
+
+        # Get and verify the schema
+        schemas = self.toolkit.get_json_schemas()
+        self.assertListEqual(
+            schemas,
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "simple_tool",
+                        "parameters": {
+                            "properties": {
+                                "arg1": {
+                                    "type": "string",
+                                },
+                                "choice": {
+                                    "description": "A choice field",
+                                    "type": "string",
+                                },
+                                "nested": {
+                                    "$ref": "#/$defs/NestedModel",
+                                    "description": "A nested model field",
+                                },
+                            },
+                            "required": [
+                                "arg1",
+                                "choice",
+                                "nested",
+                            ],
+                            "type": "object",
+                            "$defs": {
+                                "NestedModel": {
+                                    "description": "A nested model for "
+                                    "testing $defs merging.",
+                                    "properties": {
+                                        "name": {
+                                            "description": "Name field",
+                                            "type": "string",
+                                        },
+                                        "value": {
+                                            "description": "Value field",
+                                            "type": "integer",
+                                        },
+                                    },
+                                    "required": [
+                                        "name",
+                                        "value",
+                                    ],
+                                    "type": "object",
+                                },
+                            },
+                        },
+                        "description": "A simple tool function.",
+                    },
+                },
+            ],
+        )
 
     async def test_detailed_arguments(self) -> None:
         """Verify the arguments in `register_tool_function`."""
