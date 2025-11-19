@@ -94,10 +94,31 @@ class RegisteredToolFunction:
             # Check for conflicts and merge $defs
             for def_key, def_value in extended_schema["$defs"].items():
                 if def_key in merged_params["$defs"]:
-                    raise ValueError(
-                        f"The $defs key `{def_key}` conflicts with existing "
-                        f"definition in function schema of `{self.name}`.",
+                    # Check if the two definitions are from the same BaseModel
+                    # by comparing their content
+                    # Create copies and remove title fields for comparison
+                    def_value_copy = deepcopy(def_value)
+                    existing_def_copy = deepcopy(
+                        merged_params["$defs"][def_key],
                     )
+
+                    _remove_title_field(
+                        def_value_copy,
+                    )  # pylint: disable=protected-access
+                    _remove_title_field(
+                        existing_def_copy,
+                    )  # pylint: disable=protected-access
+
+                    if existing_def_copy != def_value_copy:
+                        # The definitions are different, raise an error
+                        raise ValueError(
+                            f"The $defs key `{def_key}` conflicts with "
+                            f"existing definition in function schema of "
+                            f"`{self.name}`.",
+                        )
+                    # The definitions are the same (from the same BaseModel),
+                    # skip merging this key
+                    continue
 
                 def_value_copy = deepcopy(def_value)
                 _remove_title_field(

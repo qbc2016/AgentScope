@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # mypy: disable-error-code="index"
+# pylint: disable=too-many-lines
 """Test toolkit module in agentscope."""
 import asyncio
 import time
@@ -127,18 +128,23 @@ class StructuredModel(BaseModel):
     arg3: int = Field(description="Test argument 3.")
 
 
-class NestedModel(BaseModel):
-    """A nested model for testing $defs merging."""
+class MyBaseModel1(BaseModel):
+    """A base model for testing nested $defs merging."""
 
-    name: str = Field(description="Name field")
-    value: int = Field(description="Value field")
+    c: int = Field(description="Field c")
 
 
-class ExtendedModelWithNested(BaseModel):
-    """Extended model with nested structure."""
+class MyBaseModel2(BaseModel):
+    """A base model that contains nested MyBaseModel1."""
 
-    choice: str = Field(description="A choice field")
-    nested: NestedModel = Field(description="A nested model field")
+    b: list[MyBaseModel1] = Field(description="List of MyBaseModel1")
+
+
+class ExtendedModelReusingBaseModel(BaseModel):
+    """Extended model that reuses the same BaseModel from original function."""
+
+    another_model: MyBaseModel2 = Field(description="Reusing MyBaseModel2")
+    extra_field: str = Field(description="Extra field")
 
 
 class ToolkitTest(IsolatedAsyncioTestCase):
@@ -426,25 +432,30 @@ class ToolkitTest(IsolatedAsyncioTestCase):
                 chunk,
             )
 
-    async def test_extended_model_with_nested_models(self) -> None:
-        """Test extended model with nested models to verify $defs merging."""
+    async def test_extended_model_reusing_same_base_model(self) -> None:
+        """Test extended model reusing the same BaseModel from original
+        function."""
 
-        # Register a simple tool function
-        def simple_tool(arg1: str) -> ToolResponse:
-            """A simple tool function."""
+        def func_with_nested_model(a: MyBaseModel2) -> ToolResponse:
+            """Function with nested BaseModel parameter."""
             return ToolResponse(
-                content=[TextBlock(type="text", text=f"arg1: {arg1}")],
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"a: {a}",
+                    ),
+                ],
             )
 
-        self.toolkit.register_tool_function(simple_tool)
+        self.toolkit.register_tool_function(func_with_nested_model)
 
-        # Set extended model with nested structure
+        # Set extended model that reuses the same MyBaseModel2
         self.toolkit.set_extended_model(
-            "simple_tool",
-            ExtendedModelWithNested,
+            "func_with_nested_model",
+            ExtendedModelReusingBaseModel,
         )
 
-        # Get and verify the schema
+        # Get and verify the schema - should not raise any conflicts
         schemas = self.toolkit.get_json_schemas()
         self.assertListEqual(
             schemas,
@@ -452,50 +463,58 @@ class ToolkitTest(IsolatedAsyncioTestCase):
                 {
                     "type": "function",
                     "function": {
-                        "name": "simple_tool",
+                        "name": "func_with_nested_model",
                         "parameters": {
-                            "properties": {
-                                "arg1": {
-                                    "type": "string",
-                                },
-                                "choice": {
-                                    "description": "A choice field",
-                                    "type": "string",
-                                },
-                                "nested": {
-                                    "$ref": "#/$defs/NestedModel",
-                                    "description": "A nested model field",
-                                },
-                            },
-                            "required": [
-                                "arg1",
-                                "choice",
-                                "nested",
-                            ],
-                            "type": "object",
                             "$defs": {
-                                "NestedModel": {
-                                    "description": "A nested model for "
-                                    "testing $defs merging.",
+                                "MyBaseModel1": {
+                                    "description": "A base model for testing"
+                                    " nested $defs merging.",
                                     "properties": {
-                                        "name": {
-                                            "description": "Name field",
-                                            "type": "string",
-                                        },
-                                        "value": {
-                                            "description": "Value field",
+                                        "c": {
+                                            "description": "Field c",
+                                            "title": "C",
                                             "type": "integer",
                                         },
                                     },
-                                    "required": [
-                                        "name",
-                                        "value",
-                                    ],
+                                    "required": ["c"],
+                                    "title": "MyBaseModel1",
+                                    "type": "object",
+                                },
+                                "MyBaseModel2": {
+                                    "description": "A base model that contains"
+                                    " nested MyBaseModel1.",
+                                    "properties": {
+                                        "b": {
+                                            "description": "List of "
+                                            "MyBaseModel1",
+                                            "items": {
+                                                "$ref": "#/$defs/MyBaseModel1",
+                                            },
+                                            "title": "B",
+                                            "type": "array",
+                                        },
+                                    },
+                                    "required": ["b"],
+                                    "title": "MyBaseModel2",
                                     "type": "object",
                                 },
                             },
+                            "properties": {
+                                "a": {"$ref": "#/$defs/MyBaseModel2"},
+                                "another_model": {
+                                    "$ref": "#/$defs/MyBaseModel2",
+                                    "description": "Reusing MyBaseModel2",
+                                },
+                                "extra_field": {
+                                    "description": "Extra field",
+                                    "type": "string",
+                                },
+                            },
+                            "required": ["a", "another_model", "extra_field"],
+                            "type": "object",
                         },
-                        "description": "A simple tool function.",
+                        "description": "Function with nested BaseModel "
+                        "parameter.",
                     },
                 },
             ],
