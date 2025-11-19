@@ -36,7 +36,7 @@ class FormatterBase:
     @staticmethod
     def convert_tool_result_to_string(
         output: str | List[TextBlock | ImageBlock | AudioBlock],
-    ) -> str:
+    ) -> tuple[str, list]:
         """Turn the tool result list into a textual output to be compatible
         with the LLM API that doesn't support multimodal data.
 
@@ -53,9 +53,10 @@ class FormatterBase:
         """
 
         if isinstance(output, str):
-            return output
+            return output, []
 
         textual_output = []
+        image_paths = []
         for block in output:
             assert isinstance(block, dict) and "type" in block, (
                 f"Invalid block: {block}, a TextBlock, ImageBlock, or "
@@ -76,6 +77,8 @@ class FormatterBase:
                         f"The returned {block['type']} can be found "
                         f"at: {source['url']}",
                     )
+                    if block["type"] == "image":
+                        image_paths.append(source["url"])
 
                 elif source["type"] == "base64":
                     path_temp_file = _save_base64_data(
@@ -86,7 +89,8 @@ class FormatterBase:
                         f"The returned {block['type']} can be found "
                         f"at: {path_temp_file}",
                     )
-
+                    if block["type"] == "image":
+                        image_paths.append(path_temp_file)
                 else:
                     raise ValueError(
                         f"Invalid image source: {block['source']}, "
@@ -100,10 +104,10 @@ class FormatterBase:
                 )
 
         if len(textual_output) == 1:
-            return textual_output[0]
+            return textual_output[0], image_paths
 
         else:
-            return "\n".join("- " + _ for _ in textual_output)
+            return "\n".join("- " + _ for _ in textual_output), image_paths
 
     @staticmethod
     def _extract_image_blocks_from_tool_result(

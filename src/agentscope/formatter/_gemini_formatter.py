@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches, too-many-nested-blocks
 """Google gemini API formatter in agentscope."""
 import base64
 import os
@@ -143,6 +143,23 @@ class GeminiChatFormatter(TruncatedFormatterBase):
         "audio": ["mp3", "wav", "aiff", "aac", "ogg", "flac"],
     }
 
+    def __init__(
+        self,
+        extract_image_blocks: bool = False,
+    ) -> None:
+        """Initialize the TruncatedFormatterBase.
+
+        Args:
+            extract_image_blocks (`bool`, defaults to `False`):
+                Whether to extract image blocks from tool result outputs and
+                add them as separate user messages. When set to `True`, images
+                returned by tools will be extracted from the tool result and
+                formatted as user messages, allowing the model to directly
+                process the images instead of just text descriptions.
+        """
+        super().__init__()
+        self.extract_image_blocks = extract_image_blocks
+
     async def _format(
         self,
         msgs: list[Msg],
@@ -151,7 +168,9 @@ class GeminiChatFormatter(TruncatedFormatterBase):
         self.assert_list_of_msgs(msgs)
 
         messages: list = []
-        for msg in msgs:
+        i = 0
+        while i < len(msgs):
+            msg = msgs[i]
             parts = []
 
             for block in msg.get_content_blocks():
@@ -175,7 +194,10 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
-                    text_output = self.convert_tool_result_to_string(
+                    (
+                        text_output,
+                        image_paths,
+                    ) = self.convert_tool_result_to_string(
                         block["output"],  # type: ignore[arg-type]
                     )
                     messages.append(
@@ -195,44 +217,36 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                         },
                     )
                     if self.extract_image_blocks:
-                        media_blocks_raw = (
+                        image_blocks_raw = (
                             self._extract_image_blocks_from_tool_result(
                                 block.get("output"),  # type: ignore[arg-type]
                             )
                         )
-                        if media_blocks_raw:
-                            media_parts = [
-                                _format_gemini_media_block(media_block)
-                                for media_block in media_blocks_raw
-                            ]
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "parts": media_parts,
-                                },
-                            )
+                        if image_blocks_raw:
+                            # Insert image messages after current message
+                            for idx, img_block in enumerate(image_blocks_raw):
+                                msgs.insert(
+                                    i + idx + 1,
+                                    Msg(
+                                        name="user",
+                                        content=[
+                                            {
+                                                "type": "text",
+                                                "text": f"<system-hint>This is"
+                                                f" the image content from "
+                                                f"{image_paths[idx]}",
+                                            },
+                                            img_block,
+                                            {
+                                                "type": "text",
+                                                "text": "</system-hint>",
+                                            },
+                                        ],
+                                        role="user",
+                                    ),
+                                )
                 elif typ in ["image", "audio", "video"]:
-                    if block["source"]["type"] == "base64":
-                        media_type = block["source"]["media_type"]
-                        base64_data = block["source"]["data"]
-
-                        parts.append(
-                            {
-                                "inline_data": {
-                                    "data": base64_data,
-                                    "mime_type": media_type,
-                                },
-                            },
-                        )
-
-                    elif block["source"]["type"] == "url":
-                        parts.append(
-                            {
-                                "inline_data": _to_gemini_inline_data(
-                                    block["source"]["url"],
-                                ),
-                            },
-                        )
+                    parts.append(_format_gemini_media_block(block))
 
                 else:
                     logger.warning(
@@ -249,6 +263,10 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                         "parts": parts,
                     },
                 )
+
+            # Move to next message (including inserted messages, which will
+            # be processed in subsequent iterations)
+            i += 1
 
         return messages
 
@@ -395,26 +413,9 @@ class GeminiMultiAgentFormatter(TruncatedFormatterBase):
                         accumulated_text.clear()
 
                     # handle the multimodal data
-                    if block["source"]["type"] == "url":
-                        conversation_parts.append(
-                            {
-                                "inline_data": _to_gemini_inline_data(
-                                    block["source"]["url"],
-                                ),
-                            },
-                        )
-
-                    elif block["source"]["type"] == "base64":
-                        media_type = block["source"]["media_type"]
-                        base64_data = block["source"]["data"]
-                        conversation_parts.append(
-                            {
-                                "inline_data": {
-                                    "data": base64_data,
-                                    "mime_type": media_type,
-                                },
-                            },
-                        )
+                    conversation_parts.append(
+                        _format_gemini_media_block(block),
+                    )
 
         if accumulated_text:
             conversation_parts.append(

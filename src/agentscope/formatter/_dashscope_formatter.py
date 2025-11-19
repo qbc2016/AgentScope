@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches, too-many-nested-blocks
 """The dashscope formatter module."""
 
 import json
@@ -20,44 +20,45 @@ from ..message import (
 from ..token import TokenCounterBase
 
 
-def _format_dashscope_image_block(
-    image_block: ImageBlock,
+def _format_dashscope_media_block(
+    block: ImageBlock | AudioBlock,
 ) -> dict[str, str]:
-    """Format an image block for DashScope API.
+    """Format an image or audio block for DashScope API.
 
     Args:
-        image_block (`ImageBlock`):
-            The image block to format.
+        block (`ImageBlock` | `AudioBlock`):
+            The image or audio block to format.
 
     Returns:
         `dict[str, str]`:
-            A dictionary with "image" key and the formatted image URL or
+            A dictionary with "image" or "audio" key and the formatted URL or
             data URI as value.
 
     Raises:
         `NotImplementedError`:
             If the source type is not supported.
     """
-    source = image_block["source"]
+    typ = block.get("type")
+    source = block["source"]
     if source["type"] == "url":
         url = source["url"]
         if _is_accessible_local_file(url):
-            return {"image": "file://" + os.path.abspath(url)}
+            return {typ: "file://" + os.path.abspath(url)}
         else:
             # treat as web url
-            return {"image": url}
+            return {typ: url}
 
     elif source["type"] == "base64":
         media_type = source["media_type"]
         base64_data = source["data"]
         return {
-            "image": f"data:{media_type};base64,{base64_data}",
+            typ: f"data:{media_type};base64,{base64_data}",
         }
 
     else:
         raise NotImplementedError(
             f"Unsupported source type '{source.get('type')}' "
-            f"for image block.",
+            f"for {typ} block.",
         )
 
 
@@ -161,6 +162,23 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
         ToolResultBlock,
     ]
 
+    def __init__(
+        self,
+        extract_image_blocks: bool = False,
+    ) -> None:
+        """Initialize the TruncatedFormatterBase.
+
+        Args:
+            extract_image_blocks (`bool`, defaults to `False`):
+                Whether to extract image blocks from tool result outputs and
+                add them as separate user messages. When set to `True`, images
+                returned by tools will be extracted from the tool result and
+                formatted as user messages, allowing the model to directly
+                process the images instead of just text descriptions.
+        """
+        super().__init__()
+        self.extract_image_blocks = extract_image_blocks
+
     async def _format(
         self,
         msgs: list[Msg],
@@ -178,9 +196,13 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
         self.assert_list_of_msgs(msgs)
 
         formatted_msgs: list[dict] = []
-        for msg in msgs:
+
+        i = 0
+        while i < len(msgs):
+            msg = msgs[i]
             content_blocks = []
             tool_calls = []
+
             for block in msg.get_content_blocks():
                 typ = block.get("type")
 
@@ -192,29 +214,9 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ in ["image", "audio"]:
-                    source = block["source"]
-                    if source["type"] == "url":
-                        url = source["url"]
-                        if _is_accessible_local_file(url):
-                            content_blocks.append(
-                                {typ: "file://" + os.path.abspath(url)},
-                            )
-                        else:
-                            # treat as web url
-                            content_blocks.append({typ: url})
-
-                    elif source["type"] == "base64":
-                        media_type = source["media_type"]
-                        base64_data = source["data"]
-                        content_blocks.append(
-                            {typ: f"data:{media_type};base64,{base64_data}"},
-                        )
-
-                    else:
-                        raise NotImplementedError(
-                            f"Unsupported source type '{source.get('type')}' "
-                            f"for {typ} block.",
-                        )
+                    content_blocks.append(
+                        _format_dashscope_media_block(block),
+                    )
 
                 elif typ == "tool_use":
                     tool_calls.append(
@@ -232,13 +234,14 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
+                    content, image_paths = self.convert_tool_result_to_string(
+                        block.get("output"),  # type: ignore[arg-type]
+                    )
                     formatted_msgs.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": self.convert_tool_result_to_string(
-                                block.get("output"),  # type: ignore[arg-type]
-                            ),
+                            "content": content,  # type: ignore[arg-type]
                             "name": block.get("name"),
                         },
                     )
@@ -249,16 +252,32 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                             )
                         )
                         if image_blocks_raw:
-                            image_blocks_formatted = [
-                                _format_dashscope_image_block(img_block)
-                                for img_block in image_blocks_raw
-                            ]
-                        formatted_msgs.append(
-                            {
-                                "role": "user",
-                                "content": image_blocks_formatted,
-                            },
-                        )
+                            # Insert image messages after current message
+                            # Insert in forward order: each message is inserted
+                            # at i + idx + 1, which maintains correct order
+                            for idx, img_block in enumerate(
+                                image_blocks_raw,
+                            ):
+                                msgs.insert(
+                                    i + idx + 1,
+                                    Msg(
+                                        name="user",
+                                        content=[
+                                            {
+                                                "type": "text",
+                                                "text": f"<system-hint>This is"
+                                                f" the image content from "
+                                                f"{image_paths[idx]}",
+                                            },
+                                            img_block,
+                                            {
+                                                "type": "text",
+                                                "text": "</system-hint>",
+                                            },
+                                        ],
+                                        role="user",
+                                    ),
+                                )
 
                 else:
                     logger.warning(
@@ -280,6 +299,9 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                 "tool_calls",
             ):
                 formatted_msgs.append(msg_dashscope)
+
+            # Move to next message
+            i += 1
 
         return _reformat_messages(formatted_msgs)
 

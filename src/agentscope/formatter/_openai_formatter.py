@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches, too-many-nested-blocks
 """The OpenAI formatter for agentscope."""
 import base64
 import json
@@ -176,6 +176,23 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
     ]
     """Supported message blocks for OpenAI API"""
 
+    def __init__(
+        self,
+        extract_image_blocks: bool = False,
+    ) -> None:
+        """Initialize the TruncatedFormatterBase.
+
+        Args:
+            extract_image_blocks (`bool`, defaults to `False`):
+                Whether to extract image blocks from tool result outputs and
+                add them as separate user messages. When set to `True`, images
+                returned by tools will be extracted from the tool result and
+                formatted as user messages, allowing the model to directly
+                process the images instead of just text descriptions.
+        """
+        super().__init__()
+        self.extract_image_blocks = extract_image_blocks
+
     async def _format(
         self,
         msgs: list[Msg],
@@ -194,7 +211,9 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
         self.assert_list_of_msgs(msgs)
 
         messages: list[dict] = []
-        for msg in msgs:
+        i = 0
+        while i < len(msgs):
+            msg = msgs[i]
             content_blocks = []
             tool_calls = []
 
@@ -219,13 +238,14 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
+                    content, image_paths = self.convert_tool_result_to_string(
+                        block.get("output"),  # type: ignore[arg-type]
+                    )
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": self.convert_tool_result_to_string(
-                                block.get("output"),  # type: ignore[arg-type]
-                            ),
+                            "content": content,  # type: ignore[arg-type]
                             "name": block.get("name"),
                         },
                     )
@@ -236,40 +256,31 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
                             )
                         )
                         if image_blocks_raw:
-                            image_blocks_formatted = [
-                                _format_openai_image_block(img_block)
-                                for img_block in image_blocks_raw
-                            ]
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": image_blocks_formatted,
-                                },
-                            )
+                            # Insert image messages after current message
+                            for idx, img_block in enumerate(image_blocks_raw):
+                                msgs.insert(
+                                    i + idx + 1,
+                                    Msg(
+                                        name="user",
+                                        content=[
+                                            {
+                                                "type": "text",
+                                                "text": f"<system-hint>This is"
+                                                f" the image content from "
+                                                f"{image_paths[idx]}",
+                                            },
+                                            img_block,
+                                            {
+                                                "type": "text",
+                                                "text": "</system-hint>",
+                                            },
+                                        ],
+                                        role="user",
+                                    ),
+                                )
 
                 elif typ == "image":
-                    source_type = block["source"]["type"]
-                    if source_type == "url":
-                        url = _to_openai_image_url(block["source"]["url"])
-
-                    elif source_type == "base64":
-                        data = block["source"]["data"]
-                        media_type = block["source"]["media_type"]
-                        url = f"data:{media_type};base64,{data}"
-
-                    else:
-                        raise ValueError(
-                            f"Unsupported image source type: {source_type}",
-                        )
-
-                    content_blocks.append(
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": url,
-                            },
-                        },
-                    )
+                    content_blocks.append(_format_openai_image_block(block))
 
                 elif typ == "audio":
                     input_audio = _to_openai_audio_data(block["source"])
@@ -298,6 +309,9 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
             # When both content and tool_calls are None, skipped
             if msg_openai["content"] or msg_openai.get("tool_calls"):
                 messages.append(msg_openai)
+
+            # Move to next message
+            i += 1
 
         return messages
 
@@ -382,27 +396,7 @@ class OpenAIMultiAgentFormatter(TruncatedFormatterBase):
                     accumulated_text.append(f"{msg.name}: {block['text']}")
 
                 elif block["type"] == "image":
-                    source_type = block["source"]["type"]
-                    if source_type == "url":
-                        url = _to_openai_image_url(block["source"]["url"])
-
-                    elif source_type == "base64":
-                        data = block["source"]["data"]
-                        media_type = block["source"]["media_type"]
-                        url = f"data:{media_type};base64,{data}"
-
-                    else:
-                        raise ValueError(
-                            f"Unsupported image source type: {source_type}",
-                        )
-                    images.append(
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": url,
-                            },
-                        },
-                    )
+                    images.append(_format_openai_image_block(block))
                 elif block["type"] == "audio":
                     input_audio = _to_openai_audio_data(block["source"])
                     audios.append(

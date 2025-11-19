@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches, too-many-nested-blocks
 """The Ollama formatter module."""
 import base64
 import os
@@ -36,10 +36,6 @@ def _format_ollama_image_block(
     elif source["type"] == "base64":
         return source["data"]
     else:
-        logger.warning(
-            "Unsupported image source type %s in the message, skipped.",
-            source["type"],
-        )
         raise ValueError(
             f"Unsupported image source type: {source['type']}",
         )
@@ -87,6 +83,23 @@ class OllamaChatFormatter(TruncatedFormatterBase):
     ]
     """The list of supported message blocks"""
 
+    def __init__(
+        self,
+        extract_image_blocks: bool = False,
+    ) -> None:
+        """Initialize the TruncatedFormatterBase.
+
+        Args:
+            extract_image_blocks (`bool`, defaults to `False`):
+                Whether to extract image blocks from tool result outputs and
+                add them as separate user messages. When set to `True`, images
+                returned by tools will be extracted from the tool result and
+                formatted as user messages, allowing the model to directly
+                process the images instead of just text descriptions.
+        """
+        super().__init__()
+        self.extract_image_blocks = extract_image_blocks
+
     async def _format(
         self,
         msgs: list[Msg],
@@ -104,7 +117,9 @@ class OllamaChatFormatter(TruncatedFormatterBase):
         self.assert_list_of_msgs(msgs)
 
         messages: list[dict] = []
-        for msg in msgs:
+        i = 0
+        while i < len(msgs):
+            msg = msgs[i]
             content_blocks: list = []
             tool_calls = []
             images = []
@@ -127,13 +142,14 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
+                    content, image_paths = self.convert_tool_result_to_string(
+                        block.get("output"),  # type: ignore[arg-type]
+                    )
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": self.convert_tool_result_to_string(
-                                block.get("output"),  # type: ignore[arg-type]
-                            ),
+                            "content": content,  # type: ignore[arg-type]
                             "name": block.get("name"),
                         },
                     )
@@ -144,21 +160,30 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                             )
                         )
                         if image_blocks_raw:
-                            image_list = [
-                                _format_ollama_image_block(img_block)
-                                for img_block in image_blocks_raw
-                            ]
-                            images.extend(image_list)
+                            # Insert image messages after current message
+                            for idx, img_block in enumerate(image_blocks_raw):
+                                msgs.insert(
+                                    i + idx + 1,
+                                    Msg(
+                                        name="user",
+                                        content=[
+                                            {
+                                                "type": "text",
+                                                "text": f"<system-hint>This is"
+                                                f" the image content from "
+                                                f"{image_paths[idx]}",
+                                            },
+                                            img_block,
+                                            {
+                                                "type": "text",
+                                                "text": "</system-hint>",
+                                            },
+                                        ],
+                                        role="user",
+                                    ),
+                                )
                 elif typ == "image":
-                    source_type = block["source"]["type"]
-                    if source_type == "url":
-                        images.append(
-                            _convert_ollama_image_url_to_base64_data(
-                                block["source"]["url"],
-                            ),
-                        )
-                    elif source_type == "base64":
-                        images.append(block["source"]["data"])
+                    images.append(_format_ollama_image_block(block))
 
                 else:
                     logger.warning(
@@ -185,6 +210,9 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                 or msg_ollama.get("tool_calls")
             ):
                 messages.append(msg_ollama)
+
+            # Move to next message
+            i += 1
 
         return messages
 
@@ -304,23 +332,13 @@ class OllamaMultiAgentFormatter(TruncatedFormatterBase):
 
                 elif block["type"] == "image":
                     # Handle the accumulated text as a single block
-                    source = block["source"]
                     if accumulated_text:
                         conversation_blocks.append(
                             {"text": "\n".join(accumulated_text)},
                         )
                         accumulated_text.clear()
 
-                    if source["type"] == "url":
-                        images.append(
-                            _convert_ollama_image_url_to_base64_data(
-                                source["url"],
-                            ),
-                        )
-
-                    elif source["type"] == "base64":
-                        images.append(source["data"])
-
+                    images.append(_format_ollama_image_block(block))
                     conversation_blocks.append({**block})
 
         if accumulated_text:
