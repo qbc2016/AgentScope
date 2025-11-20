@@ -153,7 +153,7 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                             "role": "tool",
                             "tool_call_id": block.get("id"),
                             "content": (  # type: ignore[arg-type]
-                                textual_output,
+                                textual_output
                             ),
                             "name": block.get("name"),
                         },
