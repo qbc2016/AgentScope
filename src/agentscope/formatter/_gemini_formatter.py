@@ -195,7 +195,7 @@ class GeminiChatFormatter(TruncatedFormatterBase):
 
                 elif typ == "tool_result":
                     (
-                        text_output,
+                        textual_output,
                         image_paths,
                     ) = self.convert_tool_result_to_string(
                         block["output"],  # type: ignore[arg-type]
@@ -209,7 +209,7 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                                         "id": block["id"],
                                         "name": block["name"],
                                         "response": {
-                                            "output": text_output,
+                                            "output": textual_output,
                                         },
                                     },
                                 },
@@ -246,7 +246,11 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                                     ),
                                 )
                 elif typ in ["image", "audio", "video"]:
-                    parts.append(_format_gemini_media_block(block))
+                    parts.append(
+                        _format_gemini_media_block(
+                            block,  # type: ignore[arg-type]
+                        ),
+                    )
 
                 else:
                     logger.warning(
@@ -414,7 +418,9 @@ class GeminiMultiAgentFormatter(TruncatedFormatterBase):
 
                     # handle the multimodal data
                     conversation_parts.append(
-                        _format_gemini_media_block(block),
+                        _format_gemini_media_block(
+                            block,  # type: ignore[arg-type]
+                        ),
                     )
 
         if accumulated_text:

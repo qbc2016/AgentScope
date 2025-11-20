@@ -238,14 +238,19 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
-                    content, image_paths = self.convert_tool_result_to_string(
+                    (
+                        textual_output,
+                        image_paths,
+                    ) = self.convert_tool_result_to_string(
                         block.get("output"),  # type: ignore[arg-type]
                     )
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": content,  # type: ignore[arg-type]
+                            "content": (  # type: ignore[arg-type]
+                                textual_output
+                            ),
                             "name": block.get("name"),
                         },
                     )
@@ -280,7 +285,11 @@ class OpenAIChatFormatter(TruncatedFormatterBase):
                                 )
 
                 elif typ == "image":
-                    content_blocks.append(_format_openai_image_block(block))
+                    content_blocks.append(
+                        _format_openai_image_block(
+                            block,  # type: ignore[arg-type]
+                        ),
+                    )
 
                 elif typ == "audio":
                     input_audio = _to_openai_audio_data(block["source"])

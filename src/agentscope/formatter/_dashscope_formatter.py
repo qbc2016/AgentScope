@@ -38,7 +38,7 @@ def _format_dashscope_media_block(
         `NotImplementedError`:
             If the source type is not supported.
     """
-    typ = block.get("type")
+    typ = block["type"]
     source = block["source"]
     if source["type"] == "url":
         url = source["url"]
@@ -200,7 +200,7 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
         i = 0
         while i < len(msgs):
             msg = msgs[i]
-            content_blocks = []
+            content_blocks: list[dict[str, Any]] = []
             tool_calls = []
 
             for block in msg.get_content_blocks():
@@ -215,7 +215,9 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
 
                 elif typ in ["image", "audio"]:
                     content_blocks.append(
-                        _format_dashscope_media_block(block),
+                        _format_dashscope_media_block(
+                            block,  # type: ignore[arg-type]
+                        ),
                     )
 
                 elif typ == "tool_use":
@@ -234,14 +236,19 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
-                    content, image_paths = self.convert_tool_result_to_string(
+                    (
+                        textual_output,
+                        image_paths,
+                    ) = self.convert_tool_result_to_string(
                         block.get("output"),  # type: ignore[arg-type]
                     )
                     formatted_msgs.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": content,  # type: ignore[arg-type]
+                            "content": (  # type: ignore[arg-type]
+                                textual_output
+                            ),
                             "name": block.get("name"),
                         },
                     )
