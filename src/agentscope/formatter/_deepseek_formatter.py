@@ -72,13 +72,14 @@ class DeepSeekChatFormatter(TruncatedFormatterBase):
                     )
 
                 elif typ == "tool_result":
+                    textual_output, _ = self.convert_tool_result_to_string(
+                        block.get("output"),  # type: ignore[arg-type]
+                    )
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": self.convert_tool_result_to_string(
-                                block.get("output"),  # type: ignore[arg-type]
-                            ),
+                            "content": textual_output,
                             "name": block.get("name"),
                         },
                     )
