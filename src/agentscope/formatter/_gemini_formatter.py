@@ -260,7 +260,7 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                                 type="text",
                                 text="<system-info>The following are "
                                 "the image contents from the tool "
-                                f"result of {block['name']}:",
+                                f"result of '{block['name']}':",
                             ),
                             *promoted_blocks,
                             TextBlock(
