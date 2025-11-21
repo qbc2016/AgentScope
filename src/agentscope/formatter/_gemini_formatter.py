@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches, too-many-nested-blocks
+# pylint: disable=too-many-branches
 """Google gemini API formatter in agentscope."""
 import base64
 import os
@@ -16,6 +16,7 @@ from ..message import (
     ToolUseBlock,
     ToolResultBlock,
     VideoBlock,
+    URLSource,
 )
 from .._logging import logger
 from ..token import TokenCounterBase
@@ -145,20 +146,30 @@ class GeminiChatFormatter(TruncatedFormatterBase):
 
     def __init__(
         self,
-        extract_image_blocks: bool = False,
+        promote_tool_result_images: bool = False,
+        token_counter: TokenCounterBase | None = None,
+        max_tokens: int | None = None,
     ) -> None:
-        """Initialize the TruncatedFormatterBase.
+        """Initialize the Gemini chat formatter.
 
         Args:
-            extract_image_blocks (`bool`, defaults to `False`):
-                Whether to extract image blocks from tool result outputs and
-                add them as separate user messages. When set to `True`, images
-                returned by tools will be extracted from the tool result and
-                formatted as user messages, allowing the model to directly
-                process the images instead of just text descriptions.
+            promote_tool_result_images (`bool`, defaults to `False`):
+                Whether to promote images from tool results to user messages.
+                Most LLM APIs don't support images in tool result blocks, but
+                do support them in user message blocks. When `True`, images are
+                extracted and appended as a separate user message with
+                explanatory text indicating their source.
+            token_counter (`TokenCounterBase | None`, optional):
+                A token counter instance used to count tokens in the messages.
+                If not provided, the formatter will format the messages
+                without considering token limits.
+            max_tokens (`int | None`, optional):
+                The maximum number of tokens allowed in the formatted
+                messages. If not provided, the formatter will not truncate
+                the messages.
         """
-        super().__init__()
-        self.extract_image_blocks = extract_image_blocks
+        super().__init__(token_counter, max_tokens)
+        self.promote_tool_result_images = promote_tool_result_images
 
     async def _format(
         self,
@@ -196,10 +207,10 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                 elif typ == "tool_result":
                     (
                         textual_output,
-                        image_paths,
-                    ) = self.convert_tool_result_to_string(
-                        block["output"],  # type: ignore[arg-type]
-                    )
+                        multimodal_data,
+                    ) = self.convert_tool_result_to_string(block["output"])
+
+                    # First add the tool result message in DashScope API format
                     messages.append(
                         {
                             "role": "user",
@@ -216,35 +227,54 @@ class GeminiChatFormatter(TruncatedFormatterBase):
                             ],
                         },
                     )
-                    if self.extract_image_blocks:
-                        image_blocks_raw = (
-                            self._extract_image_blocks_from_tool_result(
-                                block.get("output"),  # type: ignore[arg-type]
-                            )
-                        )
-                        if image_blocks_raw:
-                            # Insert image messages after current message
-                            for idx, img_block in enumerate(image_blocks_raw):
-                                msgs.insert(
-                                    i + idx + 1,
-                                    Msg(
-                                        name="user",
-                                        content=[
-                                            {
-                                                "type": "text",
-                                                "text": f"<system-hint>This is"
-                                                f" the image content from "
-                                                f"{image_paths[idx]}",
-                                            },
-                                            img_block,
-                                            {
-                                                "type": "text",
-                                                "text": "</system-hint>",
-                                            },
-                                        ],
-                                        role="user",
+
+                    promoted_blocks: list = []
+                    for url, multimodal_block in multimodal_data:
+                        if (
+                            multimodal_block["type"] == "image"
+                            and self.promote_tool_result_images
+                        ):
+                            promoted_blocks.extend(
+                                [
+                                    TextBlock(
+                                        type="text",
+                                        text=f"\n- The image from '{url}': ",
                                     ),
-                                )
+                                    ImageBlock(
+                                        type="image",
+                                        source=URLSource(
+                                            type="url",
+                                            url=url,
+                                        ),
+                                    ),
+                                ],
+                            )
+
+                    if promoted_blocks:
+                        # Insert promoted blocks as new user message(s)
+                        promoted_blocks = [
+                            TextBlock(
+                                type="text",
+                                text="<system-info>The following are "
+                                "the image contents from the tool "
+                                f"result of {block['name']}:",
+                            ),
+                            *promoted_blocks,
+                            TextBlock(
+                                type="text",
+                                text="</system-info>",
+                            ),
+                        ]
+
+                        msgs.insert(
+                            i + 1,
+                            Msg(
+                                name="user",
+                                content=promoted_blocks,
+                                role="user",
+                            ),
+                        )
+
                 elif typ in ["image", "audio", "video"]:
                     parts.append(
                         _format_gemini_media_block(

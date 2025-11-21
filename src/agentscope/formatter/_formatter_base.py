@@ -2,7 +2,7 @@
 """The formatter module."""
 
 from abc import abstractmethod
-from typing import Any, List
+from typing import Any, List, Tuple, Sequence
 
 from .._utils._common import _save_base64_data
 from ..message import Msg, AudioBlock, ImageBlock, TextBlock
@@ -36,9 +36,14 @@ class FormatterBase:
     @staticmethod
     def convert_tool_result_to_string(
         output: str | List[TextBlock | ImageBlock | AudioBlock],
-    ) -> tuple[str, list]:
+    ) -> tuple[str, Sequence[Tuple[str, ImageBlock | AudioBlock | TextBlock]]]:
         """Turn the tool result list into a textual output to be compatible
-        with the LLM API that doesn't support multimodal data.
+        with the LLM API that doesn't support multimodal data in the tool
+        result.
+
+        For URL-based images, the URL is included in the list. For
+        base64-encoded images, the local file path where the image is saved
+        is included in the returned list.
 
         Args:
             output (`str | List[TextBlock | ImageBlock | AudioBlock]`):
@@ -46,17 +51,19 @@ class FormatterBase:
                 data like images and audio.
 
         Returns:
-            `str`:
-                A string representation of the tool result, with text blocks
-                concatenated and multimodal data represented by file paths
-                or URLs.
+            `tuple[str, list[Tuple[str, ImageBlock | AudioBlock | \
+            TextBlock]]]`:
+                A tuple containing the textual representation of the tool
+                result and a list of tuples. The first element of each tuple
+                is the local file path or URL of the multimodal data, and the
+                second element is the corresponding block.
         """
 
         if isinstance(output, str):
             return output, []
 
         textual_output = []
-        image_paths = []
+        multimodal_data = []
         for block in output:
             assert isinstance(block, dict) and "type" in block, (
                 f"Invalid block: {block}, a TextBlock, ImageBlock, or "
@@ -77,25 +84,28 @@ class FormatterBase:
                         f"The returned {block['type']} can be found "
                         f"at: {source['url']}",
                     )
-                    if block["type"] == "image":
-                        image_paths.append(source["url"])
+
+                    path_multimodal_file = source["url"]
 
                 elif source["type"] == "base64":
-                    path_temp_file = _save_base64_data(
+                    path_multimodal_file = _save_base64_data(
                         source["media_type"],
                         source["data"],
                     )
                     textual_output.append(
                         f"The returned {block['type']} can be found "
-                        f"at: {path_temp_file}",
+                        f"at: {path_multimodal_file}",
                     )
-                    if block["type"] == "image":
-                        image_paths.append(path_temp_file)
+
                 else:
                     raise ValueError(
                         f"Invalid image source: {block['source']}, "
                         "expected 'url' or 'base64'.",
                     )
+
+                multimodal_data.append(
+                    (path_multimodal_file, block),
+                )
 
             else:
                 raise ValueError(
@@ -104,31 +114,7 @@ class FormatterBase:
                 )
 
         if len(textual_output) == 1:
-            return textual_output[0], image_paths
+            return textual_output[0], multimodal_data
 
         else:
-            return "\n".join("- " + _ for _ in textual_output), image_paths
-
-    @staticmethod
-    def _extract_image_blocks_from_tool_result(
-        output: str | List[Any],
-    ) -> List[ImageBlock]:
-        """Extract image blocks from tool result output.
-
-        Args:
-            output (`str | List[Any]`):
-                The output of the tool result, which can be a string or a list
-                of content blocks.
-
-        Returns:
-            `List[ImageBlock]`:
-                A list of image blocks extracted from the tool result output.
-                Returns an empty list if no images are found or if output is
-                a string.
-        """
-        image_blocks: List[ImageBlock] = []
-        if isinstance(output, list):
-            for block in output:
-                if isinstance(block, dict) and block.get("type") == "image":
-                    image_blocks.append(block)  # type: ignore[arg-type]
-        return image_blocks
+            return "\n".join("- " + _ for _ in textual_output), multimodal_data

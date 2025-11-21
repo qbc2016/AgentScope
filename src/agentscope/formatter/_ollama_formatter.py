@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches, too-many-nested-blocks
+# pylint: disable=too-many-branches
 """The Ollama formatter module."""
 import base64
 import os
@@ -9,7 +9,14 @@ from urllib.parse import urlparse
 from ._truncated_formatter_base import TruncatedFormatterBase
 from .._logging import logger
 from .._utils._common import _get_bytes_from_web_url
-from ..message import Msg, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock
+from ..message import (
+    Msg,
+    TextBlock,
+    ImageBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+    URLSource,
+)
 from ..token import TokenCounterBase
 
 
@@ -62,7 +69,10 @@ def _convert_ollama_image_url_to_base64_data(url: str) -> str:
 
 
 class OllamaChatFormatter(TruncatedFormatterBase):
-    """Formatter for Ollama messages."""
+    """The Ollama formatter class for chatbot scenario, where only a user
+    and an agent are involved. We use the `role` field to identify different
+    participants in the conversation.
+    """
 
     support_tools_api: bool = True
     """Whether support tools API"""
@@ -85,20 +95,20 @@ class OllamaChatFormatter(TruncatedFormatterBase):
 
     def __init__(
         self,
-        extract_image_blocks: bool = False,
+        promote_tool_result_images: bool = False,
     ) -> None:
-        """Initialize the TruncatedFormatterBase.
+        """Initialize the Ollama chat formatter.
 
         Args:
-            extract_image_blocks (`bool`, defaults to `False`):
-                Whether to extract image blocks from tool result outputs and
-                add them as separate user messages. When set to `True`, images
-                returned by tools will be extracted from the tool result and
-                formatted as user messages, allowing the model to directly
-                process the images instead of just text descriptions.
+            promote_tool_result_images (`bool`, defaults to `False`):
+                Whether to promote images from tool results to user messages.
+                Most LLM APIs don't support images in tool result blocks, but
+                do support them in user message blocks. When `True`, images are
+                extracted and appended as a separate user message with
+                explanatory text indicating their source.
         """
         super().__init__()
-        self.extract_image_blocks = extract_image_blocks
+        self.promote_tool_result_images = promote_tool_result_images
 
     async def _format(
         self,
@@ -144,49 +154,66 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                 elif typ == "tool_result":
                     (
                         textual_output,
-                        image_paths,
-                    ) = self.convert_tool_result_to_string(
-                        block.get("output"),  # type: ignore[arg-type]
-                    )
+                        multimodal_data,
+                    ) = self.convert_tool_result_to_string(block["output"])
+
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": (  # type: ignore[arg-type]
-                                textual_output
-                            ),
+                            "content": textual_output,
                             "name": block.get("name"),
                         },
                     )
-                    if self.extract_image_blocks:
-                        image_blocks_raw = (
-                            self._extract_image_blocks_from_tool_result(
-                                block.get("output"),  # type: ignore[arg-type]
-                            )
-                        )
-                        if image_blocks_raw:
-                            # Insert image messages after current message
-                            for idx, img_block in enumerate(image_blocks_raw):
-                                msgs.insert(
-                                    i + idx + 1,
-                                    Msg(
-                                        name="user",
-                                        content=[
-                                            {
-                                                "type": "text",
-                                                "text": f"<system-hint>This is"
-                                                f" the image content from "
-                                                f"{image_paths[idx]}",
-                                            },
-                                            img_block,
-                                            {
-                                                "type": "text",
-                                                "text": "</system-hint>",
-                                            },
-                                        ],
-                                        role="user",
+
+                    # Then, handle the multimodal data if any
+                    promoted_blocks: list = []
+                    for url, multimodal_block in multimodal_data:
+                        if (
+                            multimodal_block["type"] == "image"
+                            and self.promote_tool_result_images
+                        ):
+                            promoted_blocks.extend(
+                                [
+                                    TextBlock(
+                                        type="text",
+                                        text=f"\n- The image from '{url}': ",
                                     ),
-                                )
+                                    ImageBlock(
+                                        type="image",
+                                        source=URLSource(
+                                            type="url",
+                                            url=url,
+                                        ),
+                                    ),
+                                ],
+                            )
+
+                    if promoted_blocks:
+                        # Insert promoted blocks as new user message(s)
+                        promoted_blocks = [
+                            TextBlock(
+                                type="text",
+                                text="<system-info>The following are "
+                                "the image contents from the tool "
+                                f"result of {block['name']}:",
+                            ),
+                            *promoted_blocks,
+                            TextBlock(
+                                type="text",
+                                text="</system-info>",
+                            ),
+                        ]
+
+                        msgs.insert(
+                            i + 1,
+                            Msg(
+                                name="user",
+                                content=promoted_blocks,
+                                role="user",
+                            ),
+                        )
+
                 elif typ == "image":
                     images.append(
                         _format_ollama_image_block(
