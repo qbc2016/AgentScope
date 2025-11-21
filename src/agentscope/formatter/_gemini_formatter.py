@@ -352,6 +352,7 @@ class GeminiMultiAgentFormatter(TruncatedFormatterBase):
             "The content between <history></history> tags contains "
             "your conversation history\n"
         ),
+        promote_tool_result_images: bool = False,
         token_counter: TokenCounterBase | None = None,
         max_tokens: int | None = None,
     ) -> None:
@@ -360,6 +361,12 @@ class GeminiMultiAgentFormatter(TruncatedFormatterBase):
         Args:
             conversation_history_prompt (`str`):
                 The prompt to be used for the conversation history section.
+            promote_tool_result_images (`bool`, defaults to `False`):
+                Whether to promote images from tool results to user messages.
+                Most LLM APIs don't support images in tool result blocks, but
+                do support them in user message blocks. When `True`, images are
+                extracted and appended as a separate user message with
+                explanatory text indicating their source.
             token_counter (`TokenCounterBase | None`, optional):
                 The token counter used for truncation.
             max_tokens (`int | None`, optional):
@@ -368,6 +375,7 @@ class GeminiMultiAgentFormatter(TruncatedFormatterBase):
         """
         super().__init__(token_counter=token_counter, max_tokens=max_tokens)
         self.conversation_history_prompt = conversation_history_prompt
+        self.promote_tool_result_images = promote_tool_result_images
 
     async def _format_system_message(
         self,
@@ -398,7 +406,9 @@ class GeminiMultiAgentFormatter(TruncatedFormatterBase):
             `list[dict[str, Any]]`:
                 A list of dictionaries formatted for the Gemini API.
         """
-        return await GeminiChatFormatter().format(msgs)
+        return await GeminiChatFormatter(
+            promote_tool_result_images=self.promote_tool_result_images,
+        ).format(msgs)
 
     async def _format_agent_message(
         self,
