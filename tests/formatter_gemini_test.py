@@ -633,7 +633,7 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
         )
 
         # Expected result: image blocks should be extracted and inserted
-        # as separate user messages after the tool result message
+        # as a separate user message after the tool result message
         expected_result = [
             {
                 "role": "user",
@@ -875,7 +875,7 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
         )
 
         # Expected result: image blocks should be promoted and inserted
-        # as separate user messages after the tool result message
+        # as a separate user message after the tool result message
         expected_result = [
             {
                 "role": "user",
