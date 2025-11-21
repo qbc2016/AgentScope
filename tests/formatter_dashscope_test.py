@@ -608,7 +608,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                     {
                         "text": "<system-info>The following are "
                         "the image contents from the tool "
-                        "result of get_capital:",
+                        "result of 'get_capital':",
                     },
                     {
                         "text": "\n- The image from './image.png': ",
@@ -818,7 +818,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                     {
                         "text": "<system-info>The following are "
                         "the image contents from the tool "
-                        "result of get_capital:",
+                        "result of 'get_capital':",
                     },
                     {
                         "text": "\n- The image from './image.png': ",

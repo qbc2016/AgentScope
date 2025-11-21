@@ -468,7 +468,7 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                 "role": "user",
                 "content": "<system-info>The following are "
                 "the image contents from the tool "
-                "result of get_capital:\n\n- The image from "
+                "result of 'get_capital':\n\n- The image from "
                 "'./image.png': \n</system-info>",
                 "images": [
                     "ZmFrZSBpbWFnZSBjb250ZW50",
@@ -635,7 +635,7 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                 "role": "user",
                 "content": "<system-info>The following are "
                 "the image contents from the tool "
-                "result of get_capital:\n\n- The image from "
+                "result of 'get_capital':\n\n- The image from "
                 "'./image.png': \n</system-info>",
                 "images": [
                     "ZmFrZSBpbWFnZSBjb250ZW50",

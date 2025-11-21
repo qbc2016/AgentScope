@@ -558,7 +558,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "<system-info>The following are "
                         "the image contents from the tool "
-                        "result of get_capital:",
+                        "result of 'get_capital':",
                     },
                     {
                         "type": "text",
@@ -736,7 +736,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "<system-info>The following are "
                         "the image contents from the tool "
-                        "result of get_capital:",
+                        "result of 'get_capital':",
                     },
                     {
                         "type": "text",
