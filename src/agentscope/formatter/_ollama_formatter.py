@@ -96,6 +96,8 @@ class OllamaChatFormatter(TruncatedFormatterBase):
     def __init__(
         self,
         promote_tool_result_images: bool = False,
+        token_counter: TokenCounterBase | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         """Initialize the Ollama chat formatter.
 
@@ -106,8 +108,16 @@ class OllamaChatFormatter(TruncatedFormatterBase):
                 do support them in user message blocks. When `True`, images are
                 extracted and appended as a separate user message with
                 explanatory text indicating their source.
+            token_counter (`TokenCounterBase | None`, optional):
+                A token counter instance used to count tokens in the messages.
+                If not provided, the formatter will format the messages
+                without considering token limits.
+            max_tokens (`int | None`, optional):
+                The maximum number of tokens allowed in the formatted
+                messages. If not provided, the formatter will not truncate
+                the messages.
         """
-        super().__init__()
+        super().__init__(token_counter, max_tokens)
         self.promote_tool_result_images = promote_tool_result_images
 
     async def _format(
@@ -126,7 +136,7 @@ class OllamaChatFormatter(TruncatedFormatterBase):
         """
         self.assert_list_of_msgs(msgs)
 
-        messages: list[dict] = []
+        messages: list = []
         i = 0
         while i < len(msgs):
             msg = msgs[i]

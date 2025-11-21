@@ -155,8 +155,10 @@ def _to_openai_audio_data(source: URLSource | Base64Source) -> dict:
 
 
 class OpenAIChatFormatter(TruncatedFormatterBase):
-    """The class used to format message objects into the OpenAI API required
-    format."""
+    """The OpenAI formatter class for chatbot scenario, where only a user
+    and an agent are involved. We use the `name` field in OpenAI API to
+    identify different entities in the conversation.
+    """
 
     support_tools_api: bool = True
     """Whether support tools API"""

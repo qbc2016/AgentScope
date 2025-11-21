@@ -11,7 +11,10 @@ from ..token import TokenCounterBase
 
 
 class DeepSeekChatFormatter(TruncatedFormatterBase):
-    """Formatter for DeepSeek messages."""
+    """The DeepSeek formatter class for chatbot scenario, where only a user
+    and an agent are involved. We use the `role` field to identify different
+    entities in the conversation.
+    """
 
     support_tools_api: bool = True
     """Whether support tools API"""
