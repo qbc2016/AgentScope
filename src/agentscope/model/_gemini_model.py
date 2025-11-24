@@ -38,7 +38,7 @@ class GeminiChatModel(ChatModelBase):
         api_key: str,
         stream: bool = True,
         thinking_config: dict | None = None,
-        client_kwargs: dict | None = None,
+        client_kwargs: dict = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         **kwargs: Any,
     ) -> None:

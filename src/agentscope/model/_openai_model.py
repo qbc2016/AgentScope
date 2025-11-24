@@ -71,8 +71,8 @@ class OpenAIChatModel(ChatModelBase):
         api_key: str | None = None,
         stream: bool = True,
         reasoning_effort: Literal["low", "medium", "high"] | None = None,
-        organization: str | None = None,
-        client_kwargs: dict | None = None,
+        organization: str = None,
+        client_kwargs: dict = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         **kwargs: Any,
     ) -> None:
