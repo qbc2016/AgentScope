@@ -71,8 +71,10 @@ class OpenAIChatModel(ChatModelBase):
         api_key: str | None = None,
         stream: bool = True,
         reasoning_effort: Literal["low", "medium", "high"] | None = None,
-        organization: str = None,
-        client_args: dict = None,
+        organization: str | None = None,
+        client_kwargs: dict[str, Any] | None = None,
+        client_args: dict[str, Any]
+        | None = None,  # Deprecated, use client_kwargs instead
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the openai client.
@@ -94,13 +96,33 @@ class OpenAIChatModel(ChatModelBase):
             organization (`str`, default `None`):
                 The organization ID for OpenAI API. If not specified, it will
                 be read from the environment variable `OPENAI_ORGANIZATION`.
-            client_args (`dict`, default `None`):
+            client_kwargs (`dict`, default `None`):
                 The extra keyword arguments to initialize the OpenAI client.
+            client_args (`dict`, default `None`):
+                .. deprecated::
+                    `client_args` is deprecated and will be removed in a future
+                    version. Please use `client_kwargs` instead.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
                The extra keyword arguments used in OpenAI API generation,
                 e.g. `temperature`, `seed`.
         """
+
+        # Handle deprecated client_args parameter
+        if client_args is not None and client_kwargs is not None:
+            raise ValueError(
+                "Cannot specify both 'client_args' and 'client_kwargs'. "
+                "Please use only 'client_kwargs' (client_args is deprecated).",
+            )
+
+        if client_args is not None:
+            logger.warning(
+                "The parameter 'client_args' is deprecated and will be "
+                "removed in a future version. Please use 'client_kwargs' "
+                "instead. Automatically converting 'client_args' to "
+                "'client_kwargs'.",
+            )
+            client_kwargs = client_args
 
         super().__init__(model_name, stream)
 
@@ -109,7 +131,7 @@ class OpenAIChatModel(ChatModelBase):
         self.client = openai.AsyncClient(
             api_key=api_key,
             organization=organization,
-            **(client_args or {}),
+            **(client_kwargs or {}),
         )
 
         self.reasoning_effort = reasoning_effort

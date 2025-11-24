@@ -38,7 +38,9 @@ class GeminiChatModel(ChatModelBase):
         api_key: str,
         stream: bool = True,
         thinking_config: dict | None = None,
-        client_args: dict = None,
+        client_kwargs: dict[str, Any] | None = None,
+        client_args: dict[str, Any]
+        | None = None,  # Deprecated, use client_kwargs instead
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the Gemini chat model.
@@ -63,13 +65,33 @@ class GeminiChatModel(ChatModelBase):
                         "thinking_budget": 1024   # Max tokens for reasoning
                     }
 
-            client_args (`dict`, default `None`):
+            client_kwargs (`dict`, default `None`):
                 The extra keyword arguments to initialize the OpenAI client.
+            client_args (`dict`, default `None`):
+                .. deprecated::
+                    `client_args` is deprecated and will be removed in a future
+                    version. Please use `client_kwargs` instead.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
                The extra keyword arguments used in Gemini API generation,
                e.g. `temperature`, `seed`.
         """
+        # Handle deprecated client_args parameter
+        if client_args is not None and client_kwargs is not None:
+            raise ValueError(
+                "Cannot specify both 'client_args' and 'client_kwargs'. "
+                "Please use only 'client_kwargs' (client_args is deprecated).",
+            )
+
+        if client_args is not None:
+            logger.warning(
+                "The parameter 'client_args' is deprecated and will be "
+                "removed in a future version. Please use 'client_kwargs' "
+                "instead. Automatically converting 'client_args' to "
+                "'client_kwargs'.",
+            )
+            client_kwargs = client_args
+
         try:
             from google import genai
         except ImportError as e:
@@ -82,7 +104,7 @@ class GeminiChatModel(ChatModelBase):
 
         self.client = genai.Client(
             api_key=api_key,
-            **(client_args or {}),
+            **(client_kwargs or {}),
         )
         self.thinking_config = thinking_config
         self.generate_kwargs = generate_kwargs or {}
