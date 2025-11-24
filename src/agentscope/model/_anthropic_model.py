@@ -46,9 +46,8 @@ class AnthropicChatModel(ChatModelBase):
         stream: bool = True,
         thinking: dict | None = None,
         client_kwargs: dict | None = None,
-        client_args: dict | None = None,  # Deprecated, use client_kwargs
-        # instead
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
+        **kwargs: Any,
     ) -> None:
         """Initialize the Anthropic chat model.
 
@@ -74,17 +73,16 @@ class AnthropicChatModel(ChatModelBase):
 
             client_kwargs (`dict | None`, optional):
                 The extra keyword arguments to initialize the Anthropic client.
-            client_args (`dict | None`, optional):
-                .. deprecated::
-                    `client_args` is deprecated and will be removed in a future
-                    version. Please use `client_kwargs` instead.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
                 The extra keyword arguments used in Gemini API generation,
                 e.g. `temperature`, `seed`.
+            **kwargs (`Any`):
+                Additional keyword arguments.
         """
 
-        # Handle deprecated client_args parameter
+        # Handle deprecated client_args parameter from kwargs
+        client_args = kwargs.pop("client_args", None)
         if client_args is not None and client_kwargs is not None:
             raise ValueError(
                 "Cannot specify both 'client_args' and 'client_kwargs'. "
@@ -99,6 +97,12 @@ class AnthropicChatModel(ChatModelBase):
                 "'client_kwargs'.",
             )
             client_kwargs = client_args
+
+        if kwargs:
+            logger.warning(
+                "Unknown keyword arguments: %s. These will be ignored.",
+                list(kwargs.keys()),
+            )
 
         try:
             import anthropic

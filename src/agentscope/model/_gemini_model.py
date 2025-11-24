@@ -38,10 +38,9 @@ class GeminiChatModel(ChatModelBase):
         api_key: str,
         stream: bool = True,
         thinking_config: dict | None = None,
-        client_kwargs: dict[str, Any] | None = None,
-        client_args: dict[str, Any]
-        | None = None,  # Deprecated, use client_kwargs instead
+        client_kwargs: dict | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
+        **kwargs: Any,
     ) -> None:
         """Initialize the Gemini chat model.
 
@@ -67,16 +66,16 @@ class GeminiChatModel(ChatModelBase):
 
             client_kwargs (`dict`, default `None`):
                 The extra keyword arguments to initialize the OpenAI client.
-            client_args (`dict`, default `None`):
-                .. deprecated::
-                    `client_args` is deprecated and will be removed in a future
-                    version. Please use `client_kwargs` instead.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
                The extra keyword arguments used in Gemini API generation,
                e.g. `temperature`, `seed`.
+            **kwargs (`Any`):
+                Additional keyword arguments.
         """
-        # Handle deprecated client_args parameter
+
+        # Handle deprecated client_args parameter from kwargs
+        client_args = kwargs.pop("client_args", None)
         if client_args is not None and client_kwargs is not None:
             raise ValueError(
                 "Cannot specify both 'client_args' and 'client_kwargs'. "
@@ -91,6 +90,12 @@ class GeminiChatModel(ChatModelBase):
                 "'client_kwargs'.",
             )
             client_kwargs = client_args
+
+        if kwargs:
+            logger.warning(
+                "Unknown keyword arguments: %s. These will be ignored.",
+                list(kwargs.keys()),
+            )
 
         try:
             from google import genai
