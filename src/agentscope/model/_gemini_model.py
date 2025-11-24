@@ -107,8 +107,8 @@ class GeminiChatModel(ChatModelBase):
             tool_choice (`Literal["auto", "none", "required"] | str \
             | None`, default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "required", or specific tool
-                 name. For more details, please refer to
+                 Can be "auto", "none", "required", or specific tool name.
+                 For more details, please refer to
                  https://ai.google.dev/gemini-api/docs/function-calling?hl=en&example=meeting#function_calling_modes
 
                  .. deprecated::
@@ -468,8 +468,7 @@ class GeminiChatModel(ChatModelBase):
             tool_choice (`Literal["auto", "none", "required"] | str | None`, \
             default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "required", or specific tool
-                 name.
+                 Can be "auto", "none", "required", or specific tool name.
                  For more details, please refer to
                  https://ai.google.dev/gemini-api/docs/function-calling?hl=en&example=meeting#function_calling_modes
         Returns:

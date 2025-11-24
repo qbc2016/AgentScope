@@ -107,8 +107,7 @@ class OllamaChatModel(ChatModelBase):
             tool_choice (`Literal["auto", "none", "required"] | str \
                 | None`, default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "required", or specific tool
-                 name.
+                 Can be "auto", "none", "required", or specific tool name.
 
                  .. note:: Ollama does not support tool_choice yet, this
                     parameter will be ignored.
