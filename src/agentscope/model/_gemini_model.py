@@ -65,7 +65,7 @@ class GeminiChatModel(ChatModelBase):
                     }
 
             client_kwargs (`dict`, default `None`):
-                The extra keyword arguments to initialize the OpenAI client.
+                The extra keyword arguments to initialize the Gemini client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
                The extra keyword arguments used in Gemini API generation,

@@ -75,7 +75,7 @@ class AnthropicChatModel(ChatModelBase):
                 The extra keyword arguments to initialize the Anthropic client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
-                The extra keyword arguments used in Gemini API generation,
+                The extra keyword arguments used in Anthropic API generation,
                 e.g. `temperature`, `seed`.
             **kwargs (`Any`):
                 Additional keyword arguments.
