@@ -128,7 +128,9 @@ class DashScopeTTSModel(TTSModelBase):
         super().__init__(model_name=model_name)
         import dashscope
 
-        self._prefix = ""
+        # Prefix for each message to track incremental text updates
+        # Key is msg.id, value is the accumulated text prefix
+        self._prefix: dict[str, str] = {}
         dashscope.api_key = api_key
 
         # Save callback reference (for DashScope SDK)
@@ -165,8 +167,6 @@ class DashScopeTTSModel(TTSModelBase):
 
         self._connected = True
 
-        self._prefix = ""
-
     async def send_msg(self, msg: Msg, last: bool = False) -> AudioBlock:
         """Append text to be synthesized and return audio block.
 
@@ -185,19 +185,26 @@ class DashScopeTTSModel(TTSModelBase):
                 "TTS model is not initialized. Call initialize() first.",
             )
 
+        msg_id = msg.id
+        # Initialize prefix for this message if not exists
+        if msg_id not in self._prefix:
+            self._prefix[msg_id] = ""
+
         for block in msg.get_content_blocks():
             if block["type"] == "text":
                 text = block["text"]
-                delta = text[len(self._prefix) :]
-                self._prefix = text
+                prefix = self._prefix[msg_id]
+                delta = text[len(prefix) :]
+                self._prefix[msg_id] = text
                 self._tts_client.append_text(delta)
 
         if last:
             await self._commit()
             self._tts_client.finish()
             await self._dashscope_callback.wait_for_complete()
-            # Auto close when last=True
-            await self.close()
+            # Clean up prefix for this message
+            if msg_id in self._prefix:
+                del self._prefix[msg_id]
 
         return await self.get_audio_block()
 

@@ -458,8 +458,9 @@ class ReActAgent(ReActAgentBase):
                                 "source"
                             ]["data"]
 
-                    # send_msg(..., last=True) will auto close
                     await self.print(msg, True)
+                    # Close TTS model after completing synthesis
+                    await self.tts_model.close()
 
                 # Add a tiny sleep to yield the last message object in the
                 # message queue
@@ -473,8 +474,9 @@ class ReActAgent(ReActAgentBase):
                     audio_block = await self.tts_model.send_msg(msg, True)
                     # Add AudioBlock to content
                     msg.content.append(audio_block)
-                    # send_msg(..., last=True) will auto close
                     await self.print(msg, True)
+                    # Close TTS model after completing synthesis
+                    await self.tts_model.close()
                 else:
                     await self.print(msg, True)
 
@@ -627,6 +629,8 @@ class ReActAgent(ReActAgentBase):
                         ]["data"]
 
                 await self.print(res_msg, True)
+                # Close TTS model after completing synthesis
+                await self.tts_model.close()
             else:
                 async for chunk in res:
                     res_msg.content = chunk.content
@@ -641,6 +645,8 @@ class ReActAgent(ReActAgentBase):
                 audio_block = await self.tts_model.send_msg(res_msg, True)
                 # Add AudioBlock to content
                 res_msg.content.append(audio_block)
+                # Close TTS model after completing synthesis
+                await self.tts_model.close()
             await self.print(res_msg, True)
 
         return res_msg

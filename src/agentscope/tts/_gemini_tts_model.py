@@ -38,7 +38,9 @@ class GeminiTTSModel(TTSModelBase):
         self.voice = voice
         self._client: Client | None = None
         self._connected = False
-        self._text_buffer = ""
+        # Text buffer for each message to accumulate text before synthesis
+        # Key is msg.id, value is the accumulated text
+        self._text_buffer: dict[str, str] = {}
 
     async def initialize(self) -> None:
         """Initialize the Gemini TTS model and create client."""
@@ -52,7 +54,6 @@ class GeminiTTSModel(TTSModelBase):
         )
 
         self._connected = True
-        self._text_buffer = ""
         print("[Gemini TTS] TTS service initialized")
 
     async def send_msg(self, msg: Msg, last: bool = False) -> AudioBlock:
@@ -76,19 +77,24 @@ class GeminiTTSModel(TTSModelBase):
                 "TTS model is not initialized. Call initialize() first.",
             )
 
+        msg_id = msg.id
+        # Initialize text buffer for this message if not exists
+        if msg_id not in self._text_buffer:
+            self._text_buffer[msg_id] = ""
+
         # Extract text content
         for block in msg.get_content_blocks():
             if block["type"] == "text":
                 text = block["text"]
-                self._text_buffer += text
+                self._text_buffer[msg_id] += text
 
         # Only call API for synthesis when last=True
-        if last and self._text_buffer:
+        if last and self._text_buffer.get(msg_id):
             try:
                 # Call Gemini TTS API
                 response = self._client.models.generate_content(
                     model=self.model_name,
-                    contents=self._text_buffer,
+                    contents=self._text_buffer[msg_id],
                     config=types.GenerateContentConfig(
                         response_modalities=["AUDIO"],
                         speech_config=types.SpeechConfig(
@@ -116,11 +122,8 @@ class GeminiTTSModel(TTSModelBase):
                     # Convert PCM data to base64
                     audio_base64 = base64.b64encode(audio_data).decode("utf-8")
 
-                    # Clear text buffer
-                    self._text_buffer = ""
-
-                    # Auto close when last=True
-                    await self.close()
+                    # Clear text buffer for this message
+                    del self._text_buffer[msg_id]
 
                     return AudioBlock(
                         type="audio",
@@ -132,10 +135,9 @@ class GeminiTTSModel(TTSModelBase):
                     )
                 else:
                     # No audio data returned
-                    self._text_buffer = ""
-
-                    # Auto close when last=True
-                    await self.close()
+                    # Clear text buffer for this message
+                    if msg_id in self._text_buffer:
+                        del self._text_buffer[msg_id]
 
                     return AudioBlock(
                         type="audio",
@@ -150,10 +152,9 @@ class GeminiTTSModel(TTSModelBase):
                 import traceback
 
                 traceback.print_exc()
-                self._text_buffer = ""
-
-                # Auto close when last=True (even on error)
-                await self.close()
+                # Clear text buffer for this message on error
+                if msg_id in self._text_buffer:
+                    del self._text_buffer[msg_id]
 
                 return AudioBlock(
                     type="audio",
@@ -181,7 +182,7 @@ class GeminiTTSModel(TTSModelBase):
 
         self._client = None
         self._connected = False
-        self._text_buffer = ""
+        self._text_buffer.clear()
 
     def is_initialized(self) -> bool:
         """Check if the TTS model is initialized.
