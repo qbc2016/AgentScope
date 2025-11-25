@@ -11,12 +11,19 @@ from ._react_agent_base import ReActAgentBase
 from .._logging import logger
 from ..formatter import FormatterBase
 from ..memory import MemoryBase, LongTermMemoryBase, InMemoryMemory
-from ..message import Msg, ToolUseBlock, ToolResultBlock, TextBlock
+from ..message import (
+    Msg,
+    ToolUseBlock,
+    ToolResultBlock,
+    TextBlock,
+    AudioBlock,
+)
 from ..model import ChatModelBase
 from ..rag import KnowledgeBase, Document
 from ..plan import PlanNotebook
 from ..tool import Toolkit, ToolResponse
 from ..tracing import trace_reply
+from ..tts import TTSModelBase
 
 
 class _QueryRewriteModel(BaseModel):
@@ -63,6 +70,7 @@ class ReActAgent(ReActAgentBase):
         plan_notebook: PlanNotebook | None = None,
         print_hint_msg: bool = False,
         max_iters: int = 10,
+        tts_model: TTSModelBase | None = None,
     ) -> None:
         """Initialize the ReAct agent
 
@@ -135,6 +143,7 @@ class ReActAgent(ReActAgentBase):
         self.max_iters = max_iters
         self.model = model
         self.formatter = formatter
+        self.tts_model = tts_model
 
         # -------------- Memory management --------------
         # Record the dialogue history in the memory
@@ -390,6 +399,7 @@ class ReActAgent(ReActAgentBase):
         await self.memory.add(reply_msg)
         return reply_msg
 
+    # pylint: disable=too-many-branches
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "any", "required"] | None = None,
@@ -425,11 +435,31 @@ class ReActAgent(ReActAgentBase):
         msg = None
         try:
             if self.model.stream:
-                msg = Msg(self.name, [], "assistant")
-                async for content_chunk in res:
-                    msg.content = content_chunk.content
-                    await self.print(msg, False)
-                await self.print(msg, True)
+                msg = Msg(name=self.name, content=[], role="assistant")
+                if self.tts_model:
+                    await self.tts_model.initialize()
+                    async for content_chunk in res:
+                        msg.content = content_chunk.content
+                        # Send message and get audio block
+                        new_audio_block = await self.tts_model.send_msg(
+                            msg,
+                            False,
+                        )
+
+                        msg.content.append(new_audio_block)
+                        await self.print(msg, False)
+                    new_audio_block = await self.tts_model.send_msg(msg, True)
+
+                    # Update existing AudioBlock (it was appended in the loop)
+                    for block in msg.content:
+                        if block.get("type") == "audio":
+                            audio_block: AudioBlock = block
+                            audio_block["source"]["data"] = new_audio_block[
+                                "source"
+                            ]["data"]
+
+                    # send_msg(..., last=True) will auto close
+                    await self.print(msg, True)
 
                 # Add a tiny sleep to yield the last message object in the
                 # message queue
@@ -437,7 +467,16 @@ class ReActAgent(ReActAgentBase):
 
             else:
                 msg = Msg(self.name, list(res.content), "assistant")
-                await self.print(msg, True)
+                if self.tts_model:
+                    await self.tts_model.initialize()
+                    # Send complete message for synthesis and get audio block
+                    audio_block = await self.tts_model.send_msg(msg, True)
+                    # Add AudioBlock to content
+                    msg.content.append(audio_block)
+                    # send_msg(..., last=True) will auto close
+                    await self.print(msg, True)
+                else:
+                    await self.print(msg, True)
 
         except asyncio.CancelledError as e:
             interrupted_by_user = True
@@ -564,13 +603,44 @@ class ReActAgent(ReActAgentBase):
 
         res_msg = Msg(self.name, [], "assistant")
         if isinstance(res, AsyncGenerator):
-            async for chunk in res:
-                res_msg.content = chunk.content
-                await self.print(res_msg, False)
-            await self.print(res_msg, True)
+            if self.tts_model:
+                await self.tts_model.initialize()
+                async for chunk in res:
+                    res_msg.content = chunk.content
+                    # Send message and get audio block
+                    new_audio_block = await self.tts_model.send_msg(
+                        res_msg,
+                        False,
+                    )
+
+                    res_msg.content.append(new_audio_block)
+                    await self.print(res_msg, False)
+                # Send final message and get final audio block
+                new_audio_block = await self.tts_model.send_msg(res_msg, True)
+
+                # Update existing AudioBlock (it was appended in the loop)
+                for block in res_msg.content:
+                    if block.get("type") == "audio":
+                        audio_block: AudioBlock = block
+                        audio_block["source"]["data"] = new_audio_block[
+                            "source"
+                        ]["data"]
+
+                await self.print(res_msg, True)
+            else:
+                async for chunk in res:
+                    res_msg.content = chunk.content
+                    await self.print(res_msg, False)
+                await self.print(res_msg, True)
 
         else:
             res_msg.content = res.content
+            if self.tts_model:
+                await self.tts_model.initialize()
+                # Send complete message for synthesis and get audio block
+                audio_block = await self.tts_model.send_msg(res_msg, True)
+                # Add AudioBlock to content
+                res_msg.content.append(audio_block)
             await self.print(res_msg, True)
 
         return res_msg
