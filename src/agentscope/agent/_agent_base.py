@@ -6,7 +6,7 @@ import json
 from asyncio import Task, Queue
 from collections import OrderedDict
 from copy import deepcopy
-from typing import Callable, Any, TYPE_CHECKING, Union
+from typing import Callable, Any
 import base64
 import shortuuid
 import numpy as np
@@ -24,11 +24,6 @@ from ..message import (
     VideoBlock,
 )
 from ..types import AgentHookTypes
-
-if TYPE_CHECKING:
-    from ..tts import TTSModelBase
-else:
-    TTSModelBase = "agentscope.tts.TTSModelBase"
 
 
 class AgentBase(StateModule, metaclass=_AgentMeta):
@@ -180,9 +175,6 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
         self._disable_msg_queue: bool = True
         self.msg_queue = None
 
-        # TTS model for text-to-speech synthesis
-        self.tts_model: Union[TTSModelBase, None] = None
-
     async def observe(self, msg: Msg | list[Msg] | None) -> None:
         """Receive the given message(s) without generating a reply.
 
@@ -203,13 +195,7 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             f"{self.__class__.__name__} class.",
         )
 
-    # pylint: disable=too-many-branches
-    async def print(
-        self,
-        msg: Msg,
-        last: bool = True,
-        tts_enabled: bool = False,
-    ) -> None:
+    async def print(self, msg: Msg, last: bool = True) -> None:
         """The function to display the message.
 
         Args:
@@ -218,24 +204,12 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             last (`bool`, defaults to `True`):
                 Whether this is the last one in streaming messages. For
                 non-streaming message, this should always be `True`.
-            tts_enabled(`bool`, defaults to `False`):
-                Whether enable tts.
         """
         if not self._disable_msg_queue:
             await self.msg_queue.put((deepcopy(msg), last))
 
         if self._disable_console_output:
             return
-
-        # Process if  TTS model is set
-        if tts_enabled and self.tts_model:
-            if not self.tts_model.is_initialized():
-                await self.tts_model.initialize()
-            new_audio_block = await self.tts_model.send_msg(msg, last)
-            msg.content.append(new_audio_block)
-            # Close TTS model after last chunk
-            if last:
-                await self.tts_model.close()
 
         # The accumulated textual content to print, including the text blocks
         # and the thinking blocks
@@ -727,16 +701,3 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             self.msg_queue = None
 
         self._disable_msg_queue = not enabled
-
-    def set_tts_model(
-        self,
-        tts_model: Union[TTSModelBase, None],
-    ) -> None:
-        """Set the TTS model for text-to-speech synthesis.
-
-        Args:
-            tts_model (`TTSModelBase | None`):
-                The TTS model instance to use for synthesis. If `None`,
-                TTS functionality will be disabled.
-        """
-        self.tts_model = tts_model
