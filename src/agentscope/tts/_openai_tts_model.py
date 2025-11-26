@@ -4,6 +4,7 @@ import base64
 from typing import TYPE_CHECKING
 
 from ._tts_base import TTSModelBase
+from ._tts_response import TTSResponse
 from ..message import Msg, AudioBlock, Base64Source
 
 
@@ -15,6 +16,9 @@ else:
 
 class OpenAITTSModel(TTSModelBase):
     """OpenAI TTS model implementation."""
+
+    # This model does not support streaming input (requires complete text)
+    supports_streaming_input: bool = False
 
     def __init__(
         self,
@@ -56,8 +60,8 @@ class OpenAITTSModel(TTSModelBase):
         self._connected = True
         print("[OpenAI TTS] TTS service initialized")
 
-    async def send_msg(self, msg: Msg, last: bool = False) -> AudioBlock:
-        """Append text to be synthesized and return audio block.
+    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+        """Append text to be synthesized and return TTS response.
 
         Args:
             msg (`Msg`):
@@ -66,9 +70,8 @@ class OpenAITTSModel(TTSModelBase):
                 Whether this is the last chunk. Defaults to False.
 
         Returns:
-            `AudioBlock`:
-                The AudioBlock (may have empty data if not last or no audio
-                available).
+            `TTSResponse`:
+                The TTSResponse containing audio blocks.
         """
         if not self._connected or self._client is None:
             raise RuntimeError(
@@ -105,7 +108,7 @@ class OpenAITTSModel(TTSModelBase):
                 # Clear text buffer for this message
                 del self._text_buffer[msg_id]
 
-                return AudioBlock(
+                audio_block = AudioBlock(
                     type="audio",
                     source=Base64Source(
                         type="base64",
@@ -113,6 +116,7 @@ class OpenAITTSModel(TTSModelBase):
                         media_type="audio/mp3",
                     ),
                 )
+                return TTSResponse(content=[audio_block])
             except Exception as e:
                 print(f"[OpenAI TTS Error] {e}")
                 import traceback
@@ -122,7 +126,7 @@ class OpenAITTSModel(TTSModelBase):
                 if msg_id in self._text_buffer:
                     del self._text_buffer[msg_id]
 
-                return AudioBlock(
+                audio_block = AudioBlock(
                     type="audio",
                     source=Base64Source(
                         type="base64",
@@ -130,9 +134,10 @@ class OpenAITTSModel(TTSModelBase):
                         media_type="audio/mp3",
                     ),
                 )
+                return TTSResponse(content=[audio_block])
         else:
             # Not the last chunk, return empty AudioBlock
-            return AudioBlock(
+            audio_block = AudioBlock(
                 type="audio",
                 source=Base64Source(
                     type="base64",
@@ -140,6 +145,7 @@ class OpenAITTSModel(TTSModelBase):
                     media_type="audio/mp3",
                 ),
             )
+            return TTSResponse(content=[audio_block])
 
     async def close(self) -> None:
         """Close the OpenAI TTS model and clean up resources."""

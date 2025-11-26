@@ -5,6 +5,7 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 from ._tts_base import TTSModelBase
+from ._tts_response import TTSResponse
 from ..message import Msg, AudioBlock, Base64Source
 
 if TYPE_CHECKING:
@@ -102,6 +103,9 @@ class DashScopeTTSCallback(QwenTtsRealtimeCallback):
 class DashScopeTTSModel(TTSModelBase):
     """DashScope Qwen TTS Realtime model implementation."""
 
+    # This model supports streaming input (can send text incrementally)
+    supports_streaming_input: bool = True
+
     def __init__(
         self,
         model_name: str = "qwen-tts-realtime",
@@ -109,6 +113,7 @@ class DashScopeTTSModel(TTSModelBase):
         voice: str = "Cherry",
         response_format: AudioFormat = AudioFormat.PCM_24000HZ_MONO_16BIT,
         mode: str = "server_commit",
+        cold_start_length: int = 10,
     ) -> None:
         """Initialize the DashScope TTS model.
 
@@ -124,6 +129,13 @@ class DashScopeTTSModel(TTSModelBase):
                 The audio format. Defaults to PCM_24000HZ_MONO_16BIT.
             mode (`str`):
                 The TTS mode. Defaults to "server_commit".
+            cold_start_length (`int`, defaults to `0`):
+                The minimum text length (in characters) before sending TTS
+                requests. When set to 0, text will be sent immediately.
+                When set to a positive value, text will be buffered until
+                the accumulated length reaches this threshold. The buffered
+                text will always be sent when `last=True` is called, even
+                if the threshold is not reached.
         """
         super().__init__(model_name=model_name)
         import dashscope
@@ -131,6 +143,9 @@ class DashScopeTTSModel(TTSModelBase):
         # Prefix for each message to track incremental text updates
         # Key is msg.id, value is the accumulated text prefix
         self._prefix: dict[str, str] = {}
+        # Track sent text length for each message (for cold start)
+        # Key is msg.id, value is the length of text that has been sent to TTS
+        self._sent_length: dict[str, int] = {}
         dashscope.api_key = api_key
 
         # Save callback reference (for DashScope SDK)
@@ -140,6 +155,7 @@ class DashScopeTTSModel(TTSModelBase):
         self.voice = voice
         self.response_format = response_format
         self.mode = mode
+        self.cold_start_length = cold_start_length
 
         # Initialize TTS client
         self._tts_client: QwenTtsRealtime | None = None
@@ -167,8 +183,8 @@ class DashScopeTTSModel(TTSModelBase):
 
         self._connected = True
 
-    async def send_msg(self, msg: Msg, last: bool = False) -> AudioBlock:
-        """Append text to be synthesized and return audio block.
+    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+        """Append text to be synthesized and return TTS response.
 
         Args:
             msg (`Msg`):
@@ -177,8 +193,8 @@ class DashScopeTTSModel(TTSModelBase):
                 Whether this is the last chunk. Defaults to False.
 
         Returns:
-            `AudioBlock`:
-                The AudioBlock (may have empty data if no audio available).
+            `TTSResponse`:
+                The TTSResponse containing audio blocks.
         """
         if not self._connected or self._tts_client is None:
             raise RuntimeError(
@@ -186,44 +202,82 @@ class DashScopeTTSModel(TTSModelBase):
             )
 
         msg_id = msg.id
-        # Initialize prefix for this message if not exists
+        # Initialize prefix and sent length for this message if not exists
         if msg_id not in self._prefix:
             self._prefix[msg_id] = ""
+            self._sent_length[msg_id] = 0
 
+        # Collect all text blocks and calculate total text
+        total_text = ""
         for block in msg.get_content_blocks():
             if block["type"] == "text":
                 text = block["text"]
                 prefix = self._prefix[msg_id]
                 delta = text[len(prefix) :]
+                total_text += delta
                 self._prefix[msg_id] = text
-                self._tts_client.append_text(delta)
+
+        # Get current accumulated text length
+        current_length = len(self._prefix[msg_id])
+        sent_length = self._sent_length[msg_id]
+
+        # Determine if we should send text based on cold start logic
+        # Send if:
+        # 1. cold_start_length is 0 (immediate send)
+        # 2. accumulated length reaches cold_start_length threshold
+        # 3. last=True (always send remaining text)
+        should_send = (
+            self.cold_start_length == 0
+            or current_length >= self.cold_start_length
+            or last
+        )
+
+        if should_send and current_length > sent_length:
+            # Send text from sent_length to current_length
+            text_to_send = self._prefix[msg_id][sent_length:]
+            if text_to_send:
+                self._tts_client.append_text(text_to_send)
+                self._sent_length[msg_id] = current_length
 
         if last:
+            # Ensure all remaining text is sent (in case last=True but
+            # threshold not reached)
+            # Update current_length in case it changed
+            current_length = len(self._prefix[msg_id])
+            sent_length = self._sent_length[msg_id]
+            if current_length > sent_length:
+                remaining_text = self._prefix[msg_id][sent_length:]
+                if remaining_text:
+                    self._tts_client.append_text(remaining_text)
+                    self._sent_length[msg_id] = current_length
+
             await self._commit()
             self._tts_client.finish()
             await self._dashscope_callback.wait_for_complete()
-            # Clean up prefix for this message
+            # Clean up prefix and sent length for this message
             if msg_id in self._prefix:
                 del self._prefix[msg_id]
+            if msg_id in self._sent_length:
+                del self._sent_length[msg_id]
 
-        return await self.get_audio_block()
+        return await self.get_tts_response()
 
-    async def get_audio_block(self) -> AudioBlock:
-        """Get an AudioBlock from the collected audio data.
+    async def get_tts_response(self) -> TTSResponse:
+        """Get a TTSResponse from the collected audio data.
 
         This method collects audio fragments from the audio handler and returns
-        an AudioBlock. If no audio data is available, returns an AudioBlock
-        with empty data.
+        a TTSResponse. If no audio data is available, returns a TTSResponse
+        with empty audio block.
 
         Returns:
-            `AudioBlock`:
-                The AudioBlock (may have empty data if no audio available).
+            `TTSResponse`:
+                The TTSResponse containing audio blocks.
         """
         # Get audio data through public method
         audio_base64 = self._dashscope_callback.get_audio_data()
 
-        # Always return AudioBlock, even if data is empty
-        return AudioBlock(
+        # Create AudioBlock, even if data is empty
+        audio_block = AudioBlock(
             type="audio",
             source=Base64Source(
                 type="base64",
@@ -231,6 +285,8 @@ class DashScopeTTSModel(TTSModelBase):
                 media_type="audio/pcm;rate=24000",
             ),
         )
+
+        return TTSResponse(content=[audio_block])
 
     async def _commit(self) -> None:
         """Commit the current text for synthesis."""

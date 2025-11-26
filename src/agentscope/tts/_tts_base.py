@@ -4,11 +4,16 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from agentscope.message import Msg, AudioBlock
+from agentscope.message import Msg
+
+from ._tts_response import TTSResponse
 
 
 class TTSModelBase(ABC):
     """Base class for TTS models."""
+
+    # Class attribute to indicate if this TTS model supports streaming input
+    supports_streaming_input: bool = False
 
     def __init__(
         self,
@@ -49,9 +54,12 @@ class TTSModelBase(ABC):
         configure the service, and prepare the model for synthesis.
         """
 
+    async def __call__(self, msg: Msg, last: bool = False) -> TTSResponse:
+        return await self._call_api(msg, last=last)
+
     @abstractmethod
-    async def send_msg(self, msg: Msg, last: bool = False) -> AudioBlock:
-        """Append text to be synthesized and return audio block if available.
+    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+        """Append text to be synthesized and return TTS response.
 
         Args:
             msg (`Msg`): The msg to be synthesized
@@ -59,7 +67,7 @@ class TTSModelBase(ABC):
              Defaults to False.
 
         Returns:
-            `AudioBlock`: The AudioBlock if audio data is available.
+            `TTSResponse`: The TTSResponse containing audio blocks.
 
         Note:
             - If `stream=True` (default): Text is sent incrementally as it
