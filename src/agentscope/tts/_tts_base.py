@@ -54,17 +54,45 @@ class TTSModelBase(ABC):
         configure the service, and prepare the model for synthesis.
         """
 
-    async def __call__(self, msg: Msg, last: bool = False) -> TTSResponse:
-        return await self._call_api(msg, last=last)
+    async def __call__(
+        self,
+        msg: Msg,
+        last: bool = False,
+        **kwargs: Any,
+    ) -> TTSResponse:
+        """Call the TTS model to synthesize text from a message.
+
+        This is a convenience method that delegates to `_call_api`.
+
+        Args:
+            msg (`Msg`):
+                The message to be synthesized.
+            last (`bool`):
+                Whether this is the last chunk of text. Defaults to False.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
+
+        Returns:
+            `TTSResponse`:
+                The TTSResponse containing audio blocks.
+        """
+        return await self._call_api(msg, last=last, **kwargs)
 
     @abstractmethod
-    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+    async def _call_api(
+        self,
+        msg: Msg,
+        last: bool = False,
+        **kwargs: Any,
+    ) -> TTSResponse:
         """Append text to be synthesized and return TTS response.
 
         Args:
             msg (`Msg`): The msg to be synthesized
             last (`bool`): Whether this is the last chunk of text.
              Defaults to False.
+            **kwargs (`Any`): Additional keyword arguments to pass to the
+             TTS API call.
 
         Returns:
             `TTSResponse`: The TTSResponse containing audio blocks.

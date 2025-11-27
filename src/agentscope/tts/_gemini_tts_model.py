@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Gemini TTS model implementation."""
 import base64
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -68,7 +68,12 @@ class GeminiTTSModel(TTSModelBase):
             **self.client_kwargs,
         )
 
-    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+    async def _call_api(
+        self,
+        msg: Msg,
+        last: bool = False,
+        **kwargs: Any,
+    ) -> TTSResponse:
         """Append text to be synthesized and return TTS response.
 
         Args:
@@ -76,6 +81,8 @@ class GeminiTTSModel(TTSModelBase):
                 The message to be synthesized.
             last (`bool`):
                 Whether this is the last chunk. Defaults to False.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
 
         Returns:
             `TTSResponse`:
@@ -112,17 +119,18 @@ class GeminiTTSModel(TTSModelBase):
                         ),
                     ),
                     **self.generate_kwargs,
+                    **kwargs,
                 )
 
-                # Prepare kwargs
-                kwargs: dict[str, JSONSerializableObject] = {
+                # Prepare API kwargs
+                api_kwargs: dict[str, JSONSerializableObject] = {
                     "model": self.model_name,
                     "contents": self._text_buffer[msg_id],
                     "config": config,
                 }
 
                 # Call Gemini TTS API
-                response = self._client.models.generate_content(**kwargs)
+                response = self._client.models.generate_content(**api_kwargs)
 
                 # Extract audio data
                 if (

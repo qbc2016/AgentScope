@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """DashScope SDK TTS model implementation using MultiModalConversation API."""
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -68,7 +68,12 @@ class DashScopeTTSModel(TTSModelBase):
         self._initialized = True
 
     # pylint: disable=too-many-branches
-    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+    async def _call_api(
+        self,
+        msg: Msg,
+        last: bool = False,
+        **kwargs: Any,
+    ) -> TTSResponse:
         """Append text to be synthesized and return TTS response.
 
         Args:
@@ -76,6 +81,8 @@ class DashScopeTTSModel(TTSModelBase):
                 The message to be synthesized.
             last (`bool`):
                 Whether this is the last chunk. Defaults to False.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
 
         Returns:
             `TTSResponse`:
@@ -110,6 +117,7 @@ class DashScopeTTSModel(TTSModelBase):
                     language_type=self.language_type,
                     stream=True,
                     **self.generate_kwargs,
+                    **kwargs,
                 )
 
                 # Collect all audio chunks from streaming response

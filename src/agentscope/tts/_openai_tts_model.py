@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """OpenAI TTS model implementation."""
 import base64
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -72,7 +72,12 @@ class OpenAITTSModel(TTSModelBase):
 
         self._connected = True
 
-    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+    async def _call_api(
+        self,
+        msg: Msg,
+        last: bool = False,
+        **kwargs: Any,
+    ) -> TTSResponse:
         """Append text to be synthesized and return TTS response.
 
         Args:
@@ -80,6 +85,8 @@ class OpenAITTSModel(TTSModelBase):
                 The message to be synthesized.
             last (`bool`):
                 Whether this is the last chunk. Defaults to False.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
 
         Returns:
             `TTSResponse`:
@@ -110,6 +117,7 @@ class OpenAITTSModel(TTSModelBase):
                     voice=self.voice,
                     input=self._text_buffer[msg_id],
                     **self.generate_kwargs,
+                    **kwargs,
                 )
 
                 # Get audio data

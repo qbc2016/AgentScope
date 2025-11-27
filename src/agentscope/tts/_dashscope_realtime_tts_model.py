@@ -214,7 +214,12 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         self._has_text_sent = False  # Reset text sent flag when initializing
 
     # pylint: disable=too-many-branches
-    async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
+    async def _call_api(
+        self,
+        msg: Msg,
+        last: bool = False,
+        **kwargs: Any,
+    ) -> TTSResponse:
         """Append text to be synthesized and return TTS response.
 
         Args:
@@ -222,6 +227,8 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                 The message to be synthesized.
             last (`bool`):
                 Whether this is the last chunk. Defaults to False.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
 
         Returns:
             `TTSResponse`:
