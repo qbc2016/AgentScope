@@ -463,7 +463,14 @@ class ReActAgent(ReActAgentBase):
                 else:
                     msg.content = list(res.content)
 
+                # Call TTS at the end for all TTS models to get final audio
                 if self.tts_model:
+                    # Remove old audio blocks before adding the final one
+                    msg.content = [
+                        block
+                        for block in msg.content
+                        if block.get("type") != "audio"
+                    ]
                     tts_response = await self.tts_model(msg, True)
                     msg.content.extend(tts_response.content)
 
@@ -613,6 +620,12 @@ class ReActAgent(ReActAgentBase):
             else:
                 res_msg.content = res.content
                 if self.tts_model:
+                    # Remove old audio blocks before adding the final one
+                    res_msg.content = [
+                        block
+                        for block in res_msg.content
+                        if block.get("type") != "audio"
+                    ]
                     tts_response = await self.tts_model(res_msg, True)
                     res_msg.content.extend(tts_response.content)
                 else:
