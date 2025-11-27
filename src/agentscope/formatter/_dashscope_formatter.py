@@ -163,6 +163,7 @@ class DashScopeChatFormatter(TruncatedFormatterBase):
         TextBlock,
         ImageBlock,
         AudioBlock,
+        VideoBlock,
         ToolUseBlock,
         ToolResultBlock,
     ]
@@ -428,6 +429,7 @@ class DashScopeMultiAgentFormatter(TruncatedFormatterBase):
         # Multimodal
         ImageBlock,
         AudioBlock,
+        VideoBlock,
         # Tool use
         ToolUseBlock,
         ToolResultBlock,
