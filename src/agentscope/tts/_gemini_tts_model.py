@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
 from ..message import Msg, AudioBlock, Base64Source
+from ..types import JSONSerializableObject
 
 if TYPE_CHECKING:
     from google.genai import Client
@@ -24,6 +25,8 @@ class GeminiTTSModel(TTSModelBase):
         model_name: str = "gemini-2.5-flash-preview-tts",
         api_key: str | None = None,
         voice: str = "Kore",
+        client_kwargs: dict = None,
+        generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the Gemini TTS model.
 
@@ -35,30 +38,35 @@ class GeminiTTSModel(TTSModelBase):
                 environment variable GOOGLE_API_KEY or GEMINI_API_KEY.
             voice (`str`):
                 The voice name to use. Defaults to "Kore".
+            client_kwargs (`dict`, default `None`):
+                The extra keyword arguments to initialize the Gemini client.
+            generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
+             optional):
+               The extra keyword arguments used in Gemini API generation,
+               e.g. `temperature`, `seed`.
         """
         super().__init__(model_name=model_name, stream=False)
 
         self.api_key = api_key
         self.voice = voice
         self._client: Client | None = None
-        self._connected = False
         # Text buffer for each message to accumulate text before synthesis
         # Key is msg.id, value is the accumulated text
         self._text_buffer: dict[str, str] = {}
+        self.client_kwargs = client_kwargs or {}
+        self.generate_kwargs = generate_kwargs or {}
 
     async def initialize(self) -> None:
         """Initialize the Gemini TTS model and create client."""
-        if self._connected:
+        if self._client is not None:
             return
         from google import genai
 
         # Create client (API key is set via environment variable)
         self._client = genai.Client(
             api_key=self.api_key,
+            **self.client_kwargs,
         )
-
-        self._connected = True
-        print("[Gemini TTS] TTS service initialized")
 
     async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
         """Append text to be synthesized and return TTS response.
@@ -75,10 +83,9 @@ class GeminiTTSModel(TTSModelBase):
         """
         from google.genai import types
 
-        if not self._connected or self._client is None:
-            raise RuntimeError(
-                "TTS model is not initialized. Call initialize() first.",
-            )
+        # Auto-initialize if not already initialized (lazy loading)
+        if self._client is None:
+            await self.initialize()
 
         msg_id = msg.id
         # Initialize text buffer for this message if not exists
@@ -89,26 +96,33 @@ class GeminiTTSModel(TTSModelBase):
         for block in msg.get_content_blocks():
             if block["type"] == "text":
                 text = block["text"]
-                self._text_buffer[msg_id] += text
+                self._text_buffer[msg_id] = text
 
         # Only call API for synthesis when last=True
         if last and self._text_buffer.get(msg_id):
             try:
-                # Call Gemini TTS API
-                response = self._client.models.generate_content(
-                    model=self.model_name,
-                    contents=self._text_buffer[msg_id],
-                    config=types.GenerateContentConfig(
-                        response_modalities=["AUDIO"],
-                        speech_config=types.SpeechConfig(
-                            voice_config=types.VoiceConfig(
-                                prebuilt_voice_config=types.PrebuiltVoiceConfig(  # noqa
-                                    voice_name=self.voice,
-                                ),
+                # Prepare config
+                config = types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(  # noqa
+                                voice_name=self.voice,
                             ),
                         ),
                     ),
+                    **self.generate_kwargs,
                 )
+
+                # Prepare kwargs
+                kwargs: dict[str, JSONSerializableObject] = {
+                    "model": self.model_name,
+                    "contents": self._text_buffer[msg_id],
+                    "config": config,
+                }
+
+                # Call Gemini TTS API
+                response = self._client.models.generate_content(**kwargs)
 
                 # Extract audio data
                 if (
@@ -152,8 +166,7 @@ class GeminiTTSModel(TTSModelBase):
                         ),
                     )
                     return TTSResponse(content=[audio_block])
-            except Exception as e:
-                print(f"[Gemini TTS Error] {e}")
+            except Exception:
                 import traceback
 
                 traceback.print_exc()
@@ -184,18 +197,8 @@ class GeminiTTSModel(TTSModelBase):
 
     async def close(self) -> None:
         """Close the Gemini TTS model and clean up resources."""
-        if not self._connected:
+        if self._client is None:
             return
 
         self._client = None
-        self._connected = False
         self._text_buffer.clear()
-
-    def is_initialized(self) -> bool:
-        """Check if the TTS model is initialized.
-
-        Returns:
-            `bool`:
-                True if initialized, False otherwise.
-        """
-        return self._connected

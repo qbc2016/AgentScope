@@ -80,11 +80,3 @@ class TTSModelBase(ABC):
     @abstractmethod
     async def close(self) -> None:
         """Close the TTS model and clean up resources."""
-
-    def is_initialized(self) -> bool:
-        """Check if the TTS model is initialized.
-
-        Returns:
-            `bool`: True if initialized, False otherwise
-        """
-        return False

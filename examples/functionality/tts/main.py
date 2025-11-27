@@ -13,7 +13,7 @@ from agentscope.tool import (
     execute_python_code,
     view_text_file,
 )
-from agentscope.tts import DashScopeTTSModel
+from agentscope.tts import DashScopeRealtimeTTSModel
 
 
 async def main() -> None:
@@ -35,7 +35,7 @@ async def main() -> None:
         formatter=DashScopeChatFormatter(),
         toolkit=toolkit,
         memory=InMemoryMemory(),
-        tts_model=DashScopeTTSModel(
+        tts_model=DashScopeRealtimeTTSModel(
             model_name="qwen-tts-realtime",
             api_key=os.environ.get("DASHSCOPE_API_KEY"),
             voice="Cherry",

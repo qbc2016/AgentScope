@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
 from ..message import Msg, AudioBlock, Base64Source
-
+from ..types import JSONSerializableObject
 
 if TYPE_CHECKING:
     from openai import OpenAI
@@ -25,6 +25,8 @@ class OpenAITTSModel(TTSModelBase):
         model_name: str = "gpt-4o-mini-tts",
         api_key: str | None = None,
         voice: str = "alloy",
+        client_kwargs: dict = None,
+        generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the OpenAI TTS model.
 
@@ -37,6 +39,12 @@ class OpenAITTSModel(TTSModelBase):
             voice (`str`):
                 The voice to use. Options: "alloy", "echo", "fable", "onyx",
                 "nova", "shimmer". Defaults to "alloy".
+            client_kwargs (`dict`, default `None`):
+                The extra keyword arguments to initialize the OpenAI client.
+            generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
+             optional):
+               The extra keyword arguments used in OpenAI API generation,
+               e.g. `temperature`, `seed`.
         """
         super().__init__(model_name=model_name, stream=False)
 
@@ -47,6 +55,8 @@ class OpenAITTSModel(TTSModelBase):
         # Text buffer for each message to accumulate text before synthesis
         # Key is msg.id, value is the accumulated text
         self._text_buffer: dict[str, str] = {}
+        self.client_kwargs = client_kwargs or {}
+        self.generate_kwargs = generate_kwargs or {}
 
     async def initialize(self) -> None:
         """Initialize the OpenAI TTS model and create client."""
@@ -55,10 +65,12 @@ class OpenAITTSModel(TTSModelBase):
 
         import openai
 
-        self._client = openai.OpenAI(api_key=self.api_key)
+        self._client = openai.OpenAI(
+            api_key=self.api_key,
+            **self.client_kwargs,
+        )
 
         self._connected = True
-        print("[OpenAI TTS] TTS service initialized")
 
     async def _call_api(self, msg: Msg, last: bool = False) -> TTSResponse:
         """Append text to be synthesized and return TTS response.
@@ -87,7 +99,7 @@ class OpenAITTSModel(TTSModelBase):
         for block in msg.get_content_blocks():
             if block["type"] == "text":
                 text = block["text"]
-                self._text_buffer[msg_id] += text
+                self._text_buffer[msg_id] = text
 
         # Only call API for synthesis when last=True
         if last and self._text_buffer.get(msg_id):
@@ -97,6 +109,7 @@ class OpenAITTSModel(TTSModelBase):
                     model=self.model_name,
                     voice=self.voice,
                     input=self._text_buffer[msg_id],
+                    **self.generate_kwargs,
                 )
 
                 # Get audio data
@@ -117,8 +130,7 @@ class OpenAITTSModel(TTSModelBase):
                     ),
                 )
                 return TTSResponse(content=[audio_block])
-            except Exception as e:
-                print(f"[OpenAI TTS Error] {e}")
+            except Exception:
                 import traceback
 
                 traceback.print_exc()
@@ -155,12 +167,3 @@ class OpenAITTSModel(TTSModelBase):
         self._client = None
         self._connected = False
         self._text_buffer.clear()
-
-    def is_initialized(self) -> bool:
-        """Check if the TTS model is initialized.
-
-        Returns:
-            `bool`:
-                True if initialized, False otherwise.
-        """
-        return self._connected
