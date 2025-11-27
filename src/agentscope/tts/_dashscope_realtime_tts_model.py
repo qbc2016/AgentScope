@@ -13,20 +13,17 @@ if TYPE_CHECKING:
     from dashscope.audio.qwen_tts_realtime import (
         QwenTtsRealtime,
         QwenTtsRealtimeCallback,
-        AudioFormat,
     )
 else:
     QwenTtsRealtime = "dashscope.audio.qwen_tts_realtime.QwenTtsRealtime"
     QwenTtsRealtimeCallback = (
         "dashscope.audio.qwen_tts_realtime.QwenTtsRealtimeCallback"
     )
-    AudioFormat = "dashscope.audio.qwen_tts_realtime.AudioFormat"
 
 try:
     from dashscope.audio.qwen_tts_realtime import (
         QwenTtsRealtime,
         QwenTtsRealtimeCallback,
-        AudioFormat,
     )
 except ImportError as exc:
     raise ImportError(
@@ -107,7 +104,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         model_name: str = "qwen-tts-realtime",
         api_key: str | None = None,
         voice: str = "Cherry",
-        response_format: AudioFormat = AudioFormat.PCM_24000HZ_MONO_16BIT,
         mode: str = "server_commit",
         cold_start_length: int = 8,
         client_kwargs: dict = None,
@@ -123,8 +119,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                 environment variable DASHSCOPE_API_KEY.
             voice (`str`):
                 The voice to use. Defaults to "Cherry".
-            response_format (`AudioFormat`):
-                The audio format. Defaults to PCM_24000HZ_MONO_16BIT.
             mode (`str`):
                 The TTS mode. Defaults to "server_commit".
             cold_start_length (`int`, defaults to `0`):
@@ -158,7 +152,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
 
         # Store configuration
         self.voice = voice
-        self.response_format = response_format
         self.mode = mode
         self.cold_start_length = cold_start_length
 
@@ -205,7 +198,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         # Update session with voice and format settings
         self._tts_client.update_session(
             voice=self.voice,
-            response_format=self.response_format,
             mode=self.mode,
             **self.generate_kwargs,
         )
