@@ -15,30 +15,36 @@ else:
 
 
 class OpenAITTSModel(TTSModelBase):
-    """OpenAI TTS model implementation."""
+    """OpenAI TTS model implementation.
+    For more details, please see the `official document
+    <https://platform.openai.com/docs/api-reference/audio>`_.
+    """
 
     # This model does not support streaming input (requires complete text)
     supports_streaming_input: bool = False
 
     def __init__(
         self,
+        api_key: str,
         model_name: str = "gpt-4o-mini-tts",
-        api_key: str | None = None,
         voice: str = "alloy",
         client_kwargs: dict = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the OpenAI TTS model.
 
+        .. note::
+            More details about the parameters, such as `model_name` and
+            `voice` can be found in the `official document
+            <https://platform.openai.com/docs/api-reference/audio/createSpeech>`_.
+
         Args:
-            model_name (`str`):
-                The TTS model name. Defaults to "gpt-4o-mini-tts".
-            api_key (`str`, optional):
-                The OpenAI API key. If not provided, will use
-                environment variable OPENAI_API_KEY.
-            voice (`str`):
-                The voice to use. Options: "alloy", "echo", "fable", "onyx",
-                "nova", "shimmer". Defaults to "alloy".
+            api_key (`str`):
+                The OpenAI API key.
+            model_name (`str`,  defaults to "gpt-4o-mini-tts"):
+                The TTS model name.
+            voice (`str`, defaults to "alloy"):
+                The voice to use.
             client_kwargs (`dict`, default `None`):
                 The extra keyword arguments to initialize the OpenAI client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \

@@ -1,23 +1,17 @@
 # -*- coding: utf-8 -*-
 """DashScope SDK TTS model implementation using MultiModalConversation API."""
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
 from ..message import Msg, AudioBlock, Base64Source
 from ..types import JSONSerializableObject
 
-if TYPE_CHECKING:
-    import dashscope
-else:
-    dashscope = "dashscope"
-
 
 class DashScopeTTSModel(TTSModelBase):
     """DashScope TTS model implementation using MultiModalConversation API.
-
-    This implementation uses the dashscope.MultiModalConversation.call() API
-    with qwen3-tts-flash model for TTS synthesis.
+    For more details, please see the `official document
+    <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2879134>`_.
     """
 
     # This model does not support streaming input (requires complete text)
@@ -28,21 +22,26 @@ class DashScopeTTSModel(TTSModelBase):
         api_key: str,
         model_name: str = "qwen3-tts-flash",
         voice: str = "Cherry",
-        language_type: str = "Chinese",
+        language_type: str = "Auto",
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the DashScope SDK TTS model.
 
+        .. note::
+            More details about the parameters, such as `model_name`,
+            `voice`, and language_type can be found in the `official document
+            <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2879134>`_.
+
         Args:
             api_key (`str`):
                 The DashScope API key. Required.
-            model_name (`str`):
-                The TTS model name. Defaults to "qwen3-tts-flash".
-            voice (`str`):
-                The voice to use. Defaults to "Cherry".
-            language_type (`str`):
-                The language type. Defaults to "Chinese". Should match the text
-                language for correct pronunciation and natural intonation.
+            model_name (`str`, defaults to "qwen3-tts-flash"):
+                The TTS model name.
+            voice (`str`, defaults to "Cherry"):
+                The voice to use.
+            language_type (`str`, default to "Auto"):
+                The language type. Should match the text language for
+                correct pronunciation and natural intonation.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
                The extra keyword arguments used in Dashscope TTS API

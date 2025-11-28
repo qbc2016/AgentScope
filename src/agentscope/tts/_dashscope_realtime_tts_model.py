@@ -2,7 +2,7 @@
 """DashScope Realtime TTS model implementation."""
 
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -32,7 +32,7 @@ except ImportError as exc:
     ) from exc
 
 
-class DashScopeRealtimeTTSCallback(QwenTtsRealtimeCallback):
+class _DashScopeRealtimeTTSCallback(QwenTtsRealtimeCallback):
     """DashScope Realtime TTS callback."""
 
     def __init__(self) -> None:
@@ -94,33 +94,43 @@ class DashScopeRealtimeTTSCallback(QwenTtsRealtimeCallback):
 
 
 class DashScopeRealtimeTTSModel(TTSModelBase):
-    """DashScope Qwen Realtime TTS Realtime model implementation."""
+    """DashScope Qwen Realtime TTS Realtime model implementation.
+    For more details, please see the `official document
+    <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2938790>`_.
+    """
 
     # This model supports streaming input (can send text incrementally)
     supports_streaming_input: bool = True
 
     def __init__(
         self,
-        model_name: str = "qwen-tts-realtime",
-        api_key: str | None = None,
+        api_key: str,
+        model_name: str = "qwen3-tts-flash-realtime",
         voice: str = "Cherry",
-        mode: str = "server_commit",
+        mode: Literal["server_commit", "commit"] = "server_commit",
         cold_start_length: int = 8,
         client_kwargs: dict = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the DashScope TTS model.
 
+        .. note::
+            More details about the parameters, such as `model_name`, `voice`,
+            and `mode` can be found in the `official document
+            <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2938790>`_.
+
         Args:
-            model_name (`str`):
-                The TTS model name. Defaults to "qwen-tts-realtime".
-            api_key (`str`, optional):
-                The DashScope API key. If not provided, will use
-                environment variable DASHSCOPE_API_KEY.
-            voice (`str`):
-                The voice to use. Defaults to "Cherry".
-            mode (`str`):
-                The TTS mode. Defaults to "server_commit".
+            api_key (`str`):
+                The DashScope API key.
+            model_name (`str`, defaults to "qwen-tts-realtime"):
+                The TTS model name.
+            voice (`str`, defaults to "Cherry".):
+                The voice to use.
+            mode (`Literal["server_commit", "commit"]`, default to "server
+            commit"):
+                The TTS mode. Defaults to "server_commit". "server_commit"
+                indicates that the server will automatically manage text
+                segmentation and determine the optimal timing for synthesis.
             cold_start_length (`int`, defaults to `0`):
                 The minimum text length (in characters) before sending TTS
                 requests. When set to 0, text will be sent immediately.
@@ -148,7 +158,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         dashscope.api_key = api_key
 
         # Save callback reference (for DashScope SDK)
-        self._dashscope_callback = DashScopeRealtimeTTSCallback()
+        self._dashscope_callback = _DashScopeRealtimeTTSCallback()
 
         # Store configuration
         self.voice = voice

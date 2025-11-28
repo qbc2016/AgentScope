@@ -142,6 +142,8 @@ class ReActAgent(ReActAgentBase):
                 the long-term memory and knowledge base(s).
             max_iters (`int`, defaults to `10`):
                 The maximum number of iterations of the reasoning-acting loops.
+            tts_model (`TTSModelBase | None` optional):
+                The TTS model used by the agent.
         """
         super().__init__()
 

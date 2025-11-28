@@ -15,29 +15,36 @@ else:
 
 
 class GeminiTTSModel(TTSModelBase):
-    """Gemini TTS model implementation."""
+    """Gemini TTS model implementation.
+    For more details, please see the `official document
+    <https://ai.google.dev/gemini-api/docs/speech-generation>`_.
+    """
 
     # This model does not support streaming input (requires complete text)
     supports_streaming_input: bool = False
 
     def __init__(
         self,
+        api_key: str,
         model_name: str = "gemini-2.5-flash-preview-tts",
-        api_key: str | None = None,
         voice: str = "Kore",
         client_kwargs: dict = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the Gemini TTS model.
 
+        .. note::
+            More details about the parameters, such as `model_name` and
+            `voice` can be found in the `official document
+            <https://ai.google.dev/gemini-api/docs/speech-generation>`_.
+
         Args:
-            model_name (`str`):
-                The TTS model name. Defaults to "gemini-2.5-flash-preview-tts".
-            api_key (`str`, optional):
-                The Gemini API key. If not provided, will use
-                environment variable GOOGLE_API_KEY or GEMINI_API_KEY.
-            voice (`str`):
-                The voice name to use. Defaults to "Kore".
+            api_key (`str`):
+                The Gemini API key.
+            model_name (`str`, defaults to "gemini-2.5-flash-preview-tts"):
+                The TTS model name.
+            voice (`str`, defaults to "Kore"):
+                The voice name to use.
             client_kwargs (`dict`, default `None`):
                 The extra keyword arguments to initialize the Gemini client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
