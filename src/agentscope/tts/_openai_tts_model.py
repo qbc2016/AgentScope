@@ -28,7 +28,7 @@ class OpenAITTSModel(TTSModelBase):
         api_key: str,
         model_name: str = "gpt-4o-mini-tts",
         voice: Literal["alloy", "ash", "ballad", "coral"] | str = "alloy",
-        client_kwargs: dict = None,
+        client_kwargs: dict | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the OpenAI TTS model.
@@ -48,7 +48,7 @@ class OpenAITTSModel(TTSModelBase):
              defaults to "alloy"):
                 The voice to use. Supported voices are "alloy", "ash",
                 "ballad", "coral", etc.
-            client_kwargs (`dict`, default `None`):
+            client_kwargs (`dict | None`, default `None`):
                 The extra keyword arguments to initialize the OpenAI client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):

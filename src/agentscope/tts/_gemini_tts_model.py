@@ -28,7 +28,7 @@ class GeminiTTSModel(TTSModelBase):
         api_key: str,
         model_name: str = "gemini-2.5-flash-preview-tts",
         voice: Literal["Zephyr", "Kore", "Orus", "Autonoe"] | str = "Kore",
-        client_kwargs: dict = None,
+        client_kwargs: dict | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the Gemini TTS model.
@@ -49,7 +49,7 @@ class GeminiTTSModel(TTSModelBase):
              defaults to "Kore"):
                 The voice name to use. Supported voices are "Zephyr",
                 "Kore", "Orus", "Autonoe", etc.
-            client_kwargs (`dict`, default `None`):
+            client_kwargs (`dict | None`, default `None`):
                 The extra keyword arguments to initialize the Gemini client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
