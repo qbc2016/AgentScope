@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Gemini TTS model implementation."""
 import base64
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -27,7 +27,7 @@ class GeminiTTSModel(TTSModelBase):
         self,
         api_key: str,
         model_name: str = "gemini-2.5-flash-preview-tts",
-        voice: str = "Kore",
+        voice: Literal["Zephyr", "Kore", "Orus", "Autonoe"] | str = "Kore",
         client_kwargs: dict = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
@@ -42,9 +42,13 @@ class GeminiTTSModel(TTSModelBase):
             api_key (`str`):
                 The Gemini API key.
             model_name (`str`, defaults to "gemini-2.5-flash-preview-tts"):
-                The TTS model name.
-            voice (`str`, defaults to "Kore"):
-                The voice name to use.
+                The TTS model name. Supported models are
+                "gemini-2.5-flash-preview-tts",
+                "gemini-2.5-pro-preview-tts", etc.
+            voice (`Literal["Zephyr", "Kore", "Orus", "Autonoe"] | str`,
+             defaults to "Kore"):
+                The voice name to use. Supported voices are "Zephyr",
+                "Kore", "Orus", "Autonoe", etc.
             client_kwargs (`dict`, default `None`):
                 The extra keyword arguments to initialize the Gemini client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \

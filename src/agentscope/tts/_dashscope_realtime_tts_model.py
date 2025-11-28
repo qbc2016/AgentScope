@@ -106,7 +106,8 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         self,
         api_key: str,
         model_name: str = "qwen3-tts-flash-realtime",
-        voice: str = "Cherry",
+        voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
+        | str = "Cherry",
         mode: Literal["server_commit", "commit"] = "server_commit",
         cold_start_length: int = 8,
         client_kwargs: dict = None,
@@ -123,9 +124,12 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
             api_key (`str`):
                 The DashScope API key.
             model_name (`str`, defaults to "qwen-tts-realtime"):
-                The TTS model name.
-            voice (`str`, defaults to "Cherry".):
-                The voice to use.
+                The TTS model name. Supported models are
+                "qwen3-tts-flash-realtime", "qwen-tts-realtime", etc.
+            voice (`Literal["Cherry", "Serena", "Ethan", "Chelsie"] | str`,
+             defaults to "Cherry".):
+                The voice to use. Supported voices are "Cherry", "Serena",
+                "Ethan", "Chelsie", etc.
             mode (`Literal["server_commit", "commit"]`, default to "server
             commit"):
                 The TTS mode. Defaults to "server_commit". "server_commit"

@@ -7,6 +7,7 @@ from typing import Type, Any, AsyncGenerator, Literal
 
 from pydantic import BaseModel, ValidationError, Field
 
+from ._utils import _AsyncNullContext
 from ._react_agent_base import ReActAgentBase
 from .._logging import logger
 from ..formatter import FormatterBase
@@ -23,21 +24,6 @@ from ..plan import PlanNotebook
 from ..tool import Toolkit, ToolResponse
 from ..tracing import trace_reply
 from ..tts import TTSModelBase
-
-
-class _AsyncNullContext:
-    """An async null context manager."""
-
-    async def __aenter__(self) -> None:
-        return None
-
-    async def __aexit__(
-        self,
-        exc_type: Any,
-        exc_val: Any,
-        exc_tb: Any,
-    ) -> None:
-        return None
 
 
 class _QueryRewriteModel(BaseModel):

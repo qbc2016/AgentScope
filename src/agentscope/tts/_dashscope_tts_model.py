@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """DashScope SDK TTS model implementation using MultiModalConversation API."""
-from typing import Any
+from typing import Any, Literal
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -21,7 +21,8 @@ class DashScopeTTSModel(TTSModelBase):
         self,
         api_key: str,
         model_name: str = "qwen3-tts-flash",
-        voice: str = "Cherry",
+        voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
+        | str = "Cherry",
         language_type: str = "Auto",
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
@@ -36,9 +37,12 @@ class DashScopeTTSModel(TTSModelBase):
             api_key (`str`):
                 The DashScope API key. Required.
             model_name (`str`, defaults to "qwen3-tts-flash"):
-                The TTS model name.
-            voice (`str`, defaults to "Cherry"):
-                The voice to use.
+                The TTS model name. Supported models are qwen3-tts-flash,
+                qwen-tts, etc.
+            voice (`Literal["Cherry", "Serena", "Ethan", "Chelsie"] | str`, \
+             defaults to "Cherry"):
+                The voice to use. Supported voices are "Cherry", "Serena",
+                "Ethan", "Chelsie", etc.
             language_type (`str`, default to "Auto"):
                 The language type. Should match the text language for
                 correct pronunciation and natural intonation.

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """OpenAI TTS model implementation."""
 import base64
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -27,7 +27,7 @@ class OpenAITTSModel(TTSModelBase):
         self,
         api_key: str,
         model_name: str = "gpt-4o-mini-tts",
-        voice: str = "alloy",
+        voice: Literal["alloy", "ash", "ballad", "coral"] | str = "alloy",
         client_kwargs: dict = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
@@ -42,9 +42,12 @@ class OpenAITTSModel(TTSModelBase):
             api_key (`str`):
                 The OpenAI API key.
             model_name (`str`,  defaults to "gpt-4o-mini-tts"):
-                The TTS model name.
-            voice (`str`, defaults to "alloy"):
-                The voice to use.
+                The TTS model name. Supported models are "gpt-4o-mini-tts",
+                "tts-1", etc.
+            voice (`Literal["alloy", "ash", "ballad", "coral"] | str `,
+             defaults to "alloy"):
+                The voice to use. Supported voices are "alloy", "ash",
+                "ballad", "coral", etc.
             client_kwargs (`dict`, default `None`):
                 The extra keyword arguments to initialize the OpenAI client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
