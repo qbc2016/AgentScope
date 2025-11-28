@@ -31,8 +31,7 @@ _config = _ConfigCls(
     ),
     created_at=ContextVar(
         "created_at",
-        default=datetime.now().strftime("%H%M%S_")
-        + _generate_random_suffix(4),
+        default=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
     ),
     trace_enabled=ContextVar(
         "trace_enabled",
