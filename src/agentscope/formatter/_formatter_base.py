@@ -154,8 +154,8 @@ class FormatterBase:
                         else:
                             # Don't save, include base64 data directly in text
                             textual_output.append(
-                                f"The returned {block['type']} base64 data:"
-                                f" {source['data']}",
+                                f"The returned {block['type']} contains "
+                                f"base64 data.",
                             )
                             # Optionally add to multimodal_data with empty path
                             multimodal_data.append(("", block))
