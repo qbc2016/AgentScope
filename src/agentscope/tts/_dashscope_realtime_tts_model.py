@@ -265,17 +265,18 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         sent_length = self._sent_length[msg_id]
         unsent_length = current_length - sent_length
 
-        # Determine if we should send text based on cold start logic
-        # Send if:
-        # 1. cold_start_length is 0 (immediate send)
-        # 2. unsent text length reaches cold_start_length threshold (cold
-        # start applies each time)
-        # 3. last=True (always send remaining text)
-        should_send = (
-            self.cold_start_length == 0
-            or unsent_length >= self.cold_start_length
-            or last
-        )
+        # Determine if we should send text based on whether it's the first send
+        if sent_length == 0:
+            # First send: apply cold_start_length check
+            should_send = (
+                self.cold_start_length == 0
+                or unsent_length >= self.cold_start_length
+                or last
+            )
+        else:
+            # Subsequent sends: no cold_start check, only check if there's
+            # data to send, or it's the last chunk
+            should_send = unsent_length > 0 or last
 
         if should_send and unsent_length > 0:
             # Send text from sent_length to current_length
