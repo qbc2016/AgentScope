@@ -21,7 +21,7 @@ from .._logging import logger
 from .._utils._common import _json_loads_with_repair
 from ..message import ToolUseBlock, TextBlock, ThinkingBlock
 from ..tracing import trace_llm
-
+from ..types import JSONSerializableObject
 
 if TYPE_CHECKING:
     from ollama._types import ChatResponse as OllamaChatResponse
@@ -40,6 +40,8 @@ class OllamaChatModel(ChatModelBase):
         keep_alive: str = "5m",
         enable_thinking: bool | None = None,
         host: str | None = None,
+        client_kwargs: dict | None = None,
+        generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the Ollama chat model.
@@ -63,6 +65,11 @@ class OllamaChatModel(ChatModelBase):
            host (`str | None`, default `None`):
                The host address of the Ollama server. If None, uses the
                default address (typically http://localhost:11434).
+            client_kwargs (`dict | None`, default `None`):
+                The extra keyword arguments to initialize the Ollama client.
+            generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
+             optional):
+               The extra keyword arguments used in Ollama API generation.
            **kwargs (`Any`):
                Additional keyword arguments to pass to the base chat model
                class.
@@ -80,11 +87,13 @@ class OllamaChatModel(ChatModelBase):
 
         self.client = ollama.AsyncClient(
             host=host,
+            **(client_kwargs or {}),
             **kwargs,
         )
         self.options = options
         self.keep_alive = keep_alive
         self.think = enable_thinking
+        self.generate_kwargs = generate_kwargs or {}
 
     @trace_llm
     async def __call__(
@@ -130,6 +139,7 @@ class OllamaChatModel(ChatModelBase):
             "stream": self.stream,
             "options": self.options,
             "keep_alive": self.keep_alive,
+            **self.generate_kwargs,
             **kwargs,
         }
 
