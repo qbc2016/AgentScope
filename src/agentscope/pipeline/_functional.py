@@ -163,17 +163,6 @@ async def stream_printing_messages(
 
         # Check if this is the end signal
         if isinstance(printing_msg, str) and printing_msg == end_signal:
-            # Process any remaining messages in queue
-            while not queue.empty():
-                try:
-                    remaining_msg = queue.get_nowait()
-                    if not (
-                        isinstance(remaining_msg, str)
-                        and remaining_msg == end_signal
-                    ):
-                        yield remaining_msg
-                except asyncio.QueueEmpty:
-                    break
             break
 
         yield printing_msg
@@ -181,4 +170,4 @@ async def stream_printing_messages(
     # Check exception after processing all messages
     exception = task.exception()
     if exception is not None:
-        raise exception
+        raise exception from None
