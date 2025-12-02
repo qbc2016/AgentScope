@@ -52,7 +52,7 @@ html_title = (
     "<span style='font-weight: 700; color: #2196f3;'>AgentScope</span>"
 )
 html_logo = "../../_static/images/logo.svg"
-html_favicon = "../_static/images/logo.svg"
+html_favicon = "../../_static/images/logo.svg"
 html_static_path = ["../../_static"]
 
 html_css_files = [
