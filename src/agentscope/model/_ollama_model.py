@@ -40,39 +40,40 @@ class OllamaChatModel(ChatModelBase):
         keep_alive: str = "5m",
         enable_thinking: bool | None = None,
         host: str | None = None,
-        client_kwargs: dict | None = None,
+        client_kwargs: dict[str, JSONSerializableObject] | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the Ollama chat model.
 
         Args:
-           model_name (`str`):
-               The name of the model.
-           stream (`bool`, default `True`):
-               Streaming mode or not.
-           options (`dict`, default `None`):
-               Additional parameters to pass to the Ollama API. These can
-               include temperature etc.
-           keep_alive (`str`, default `"5m"`):
-               Duration to keep the model loaded in memory. The format is a
-               number followed by a unit suffix (s for seconds, m for minutes
-               , h for hours).
-           enable_thinking (`bool | None`, default `None`)
-               Whether enable thinking or not, only for models such as qwen3,
-               deepseek-r1, etc. For more details, please refer to
-               https://ollama.com/search?c=thinking
-           host (`str | None`, default `None`):
-               The host address of the Ollama server. If None, uses the
-               default address (typically http://localhost:11434).
-            client_kwargs (`dict | None`, default `None`):
+            model_name (`str`):
+                The name of the model.
+            stream (`bool`, default `True`):
+                Streaming mode or not.
+            options (`dict`, default `None`):
+                Additional parameters to pass to the Ollama API. These can
+                include temperature etc.
+            keep_alive (`str`, default `"5m"`):
+                Duration to keep the model loaded in memory. The format is a
+                number followed by a unit suffix (s for seconds, m for minutes
+                , h for hours).
+            enable_thinking (`bool | None`, default `None`)
+                Whether enable thinking or not, only for models such as qwen3,
+                deepseek-r1, etc. For more details, please refer to
+                https://ollama.com/search?c=thinking
+            host (`str | None`, default `None`):
+                The host address of the Ollama server. If None, uses the
+                default address (typically http://localhost:11434).
+            client_kwargs (`dict[str, JSONSerializableObject] | None`, \
+             optional):
                 The extra keyword arguments to initialize the Ollama client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
-               The extra keyword arguments used in Ollama API generation.
-           **kwargs (`Any`):
-               Additional keyword arguments to pass to the base chat model
-               class.
+                The extra keyword arguments used in Ollama API generation.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the base chat model
+                class.
         """
 
         try:
