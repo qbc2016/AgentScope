@@ -166,7 +166,7 @@ class ReActAgent(ReActAgentBase):
                 long_term_memory.retrieve_from_memory,
             )
         # Add a meta tool function to allow agent-controlled tool management
-        if enable_meta_tool or plan_notebook:
+        if enable_meta_tool:
             self.toolkit.register_tool_function(
                 self.toolkit.reset_equipped_tools,
             )
