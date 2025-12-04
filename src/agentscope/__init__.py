@@ -66,7 +66,7 @@ from .hooks import _equip_as_studio_hooks
 from ._version import __version__
 
 # Raise each warning only once
-warnings.filterwarnings('once')
+warnings.filterwarnings("once", category=DeprecationWarning)
 
 
 def init(
