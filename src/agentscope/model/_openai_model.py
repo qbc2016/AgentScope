@@ -201,6 +201,8 @@ class OpenAIChatModel(ChatModelBase):
                 warnings.warn(
                     '"any" is deprecated and will be removed in a future '
                     "version.",
+                    DeprecationWarning,
+                    stacklevel=2,
                 )
                 tool_choice = "required"
             self._validate_tool_choice(tool_choice, tools)

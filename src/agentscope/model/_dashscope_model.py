@@ -177,10 +177,12 @@ class DashScopeChatModel(ChatModelBase):
             # Handle deprecated "any" option with warning
             if tool_choice == "any":
                 warnings.warn(
-                    '"any" is deprecated and will be removed in a future '
-                    "version.",
+                    '"any" is deprecated and not supported by DashScope API. '
+                    'It will be converted to "auto".',
+                    DeprecationWarning,
+                    stacklevel=2,
                 )
-                tool_choice = "required"
+                tool_choice = "auto"
 
             self._validate_tool_choice(tool_choice, tools)
             kwargs["tool_choice"] = self._format_tool_choice(tool_choice)
@@ -526,6 +528,8 @@ class DashScopeChatModel(ChatModelBase):
             warnings.warn(
                 "The tool_choice 'required' is not supported by DashScope "
                 "API and will be automatically converted to 'auto'.",
+                DeprecationWarning,
+                stacklevel=2,
             )
             return "auto"
         return {"type": "function", "function": {"name": tool_choice}}
