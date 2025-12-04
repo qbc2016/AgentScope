@@ -212,7 +212,7 @@ class DashScopeChatModel(ChatModelBase):
         last_exception: BaseException | None = None
         for attempt in range(self.max_retries + 1):
             try:
-                result = await self._call_api(
+                result: ChatResponse = await self._call_api(
                     messages,
                     tools,
                     tool_choice,
