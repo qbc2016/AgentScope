@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # mypy: disable-error-code="dict-item"
 """The Google Gemini model in agentscope."""
+import warnings
 from datetime import datetime
 from typing import (
     AsyncGenerator,
@@ -142,10 +143,9 @@ class GeminiChatModel(ChatModelBase):
         if tool_choice:
             # Handle deprecated "any" option with warning
             if tool_choice == "any":
-                logger.warning(
-                    'tool_choice="any" is deprecated and will be removed in a '
-                    "future version. It will be automatically converted to "
-                    '"required". Please use "required" instead.',
+                warnings.warn(
+                    '"any" is deprecated and will be removed in a future '
+                    "version.",
                 )
                 tool_choice = "required"
             self._validate_tool_choice(tool_choice, tools)

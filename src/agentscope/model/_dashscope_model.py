@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """The dashscope API model classes."""
 import collections
+import warnings
 from datetime import datetime
 from http import HTTPStatus
 from typing import (
@@ -181,12 +182,12 @@ class DashScopeChatModel(ChatModelBase):
         if tool_choice:
             # Handle deprecated "any" option with warning
             if tool_choice == "any":
-                logger.warning(
-                    'tool_choice="any" is deprecated and will be removed in a '
-                    "future version. It will be automatically converted to "
-                    '"required". Please use "required" instead.',
+                warnings.warn(
+                    '"any" is deprecated and will be removed in a future '
+                    "version.",
                 )
                 tool_choice = "required"
+
             self._validate_tool_choice(tool_choice, tools)
             kwargs["tool_choice"] = self._format_tool_choice(tool_choice)
 
@@ -528,13 +529,9 @@ class DashScopeChatModel(ChatModelBase):
         if tool_choice in ["auto", "none"]:
             return tool_choice
         if tool_choice == "required":
-            global _warned_required
-            if not _warned_required:
-                logger.warning(
-                    "tool_choice 'required' is not supported by DashScope "
-                    "API. Supported options are 'auto', 'none', or specific "
-                    "function name. Automatically using 'auto' instead.",
-                )
-                _warned_required = True
+            warnings.warn(
+                "The tool_choice 'required' is not supported by DashScope "
+                "API and will be automatically converted to 'auto'.",
+            )
             return "auto"
         return {"type": "function", "function": {"name": tool_choice}}

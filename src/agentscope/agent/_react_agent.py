@@ -189,7 +189,7 @@ class ReActAgent(ReActAgentBase):
             self.plan_notebook = plan_notebook
             # When enable_meta_tool is True, plan tools are in plan_related
             # group and active by agent.
-            # Otherwise, plan tools in bassic group and always active.
+            # Otherwise, plan tools in basic group and always active.
             if enable_meta_tool:
                 self.toolkit.create_tool_group(
                     "plan_related",
@@ -263,7 +263,7 @@ class ReActAgent(ReActAgentBase):
         await self._retrieve_from_knowledge(msg)
 
         # Control if LLM generates tool calls in each reasoning step
-        tool_choice: Literal["auto", "none", "any", "required"] | None = None
+        tool_choice: Literal["auto", "none", "required"] | None = None
 
         # -------------- Structured output management --------------
         self._required_structured_model = structured_model
@@ -388,7 +388,7 @@ class ReActAgent(ReActAgentBase):
 
     async def _reasoning(
         self,
-        tool_choice: Literal["auto", "none", "any", "required"] | None = None,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
         """Perform the reasoning process."""
         if self.plan_notebook:

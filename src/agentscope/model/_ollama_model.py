@@ -144,13 +144,6 @@ class OllamaChatModel(ChatModelBase):
             kwargs["tools"] = self._format_tools_json_schemas(tools)
 
         if tool_choice:
-            # Handle deprecated "any" option with warning
-            if tool_choice == "any":
-                logger.warning(
-                    'tool_choice="any" is deprecated and will be removed in a '
-                    "future version. It will be automatically converted to "
-                    '"required". Please use "required" instead.',
-                )
             logger.warning("Ollama does not support tool_choice yet, ignored.")
 
         if structured_model:
