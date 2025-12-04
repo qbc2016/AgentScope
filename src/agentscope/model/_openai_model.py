@@ -198,11 +198,11 @@ class OpenAIChatModel(ChatModelBase):
         if tool_choice:
             # Handle deprecated "any" option with warning
             if tool_choice == "any":
-                warnings.warn(
+                warnings.filterwarnings(
+                    "once",
                     '"any" is deprecated and will be removed in a future '
                     "version.",
                     DeprecationWarning,
-                    stacklevel=2,
                 )
                 tool_choice = "required"
             self._validate_tool_choice(tool_choice, tools)
