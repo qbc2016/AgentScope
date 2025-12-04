@@ -63,6 +63,7 @@ The TTS models return ``TTSResponse`` objects containing ``AudioBlock`` instance
 
 import asyncio
 import os
+from typing import AsyncGenerator
 
 from agentscope.message import Msg
 from agentscope.tts import (
@@ -81,6 +82,7 @@ async def example_basic_realtime_tts() -> None:
         api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
         model_name="qwen3-tts-flash-realtime",
         voice="Cherry",
+        stream=False,  # Set to False for simpler example
     )
 
     # Connect to the TTS service
@@ -249,6 +251,7 @@ async def example_streaming_push_synthesize() -> None:
         api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
         model_name="qwen3-tts-flash-realtime",
         voice="Cherry",
+        stream=False,  # Set to False for simpler example
     )
 
     await tts_model.connect()
@@ -293,7 +296,15 @@ async def example_streaming_push_synthesize() -> None:
     final_msg.id = msg_id
 
     final_response = await tts_model.synthesize(final_msg)
-    print(f"Final synthesis: {len(final_response.content)} audio blocks")
+    # Handle both TTSResponse and AsyncGenerator cases
+    if isinstance(final_response, AsyncGenerator):
+        async for chunk in final_response:
+            if chunk.content:
+                print(
+                    f"Final synthesis chunk: {len(chunk.content)} audio blocks",
+                )
+    else:
+        print(f"Final synthesis: {len(final_response.content)} audio blocks")
 
     await tts_model.close()
 
@@ -329,10 +340,7 @@ async def example_streaming_output() -> None:
     # Synthesize returns an async generator when stream=True
     response_generator = await tts_model.synthesize(msg)
 
-    if isinstance(response_generator, TTSResponse):
-        # Non-streaming mode
-        print(f"Received {len(response_generator.content)} audio blocks")
-    else:
+    if isinstance(response_generator, AsyncGenerator):
         # Streaming mode - iterate over audio chunks
         async for chunk in response_generator:
             if chunk.content:
@@ -340,6 +348,9 @@ async def example_streaming_output() -> None:
                     f"Received audio chunk: {len(chunk.content)} blocks, is_last={chunk.is_last}",
                 )
                 # Process audio chunk here (e.g., play audio)
+    else:
+        # Non-streaming mode
+        print(f"Received {len(response_generator.content)} audio blocks")
 
     await tts_model.close()
 
@@ -360,6 +371,7 @@ async def example_context_manager() -> None:
         api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
         model_name="qwen3-tts-flash-realtime",
         voice="Cherry",
+        stream=False,  # Set to False for simpler example
     ) as tts_model:
         msg = Msg(
             name="assistant",
@@ -412,6 +424,7 @@ async def example_configuration() -> None:
         mode="server_commit",  # Server manages text segmentation
         cold_start_length=10,  # Wait for 10 characters before sending
         cold_start_words=3,  # Or wait for 3 words
+        stream=False,  # Set to False for simpler example
     )
 
     await tts_model.connect()
@@ -444,6 +457,7 @@ async def example_handling_response() -> None:
         api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
         model_name="qwen3-tts-flash-realtime",
         voice="Cherry",
+        stream=False,  # Set to False for simpler example
     )
 
     await tts_model.connect()
