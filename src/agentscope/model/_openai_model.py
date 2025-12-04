@@ -134,10 +134,10 @@ class OpenAIChatModel(ChatModelBase):
                 required, and `name` field is optional.
             tools (`list[dict]`, default `None`):
                 The tools JSON schemas that the model can use.
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
+            tool_choice (`Literal["auto", "none", "required"] | str \
             | None`, default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "any", "required", or specific tool
+                 Can be "auto", "none", "required", or specific tool
                  name. For more details, please refer to
                  https://platform.openai.com/docs/api-reference/responses/create#responses_create-tool_choice
             structured_model (`Type[BaseModel] | None`, default `None`):
@@ -529,7 +529,7 @@ class OpenAIChatModel(ChatModelBase):
         """Format tool_choice parameter for API compatibility.
 
         Args:
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
+            tool_choice (`Literal["auto", "none", "required"] | str \
             | None`, default `None`):
                 Controls which (if any) tool is called by the model.
                  Can be "auto", "none", "required", or specific tool name.
