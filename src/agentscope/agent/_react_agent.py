@@ -408,8 +408,6 @@ class ReActAgent(ReActAgentBase):
     ) -> Msg:
         """Perform the reasoning process."""
 
-        tts_context = self.tts_model or _AsyncNullContext()
-
         if self.plan_notebook:
             # Insert the reasoning hint from the plan notebook
             hint_msg = await self.plan_notebook.get_current_hint()
@@ -438,29 +436,40 @@ class ReActAgent(ReActAgentBase):
         # handle output from the model
         interrupted_by_user = False
         msg = None
+
+        # TTS model context manager
+        tts_context = self.tts_model or _AsyncNullContext()
+
         try:
             async with tts_context:
                 msg = Msg(name=self.name, content=[], role="assistant")
                 if self.model.stream:
                     async for content_chunk in res:
                         msg.content = content_chunk.content
+
+                        # The speech generated from multimodal (audio) models
+                        msg.speech = msg.get_content_blocks("audio") or None
+
+                        # Push to TTS model if available
                         if self.tts_model:
-                            tts_response = await self.tts_model(msg, False)
-                            msg.content.extend(tts_response.content)
+                            tts_res = await self.tts_model.push(msg)
+                            msg.speech = tts_res.content
+
                         await self.print(msg, False)
+
                 else:
                     msg.content = list(res.content)
 
-                # Call TTS at the end for all TTS models to get final audio
                 if self.tts_model:
-                    # Remove old audio blocks before adding the final one
-                    msg.content = [
-                        block
-                        for block in msg.content
-                        if block.get("type") != "audio"
-                    ]
-                    tts_response = await self.tts_model(msg, True)
-                    msg.content.extend(tts_response.content)
+                    # Push to TTS model and block to receive the full speech
+                    # synthesis result
+                    tts_res = await self.tts_model.synthesize(msg)
+                    if self.tts_model.stream:
+                        async for tts_chunk in tts_res:
+                            msg.speech = tts_chunk.content
+                            await self.print(msg, False)
+                    else:
+                        msg.speech = tts_res.content
 
                 await self.print(msg, True)
 
@@ -600,7 +609,7 @@ class ReActAgent(ReActAgentBase):
                 async for chunk in res:
                     res_msg.content = chunk.content
                     if self.tts_model:
-                        tts_response = await self.tts_model(res_msg, False)
+                        tts_response = await self.tts_model.push(res_msg)
                         res_msg.content.extend(tts_response.content)
 
                     await self.print(res_msg, False)
@@ -614,7 +623,7 @@ class ReActAgent(ReActAgentBase):
                         for block in res_msg.content
                         if block.get("type") != "audio"
                     ]
-                    tts_response = await self.tts_model(res_msg, True)
+                    tts_response = await self.tts_model.synthesize(res_msg)
                     res_msg.content.extend(tts_response.content)
                 else:
                     res_msg.content = list(res_msg.content)

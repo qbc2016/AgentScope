@@ -2,7 +2,7 @@
 """The TTS model base class."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from agentscope.message import Msg
 
@@ -10,32 +10,51 @@ from ._tts_response import TTSResponse
 
 
 class TTSModelBase(ABC):
-    """Base class for TTS models."""
+    """Base class for TTS models in AgentScope.
 
-    # Class attribute to indicate if this TTS model supports streaming input
+    This base class provides general abstraction for both realtime and
+    non-realtime TTS models (depending on whether streaming input is
+    supported).
+
+    For non-realtime TTS models, the `synthesize` method is used to
+    synthesize speech from the input text. You only need to implement the
+    `_call_api` method to handle the TTS API calls.
+
+    For realtime TTS models, its lifecycle is managed via the async context
+    manager or calling `connect` and `close` methods. The `push` method will
+    append text chunks and return the received TTS response, while the
+    `synthesize` method will block until the full speech is synthesized.
+    You need to implement the `connect`, `close`, and `_call_api` methods
+    to handle the TTS API calls and resource management.
+    """
+
     supports_streaming_input: bool = False
+    """If the TTS model class supports streaming input."""
 
-    def __init__(
-        self,
-        model_name: str,
-        stream: bool = True,
-    ) -> None:
+    model_name: str
+    """The name of the TTS model."""
+
+    stream: bool
+    """Whether to use streaming synthesis if supported by the model."""
+
+    def __init__(self, model_name: str, stream: bool) -> None:
         """Initialize the TTS model base class.
 
         Args:
             model_name (`str`):
                 The name of the TTS model
-            stream (`bool`):
-                Whether to send text in streaming mode (send incrementally
-                as text arrives)
-                or batch mode (wait for complete text before sending).
-                Defaults to True (streaming mode).
+            stream  (`bool`):
+                Whether to use streaming synthesis if supported by the model.
         """
         self.model_name = model_name
         self.stream = stream
 
     async def __aenter__(self) -> "TTSModelBase":
-        await self.initialize()
+        """Enter the async context manager and initialize resources if
+        needed."""
+        if self.supports_streaming_input:
+            await self.connect()
+
         return self
 
     async def __aexit__(
@@ -44,31 +63,52 @@ class TTSModelBase(ABC):
         exc_value: Any,
         traceback: Any,
     ) -> None:
-        await self.close()
+        """Exit the async context manager and clean up resources if needed."""
+        if self.supports_streaming_input:
+            await self.close()
 
-    @abstractmethod
-    async def initialize(self) -> None:
-        """Initialize the TTS model and prepare it for use.
+    async def connect(self) -> None:
+        """Connect to the TTS model and initialize resources. For non-realtime
+        TTS models, leave this method empty.
 
-        This method should establish any necessary connections,
-        configure the service, and prepare the model for synthesis.
+        .. note:: Only needs to be implemented for realtime TTS models.
+
         """
+        raise NotImplementedError(
+            f"The connect method is not implemented for "
+            f"{self.__class__.__name__} class.",
+        )
 
-    async def __call__(
+    async def close(self) -> None:
+        """Close the connection to the TTS model and clean up resources. For
+        non-realtime TTS models, leave this method empty.
+
+        .. note:: Only needs to be implemented for realtime TTS models.
+
+        """
+        raise NotImplementedError(
+            "The close method is not implemented for "
+            f"{self.__class__.__name__} class.",
+        )
+
+    async def push(
         self,
         msg: Msg,
-        last: bool = False,
         **kwargs: Any,
     ) -> TTSResponse:
-        """Call the TTS model to synthesize text from a message.
+        """Append text to be synthesized and return the received TTS response.
+        Note this method is non-blocking, and maybe return an empty response
+        if no audio is received yet.
 
-        This is a convenience method that delegates to `_call_api`.
+        To receive all the synthesized speech, call the `synthesize` method
+        after pushing all the text chunks.
+
+        .. note:: Only needs to be implemented for realtime TTS models.
 
         Args:
             msg (`Msg`):
-                The message to be synthesized.
-            last (`bool`):
-                Whether this is the last chunk of text. Defaults to False.
+                The message to be synthesized. The `msg.id` identifies the
+                streaming input request.
             **kwargs (`Any`):
                 Additional keyword arguments to pass to the TTS API call.
 
@@ -76,35 +116,28 @@ class TTSModelBase(ABC):
             `TTSResponse`:
                 The TTSResponse containing audio blocks.
         """
-        return await self._call_api(msg, last=last, **kwargs)
+        raise NotImplementedError(
+            "The push method is not implemented for "
+            f"{self.__class__.__name__} class.",
+        )
 
     @abstractmethod
-    async def _call_api(
+    async def synthesize(
         self,
-        msg: Msg,
-        last: bool = False,
+        msg: Msg | None = None,
         **kwargs: Any,
-    ) -> TTSResponse:
-        """Append text to be synthesized and return TTS response.
+    ) -> TTSResponse | AsyncGenerator[TTSResponse, None]:
+        """Synthesize speech from the appended text. Different from the `push`
+        method, this method will block until the full speech is synthesized.
 
         Args:
-            msg (`Msg`): The msg to be synthesized
-            last (`bool`): Whether this is the last chunk of text.
-             Defaults to False.
-            **kwargs (`Any`): Additional keyword arguments to pass to the
-             TTS API call.
+            msg (`Msg | None`, defaults to `None`):
+                The message to be synthesized. If `None`, this method will
+                wait for all previously pushed text to be synthesized, and
+                return the last synthesized TTSResponse.
 
         Returns:
-            `TTSResponse`: The TTSResponse containing audio blocks.
-
-        Note:
-            - If `stream=True` (default): Text is sent incrementally as it
-            arrives. Each call to `append_text()` immediately sends the text to
-              TTS service.
-            - If `stream=False`: Text is buffered until `last=True` is passed,
-              then all buffered text is sent at once.
+            `TTSResponse | AsyncGenerator[TTSResponse, None]`:
+                The TTSResponse containing audio blocks, or an async generator
+                yielding TTSResponse objects in streaming mode.
         """
-
-    @abstractmethod
-    async def close(self) -> None:
-        """Close the TTS model and clean up resources."""

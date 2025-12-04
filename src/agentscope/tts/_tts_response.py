@@ -50,3 +50,6 @@ class TTSResponse(DictMixin):
         default_factory=lambda: None,
     )
     """The metadata of the TTS response."""
+
+    is_last: bool = True
+    """Whether this is the last response in a stream of TTS responses."""

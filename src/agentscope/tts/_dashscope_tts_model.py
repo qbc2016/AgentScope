@@ -1,11 +1,28 @@
 # -*- coding: utf-8 -*-
 """DashScope SDK TTS model implementation using MultiModalConversation API."""
-from typing import Any, Literal
+from typing import (
+    Any,
+    Literal,
+    AsyncGenerator,
+    Generator,
+    TYPE_CHECKING,
+)
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
 from ..message import Msg, AudioBlock, Base64Source
 from ..types import JSONSerializableObject
+
+if TYPE_CHECKING:
+    from dashscope.api_entities.dashscope_response import (
+        MultiModalConversationResponse,
+    )
+
+else:
+    MultiModalConversationResponse = (
+        "dashscope.api_entities.dashscope_response."
+        "MultiModalConversationResponse"
+    )
 
 
 class DashScopeTTSModel(TTSModelBase):
@@ -14,8 +31,8 @@ class DashScopeTTSModel(TTSModelBase):
     <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2879134>`_.
     """
 
-    # This model does not support streaming input (requires complete text)
     supports_streaming_input: bool = False
+    """Whether the model supports streaming input."""
 
     def __init__(
         self,
@@ -24,14 +41,14 @@ class DashScopeTTSModel(TTSModelBase):
         voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
         | str = "Cherry",
         language_type: str = "Auto",
+        stream: bool = True,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the DashScope SDK TTS model.
 
-        .. note::
-            More details about the parameters, such as `model_name`,
-            `voice`, and language_type can be found in the `official document
-            <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2879134>`_.
+        .. note:: More details about the parameters, such as `model_name`,
+        `voice`, and language_type can be found in the `official document
+        <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2879134>`_.
 
         Args:
             api_key (`str`):
@@ -49,147 +66,97 @@ class DashScopeTTSModel(TTSModelBase):
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
                The extra keyword arguments used in Dashscope TTS API
-               generation,
-               e.g. `temperature`, `seed`.
+               generation, e.g. `temperature`, `seed`.
         """
-        super().__init__(model_name=model_name, stream=True)
+        super().__init__(model_name=model_name, stream=stream)
 
         self.api_key = api_key
         self.voice = voice
         self.language_type = language_type
-        self._initialized = False
-        # Text buffer for each message to accumulate text before synthesis
-        # Key is msg.id, value is the accumulated text
-        self._text_buffer: dict[str, str] = {}
         self.generate_kwargs = generate_kwargs or {}
 
-    async def initialize(self) -> None:
-        """Initialize the DashScope SDK TTS model."""
-        if self._initialized:
-            return
-
-        self._initialized = True
-
-    # pylint: disable=too-many-branches
-    async def _call_api(
+    async def synthesize(
         self,
-        msg: Msg,
-        last: bool = False,
+        msg: Msg | None = None,
         **kwargs: Any,
-    ) -> TTSResponse:
-        """Append text to be synthesized and return TTS response.
+    ) -> TTSResponse | AsyncGenerator[TTSResponse, None]:
+        """Call the DashScope TTS API to synthesize speech from text.
 
         Args:
-            msg (`Msg`):
+            msg (`Msg | None`, optional):
                 The message to be synthesized.
-            last (`bool`):
-                Whether this is the last chunk. Defaults to False.
             **kwargs (`Any`):
                 Additional keyword arguments to pass to the TTS API call.
 
         Returns:
-            `TTSResponse`:
-                The TTSResponse containing audio blocks.
+            `TTSResponse | AsyncGenerator[TTSResponse, None]`:
+                The TTS response or an async generator yielding TTSResponse
+                objects in streaming mode.
         """
-        if not self._initialized:
-            raise RuntimeError(
-                "TTS model is not initialized. Call initialize() first.",
-            )
+
+        if msg is None:
+            return TTSResponse(content=[])
+
+        text = msg.get_text_content()
+
         import dashscope
 
-        msg_id = msg.id
-        # Initialize text buffer for this message if not exists
-        if msg_id not in self._text_buffer:
-            self._text_buffer[msg_id] = ""
+        # Call DashScope TTS API with streaming mode
+        response = dashscope.MultiModalConversation.call(
+            model=self.model_name,
+            api_key=self.api_key,
+            text=text,
+            voice=self.voice,
+            language_type=self.language_type,
+            stream=self.stream,
+            **self.generate_kwargs,
+            **kwargs,
+        )
 
-        # Extract text content
-        for block in msg.get_content_blocks():
-            if block["type"] == "text":
-                text = block["text"]
-                self._text_buffer[msg_id] = text
+        if self.stream:
+            return self._parse_into_async_generator(response)
 
-        # Only call API for synthesis when last=True
-        if last and self._text_buffer.get(msg_id):
-            try:
-                # Call DashScope TTS API with streaming mode
-                response = dashscope.MultiModalConversation.call(
-                    model=self.model_name,
-                    api_key=self.api_key,
-                    text=self._text_buffer[msg_id],
-                    voice=self.voice,
-                    language_type=self.language_type,
-                    stream=True,
-                    **self.generate_kwargs,
-                    **kwargs,
-                )
-
-                # Collect all audio chunks from streaming response
-                audio_chunks = []
-                for chunk in response:
-                    if chunk.output is not None:
-                        audio = chunk.output.audio
-                        if audio and audio.data:
-                            audio_chunks.append(audio.data)
-
-                combined_audio = (
-                    "".join(audio_chunks) if audio_chunks else None
-                )
-
-                if combined_audio:
-                    # Clear text buffer for this message
-                    del self._text_buffer[msg_id]
-
-                    audio_block = AudioBlock(
+        if response.output.audio and response.output.audio.data:
+            return TTSResponse(
+                content=[
+                    AudioBlock(
                         type="audio",
                         source=Base64Source(
                             type="base64",
-                            data=combined_audio,
+                            data=response.output.audio.data,
                             media_type="audio/pcm;rate=24000",
                         ),
-                    )
-                    return TTSResponse(content=[audio_block])
-                else:
-                    # Clear text buffer for this message
-                    if msg_id in self._text_buffer:
-                        del self._text_buffer[msg_id]
-                    raise RuntimeError(
-                        "DashScope TTS API returned no audio data in "
-                        "streaming mode.",
-                    )
-
-            except Exception:
-                import traceback
-
-                traceback.print_exc()
-                # Clear text buffer for this message on error
-                if msg_id in self._text_buffer:
-                    del self._text_buffer[msg_id]
-
-                audio_block = AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data="",
-                        media_type="audio/pcm;rate=24000",
                     ),
-                )
-                return TTSResponse(content=[audio_block])
-        else:
-            # Not the last chunk, return empty AudioBlock
-            audio_block = AudioBlock(
-                type="audio",
-                source=Base64Source(
-                    type="base64",
-                    data="",
-                    media_type="audio/pcm;rate=24000",
-                ),
+                ],
             )
-            return TTSResponse(content=[audio_block])
 
-    async def close(self) -> None:
-        """Close the DashScope SDK TTS model and clean up resources."""
-        if not self._initialized:
-            return
+        raise ValueError(
+            "No audio data received from DashScope TTS API.",
+        )
 
-        self._initialized = False
-        self._text_buffer.clear()
+    @staticmethod
+    async def _parse_into_async_generator(
+        response: Generator[MultiModalConversationResponse, None, None],
+    ) -> AsyncGenerator[TTSResponse, None]:
+        """Parse the TTS response into an async generator.
+
+        Returns:
+            `AsyncGenerator[TTSResponse, None]`:
+                An async generator yielding TTSResponse objects.
+        """
+        for chunk in response:
+            if chunk.output is not None:
+                audio = chunk.output.audio
+                if audio and audio.data:
+                    yield TTSResponse(
+                        content=[
+                            AudioBlock(
+                                type="audio",
+                                source=Base64Source(
+                                    type="base64",
+                                    data=audio.data,
+                                    media_type="audio/pcm;rate=24000",
+                                ),
+                            ),
+                        ],
+                    )

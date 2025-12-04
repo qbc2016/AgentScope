@@ -2,7 +2,7 @@
 """DashScope Realtime TTS model implementation."""
 
 import threading
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal, TYPE_CHECKING, AsyncGenerator
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -20,87 +20,175 @@ else:
         "dashscope.audio.qwen_tts_realtime.QwenTtsRealtimeCallback"
     )
 
-try:
-    from dashscope.audio.qwen_tts_realtime import (
-        QwenTtsRealtime,
-        QwenTtsRealtimeCallback,
-    )
-except ImportError as exc:
-    raise ImportError(
-        "dashscope package is required for DashScope TTS. "
-        "Please install it with: pip install dashscope",
-    ) from exc
 
+def _get_qwen_tts_realtime_callback_class() -> type["QwenTtsRealtimeCallback"]:
+    from dashscope.audio.qwen_tts_realtime import QwenTtsRealtimeCallback
 
-class _DashScopeRealtimeTTSCallback(QwenTtsRealtimeCallback):
-    """DashScope Realtime TTS callback."""
+    class _DashScopeRealtimeTTSCallback(QwenTtsRealtimeCallback):
+        """DashScope Realtime TTS callback."""
 
-    def __init__(self) -> None:
-        """Initialize the DashScope Realtime TTS callback."""
-        super().__init__()
-        self.finish_event = threading.Event()
-        self._audio_data: str = ""
+        def __init__(self) -> None:
+            """Initialize the DashScope Realtime TTS callback."""
+            super().__init__()
 
-    def on_event(self, response: dict[str, Any]) -> None:
-        """Called when a TTS event is received (DashScope SDK callback).
+            # The event that will be set when a new audio chunk is received
+            self.chunk_event = threading.Event()
+            # The event that will be set when the TTS synthesis is finished
+            self.finish_event = threading.Event()
+            # Cache the audio data
+            self._audio_data: str = ""
 
-        Args:
-            response (`dict[str, Any]`):
-                The event response dictionary.
-        """
-        try:
-            event_type = response.get("type")
+        def on_event(self, response: dict[str, Any]) -> None:
+            """Called when a TTS event is received (DashScope SDK callback).
 
-            if event_type == "session.created":
-                self._audio_data = ""
-                self.finish_event.clear()
+            Args:
+                response (`dict[str, Any]`):
+                    The event response dictionary.
+            """
+            try:
+                event_type = response.get("type")
 
-            elif event_type == "response.audio.delta":
-                audio_data = response.get("delta")
-                if audio_data:
-                    # Process audio data in thread callback
-                    if isinstance(audio_data, bytes):
-                        import base64
+                if event_type == "session.created":
+                    self._audio_data = ""
+                    self.finish_event.clear()
 
-                        audio_data = base64.b64encode(audio_data).decode()
+                elif event_type == "response.audio.delta":
+                    audio_data = response.get("delta")
+                    if audio_data:
+                        # Process audio data in thread callback
+                        if isinstance(audio_data, bytes):
+                            import base64
 
-                    # Accumulate audio data
-                    self._audio_data += audio_data
+                            audio_data = base64.b64encode(audio_data).decode()
 
-            elif event_type == "response.done":
-                # Response completed, can be used for metrics
-                pass
+                        # Accumulate audio data
+                        self._audio_data += audio_data
 
-            elif event_type == "session.finished":
+                        # Signal that a new audio chunk is available
+                        if not self.chunk_event.is_set():
+                            self.chunk_event.set()
+
+                elif event_type == "response.done":
+                    # Response completed, can be used for metrics
+                    pass
+
+                elif event_type == "session.finished":
+                    self.finish_event.set()
+
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
                 self.finish_event.set()
 
-        except Exception:
-            import traceback
+        async def get_audio_data(self, block: bool) -> TTSResponse:
+            """Get the current accumulated audio data as base64 string so far.
 
-            traceback.print_exc()
-            self.finish_event.set()
+            Returns:
+                `str`:
+                    The base64-encoded audio data.
+            """
+            # Block until synthesis is finished
+            if block:
+                self.finish_event.wait()
 
-    async def wait_for_complete(self) -> None:
-        """Wait for the TTS synthesis to complete."""
-        self.finish_event.wait()
+            # Return the accumulated audio data
+            if self._audio_data:
+                return TTSResponse(
+                    content=[
+                        AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=self._audio_data,
+                                media_type="audio/pcm;rate=24000",
+                            ),
+                        ),
+                    ],
+                )
 
-    def get_audio_data(self) -> str:
-        """Get the accumulated audio data.
+            # Reset for next tts request
+            await self._reset()
 
-        Returns:
-            `str`: The base64-encoded audio data.
-        """
-        return self._audio_data
+            # Return empty response if no audio data
+            return TTSResponse(content=[])
+
+        async def get_audio_chunk(self) -> AsyncGenerator[TTSResponse, None]:
+            """Get the audio data chunk as an async generator of `TTSResponse`
+            objects.
+
+            Returns:
+                `AsyncGenerator[TTSResponse, None]`:
+                    The async generator yielding TTSResponse with audio chunks.
+            """
+            while True:
+                if self.finish_event.is_set():
+                    yield TTSResponse(
+                        content=[
+                            AudioBlock(
+                                type="audio",
+                                source=Base64Source(
+                                    type="base64",
+                                    data=self._audio_data,
+                                    media_type="audio/pcm;rate=24000",
+                                ),
+                            ),
+                        ],
+                        is_last=True,
+                    )
+
+                    # Reset for next tts request
+                    await self._reset()
+
+                    break
+
+                if self.chunk_event.is_set():
+                    # Clear the event for next chunk
+                    self.chunk_event.clear()
+                else:
+                    # Wait for the next chunk
+                    self.chunk_event.wait()
+
+                yield TTSResponse(
+                    content=[
+                        AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=self._audio_data,
+                                media_type="audio/pcm;rate=24000",
+                            ),
+                        ),
+                    ],
+                    is_last=False,
+                )
+
+        async def _reset(self) -> None:
+            """Reset the callback state for a new TTS request."""
+            self.finish_event.clear()
+            self.chunk_event.clear()
+            self._audio_data = ""
+
+    return _DashScopeRealtimeTTSCallback
 
 
 class DashScopeRealtimeTTSModel(TTSModelBase):
-    """DashScope Qwen Realtime TTS Realtime model implementation.
+    """TTS implementation for DashScope Qwen Realtime TTS API, which supports
+    streaming input. The supported models include "qwen-3-tts-flash-realtime",
+    "qwen-tts-realtime", etc.
+
     For more details, please see the `official document
     <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2938790>`_.
+
+    .. note:: The DashScopeRealtimeTTSModel can only handle one streaming
+    input request at a time, and cannot process multiple streaming input
+    requests concurrently. For example, it cannot handle input sequences like
+    `[msg_1_chunk0, msg_1_chunk1, msg_2_chunk0]`, where the prefixes "msg_x"
+    indicate different streaming input requests.
     """
 
-    # This model supports streaming input (can send text incrementally)
     supports_streaming_input: bool = True
+    """Whether the model supports streaming input."""
 
     def __init__(
         self,
@@ -108,41 +196,55 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         model_name: str = "qwen3-tts-flash-realtime",
         voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
         | str = "Cherry",
+        stream: bool = True,
         mode: Literal["server_commit", "commit"] = "server_commit",
-        cold_start_length: int = 8,
-        client_kwargs: dict = None,
+        cold_start_length: int | None = None,
+        cold_start_words: int | None = None,
+        client_kwargs: dict[str, JSONSerializableObject] | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
-        """Initialize the DashScope TTS model.
+        """Initialize the DashScope TTS model by specifying the model, voice,
+        and other parameters.
 
-        .. note::
-            More details about the parameters, such as `model_name`, `voice`,
-            and `mode` can be found in the `official document
-            <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2938790>`_.
+        .. note:: More details about the parameters, such as `model_name`,
+        `voice`, and `mode` can be found in the `official document
+        <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2938790>`_.
+
+        .. note:: You can use `cold_start_length` and `cold_start_words`
+        simultaneously to set both character and word thresholds for the first
+        TTS request. For Chinese text, word segmentation (based on spaces) may
+        not be effective.
 
         Args:
             api_key (`str`):
                 The DashScope API key.
             model_name (`str`, defaults to "qwen-tts-realtime"):
-                The TTS model name. Supported models are
-                "qwen3-tts-flash-realtime", "qwen-tts-realtime", etc.
-            voice (`Literal["Cherry", "Serena", "Ethan", "Chelsie"] | str`,
+                The TTS model name, e.g. "qwen3-tts-flash-realtime",
+                "qwen-tts-realtime", etc.
+            voice (`Literal["Cherry", "Serena", "Ethan", "Chelsie"] | str`, \
              defaults to "Cherry".):
-                The voice to use. Supported voices are "Cherry", "Serena",
-                "Ethan", "Chelsie", etc.
-            mode (`Literal["server_commit", "commit"]`, default to "server
+                The voice to use for synthesis. Refer to `official document
+                <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2938790>`_
+                for the supported voices for each model.
+            stream (`bool`, defaults to `True`):
+                Whether to use streaming synthesis.
+            mode (`Literal["server_commit", "commit"]`, default to "server\
             commit"):
                 The TTS mode. Defaults to "server_commit". "server_commit"
                 indicates that the server will automatically manage text
                 segmentation and determine the optimal timing for synthesis.
-            cold_start_length (`int`, defaults to `0`):
-                The minimum text length (in characters) before sending TTS
-                requests. When set to 0, text will be sent immediately.
-                When set to a positive value, text will be buffered until
-                the accumulated length reaches this threshold. The buffered
-                text will always be sent when `last=True` is called, even
-                if the threshold is not reached.
-            client_kwargs (`dict`, default `None`):
+            cold_start_length (`int | None`, optional):
+                The minimum length send threshold for the first TTS request,
+                ensuring there is not pause in the synthesized speech for too
+                short input text. The length is measured in number of
+                characters.
+            cold_start_words (`int | None`, optional):
+                The minimum words send threshold for the first TTS request,
+                ensuring there is not pause in the synthesized speech for too
+                short input text. The words are identified by spaces in the
+                text.
+            client_kwargs (`dict[str, JSONSerializableObject] | None`, \
+             optional):
                 The extra keyword arguments to initialize the DashScope
                 realtime tts client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
@@ -150,62 +252,44 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                The extra keyword arguments used in DashScope realtime tts API
                generation.
         """
-        super().__init__(model_name=model_name)
+        super().__init__(model_name=model_name, stream=stream)
+
         import dashscope
+        from dashscope.audio.qwen_tts_realtime import QwenTtsRealtime
 
-        # Prefix for each message to track incremental text updates
-        # Key is msg.id, value is the accumulated text prefix
-        self._prefix: dict[str, str] = {}
-        # Track sent text length for each message (for cold start)
-        # Key is msg.id, value is the length of text that has been sent to TTS
-        self._sent_length: dict[str, int] = {}
         dashscope.api_key = api_key
-
-        # Save callback reference (for DashScope SDK)
-        self._dashscope_callback = _DashScopeRealtimeTTSCallback()
 
         # Store configuration
         self.voice = voice
         self.mode = mode
         self.cold_start_length = cold_start_length
-
-        # Initialize TTS client
-        self._tts_client: QwenTtsRealtime | None = None
-        self._connected = False
-        # Track if any text has been sent to the server
-        self._has_text_sent = False
-
+        self.cold_start_words = cold_start_words
         self.client_kwargs = client_kwargs or {}
         self.generate_kwargs = generate_kwargs or {}
 
-    async def initialize(self) -> None:
-        """Initialize the DashScope TTS model and establish connection."""
-        # Check if connection is actually alive
-        if self._connected and self._tts_client is not None:
-            # Verify connection is still alive by checking WebSocket state
-            try:
-                if hasattr(self._tts_client, "ws") and self._tts_client.ws:
-                    # Connection exists and appears to be open
-                    return
-            except Exception:
-                # Connection check failed, need to reconnect
-                self._connected = False
-                if self._tts_client:
-                    try:
-                        self._tts_client.close()
-                    except Exception:
-                        pass
-                    self._tts_client = None
+        # Initialize TTS client
+        # Save callback reference (for DashScope SDK)
+        self._dashscope_callback = _get_qwen_tts_realtime_callback_class()()
+        self._tts_client: QwenTtsRealtime = QwenTtsRealtime(
+            model=self.model_name,
+            callback=self._dashscope_callback,
+            **self.client_kwargs,
+        )
 
+        self._connected = False
+
+        # The variables for tracking streaming input messages
+        # If we have sent text for the current message
+        self._first_send: bool = True
+        # The current message ID being processed
+        self._current_msg_id: str | None = None
+        # The current prefix text already sent
+        self._current_prefix: str = ""
+
+    async def connect(self) -> None:
+        """Initialize the DashScope TTS model and establish connection."""
         if self._connected:
             return
-
-        if self._tts_client is None:
-            self._tts_client = QwenTtsRealtime(
-                model=self.model_name,
-                callback=self._dashscope_callback,
-                **self.client_kwargs,
-            )
 
         self._tts_client.connect()
 
@@ -217,22 +301,34 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         )
 
         self._connected = True
-        self._has_text_sent = False  # Reset text sent flag when initializing
 
-    # pylint: disable=too-many-branches
-    async def _call_api(
+    async def close(self) -> None:
+        """Close the TTS model and clean up resources."""
+        if not self._connected:
+            return
+
+        self._connected = False
+
+        # TODO: 删去这里
+        self._tts_client.finish()
+        self._tts_client.close()
+
+    async def push(
         self,
         msg: Msg,
-        last: bool = False,
         **kwargs: Any,
     ) -> TTSResponse:
-        """Append text to be synthesized and return TTS response.
+        """Append text to be synthesized and return the received TTS response.
+        Note this method is non-blocking, and maybe return an empty response
+        if no audio is received yet.
+
+        To receive all the synthesized speech, call the `synthesize` method
+        after pushing all the text chunks.
 
         Args:
             msg (`Msg`):
-                The message to be synthesized.
-            last (`bool`):
-                Whether this is the last chunk. Defaults to False.
+                The message to be synthesized. The `msg.id` identifies the
+                streaming input request.
             **kwargs (`Any`):
                 Additional keyword arguments to pass to the TTS API call.
 
@@ -240,120 +336,122 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
             `TTSResponse`:
                 The TTSResponse containing audio blocks.
         """
-        # Auto-initialize if not connected
-        if not self._connected or self._tts_client is None:
-            await self.initialize()
-
-        msg_id = msg.id
-        # Initialize prefix and sent length for this message if not exists
-        if msg_id not in self._prefix:
-            self._prefix[msg_id] = ""
-            self._sent_length[msg_id] = 0
-
-        # Collect all text blocks and calculate total text
-        total_text = ""
-        for block in msg.get_content_blocks():
-            if block["type"] == "text":
-                text = block["text"]
-                prefix = self._prefix[msg_id]
-                delta = text[len(prefix) :]
-                total_text += delta
-                self._prefix[msg_id] = text
-
-        # Get current accumulated text length
-        current_length = len(self._prefix[msg_id])
-        sent_length = self._sent_length[msg_id]
-        unsent_length = current_length - sent_length
-
-        # Determine if we should send text based on whether it's the first send
-        if sent_length == 0:
-            # First send: apply cold_start_length check
-            should_send = (
-                self.cold_start_length == 0
-                or unsent_length >= self.cold_start_length
-                or last
+        if not self._connected:
+            raise RuntimeError(
+                "TTS model is not connected. Call `connect()` first.",
             )
-        else:
-            # Subsequent sends: no cold_start check, only check if there's
-            # data to send, or it's the last chunk
-            should_send = unsent_length > 0 or last
 
-        if should_send and unsent_length > 0:
-            # Send text from sent_length to current_length
-            text_to_send = self._prefix[msg_id][sent_length:]
-            if text_to_send:
-                self._tts_client.append_text(text_to_send)
-                self._has_text_sent = True  # Mark that text has been sent
-                self._sent_length[msg_id] = current_length
+        if self._current_msg_id is not None and self._current_msg_id != msg.id:
+            raise RuntimeError(
+                "DashScopeRealtimeTTSModel can only handle one streaming "
+                "input request at a time. Please ensure that all chunks "
+                "belong to the same message ID.",
+            )
 
-        if last:
-            # Ensure all remaining text is sent (in case last=True but
-            # threshold not reached)
-            # Update current_length in case it changed
-            current_length = len(self._prefix[msg_id])
-            sent_length = self._sent_length[msg_id]
-            if current_length > sent_length:
-                remaining_text = self._prefix[msg_id][sent_length:]
-                if remaining_text:
-                    self._tts_client.append_text(remaining_text)
-                    self._has_text_sent = True  # Mark that text has been sent
-                    self._sent_length[msg_id] = current_length
+        # Record current message ID
+        self._current_msg_id = msg.id
 
-            await self._commit()
-            self._tts_client.finish()
-            await self._dashscope_callback.wait_for_complete()
+        text = msg.get_text_content()
 
-            # Clean up prefix and sent length for this message
-            if msg_id in self._prefix:
-                del self._prefix[msg_id]
-            if msg_id in self._sent_length:
-                del self._sent_length[msg_id]
+        # Determine if we should send text based on cold start settings only
+        # for the first input chunk and not the last chunk
+        if text:
+            if self._first_send:
+                # If we have cold start settings
+                if self.cold_start_length:
+                    if len(text) < self.cold_start_length:
+                        delta_to_send = ""
+                    else:
+                        delta_to_send = text
+                else:
+                    delta_to_send = text
 
-        return await self.get_tts_response()
+                if delta_to_send and self.cold_start_words:
+                    if len(delta_to_send.split()) < self.cold_start_words:
+                        delta_to_send = ""
+            else:
+                # Remove the already sent prefix if not the first send
+                delta_to_send = text.removeprefix(self._current_prefix)
 
-    async def get_tts_response(self) -> TTSResponse:
-        """Get a TTSResponse from the collected audio data.
+            if delta_to_send:
+                self._tts_client.append_text(delta_to_send)
 
-        This method collects audio fragments from the audio handler and returns
-        a TTSResponse. If no audio data is available, returns a TTSResponse
-        with empty audio block.
+                # Record sent prefix
+                self._current_prefix += delta_to_send
+                self._first_send = False
+
+            # Wait for the audio data to be available
+            res = await self._dashscope_callback.get_audio_data(block=False)
+
+            return res
+
+        # Return empty response if no text to send
+        return TTSResponse(content=[])
+
+    async def synthesize(
+        self,
+        msg: Msg | None = None,
+        **kwargs: Any,
+    ) -> TTSResponse | AsyncGenerator[TTSResponse, None]:
+        """Append text to be synthesized and return TTS response.
+
+        Args:
+            msg (`Msg | None`, optional):
+                The message to be synthesized.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
 
         Returns:
-            `TTSResponse`:
-                The TTSResponse containing audio blocks.
+            `TTSResponse | AsyncGenerator[TTSResponse, None]`:
+                The TTSResponse object in non-streaming mode, or an async
+                generator yielding TTSResponse objects in streaming mode.
         """
-        # Get audio data through public method
-        audio_base64 = self._dashscope_callback.get_audio_data()
-
-        # Create AudioBlock, even if data is empty
-        audio_block = AudioBlock(
-            type="audio",
-            source=Base64Source(
-                type="base64",
-                data=audio_base64 or "",
-                media_type="audio/pcm;rate=24000",
-            ),
-        )
-
-        return TTSResponse(content=[audio_block])
-
-    async def _commit(self) -> None:
-        """Commit the current text for synthesis."""
-        if not self._connected or self._tts_client is None:
+        if not self._connected:
             raise RuntimeError(
-                "TTS model is not initialized. Call initialize() first.",
+                "TTS model is not connected. Call `connect()` first.",
             )
 
+        if self._current_msg_id is not None and self._current_msg_id != msg.id:
+            raise RuntimeError(
+                "DashScopeRealtimeTTSModel can only handle one streaming "
+                "input request at a time. Please ensure that all chunks "
+                "belong to the same message ID.",
+            )
+
+        if msg is None:
+            delta_to_send = ""
+
+        else:
+            # Record current message ID
+            self._current_msg_id = msg.id
+            delta_to_send = msg.get_text_content().removeprefix(
+                self._current_prefix,
+            )
+
+        # Determine if we should send text based on cold start settings only
+        # for the first input chunk and not the last chunk
+        if delta_to_send:
+            self._tts_client.append_text(delta_to_send)
+
+            # To keep correct prefix tracking
+            self._current_prefix += delta_to_send
+            self._first_send = False
+
+        # We need to block until synthesis is complete to get all audio
         self._tts_client.commit()
+        self._tts_client.finish()
 
-    async def close(self) -> None:
-        """Close the TTS model and clean up resources."""
-        if not self._connected:
-            return
+        if self.stream:
+            # Return an async generator for audio chunks
+            res = self._dashscope_callback.get_audio_chunk()
 
-        if self._tts_client:
-            self._tts_client.close()
-            self._tts_client = None
+        else:
+            # Block and wait for all audio data to be available
+            res = await self._dashscope_callback.get_audio_data(block=True)
 
-        self._connected = False
-        self._has_text_sent = False  # Reset text sent flag
+        # Update state for next message
+        self._current_msg_id = None
+        self._first_send = True
+        self._current_prefix = ""
+
+        return res
