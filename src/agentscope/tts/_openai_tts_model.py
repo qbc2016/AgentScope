@@ -9,9 +9,8 @@ from ..message import Msg, AudioBlock, Base64Source
 from ..types import JSONSerializableObject
 
 if TYPE_CHECKING:
-    from openai import OpenAI, HttpxBinaryResponseContent
+    from openai import HttpxBinaryResponseContent
 else:
-    OpenAI = "openai.OpenAI"
     HttpxBinaryResponseContent = "openai.HttpxBinaryResponseContent"
 
 
