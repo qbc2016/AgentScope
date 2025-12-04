@@ -309,7 +309,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
 
         self._connected = False
 
-        # TODO: 删去这里
         self._tts_client.finish()
         self._tts_client.close()
 
@@ -424,7 +423,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         else:
             # Record current message ID
             self._current_msg_id = msg.id
-            delta_to_send = msg.get_text_content().removeprefix(
+            delta_to_send = (msg.get_text_content() or "").removeprefix(
                 self._current_prefix,
             )
 

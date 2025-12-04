@@ -208,31 +208,3 @@ class GeminiTTSModel(TTSModelBase):
                 ],
             )
         yield TTSResponse(content=[])
-
-    async def push(
-        self,
-        msg: Msg,
-        **kwargs: Any,
-    ) -> TTSResponse:
-        """Append text to be synthesized and return the received TTS response.
-
-        .. note::
-            This method is not supported for Gemini TTS model as it does not
-            support streaming input (``supports_streaming_input=False``).
-            This method always returns an empty response.
-
-        To synthesize speech, use the `synthesize` method instead.
-
-        Args:
-            msg (`Msg`):
-                The message to be synthesized. The `msg.id` identifies the
-                streaming input request.
-            **kwargs (`Any`):
-                Additional keyword arguments to pass to the TTS API call.
-
-        Returns:
-            `TTSResponse`:
-                Always returns an empty TTSResponse as streaming input is not
-                supported.
-        """
-        return TTSResponse(content=[])

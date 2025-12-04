@@ -5,204 +5,196 @@
 TTS
 ====================
 
-AgentScope provides a unified TTS (Text-to-Speech) module that supports multiple TTS providers,
-enabling agents to convert text responses into audio output. This tutorial demonstrates how to use
-TTS models in AgentScope.
+AgentScope provides a unified interface for Text-to-Speech (TTS) models across multiple API provides.
+This tutorial demonstrates how to use TTS models in AgentScope.
 
-The supported TTS providers include:
+AgentScope supports the following TTS APIs:
 
-.. list-table::
+.. list-table:: Built-in TTS Models
     :header-rows: 1
 
-    * - Provider
+    * - API
       - Class
       - Streaming Input
-    * - DashScope Realtime
+      - Non-Streaming Input
+      - Streaming Output
+      - Non-Streaming Output
+    * - DashScope Realtime API
       - ``DashScopeRealtimeTTSModel``
       - ✅
-    * - DashScope
+      - ✅
+      - ✅
+      - ✅
+    * - DashScope API
       - ``DashScopeTTSModel``
       - ❌
-    * - OpenAI
+      - ✅
+      - ✅
+      - ✅
+    * - OpenAI API
       - ``OpenAITTSModel``
       - ❌
-    * - Gemini
+      - ✅
+      - ✅
+      - ✅
+    * - Gemini API
       - ``GeminiTTSModel``
       - ❌
+      - ✅
+      - ✅
+      - ✅
 
-All TTS models inherit from ``TTSModelBase`` and provide a unified interface:
+.. note:: The streaming input and output in AgentScope TTS models are all accumulative.
 
-- For **realtime TTS models** (supporting streaming input):
+**Choosing the Right Model:**
 
-  - ``connect()``: Establish connection to the TTS service
+- **Use Non-Realtime TTS** when you have complete text ready (e.g., pre-written
+  responses, complete LLM outputs)
+- **Use Realtime TTS** when text is generated progressively (e.g., streaming
+  LLM responses) for lower latency
 
-  - ``push(msg)``: Append text chunks incrementally (non-blocking)
-
-  - ``synthesize(msg=None)``: Synthesize speech and block until complete
-
-  - ``close()``: Close the connection and clean up resources
-
-- For **non-realtime TTS models**:
-
-  - ``synthesize(msg)``: Synthesize speech from complete text
-
-The TTS models return ``TTSResponse`` objects containing ``AudioBlock`` instances with base64-encoded audio data.
 """
-
-# %%
-# Basic Usage - Realtime TTS Models
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# For realtime TTS models (like ``DashScopeRealtimeTTSModel``), you need to:
-#
-# 1. Initialize the TTS model with appropriate parameters
-# 2. Connect to the TTS service using ``connect()``
-# 3. Use ``synthesize()`` to synthesize complete text, or ``push()`` for incremental text
-# 4. Close the connection using ``close()``
-#
-# Let's start with a simple example using DashScope Realtime TTS:
 
 import asyncio
 import os
-from typing import AsyncGenerator
 
+from agentscope.agent import ReActAgent, UserAgent
+from agentscope.formatter import DashScopeChatFormatter
 from agentscope.message import Msg
+from agentscope.model import DashScopeChatModel
 from agentscope.tts import (
     DashScopeRealtimeTTSModel,
     DashScopeTTSModel,
-    OpenAITTSModel,
-    GeminiTTSModel,
-    TTSResponse,
 )
 
+# %%
+# Non-Realtime TTS
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Non-realtime TTS models process complete text inputs and are the simplest
+# to use. You can directly call their ``synthesize()`` method.
+#
+# Taking DashScope TTS model as an example:
 
-async def example_basic_realtime_tts() -> None:
-    """A basic example of using DashScope Realtime TTS."""
-    # Initialize the TTS model
-    tts_model = DashScopeRealtimeTTSModel(
+
+async def example_non_realtime_tts() -> None:
+    """A basic example of using non-realtime TTS models."""
+    # Example with DashScope TTS
+    tts_model = DashScopeTTSModel(
         api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-        model_name="qwen3-tts-flash-realtime",
+        model_name="qwen3-tts-flash",
         voice="Cherry",
-        stream=False,  # Set to False for simpler example
+        stream=False,  # Non-streaming output
     )
 
-    # Connect to the TTS service
-    await tts_model.connect()
-
-    # Create a message with text content
     msg = Msg(
         name="assistant",
-        content="Hello, this is a test of TTS functionality.",
+        content="Hello, this is DashScope TTS.",
         role="assistant",
     )
 
-    # Synthesize the text (blocking until complete)
+    # Directly synthesize without connecting
     tts_response = await tts_model.synthesize(msg)
 
-    # The response contains audio blocks
-    print(f"TTS Response: {tts_response}")
-    print(f"Number of audio blocks: {len(tts_response.content)}")
-
-    # Clean up
-    await tts_model.close()
-
-
-# asyncio.run(example_basic_realtime_tts())
-
-# %%
-# Basic Usage - Non-Realtime TTS Models
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# For non-realtime TTS models (like ``DashScopeTTSModel``, ``OpenAITTSModel``, ``GeminiTTSModel``),
-# you can directly call ``synthesize()`` without needing to connect first:
+    # tts_response.content contains an audio block with base64-encoded audio data
+    print(
+        "The length of audio data:",
+        len(tts_response.content[0]["source"]["data"]),
+    )
 
 
-async def example_basic_non_realtime_tts() -> None:
-    """A basic example of using non-realtime TTS models."""
-    # Example with DashScope TTS
-    if os.environ.get("DASHSCOPE_API_KEY"):
-        tts_model = DashScopeTTSModel(
-            api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-            model_name="qwen3-tts-flash",
-            voice="Cherry",
-        )
-
-        msg = Msg(
-            name="assistant",
-            content="Hello, this is DashScope TTS.",
-            role="assistant",
-        )
-
-        # Directly synthesize without connecting
-        tts_response = await tts_model.synthesize(msg)
-
-        print(f"TTS Response: {tts_response}")
-        print(f"Audio blocks: {len(tts_response.content)}")
-
-    # Example with OpenAI TTS
-    if os.environ.get("OPENAI_API_KEY"):
-        tts_model = OpenAITTSModel(
-            api_key=os.environ.get("OPENAI_API_KEY", ""),
-            model_name="gpt-4o-mini-tts",
-            voice="alloy",
-        )
-
-        msg = Msg(
-            name="assistant",
-            content="Hello, this is OpenAI TTS.",
-            role="assistant",
-        )
-
-        tts_response = await tts_model.synthesize(msg)
-
-        print(f"TTS Response: {tts_response}")
-        print(f"Audio blocks: {len(tts_response.content)}")
-
-    # Example with Gemini TTS
-    if os.environ.get("GEMINI_API_KEY"):
-        tts_model = GeminiTTSModel(
-            api_key=os.environ.get("GEMINI_API_KEY", ""),
-            model_name="gemini-2.5-flash-preview-tts",
-            voice="Kore",
-        )
-
-        msg = Msg(
-            name="assistant",
-            content="Hello, this is Gemini TTS.",
-            role="assistant",
-        )
-
-        tts_response = await tts_model.synthesize(msg)
-
-        print(f"TTS Response: {tts_response}")
-        print(f"Audio blocks: {len(tts_response.content)}")
-
-
-# asyncio.run(example_basic_non_realtime_tts())
+asyncio.run(example_non_realtime_tts())
 
 # %%
-# Using TTS with Agents
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# The most common use case is integrating TTS with agents. AgentScope's ``ReActAgent``
-# supports TTS models through the ``tts_model`` parameter. When a TTS model is provided,
-# the agent will automatically synthesize its text responses into audio.
+# **Streaming Output for Lower Latency:**
 #
-# .. note:: The TTS model will be called automatically during agent execution, handling
-#           streaming text incrementally for models that support streaming input.
+# When ``stream=True``, the model returns audio chunks progressively, allowing
+# you to start playback before synthesis completes. This reduces perceived latency.
+#
+
+
+async def example_non_realtime_tts_streaming() -> None:
+    """An example of using non-realtime TTS models with streaming output."""
+    # Example with DashScope TTS with streaming output
+    tts_model = DashScopeTTSModel(
+        api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
+        model_name="qwen3-tts-flash",
+        voice="Cherry",
+        stream=True,  # Enable streaming output
+    )
+
+    msg = Msg(
+        name="assistant",
+        content="Hello, this is DashScope TTS with streaming output.",
+        role="assistant",
+    )
+
+    # Synthesize and receive an async generator for streaming output
+    async for tts_response in await tts_model.synthesize(msg):
+        # Process each audio chunk as it arrives
+        print(
+            "Received audio chunk of length:",
+            len(tts_response.content[0]["source"]["data"]),
+        )
+
+
+asyncio.run(example_non_realtime_tts_streaming())
+
+
+# %%
+# Realtime TTS
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Realtime TTS models are designed for scenarios where text is generated
+# incrementally, such as streaming LLM responses. This enables the lowest
+# possible latency by starting audio synthesis before the complete text is ready.
+#
+# **Key Concepts:**
+#
+# - **Stateful Processing**: Realtime TTS maintains state for a single streaming
+#   session, identified by ``msg.id``. Only one streaming session can be active
+#   at a time.
+# - **Two Methods**:
+#
+#   - ``push(msg)``: Non-blocking method that submits text chunks and returns
+#     immediately. May return partial audio if available.
+#   - ``synthesize(msg)``: Blocking method that finalizes the session and returns
+#     all remaining audio. When ``stream=True``, it returns an async generator.
+#
+# .. code-block:: python
+#
+#     async def example_realtime_tts_streaming():
+#         tts_model = DashScopeRealtimeTTSModel(
+#             api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
+#             model_name="qwen3-tts-flash-realtime",
+#             voice="Cherry",
+#             stream=False,
+#         )
+#
+#         # realtime tts model received accumulative text chunks
+#         res = await tts_model.push(msg_chunk_1)  # non-blocking
+#         res = await tts_model.push(msg_chunk_2)  # non-blocking
+#         ...
+#         res = await tts_model.synthesize(final_msg)  # blocking, get all remaining audio
+#
+# When setting ``stream=True`` during initialization, the ``synthesize()`` method returns an async generator of ``TTSResponse`` objects, allowing you to process audio chunks as they arrive.
+#
+#
+# Integrating with ReActAgent
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# AgentScope agents can automatically synthesize their responses to speech
+# when provided with a TTS model. This works seamlessly with both realtime
+# and non-realtime TTS models.
+#
+# **How It Works:**
+#
+# 1. The agent generates a text response (potentially streamed from an LLM)
+# 2. The TTS model synthesizes the text to audio automatically
+# 3. The synthesized audio is attached to the ``speech`` field of the ``Msg`` object
+# 4. The audio is played during the agent's ``self.print()`` method
+#
 
 
 async def example_agent_with_tts() -> None:
     """An example of using TTS with ReActAgent."""
-    from agentscope.agent import ReActAgent, UserAgent
-    from agentscope.formatter import DashScopeChatFormatter
-    from agentscope.memory import InMemoryMemory
-    from agentscope.model import DashScopeChatModel
-
-    # Create a TTS model
-    tts_model = DashScopeRealtimeTTSModel(
-        api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-        model_name="qwen3-tts-flash-realtime",
-        voice="Cherry",
-    )
-
     # Create an agent with TTS enabled
     agent = ReActAgent(
         name="Assistant",
@@ -213,288 +205,36 @@ async def example_agent_with_tts() -> None:
             stream=True,
         ),
         formatter=DashScopeChatFormatter(),
-        memory=InMemoryMemory(),
-        tts_model=tts_model,  # Enable TTS
+        # Enable TTS
+        tts_model=DashScopeRealtimeTTSModel(
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            model_name="qwen3-tts-flash-realtime",
+            voice="Cherry",
+        ),
     )
-
     user = UserAgent("User")
 
-    # The agent will automatically synthesize its responses
-    msg = await user("Tell me a short story.")
-    response = await agent(msg)
+    # Build a conversation just like normal
+    msg = None
+    while True:
+        msg = await agent(msg)
+        msg = await user(msg)
+        if msg.get_text_content() == "exit":
+            break
 
-    print(f"Agent response: {response.get_text_content()}")
-
-    # Clean up
-    await tts_model.close()
-
-
-# asyncio.run(example_agent_with_tts())
 
 # %%
-# Streaming Input with Push and Synthesize
+# Customizing TTS Model
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# For realtime TTS models that support streaming input (like ``DashScopeRealtimeTTSModel``),
-# you can use ``push()`` to incrementally send text chunks as they arrive, and then
-# call ``synthesize()`` to get the final audio output.
+# You can create custom TTS implementations by inheriting from ``TTSModelBase``.
+# The base class provides a flexible interface for both realtime and non-realtime
+# TTS models.
+# We use an attribute ``supports_streaming_input`` to indicate if the TTS model is realtime or not.
 #
-# - ``push(msg)``: Non-blocking method that appends text and returns any available audio
-# - ``synthesize(msg=None)``: Blocking method that waits for all audio to be synthesized
+# For realtime TTS models, you need to implement the ``connect``, ``close``, ``push`` and ``synthesize`` methods to handle the lifecycle and streaming input.
 #
-# .. note:: The ``push()`` method uses the message ID (``msg.id``) to track streaming
-#           input requests. All chunks for the same message must have the same ID.
-
-
-async def example_streaming_push_synthesize() -> None:
-    """An example of using push() and synthesize() for streaming input."""
-    tts_model = DashScopeRealtimeTTSModel(
-        api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-        model_name="qwen3-tts-flash-realtime",
-        voice="Cherry",
-        stream=False,  # Set to False for simpler example
-    )
-
-    await tts_model.connect()
-
-    # Simulate streaming text generation
-    text_chunks = [
-        "Hello, ",
-        "this is ",
-        "a streaming ",
-        "TTS example.",
-    ]
-
-    # Create a message with a consistent ID for all chunks
-    msg_id = "streaming_msg_001"
-    accumulated_text = ""
-
-    for i, chunk in enumerate(text_chunks):
-        # Accumulate text incrementally
-        accumulated_text += chunk
-
-        # Create a message with accumulated text and same ID
-        msg = Msg(
-            name="assistant",
-            content=accumulated_text,
-            role="assistant",
-        )
-        msg.id = msg_id  # Important: same ID for all chunks
-
-        # Push the incremental text (non-blocking)
-        tts_response = await tts_model.push(msg)
-        if tts_response.content:
-            print(
-                f"Chunk {i+1}: Received {len(tts_response.content)} audio blocks",
-            )
-
-    # Finalize synthesis to get all remaining audio
-    final_msg = Msg(
-        name="assistant",
-        content=accumulated_text,
-        role="assistant",
-    )
-    final_msg.id = msg_id
-
-    final_response = await tts_model.synthesize(final_msg)
-    # Handle both TTSResponse and AsyncGenerator cases
-    if isinstance(final_response, AsyncGenerator):
-        async for chunk in final_response:
-            if chunk.content:
-                print(
-                    f"Final synthesis chunk: {len(chunk.content)} audio blocks",
-                )
-    else:
-        print(f"Final synthesis: {len(final_response.content)} audio blocks")
-
-    await tts_model.close()
-
-
-# asyncio.run(example_streaming_push_synthesize())
-
-# %%
-# Streaming Output Mode
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# TTS models support streaming output mode, where audio is returned as an async generator
-# of ``TTSResponse`` objects. This is useful for real-time audio playback.
+# While for non-realtime TTS models, you only need to implement the ``synthesize`` method.
 #
-# Set ``stream=True`` when initializing the TTS model to enable streaming output:
-
-
-async def example_streaming_output() -> None:
-    """An example of using streaming output mode."""
-    tts_model = DashScopeRealtimeTTSModel(
-        api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-        model_name="qwen3-tts-flash-realtime",
-        voice="Cherry",
-        stream=True,  # Enable streaming output
-    )
-
-    await tts_model.connect()
-
-    msg = Msg(
-        name="assistant",
-        content="This is a streaming output example.",
-        role="assistant",
-    )
-
-    # Synthesize returns an async generator when stream=True
-    response_generator = await tts_model.synthesize(msg)
-
-    if isinstance(response_generator, AsyncGenerator):
-        # Streaming mode - iterate over audio chunks
-        async for chunk in response_generator:
-            if chunk.content:
-                print(
-                    f"Received audio chunk: {len(chunk.content)} blocks, is_last={chunk.is_last}",
-                )
-                # Process audio chunk here (e.g., play audio)
-    else:
-        # Non-streaming mode
-        print(f"Received {len(response_generator.content)} audio blocks")
-
-    await tts_model.close()
-
-
-# asyncio.run(example_streaming_output())
-
-# %%
-# Context Manager Usage
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# TTS models support Python's async context manager protocol, which automatically handles
-# connection and cleanup. This is especially useful for realtime TTS models:
-
-
-async def example_context_manager() -> None:
-    """An example of using TTS models as context managers."""
-    # For realtime TTS models, the context manager automatically calls connect() and close()
-    async with DashScopeRealtimeTTSModel(
-        api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-        model_name="qwen3-tts-flash-realtime",
-        voice="Cherry",
-        stream=False,  # Set to False for simpler example
-    ) as tts_model:
-        msg = Msg(
-            name="assistant",
-            content="Using context manager for TTS.",
-            role="assistant",
-        )
-        tts_response = await tts_model.synthesize(msg)
-        print(f"TTS Response: {tts_response}")
-
-    # Connection is automatically closed when exiting the context
-
-
-# asyncio.run(example_context_manager())
-
-# %%
-# Configuration Options
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Different TTS models support various configuration options:
-#
-# **DashScope Realtime TTS:**
-#
-# - ``voice``: Voice selection (e.g., "Cherry", "Serena", "Ethan", "Chelsie")
-# - ``mode``: TTS mode ("server_commit" or "commit")
-# - ``cold_start_length``: Minimum text length (characters) before sending the first request
-# - ``cold_start_words``: Minimum word count before sending the first request
-#
-# **DashScope TTS:**
-#
-# - ``voice``: Voice selection
-# - ``language_type``: Language type (e.g., "Auto", "Chinese", "English")
-#
-# **OpenAI TTS:**
-#
-# - ``voice``: Voice selection (e.g., "alloy", "ash", "ballad", "coral")
-# - ``model_name``: Model selection ("gpt-4o-mini-tts", "tts-1", "tts-1-hd")
-#
-# **Gemini TTS:**
-#
-# - ``voice``: Voice selection (e.g., "Zephyr", "Kore", "Orus", "Autonoe")
-# - ``model_name``: Model selection (e.g., "gemini-2.5-flash-preview-tts")
-
-
-async def example_configuration() -> None:
-    """An example showing different configuration options."""
-    # DashScope Realtime TTS with custom configuration
-    tts_model = DashScopeRealtimeTTSModel(
-        api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-        model_name="qwen3-tts-flash-realtime",
-        voice="Serena",  # Different voice
-        mode="server_commit",  # Server manages text segmentation
-        cold_start_length=10,  # Wait for 10 characters before sending
-        cold_start_words=3,  # Or wait for 3 words
-        stream=False,  # Set to False for simpler example
-    )
-
-    await tts_model.connect()
-
-    msg = Msg(
-        name="assistant",
-        content="Custom configuration example.",
-        role="assistant",
-    )
-    tts_response = await tts_model.synthesize(msg)
-    print(f"TTS Response with custom config: {tts_response}")
-
-    await tts_model.close()
-
-
-# asyncio.run(example_configuration())
-
-# %%
-# Handling TTS Responses
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# TTS models return ``TTSResponse`` objects that contain ``AudioBlock`` instances.
-# Each ``AudioBlock`` contains base64-encoded audio data that can be decoded and played:
-
-
-async def example_handling_response() -> None:
-    """An example of handling TTS responses and audio data."""
-    import base64
-
-    tts_model = DashScopeRealtimeTTSModel(
-        api_key=os.environ.get("DASHSCOPE_API_KEY", ""),
-        model_name="qwen3-tts-flash-realtime",
-        voice="Cherry",
-        stream=False,  # Set to False for simpler example
-    )
-
-    await tts_model.connect()
-
-    msg = Msg(
-        name="assistant",
-        content="This example shows how to handle TTS responses.",
-        role="assistant",
-    )
-
-    tts_response = await tts_model.synthesize(msg)
-
-    # Access audio blocks
-    for i, audio_block in enumerate(tts_response.content):
-        print(f"Audio block {i}:")
-        print(f"  Type: {audio_block.type}")
-        print(f"  Source type: {audio_block.source.type}")
-        print(f"  Media type: {audio_block.source.media_type}")
-        print(
-            f"  Data length: {len(audio_block.source.data)} characters (base64)",
-        )
-
-        # Decode base64 audio data if needed
-        # audio_bytes = base64.b64decode(audio_block.source.data)
-        # # Now you can save or play the audio
-
-    # Access response metadata
-    print(f"Response ID: {tts_response.id}")
-    print(f"Created at: {tts_response.created_at}")
-    print(f"Is last: {tts_response.is_last}")
-
-    await tts_model.close()
-
-
-# asyncio.run(example_handling_response())
-
-# %%
 # Further Reading
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # - :ref:`agent` - Learn more about agents in AgentScope

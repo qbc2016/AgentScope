@@ -65,7 +65,8 @@ class TTSModelBase(ABC):
     ) -> None:
         """Exit the async context manager and clean up resources if needed."""
         if self.supports_streaming_input:
-            await self.close()
+            # await self.close()
+            pass
 
     async def connect(self) -> None:
         """Connect to the TTS model and initialize resources. For non-realtime
