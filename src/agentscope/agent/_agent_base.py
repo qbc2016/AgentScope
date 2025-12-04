@@ -223,9 +223,6 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             self._process_audio_block(msg.id, msg.speech)
 
         for block in msg.get_content_blocks():
-            # if block["type"] == "audio":
-            #     pass
-
             if block["type"] == "text":
                 self._print_text_block(
                     msg.id,
