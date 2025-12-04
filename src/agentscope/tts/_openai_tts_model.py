@@ -97,17 +97,30 @@ class OpenAITTSModel(TTSModelBase):
         text = msg.get_text_content()
 
         if text:
+            if self.stream:
+                response = (
+                    self._client.audio.speech.with_streaming_response.create(
+                        model=self.model_name,
+                        voice=self.voice,
+                        input=text,
+                        response_format="mp3",
+                        **self.generate_kwargs,
+                        **kwargs,
+                    )
+                )
+                return self._parse_into_async_generator(response)
+
             response = await self._client.audio.speech.create(
                 model=self.model_name,
                 voice=self.voice,
                 input=text,
+                response_format="pcm",
                 **self.generate_kwargs,
                 **kwargs,
             )
 
-            if self.stream:
-                return await self._parse_into_async_generator(response)
-
+            # TODO: if we set `response_format` to "wav", do we still need
+            #  decoding?
             audio_base64 = base64.b64encode(response.content).decode(
                 "utf-8",
             )
@@ -118,7 +131,7 @@ class OpenAITTSModel(TTSModelBase):
                         source=Base64Source(
                             type="base64",
                             data=audio_base64,
-                            media_type="audio/mp3",
+                            media_type="audio/pcm",
                         ),
                     ),
                 ],
@@ -140,4 +153,67 @@ class OpenAITTSModel(TTSModelBase):
             `TTSResponse`:
                 The TTSResponse object containing audio blocks.
         """
-        # TODO: @qbc Implement streaming response parsing
+        # Iterate through the streaming response chunks
+        async with response as stream:
+            async for chunk in stream.iter_bytes():
+                if chunk:
+                    # Encode chunk to base64
+                    audio_base64 = base64.b64encode(chunk).decode("utf-8")
+
+                    # Create TTSResponse for this chunk
+                    yield TTSResponse(
+                        content=[
+                            AudioBlock(
+                                type="audio",
+                                source=Base64Source(
+                                    type="base64",
+                                    data=audio_base64,
+                                    media_type="audio/pcm",
+                                ),
+                            ),
+                        ],
+                        is_last=False,  # Not the last chunk yet
+                    )
+
+            # Yield final response with is_last=True to indicate end of stream
+            yield TTSResponse(
+                content=[
+                    AudioBlock(
+                        type="audio",
+                        source=Base64Source(
+                            type="base64",
+                            data=audio_base64,
+                            media_type="audio/pcm",
+                        ),
+                    ),
+                ],
+                is_last=True,
+            )
+
+    async def push(
+        self,
+        msg: Msg,
+        **kwargs: Any,
+    ) -> TTSResponse:
+        """Append text to be synthesized and return the received TTS response.
+
+        .. note::
+            This method is not supported for OpenAI TTS model as it does not
+            support streaming input (``supports_streaming_input=False``).
+            This method always returns an empty response.
+
+        To synthesize speech, use the `synthesize` method instead.
+
+        Args:
+            msg (`Msg`):
+                The message to be synthesized. The `msg.id` identifies the
+                streaming input request.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
+
+        Returns:
+            `TTSResponse`:
+                Always returns an empty TTSResponse as streaming input is not
+                supported.
+        """
+        return TTSResponse(content=[])

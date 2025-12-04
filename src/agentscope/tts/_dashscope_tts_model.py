@@ -108,7 +108,7 @@ class DashScopeTTSModel(TTSModelBase):
             text=text,
             voice=self.voice,
             language_type=self.language_type,
-            stream=self.stream,
+            stream=True,
             **self.generate_kwargs,
             **kwargs,
         )
@@ -116,22 +116,22 @@ class DashScopeTTSModel(TTSModelBase):
         if self.stream:
             return self._parse_into_async_generator(response)
 
-        if response.output.audio and response.output.audio.data:
-            return TTSResponse(
-                content=[
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data=response.output.audio.data,
-                            media_type="audio/pcm;rate=24000",
-                        ),
-                    ),
-                ],
-            )
+        audio_data = ""
+        for chunk in response:
+            if chunk.output is not None:
+                audio_data += chunk.output.audio.data
 
-        raise ValueError(
-            "No audio data received from DashScope TTS API.",
+        return TTSResponse(
+            content=[
+                AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data=audio_data,
+                        media_type="audio/pcm;rate=24000",
+                    ),
+                ),
+            ],
         )
 
     @staticmethod
@@ -144,19 +144,63 @@ class DashScopeTTSModel(TTSModelBase):
             `AsyncGenerator[TTSResponse, None]`:
                 An async generator yielding TTSResponse objects.
         """
+        audio_data = ""
         for chunk in response:
             if chunk.output is not None:
                 audio = chunk.output.audio
                 if audio and audio.data:
+                    audio_data += audio.data
                     yield TTSResponse(
                         content=[
                             AudioBlock(
                                 type="audio",
                                 source=Base64Source(
                                     type="base64",
-                                    data=audio.data,
+                                    data=audio_data,
                                     media_type="audio/pcm;rate=24000",
                                 ),
                             ),
                         ],
+                        is_last=False,
                     )
+        yield TTSResponse(
+            content=[
+                AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data=audio_data,
+                        media_type="audio/pcm;rate=24000",
+                    ),
+                ),
+            ],
+            is_last=True,
+        )
+
+    async def push(
+        self,
+        msg: Msg,
+        **kwargs: Any,
+    ) -> TTSResponse:
+        """Append text to be synthesized and return the received TTS response.
+
+        .. note::
+            This method is not supported for DashScope TTS model as it does not
+            support streaming input (``supports_streaming_input=False``).
+            This method always returns an empty response.
+
+        To synthesize speech, use the `synthesize` method instead.
+
+        Args:
+            msg (`Msg`):
+                The message to be synthesized. The `msg.id` identifies the
+                streaming input request.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
+
+        Returns:
+            `TTSResponse`:
+                Always returns an empty TTSResponse as streaming input is not
+                supported.
+        """
+        return TTSResponse(content=[])

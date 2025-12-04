@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Gemini TTS model implementation."""
 import base64
-from typing import TYPE_CHECKING, Any, Literal, AsyncGenerator
+from typing import TYPE_CHECKING, Any, Literal, AsyncGenerator, Iterator
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
@@ -10,8 +10,10 @@ from ..types import JSONSerializableObject
 
 if TYPE_CHECKING:
     from google.genai import Client
+    from google.genai.types import GenerateContentResponse
 else:
     Client = "google.genai.Client"
+    GenerateContentResponse = "google.genai.types.GenerateContentResponse"
 
 
 class GeminiTTSModel(TTSModelBase):
@@ -69,7 +71,7 @@ class GeminiTTSModel(TTSModelBase):
 
         self._client = genai.Client(
             api_key=self.api_key,
-            **client_kwargs,
+            **(client_kwargs or {}),
         )
 
         self.generate_kwargs = generate_kwargs or {}
@@ -121,10 +123,15 @@ class GeminiTTSModel(TTSModelBase):
             "config": config,
         }
 
+        if self.stream:
+            response = self._client.models.generate_content_stream(
+                **api_kwargs,
+            )
+            return self._parse_into_async_generator(response)
+
         # Call Gemini TTS API
         response = self._client.models.generate_content(**api_kwargs)
 
-        # TODO: @qbc, streaming mode support
         # Extract audio data
         if (
             response.candidates
@@ -135,6 +142,9 @@ class GeminiTTSModel(TTSModelBase):
             audio_data = (
                 response.candidates[0].content.parts[0].inline_data.data
             )
+            mime_type = (
+                response.candidates[0].content.parts[0].inline_data.mime_type
+            )
             # Convert PCM data to base64
             audio_base64 = base64.b64encode(audio_data).decode("utf-8")
 
@@ -143,7 +153,7 @@ class GeminiTTSModel(TTSModelBase):
                 source=Base64Source(
                     type="base64",
                     data=audio_base64,
-                    media_type="audio/pcm;rate=24000",
+                    media_type=mime_type,
                 ),
             )
             return TTSResponse(content=[audio_block])
@@ -162,3 +172,67 @@ class GeminiTTSModel(TTSModelBase):
                     ),
                 ],
             )
+
+    @staticmethod
+    async def _parse_into_async_generator(
+        response: Iterator[GenerateContentResponse],
+    ) -> AsyncGenerator[TTSResponse, None]:
+        """Parse the TTS response into an async generator.
+
+        Returns:
+            `AsyncGenerator[TTSResponse, None]`:
+                An async generator yielding TTSResponse objects.
+        """
+        audio_data = ""
+        for chunk in response:
+            chunk_audio_data = (
+                chunk.candidates[0].content.parts[0].inline_data.data
+            )
+            mime_type = (
+                chunk.candidates[0].content.parts[0].inline_data.mime_type
+            )
+            chunk_audio_base64 = base64.b64encode(chunk_audio_data).decode(
+                "utf-8",
+            )
+            audio_data += chunk_audio_base64
+            yield TTSResponse(
+                content=[
+                    AudioBlock(
+                        type="audio",
+                        source=Base64Source(
+                            type="base64",
+                            data=audio_data,
+                            media_type=mime_type,
+                        ),
+                    ),
+                ],
+            )
+        yield TTSResponse(content=[])
+
+    async def push(
+        self,
+        msg: Msg,
+        **kwargs: Any,
+    ) -> TTSResponse:
+        """Append text to be synthesized and return the received TTS response.
+
+        .. note::
+            This method is not supported for Gemini TTS model as it does not
+            support streaming input (``supports_streaming_input=False``).
+            This method always returns an empty response.
+
+        To synthesize speech, use the `synthesize` method instead.
+
+        Args:
+            msg (`Msg`):
+                The message to be synthesized. The `msg.id` identifies the
+                streaming input request.
+            **kwargs (`Any`):
+                Additional keyword arguments to pass to the TTS API call.
+
+        Returns:
+            `TTSResponse`:
+                Always returns an empty TTSResponse as streaming input is not
+                supported.
+        """
+        return TTSResponse(content=[])
