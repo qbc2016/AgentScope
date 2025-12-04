@@ -183,8 +183,7 @@ class AnthropicChatModel(ChatModelBase):
         if tool_choice:
             # Handle deprecated "any" option with warning
             if tool_choice == "any":
-                warnings.filterwarnings(
-                    "once",
+                warnings.warn(
                     '"any" is deprecated and will be removed in a future '
                     "version.",
                     DeprecationWarning,

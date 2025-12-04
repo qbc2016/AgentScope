@@ -176,8 +176,7 @@ class DashScopeChatModel(ChatModelBase):
         if tool_choice:
             # Handle deprecated "any" option with warning
             if tool_choice in ["any", "required"]:
-                warnings.filterwarnings(
-                    "once",
+                warnings.warn(
                     f"'{tool_choice}' is not supported by DashScope API. "
                     "It will be converted to 'auto'.",
                     DeprecationWarning,
