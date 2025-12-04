@@ -175,10 +175,10 @@ class DashScopeChatModel(ChatModelBase):
 
         if tool_choice:
             # Handle deprecated "any" option with warning
-            if tool_choice == "any":
+            if tool_choice in ["any", "required"]:
                 warnings.warn(
-                    '"any" is deprecated and not supported by DashScope API. '
-                    'It will be converted to "auto".',
+                    f"'{tool_choice}' is not supported by DashScope API. "
+                    "It will be converted to 'auto'.",
                     DeprecationWarning,
                     stacklevel=2,
                 )
@@ -511,10 +511,10 @@ class DashScopeChatModel(ChatModelBase):
         Args:
             tool_choice (`Literal["auto", "none", "required"] | str \
             | None`, default  `None`):
-                Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", or specific tool name.
-                 For more details, please refer to
-                 https://help.aliyun.com/zh/model-studio/qwen-function-calling
+                Controls which (if any) tool is called by the model. For more
+                details, please refer to
+                https://help.aliyun.com/zh/model-studio/qwen-function-calling
+
         Returns:
             `dict | None`:
                 The formatted tool choice configuration dict, or None if
@@ -525,11 +525,5 @@ class DashScopeChatModel(ChatModelBase):
         if tool_choice in ["auto", "none"]:
             return tool_choice
         if tool_choice == "required":
-            warnings.warn(
-                "The tool_choice 'required' is not supported by DashScope "
-                "API and will be automatically converted to 'auto'.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
             return "auto"
         return {"type": "function", "function": {"name": tool_choice}}
