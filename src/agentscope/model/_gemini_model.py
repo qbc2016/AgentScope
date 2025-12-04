@@ -111,10 +111,6 @@ class GeminiChatModel(ChatModelBase):
                  Can be "auto", "none", "required", or specific tool name.
                  For more details, please refer to
                  https://ai.google.dev/gemini-api/docs/function-calling?hl=en&example=meeting#function_calling_modes
-
-                 .. deprecated::
-                    The "any" option is deprecated and will be automatically
-                    converted to "required".
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
                 for the model's output.

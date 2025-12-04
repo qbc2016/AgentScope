@@ -540,6 +540,7 @@ class OpenAIChatModel(ChatModelBase):
         """
         if tool_choice is None:
             return None
+
         mode_mapping = {
             "auto": "auto",
             "none": "none",

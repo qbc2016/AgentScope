@@ -106,15 +106,7 @@ class OllamaChatModel(ChatModelBase):
                 The tools JSON schemas that the model can use.
             tool_choice (`Literal["auto", "none", "required"] | str \
                 | None`, default `None`):
-                Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "required", or specific tool name.
-
-                 .. note:: Ollama does not support tool_choice yet, this
-                    parameter will be ignored.
-
-                 .. deprecated::
-                    The "any" option is deprecated and will be automatically
-                    converted to "required".
+                Ollama doesn't support `tool_choice` argument yet.
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
                 for the model's output.

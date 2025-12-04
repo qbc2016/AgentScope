@@ -145,10 +145,6 @@ class AnthropicChatModel(ChatModelBase):
                  Can be "auto", "none", "required", or specific tool
                  name. For more details, please refer to
                  https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use
-
-                 .. deprecated::
-                    The "any" option is deprecated and will be automatically
-                    converted to "required".
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
                 for the model's output. When provided, the model will be forced

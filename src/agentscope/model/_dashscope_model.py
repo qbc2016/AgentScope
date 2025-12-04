@@ -43,8 +43,6 @@ else:
         "MultiModalConversationResponse"
     )
 
-_warned_required = False  # Track if "required" has been warned in tool choice
-
 
 class DashScopeChatModel(ChatModelBase):
     """The DashScope chat model class, which unifies the Generation and
@@ -129,10 +127,6 @@ class DashScopeChatModel(ChatModelBase):
                  "required" will be converted to "auto".
                  For more details, please refer to
                  https://help.aliyun.com/zh/model-studio/qwen-function-calling
-
-                 .. deprecated::
-                    The "any" option is deprecated and will be automatically
-                    converted to "auto" (DashScope API limitation).
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
                 for the model's output. When provided, the model will be forced
