@@ -37,6 +37,15 @@ def _json_loads_with_repair(
         This function is currently only used for parsing the streaming output
         of the argument field in `tool_use`, so the parsed result must be a
         dict.
+
+    Args:
+        json_str (`str`):
+            The JSON string to parse, which may be incomplete or malformed.
+
+    Returns:
+        `dict`:
+            A dictionary parsed from the JSON string after repair attempts.
+            Returns an empty dict if all repair attempts fail.
     """
     try:
         repaired = repair_json(json_str)
@@ -55,10 +64,13 @@ def _json_loads_with_repair(
         except Exception:
             continue
 
-    raise ValueError(
-        f"Failed to parse JSON string `{json_str}`. "
-        "All repair attempts (original + truncation) failed.",
+    logger.warning(
+        "Failed to parse JSON string `%s`. "
+        "All repair attempts (original + truncation) failed. "
+        "Returning empty dict.",
+        json_str,
     )
+    return {}
 
 
 def _is_accessible_local_file(url: str) -> bool:
