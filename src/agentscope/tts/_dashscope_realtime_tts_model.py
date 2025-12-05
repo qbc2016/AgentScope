@@ -73,6 +73,7 @@ def _get_qwen_tts_realtime_callback_class() -> type["QwenTtsRealtimeCallback"]:
                     pass
 
                 elif event_type == "session.finished":
+                    self.chunk_event.set()
                     self.finish_event.set()
 
             except Exception:
@@ -194,10 +195,9 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         self,
         api_key: str,
         model_name: str = "qwen3-tts-flash-realtime",
-        voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
+        voice: Literal["Cherry", "Nofish", "Ethan", "Jennifer"]
         | str = "Cherry",
         stream: bool = True,
-        mode: Literal["server_commit", "commit"] = "server_commit",
         cold_start_length: int | None = None,
         cold_start_words: int | None = None,
         client_kwargs: dict[str, JSONSerializableObject] | None = None,
@@ -228,11 +228,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                 for the supported voices for each model.
             stream (`bool`, defaults to `True`):
                 Whether to use streaming synthesis.
-            mode (`Literal["server_commit", "commit"]`, default to "server\
-            commit"):
-                The TTS mode. Defaults to "server_commit". "server_commit"
-                indicates that the server will automatically manage text
-                segmentation and determine the optimal timing for synthesis.
             cold_start_length (`int | None`, optional):
                 The minimum length send threshold for the first TTS request,
                 ensuring there is not pause in the synthesized speech for too
@@ -261,7 +256,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
 
         # Store configuration
         self.voice = voice
-        self.mode = mode
+        self.mode = "server_commit"
         self.cold_start_length = cold_start_length
         self.cold_start_words = cold_start_words
         self.client_kwargs = client_kwargs or {}
