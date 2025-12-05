@@ -28,15 +28,19 @@ async def main() -> None:
         sys_prompt="You are a helpful assistant named Friday.",
         model=DashScopeChatModel(
             api_key=os.environ.get("DASHSCOPE_API_KEY"),
-            model_name="qwen-max",
+            model_name="qwen3-max",
             enable_thinking=False,
             stream=True,
         ),
         formatter=DashScopeChatFormatter(),
         toolkit=toolkit,
         memory=InMemoryMemory(),
+        # tts_model=DashScopeTTSModel(
+        #     model_name="qwen3-tts-flash",
+        #     api_key=os.environ.get("DASHSCOPE_API_KEY"),
+        # ),
         tts_model=DashScopeRealtimeTTSModel(
-            model_name="qwen-tts-realtime",
+            model_name="qwen3-tts-flash-realtime",
             api_key=os.environ.get("DASHSCOPE_API_KEY"),
             voice="Cherry",
         ),
@@ -45,10 +49,10 @@ async def main() -> None:
 
     msg = None
     while True:
+        msg = await agent(msg)
         msg = await user(msg)
         if msg.get_text_content() == "exit":
             break
-        msg = await agent(msg)
 
 
 asyncio.run(main())

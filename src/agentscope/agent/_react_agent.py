@@ -451,7 +451,10 @@ class ReActAgent(ReActAgentBase):
                         msg.speech = msg.get_content_blocks("audio") or None
 
                         # Push to TTS model if available
-                        if self.tts_model:
+                        if (
+                            self.tts_model
+                            and self.tts_model.supports_streaming_input
+                        ):
                             tts_res = await self.tts_model.push(msg)
                             msg.speech = tts_res.content
 
