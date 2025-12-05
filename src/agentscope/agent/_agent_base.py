@@ -406,6 +406,11 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             msg (`Msg`):
                 The message object
         """
+        # TODO: We should consider how to handle the multimodal blocks in the
+        #  terminal, since the base64 data may be too long to display.
+        if block.get("type") in ["image", "video", "audio"]:
+            return
+
         text_prefix = self._stream_prefix.get(msg.id, {}).get("text", "")
 
         if text_prefix:
