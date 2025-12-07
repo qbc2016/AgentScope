@@ -224,12 +224,12 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                 Whether to use streaming synthesis.
             cold_start_length (`int | None`, optional):
                 The minimum length send threshold for the first TTS request,
-                ensuring there is not pause in the synthesized speech for too
+                ensuring there is no pause in the synthesized speech for too
                 short input text. The length is measured in number of
                 characters.
             cold_start_words (`int | None`, optional):
                 The minimum words send threshold for the first TTS request,
-                ensuring there is not pause in the synthesized speech for too
+                ensuring there is no pause in the synthesized speech for too
                 short input text. The words are identified by spaces in the
                 text.
             client_kwargs (`dict[str, JSONSerializableObject] | None`, \

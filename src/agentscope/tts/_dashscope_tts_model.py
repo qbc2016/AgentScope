@@ -139,6 +139,10 @@ class DashScopeTTSModel(TTSModelBase):
     ) -> AsyncGenerator[TTSResponse, None]:
         """Parse the TTS response into an async generator.
 
+        Args:
+            response (`Generator[MultiModalConversationResponse, None, None]`):
+                The streaming response from DashScope TTS API.
+
         Returns:
             `AsyncGenerator[TTSResponse, None]`:
                 An async generator yielding TTSResponse objects.

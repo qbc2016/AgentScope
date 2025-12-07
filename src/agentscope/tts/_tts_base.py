@@ -114,7 +114,7 @@ class TTSModelBase(ABC):
 
         Returns:
             `TTSResponse`:
-                The TTSResponse containing audio blocks.
+                The TTSResponse containing audio block.
         """
         raise NotImplementedError(
             "The push method is not implemented for "

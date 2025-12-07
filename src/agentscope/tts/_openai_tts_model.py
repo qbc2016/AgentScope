@@ -151,6 +151,7 @@ class OpenAITTSModel(TTSModelBase):
         """
         # Iterate through the streaming response chunks
         async with response as stream:
+            audio_base64 = ""
             async for chunk in stream.iter_bytes():
                 if chunk:
                     # Encode chunk to base64

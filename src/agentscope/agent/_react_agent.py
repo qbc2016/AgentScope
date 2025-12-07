@@ -439,6 +439,7 @@ class ReActAgent(ReActAgentBase):
 
         # TTS model context manager
         tts_context = self.tts_model or _AsyncNullContext()
+        speech = None
 
         try:
             async with tts_context:
@@ -607,6 +608,7 @@ class ReActAgent(ReActAgentBase):
 
         # TTS model context manager
         tts_context = self.tts_model or _AsyncNullContext()
+        speech = None
 
         async with tts_context:
             res_msg = Msg(self.name, [], "assistant")

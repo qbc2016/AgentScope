@@ -5,7 +5,7 @@
 TTS
 ====================
 
-AgentScope provides a unified interface for Text-to-Speech (TTS) models across multiple API provides.
+AgentScope provides a unified interface for Text-to-Speech (TTS) models across multiple API providers.
 This tutorial demonstrates how to use TTS models in AgentScope.
 
 AgentScope supports the following TTS APIs:

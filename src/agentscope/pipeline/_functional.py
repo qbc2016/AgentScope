@@ -109,8 +109,8 @@ async def stream_printing_messages(
     coroutine_task: Coroutine,
     end_signal: str = "[END]",
     yield_speech: bool = False,
-) -> AsyncGenerator[Tuple[Msg, bool], None] | AsyncGenerator[
-    Tuple[Msg, bool, AudioBlock | list[AudioBlock] | None],
+) -> AsyncGenerator[
+    Tuple[Msg, bool] | Tuple[Msg, bool, AudioBlock | list[AudioBlock] | None],
     None,
 ]:
     """This pipeline will gather the printing messages from agents when
@@ -141,7 +141,9 @@ async def stream_printing_messages(
         yield_speech (`bool`, defaults to `False`):
             Whether to yield speech associated with the messages, if any.
             If `True` and a speech is attached when calling `await
-            self.print()` in the agent, the yield
+            self.print()` in the agent, the yielded tuple will include the
+            speech as the third element. If `False`, only the message and
+            the boolean flag will be yielded.
 
     Yields:
         `Tuple[Msg, bool] | Tuple[Msg, bool, AudioBlock | list[AudioBlock] | \

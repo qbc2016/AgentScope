@@ -177,6 +177,10 @@ class GeminiTTSModel(TTSModelBase):
     ) -> AsyncGenerator[TTSResponse, None]:
         """Parse the TTS response into an async generator.
 
+        Args:
+            response (`Iterator[GenerateContentResponse]`):
+                The streaming response from Gemini TTS API.
+
         Returns:
             `AsyncGenerator[TTSResponse, None]`:
                 An async generator yielding TTSResponse objects.
