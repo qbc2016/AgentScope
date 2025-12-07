@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # mypy: disable-error-code="dict-item"
 """The Google Gemini model in agentscope."""
+import warnings
 from datetime import datetime
 from typing import (
     AsyncGenerator,
@@ -38,7 +39,7 @@ class GeminiChatModel(ChatModelBase):
         api_key: str,
         stream: bool = True,
         thinking_config: dict | None = None,
-        client_kwargs: dict = None,
+        client_kwargs: dict[str, JSONSerializableObject] | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         **kwargs: Any,
     ) -> None:
@@ -64,7 +65,8 @@ class GeminiChatModel(ChatModelBase):
                         "thinking_budget": 1024   # Max tokens for reasoning
                     }
 
-            client_kwargs (`dict`, default `None`):
+            client_kwargs (`dict[str, JSONSerializableObject] | None`, \
+             optional):
                 The extra keyword arguments to initialize the Gemini client.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
              optional):
@@ -119,9 +121,7 @@ class GeminiChatModel(ChatModelBase):
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        tool_choice: Literal["auto", "none", "any", "required"]
-        | str
-        | None = None,
+        tool_choice: Literal["auto", "none", "required"] | str | None = None,
         structured_model: Type[BaseModel] | None = None,
         **config_kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
@@ -133,11 +133,11 @@ class GeminiChatModel(ChatModelBase):
                 required.
             tools (`list[dict] | None`, default `None`):
                 The tools JSON schemas that the model can use.
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
+            tool_choice (`Literal["auto", "none", "required"] | str \
             | None`, default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "any", "required", or specific tool
-                 name. For more details, please refer to
+                 Can be "auto", "none", "required", or specific tool name.
+                 For more details, please refer to
                  https://ai.google.dev/gemini-api/docs/function-calling?hl=en&example=meeting#function_calling_modes
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
@@ -165,6 +165,14 @@ class GeminiChatModel(ChatModelBase):
             config["tools"] = self._format_tools_json_schemas(tools)
 
         if tool_choice:
+            # Handle deprecated "any" option with warning
+            if tool_choice == "any":
+                warnings.warn(
+                    '"any" is deprecated and will be removed in a future '
+                    "version.",
+                    DeprecationWarning,
+                )
+                tool_choice = "required"
             self._validate_tool_choice(tool_choice, tools)
             config["tool_config"] = self._format_tool_choice(tool_choice)
 
@@ -477,16 +485,15 @@ class GeminiChatModel(ChatModelBase):
 
     def _format_tool_choice(
         self,
-        tool_choice: Literal["auto", "none", "any", "required"] | str | None,
+        tool_choice: Literal["auto", "none", "required"] | str | None,
     ) -> dict | None:
         """Format tool_choice parameter for API compatibility.
 
         Args:
-            tool_choice (`Literal["auto", "none"] | str | None`, default \
-            `None`):
+            tool_choice (`Literal["auto", "none", "required"] | str | None`, \
+            default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "any", "required", or specific tool
-                 name.
+                 Can be "auto", "none", "required", or specific tool name.
                  For more details, please refer to
                  https://ai.google.dev/gemini-api/docs/function-calling?hl=en&example=meeting#function_calling_modes
         Returns:
@@ -500,7 +507,6 @@ class GeminiChatModel(ChatModelBase):
         mode_mapping = {
             "auto": "AUTO",
             "none": "NONE",
-            "any": "ANY",
             "required": "ANY",
         }
         mode = mode_mapping.get(tool_choice)

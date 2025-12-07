@@ -171,7 +171,7 @@ async def stream_printing_messages(
         # in a streaming message
         printing_msg = await queue.get()
 
-        # End the loop when the message is None
+        # Check if this is the end signal
         if isinstance(printing_msg, str) and printing_msg == end_signal:
             break
 
@@ -180,3 +180,8 @@ async def stream_printing_messages(
         else:
             msg, last, _ = printing_msg
             yield msg, last
+
+    # Check exception after processing all messages
+    exception = task.exception()
+    if exception is not None:
+        raise exception from None

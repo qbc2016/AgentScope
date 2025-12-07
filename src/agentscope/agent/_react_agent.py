@@ -177,7 +177,7 @@ class ReActAgent(ReActAgentBase):
                 long_term_memory.retrieve_from_memory,
             )
         # Add a meta tool function to allow agent-controlled tool management
-        if enable_meta_tool or plan_notebook:
+        if enable_meta_tool:
             self.toolkit.register_tool_function(
                 self.toolkit.reset_equipped_tools,
             )
@@ -200,7 +200,7 @@ class ReActAgent(ReActAgentBase):
             self.plan_notebook = plan_notebook
             # When enable_meta_tool is True, plan tools are in plan_related
             # group and active by agent.
-            # Otherwise, plan tools in bassic group and always active.
+            # Otherwise, plan tools in basic group and always active.
             if enable_meta_tool:
                 self.toolkit.create_tool_group(
                     "plan_related",
@@ -278,7 +278,7 @@ class ReActAgent(ReActAgentBase):
         await self._retrieve_from_knowledge(msg)
 
         # Control if LLM generates tool calls in each reasoning step
-        tool_choice: Literal["auto", "none", "any", "required"] | None = None
+        tool_choice: Literal["auto", "none", "required"] | None = None
 
         # -------------- Structured output management --------------
         self._required_structured_model = structured_model
@@ -404,7 +404,7 @@ class ReActAgent(ReActAgentBase):
     # pylint: disable=too-many-branches
     async def _reasoning(
         self,
-        tool_choice: Literal["auto", "none", "any", "required"] | None = None,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
         """Perform the reasoning process."""
 
