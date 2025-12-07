@@ -88,16 +88,14 @@ class DashScopeRealtimeTTSModelTest(IsolatedAsyncioTestCase):
                 # Mock callback to return audio data
                 model._dashscope_callback.get_audio_data = AsyncMock(
                     return_value=TTSResponse(
-                        content=[
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    data=self.mock_audio_data,
-                                    media_type="audio/pcm;rate=24000",
-                                ),
+                        content=AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=self.mock_audio_data,
+                                media_type="audio/pcm;rate=24000",
                             ),
-                        ],
+                        ),
                     ),
                 )
 
@@ -136,16 +134,14 @@ class DashScopeRealtimeTTSModelTest(IsolatedAsyncioTestCase):
             ) as model:
                 model._dashscope_callback.get_audio_data = AsyncMock(
                     return_value=TTSResponse(
-                        content=[
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    data=self.mock_audio_data,
-                                    media_type="audio/pcm;rate=24000",
-                                ),
+                        content=AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=self.mock_audio_data,
+                                media_type="audio/pcm;rate=24000",
                             ),
-                        ],
+                        ),
                     ),
                 )
 
@@ -157,8 +153,7 @@ class DashScopeRealtimeTTSModelTest(IsolatedAsyncioTestCase):
                 response = await model.synthesize(msg)
 
                 self.assertIsInstance(response, TTSResponse)
-                self.assertGreater(len(response.content), 0)
-                self.assertEqual(response.content[0]["type"], "audio")
+                self.assertEqual(response.content["type"], "audio")
 
     async def test_synthesize_streaming(self) -> None:
         """Test synthesize method in streaming mode."""
@@ -180,18 +175,16 @@ class DashScopeRealtimeTTSModelTest(IsolatedAsyncioTestCase):
                     None,
                 ]:
                     yield TTSResponse(
-                        content=[
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    data=self.mock_audio_data,
-                                    media_type="audio/pcm;rate=24000",
-                                ),
+                        content=AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=self.mock_audio_data,
+                                media_type="audio/pcm;rate=24000",
                             ),
-                        ],
+                        ),
                     )
-                    yield TTSResponse(content=[])
+                    yield TTSResponse(content=None)
 
                 model._dashscope_callback.get_audio_chunk = mock_generator
 
@@ -253,16 +246,14 @@ class DashScopeTTSModelTest(IsolatedAsyncioTestCase):
             msg = Msg(name="user", content="Hello! Test message.", role="user")
             response = await model.synthesize(msg)
 
-            expected_content = [
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data="audio1audio2",
-                        media_type="audio/pcm;rate=24000",
-                    ),
+            expected_content = AudioBlock(
+                type="audio",
+                source=Base64Source(
+                    type="base64",
+                    data="audio1audio2",
+                    media_type="audio/pcm;rate=24000",
                 ),
-            ]
+            )
             self.assertEqual(response.content, expected_content)
 
     async def test_synthesize_streaming(self) -> None:
@@ -292,45 +283,39 @@ class DashScopeTTSModelTest(IsolatedAsyncioTestCase):
             # Chunk 1: accumulated "audio1"
             self.assertEqual(
                 chunks[0].content,
-                [
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data="audio1",
-                            media_type="audio/pcm;rate=24000",
-                        ),
+                AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data="audio1",
+                        media_type="audio/pcm;rate=24000",
                     ),
-                ],
+                ),
             )
 
             # Chunk 2: accumulated "audio1audio2"
             self.assertEqual(
                 chunks[1].content,
-                [
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data="audio1audio2",
-                            media_type="audio/pcm;rate=24000",
-                        ),
+                AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data="audio1audio2",
+                        media_type="audio/pcm;rate=24000",
                     ),
-                ],
+                ),
             )
 
             # Final chunk: complete audio data
             self.assertEqual(
                 chunks[2].content,
-                [
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data="audio1audio2",
-                            media_type="audio/pcm;rate=24000",
-                        ),
+                AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data="audio1audio2",
+                        media_type="audio/pcm;rate=24000",
                     ),
-                ],
+                ),
             )
             self.assertTrue(chunks[2].is_last)

@@ -60,16 +60,14 @@ class OpenAITTSModelTest(IsolatedAsyncioTestCase):
         msg = Msg(name="user", content="Hello! Test message.", role="user")
         response = await model.synthesize(msg)
 
-        expected_content = [
-            AudioBlock(
-                type="audio",
-                source=Base64Source(
-                    type="base64",
-                    data=self.mock_audio_base64,
-                    media_type="audio/pcm",
-                ),
+        expected_content = AudioBlock(
+            type="audio",
+            source=Base64Source(
+                type="base64",
+                data=self.mock_audio_base64,
+                media_type="audio/pcm",
             ),
-        ]
+        )
         self.assertEqual(response.content, expected_content)
         model._client.audio.speech.create.assert_called_once()
 
@@ -110,31 +108,27 @@ class OpenAITTSModelTest(IsolatedAsyncioTestCase):
         # Chunk 1
         self.assertEqual(
             chunks[0].content,
-            [
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data=base64.b64encode(chunk1).decode("utf-8"),
-                        media_type="audio/pcm",
-                    ),
+            AudioBlock(
+                type="audio",
+                source=Base64Source(
+                    type="base64",
+                    data=base64.b64encode(chunk1).decode("utf-8"),
+                    media_type="audio/pcm",
                 ),
-            ],
+            ),
         )
 
         # Chunk 2
         self.assertEqual(
             chunks[1].content,
-            [
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data=base64.b64encode(chunk2).decode("utf-8"),
-                        media_type="audio/pcm",
-                    ),
+            AudioBlock(
+                type="audio",
+                source=Base64Source(
+                    type="base64",
+                    data=base64.b64encode(chunk2).decode("utf-8"),
+                    media_type="audio/pcm",
                 ),
-            ],
+            ),
         )
 
         # Final chunk

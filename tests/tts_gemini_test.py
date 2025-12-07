@@ -91,16 +91,14 @@ class GeminiTTSModelTest(IsolatedAsyncioTestCase):
         msg = Msg(name="user", content="Hello! Test message.", role="user")
         response = await model.synthesize(msg)
 
-        expected_content = [
-            AudioBlock(
-                type="audio",
-                source=Base64Source(
-                    type="base64",
-                    data=self.mock_audio_base64,
-                    media_type=self.mock_mime_type,
-                ),
+        expected_content = AudioBlock(
+            type="audio",
+            source=Base64Source(
+                type="base64",
+                data=self.mock_audio_base64,
+                media_type=self.mock_mime_type,
             ),
-        ]
+        )
         self.assertEqual(response.content, expected_content)
 
     async def test_synthesize_streaming(self) -> None:
@@ -142,32 +140,28 @@ class GeminiTTSModelTest(IsolatedAsyncioTestCase):
         # Chunk 1: accumulated chunk1
         self.assertEqual(
             chunks[0].content,
-            [
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data=chunk1_base64,
-                        media_type=self.mock_mime_type,
-                    ),
+            AudioBlock(
+                type="audio",
+                source=Base64Source(
+                    type="base64",
+                    data=chunk1_base64,
+                    media_type=self.mock_mime_type,
                 ),
-            ],
+            ),
         )
 
         # Chunk 2: accumulated chunk1 + chunk2
         self.assertEqual(
             chunks[1].content,
-            [
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data=chunk1_base64 + chunk2_base64,
-                        media_type=self.mock_mime_type,
-                    ),
+            AudioBlock(
+                type="audio",
+                source=Base64Source(
+                    type="base64",
+                    data=chunk1_base64 + chunk2_base64,
+                    media_type=self.mock_mime_type,
                 ),
-            ],
+            ),
         )
 
         # Final chunk: empty
-        self.assertEqual(chunks[2].content, [])
+        self.assertIsNone(chunks[2].content)
