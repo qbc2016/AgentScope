@@ -95,7 +95,7 @@ class DashScopeTTSModel(TTSModelBase):
         """
 
         if msg is None:
-            return TTSResponse(content=[])
+            return TTSResponse(content=None)
 
         text = msg.get_text_content()
 
@@ -121,18 +121,17 @@ class DashScopeTTSModel(TTSModelBase):
             if chunk.output is not None:
                 audio_data += chunk.output.audio.data
 
-        return TTSResponse(
-            content=[
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data=audio_data,
-                        media_type="audio/pcm;rate=24000",
-                    ),
+        res = TTSResponse(
+            content=AudioBlock(
+                type="audio",
+                source=Base64Source(
+                    type="base64",
+                    data=audio_data,
+                    media_type="audio/pcm;rate=24000",
                 ),
-            ],
+            ),
         )
+        return res
 
     @staticmethod
     async def _parse_into_async_generator(
@@ -151,28 +150,24 @@ class DashScopeTTSModel(TTSModelBase):
                 if audio and audio.data:
                     audio_data += audio.data
                     yield TTSResponse(
-                        content=[
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    data=audio_data,
-                                    media_type="audio/pcm;rate=24000",
-                                ),
+                        content=AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=audio_data,
+                                media_type="audio/pcm;rate=24000",
                             ),
-                        ],
+                        ),
                         is_last=False,
                     )
         yield TTSResponse(
-            content=[
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        data=audio_data,
-                        media_type="audio/pcm;rate=24000",
-                    ),
+            content=AudioBlock(
+                type="audio",
+                source=Base64Source(
+                    type="base64",
+                    data=audio_data,
+                    media_type="audio/pcm;rate=24000",
                 ),
-            ],
+            ),
             is_last=True,
         )

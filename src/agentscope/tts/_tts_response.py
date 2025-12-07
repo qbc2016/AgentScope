@@ -2,7 +2,7 @@
 """The TTS response module."""
 
 from dataclasses import dataclass, field
-from typing import Literal, Sequence
+from typing import Literal
 
 from .._utils._common import _get_timestamp
 from .._utils._mixin import DictMixin
@@ -31,8 +31,8 @@ class TTSUsage(DictMixin):
 class TTSResponse(DictMixin):
     """The response of TTS models."""
 
-    content: Sequence[AudioBlock]
-    """The content of the TTS response, which contains audio blocks."""
+    content: AudioBlock | None
+    """The content of the TTS response, which contains audio block"""
 
     id: str = field(default_factory=lambda: _get_timestamp(True))
     """The unique identifier of the response."""

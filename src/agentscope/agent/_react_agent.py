@@ -448,7 +448,8 @@ class ReActAgent(ReActAgentBase):
                         msg.content = content_chunk.content
 
                         # The speech generated from multimodal (audio) models
-                        msg.speech = msg.get_content_blocks("audio") or None
+                        # e.g. Qwen-Omni and GPT-AUDIO
+                        speech = msg.get_content_blocks("audio") or None
 
                         # Push to TTS model if available
                         if (
@@ -456,9 +457,9 @@ class ReActAgent(ReActAgentBase):
                             and self.tts_model.supports_streaming_input
                         ):
                             tts_res = await self.tts_model.push(msg)
-                            msg.speech = tts_res.content
+                            speech = tts_res.content
 
-                        await self.print(msg, False)
+                        await self.print(msg, False, speech=speech)
 
                 else:
                     msg.content = list(res.content)
@@ -469,12 +470,12 @@ class ReActAgent(ReActAgentBase):
                     tts_res = await self.tts_model.synthesize(msg)
                     if self.tts_model.stream:
                         async for tts_chunk in tts_res:
-                            msg.speech = tts_chunk.content
-                            await self.print(msg, False)
+                            speech = tts_chunk.content
+                            await self.print(msg, False, speech=speech)
                     else:
-                        msg.speech = tts_res.content
+                        speech = tts_res.content
 
-                await self.print(msg, True)
+                await self.print(msg, True, speech=speech)
 
                 # Add a tiny sleep to yield the last message object in the
                 # message queue
@@ -584,8 +585,6 @@ class ReActAgent(ReActAgentBase):
         """Generate a response when the agent fails to solve the problem in
         the maximum iterations."""
 
-        tts_context = self.tts_model or _AsyncNullContext()
-
         hint_msg = Msg(
             "user",
             "You have failed to generate response within the maximum "
@@ -606,32 +605,44 @@ class ReActAgent(ReActAgentBase):
         #  finish_function here
         res = await self.model(prompt)
 
+        # TTS model context manager
+        tts_context = self.tts_model or _AsyncNullContext()
+
         async with tts_context:
             res_msg = Msg(self.name, [], "assistant")
             if isinstance(res, AsyncGenerator):
                 async for chunk in res:
                     res_msg.content = chunk.content
-                    if self.tts_model:
-                        tts_response = await self.tts_model.push(res_msg)
-                        res_msg.content.extend(tts_response.content)
 
-                    await self.print(res_msg, False)
+                    # The speech generated from multimodal (audio) models
+                    # e.g. Qwen-Omni and GPT-AUDIO
+                    speech = res_msg.get_content_blocks("audio") or None
+
+                    # Push to TTS model if available
+                    if (
+                        self.tts_model
+                        and self.tts_model.supports_streaming_input
+                    ):
+                        tts_res = await self.tts_model.push(res_msg)
+                        speech = tts_res.content
+
+                    await self.print(res_msg, False, speech=speech)
 
             else:
                 res_msg.content = res.content
-                if self.tts_model:
-                    # Remove old audio blocks before adding the final one
-                    res_msg.content = [
-                        block
-                        for block in res_msg.content
-                        if block.get("type") != "audio"
-                    ]
-                    tts_response = await self.tts_model.synthesize(res_msg)
-                    res_msg.content.extend(tts_response.content)
-                else:
-                    res_msg.content = list(res_msg.content)
 
-            await self.print(res_msg, True)
+            if self.tts_model:
+                # Push to TTS model and block to receive the full speech
+                # synthesis result
+                tts_res = await self.tts_model.synthesize(res_msg)
+                if self.tts_model.stream:
+                    async for tts_chunk in tts_res:
+                        speech = tts_chunk.content
+                        await self.print(res_msg, False, speech=speech)
+                else:
+                    speech = tts_res.content
+
+            await self.print(res_msg, True, speech=speech)
 
             return res_msg
 

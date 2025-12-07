@@ -195,7 +195,12 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             f"{self.__class__.__name__} class.",
         )
 
-    async def print(self, msg: Msg, last: bool = True) -> None:
+    async def print(
+        self,
+        msg: Msg,
+        last: bool = True,
+        speech: AudioBlock | list[AudioBlock] | None = None,
+    ) -> None:
         """The function to display the message.
 
         Args:
@@ -204,9 +209,12 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
             last (`bool`, defaults to `True`):
                 Whether this is the last one in streaming messages. For
                 non-streaming message, this should always be `True`.
+            speech (`AudioBlock | list[AudioBlock] | None`, optional):
+                The audio content block(s) to be played along with the
+                message.
         """
         if not self._disable_msg_queue:
-            await self.msg_queue.put((deepcopy(msg), last))
+            await self.msg_queue.put((deepcopy(msg), last, speech))
 
         if self._disable_console_output:
             return
@@ -214,13 +222,6 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
         # The accumulated textual content to print, including the text blocks
         # and the thinking blocks
         thinking_and_text_to_print = []
-
-        # Play audio block if exists
-        if isinstance(msg.speech, list):
-            for audio_block in msg.speech:
-                self._process_audio_block(msg.id, audio_block)
-        elif isinstance(msg.speech, dict):
-            self._process_audio_block(msg.id, msg.speech)
 
         for block in msg.get_content_blocks():
             if block["type"] == "text":
@@ -241,6 +242,13 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
 
             elif last:
                 self._print_last_block(block, msg)
+
+        # Play audio block if exists
+        if isinstance(speech, list):
+            for audio_block in speech:
+                self._process_audio_block(msg.id, audio_block)
+        elif isinstance(speech, dict):
+            self._process_audio_block(msg.id, speech)
 
         # Clean up resources if this is the last message in streaming
         if last and msg.id in self._stream_prefix:

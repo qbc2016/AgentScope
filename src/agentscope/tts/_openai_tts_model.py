@@ -92,7 +92,7 @@ class OpenAITTSModel(TTSModelBase):
                 generator yielding TTSResponse objects in streaming mode.
         """
         if msg is None:
-            return TTSResponse(content=[])
+            return TTSResponse(content=None)
 
         text = msg.get_text_content()
 
@@ -123,19 +123,17 @@ class OpenAITTSModel(TTSModelBase):
                 "utf-8",
             )
             return TTSResponse(
-                content=[
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data=audio_base64,
-                            media_type="audio/pcm",
-                        ),
+                content=AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data=audio_base64,
+                        media_type="audio/pcm",
                     ),
-                ],
+                ),
             )
 
-        return TTSResponse(content=[])
+        return TTSResponse(content=None)
 
     @staticmethod
     async def _parse_into_async_generator(
@@ -160,30 +158,26 @@ class OpenAITTSModel(TTSModelBase):
 
                     # Create TTSResponse for this chunk
                     yield TTSResponse(
-                        content=[
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    data=audio_base64,
-                                    media_type="audio/pcm",
-                                ),
+                        content=AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=audio_base64,
+                                media_type="audio/pcm",
                             ),
-                        ],
+                        ),
                         is_last=False,  # Not the last chunk yet
                     )
 
             # Yield final response with is_last=True to indicate end of stream
             yield TTSResponse(
-                content=[
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data=audio_base64,
-                            media_type="audio/pcm",
-                        ),
+                content=AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data=audio_base64,
+                        media_type="audio/pcm",
                     ),
-                ],
+                ),
                 is_last=True,
             )

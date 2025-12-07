@@ -96,23 +96,21 @@ def _get_qwen_tts_realtime_callback_class() -> type["QwenTtsRealtimeCallback"]:
             # Return the accumulated audio data
             if self._audio_data:
                 return TTSResponse(
-                    content=[
-                        AudioBlock(
-                            type="audio",
-                            source=Base64Source(
-                                type="base64",
-                                data=self._audio_data,
-                                media_type="audio/pcm;rate=24000",
-                            ),
+                    content=AudioBlock(
+                        type="audio",
+                        source=Base64Source(
+                            type="base64",
+                            data=self._audio_data,
+                            media_type="audio/pcm;rate=24000",
                         ),
-                    ],
+                    ),
                 )
 
             # Reset for next tts request
             await self._reset()
 
             # Return empty response if no audio data
-            return TTSResponse(content=[])
+            return TTSResponse(content=None)
 
         async def get_audio_chunk(self) -> AsyncGenerator[TTSResponse, None]:
             """Get the audio data chunk as an async generator of `TTSResponse`
@@ -125,16 +123,14 @@ def _get_qwen_tts_realtime_callback_class() -> type["QwenTtsRealtimeCallback"]:
             while True:
                 if self.finish_event.is_set():
                     yield TTSResponse(
-                        content=[
-                            AudioBlock(
-                                type="audio",
-                                source=Base64Source(
-                                    type="base64",
-                                    data=self._audio_data,
-                                    media_type="audio/pcm;rate=24000",
-                                ),
+                        content=AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                data=self._audio_data,
+                                media_type="audio/pcm;rate=24000",
                             ),
-                        ],
+                        ),
                         is_last=True,
                     )
 
@@ -151,16 +147,14 @@ def _get_qwen_tts_realtime_callback_class() -> type["QwenTtsRealtimeCallback"]:
                     self.chunk_event.wait()
 
                 yield TTSResponse(
-                    content=[
-                        AudioBlock(
-                            type="audio",
-                            source=Base64Source(
-                                type="base64",
-                                data=self._audio_data,
-                                media_type="audio/pcm;rate=24000",
-                            ),
+                    content=AudioBlock(
+                        type="audio",
+                        source=Base64Source(
+                            type="base64",
+                            data=self._audio_data,
+                            media_type="audio/pcm;rate=24000",
                         ),
-                    ],
+                    ),
                     is_last=False,
                 )
 
@@ -380,7 +374,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
             return res
 
         # Return empty response if no text to send
-        return TTSResponse(content=[])
+        return TTSResponse(content=None)
 
     async def synthesize(
         self,

@@ -35,10 +35,12 @@ async def main() -> None:
         formatter=DashScopeChatFormatter(),
         toolkit=toolkit,
         memory=InMemoryMemory(),
+        # Specify the TTS model for real-time speech synthesis
         tts_model=DashScopeRealtimeTTSModel(
             model_name="qwen3-tts-flash-realtime",
             api_key=os.environ.get("DASHSCOPE_API_KEY"),
             voice="Cherry",
+            stream=False,
         ),
     )
     user = UserAgent("User")

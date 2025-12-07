@@ -95,7 +95,7 @@ class GeminiTTSModel(TTSModelBase):
                 generator yielding TTSResponse objects in streaming mode.
         """
         if msg is None:
-            return TTSResponse(content=[])
+            return TTSResponse(content=None)
 
         from google.genai import types
 
@@ -156,21 +156,19 @@ class GeminiTTSModel(TTSModelBase):
                     media_type=mime_type,
                 ),
             )
-            return TTSResponse(content=[audio_block])
+            return TTSResponse(content=audio_block)
 
         else:
             # Not the last chunk, return empty AudioBlock
             return TTSResponse(
-                content=[
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data="",
-                            media_type="audio/pcm;rate=24000",
-                        ),
+                content=AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data="",
+                        media_type="audio/pcm;rate=24000",
                     ),
-                ],
+                ),
             )
 
     @staticmethod
@@ -196,15 +194,13 @@ class GeminiTTSModel(TTSModelBase):
             )
             audio_data += chunk_audio_base64
             yield TTSResponse(
-                content=[
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            data=audio_data,
-                            media_type=mime_type,
-                        ),
+                content=AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        data=audio_data,
+                        media_type=mime_type,
                     ),
-                ],
+                ),
             )
-        yield TTSResponse(content=[])
+        yield TTSResponse(content=None)
