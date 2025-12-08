@@ -97,7 +97,8 @@ class AudioAssistantAgent(AgentBase):
             is_final: bool,
         ) -> None:
             response_msg.content = content_blocks
-            await self.print(response_msg, is_final)
+            speech = response_msg.get_content_blocks("audio") or None
+            await self.print(response_msg, is_final, speech=speech)
 
         self.callback.on_response_chunk = handle_response_chunk
 
