@@ -58,6 +58,7 @@ class DashScopeChatModel(ChatModelBase):
         base_http_api_url: str | None = None,
         max_retries: int = 3,
         retry_interval: float = 1.0,
+        fallback_model_name: str | None = None,
         **_kwargs: Any,
     ) -> None:
         """Initialize the DashScope chat model.
@@ -86,6 +87,10 @@ class DashScopeChatModel(ChatModelBase):
             retry_interval (`float`, default `1.0`):
                 Initial retry interval in seconds. The interval will increase
                 exponentially with each retry attempt.
+            fallback_model_name (`str | None`, default `None`):
+                The fallback model name to use when all retries with the
+                primary model fail. If provided, a final attempt will be made
+                using this model before raising the exception.
             **_kwargs (`Any`):
                 Additional keyword arguments.
         """
@@ -103,6 +108,7 @@ class DashScopeChatModel(ChatModelBase):
         self.generate_kwargs = generate_kwargs or {}
         self.max_retries = max_retries
         self.retry_interval = retry_interval
+        self.fallback_model_name = fallback_model_name
 
         if base_http_api_url is not None:
             import dashscope
@@ -225,7 +231,33 @@ class DashScopeChatModel(ChatModelBase):
                 if not await self._handle_retry(attempt, e):
                     break
 
-        # If all retries failed, raise the last exception
+        # If all retries failed, try fallback model if available
+        if self.fallback_model_name:
+            logger.warning(
+                "All retries with primary model '%s' failed. "
+                "Attempting with fallback model '%s'...",
+                self.model_name,
+                self.fallback_model_name,
+            )
+            try:
+                result = await self._call_api(
+                    messages,
+                    tools,
+                    tool_choice,
+                    structured_model,
+                    model_name_override=self.fallback_model_name,
+                    **kwargs,
+                )
+                return result
+            except Exception as fallback_e:
+                logger.error(
+                    "Fallback model '%s' also failed: %s",
+                    self.fallback_model_name,
+                    fallback_e,
+                )
+                raise fallback_e from last_exception
+
+        # If all retries failed and no fallback, raise the last exception
         assert last_exception is not None
         raise last_exception
 
@@ -284,7 +316,38 @@ class DashScopeChatModel(ChatModelBase):
                 if not await self._handle_retry(attempt, e):
                     break
 
-        # If all retries failed, raise the last exception
+        # If all retries failed, try fallback model if available
+        if self.fallback_model_name:
+            logger.warning(
+                "All retries with primary model '%s' failed. "
+                "Attempting with fallback model '%s'...",
+                self.model_name,
+                self.fallback_model_name,
+            )
+            try:
+                generator = await self._call_api(
+                    messages,
+                    tools,
+                    tool_choice,
+                    structured_model,
+                    model_name_override=self.fallback_model_name,
+                    **kwargs,
+                )
+
+                async for chunk in generator:
+                    yield chunk
+
+                return
+
+            except Exception as fallback_e:
+                logger.error(
+                    "Fallback model '%s' also failed: %s",
+                    self.fallback_model_name,
+                    fallback_e,
+                )
+                raise fallback_e from last_exception
+
+        # If all retries failed and no fallback, raise the last exception
         assert last_exception is not None
         raise last_exception
 
@@ -329,6 +392,7 @@ class DashScopeChatModel(ChatModelBase):
         | str
         | None = None,
         structured_model: Type[BaseModel] | None = None,
+        model_name_override: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         """Call the DashScope API with the given arguments.
@@ -345,6 +409,9 @@ class DashScopeChatModel(ChatModelBase):
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
                 for the model's output.
+            model_name_override (`str | None`, default `None`):
+                If provided, use this model name instead of the default
+                `self.model_name`. This is used for fallback model calls.
             **kwargs (`Any`):
                 The keyword arguments for DashScope chat completions API.
 
@@ -354,9 +421,12 @@ class DashScopeChatModel(ChatModelBase):
         """
         import dashscope
 
+        # Use override model name if provided, otherwise use default
+        current_model_name = model_name_override or self.model_name
+
         # For qvq and qwen-vl models, the content field cannot be `None` or
         # `[{"text": None}]`, so we need to convert it to an empty list.
-        if self.model_name.startswith("qvq") or "-vl" in self.model_name:
+        if current_model_name.startswith("qvq") or "-vl" in current_model_name:
             for msg in messages:
                 if msg["content"] is None or msg["content"] == [
                     {"text": None},
@@ -365,7 +435,7 @@ class DashScopeChatModel(ChatModelBase):
 
         kwargs = {
             "messages": messages,
-            "model": self.model_name,
+            "model": current_model_name,
             "stream": self.stream,
             **self.generate_kwargs,
             **kwargs,
@@ -405,7 +475,7 @@ class DashScopeChatModel(ChatModelBase):
             )
 
         start_datetime = datetime.now()
-        if self.model_name.startswith("qvq") or "-vl" in self.model_name:
+        if current_model_name.startswith("qvq") or "-vl" in current_model_name:
             response = dashscope.MultiModalConversation.call(
                 api_key=self.api_key,
                 **kwargs,
