@@ -6,6 +6,7 @@ from typing import Any, Literal, TYPE_CHECKING, AsyncGenerator
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
+from .._logging import logger
 from ..message import Msg, AudioBlock, Base64Source
 from ..types import JSONSerializableObject
 
@@ -81,6 +82,22 @@ def _get_qwen_tts_realtime_callback_class() -> type["QwenTtsRealtimeCallback"]:
 
                 traceback.print_exc()
                 self.finish_event.set()
+
+        def on_close(self, close_status_code: int, close_msg: str) -> None:
+            """Called when the WebSocket connection is closed.
+
+            Args:
+                close_status_code (`int`):
+                    The close status code.
+                close_msg (`str`):
+                    The close message.
+            """
+            if close_status_code:
+                logger.warning(
+                    "TTS WebSocket connection closed with code %s: %s",
+                    close_status_code,
+                    close_msg,
+                )
 
         async def get_audio_data(self, block: bool) -> TTSResponse:
             """Get the current accumulated audio data as base64 string so far.
@@ -298,7 +315,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
 
         self._connected = False
 
-        self._tts_client.finish()
         self._tts_client.close()
 
     async def push(
