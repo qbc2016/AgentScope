@@ -165,224 +165,99 @@ class DashScopeChatModel(ChatModelBase):
                 <https://help.aliyun.com/zh/dashscope/developer-reference/api-details>`_
                 for more detailed arguments.
         """
-        # For streaming responses, we need to handle retry in the generator
+
+        async def _execute_with_retry(
+            model_name: str | None = None,
+        ) -> AsyncGenerator[ChatResponse, None]:
+            """Unified retry generator that handles both streaming and
+            non-streaming responses.
+
+            Args:
+                model_name (`str | None`, default `None`):
+                    Override model name for fallback calls.
+
+            Yields:
+                ChatResponse: Response chunks (single item for non-streaming).
+            """
+            last_exception: BaseException | None = None
+
+            for attempt in range(self.max_retries + 1):
+                try:
+                    result = await self._call_api(
+                        messages,
+                        tools,
+                        tool_choice,
+                        structured_model,
+                        model_name_override=model_name,
+                        **kwargs,
+                    )
+
+                    if self.stream:
+                        # Streaming: iterate and yield each chunk
+                        async for chunk in result:
+                            yield chunk
+                    else:
+                        # Non-streaming: yield the single result
+                        yield result
+                    return
+
+                except Exception as e:
+                    last_exception = e
+
+                    # Check if max retries reached
+                    if attempt >= self.max_retries:
+                        logger.error(
+                            "Failed to call DashScope API after %d attempts: "
+                            "%s",
+                            self.max_retries + 1,
+                            e,
+                        )
+                        break
+
+                    # Log warning and wait before retry
+                    wait_time = self.retry_interval * (2**attempt)
+                    logger.warning(
+                        "Failed to call DashScope API (attempt %d/%d): %s. "
+                        "Retrying in %.2f seconds...",
+                        attempt + 1,
+                        self.max_retries + 1,
+                        e,
+                        wait_time,
+                    )
+                    await asyncio.sleep(wait_time)
+
+            # All retries failed, try fallback model if available
+            if (
+                self.fallback_model_name
+                and model_name != self.fallback_model_name
+            ):
+                logger.warning(
+                    "All retries with model '%s' failed. "
+                    "Attempting with fallback model '%s'...",
+                    model_name or self.model_name,
+                    self.fallback_model_name,
+                )
+                # Recursively call with fallback model
+                async for item in _execute_with_retry(
+                    self.fallback_model_name,
+                ):
+                    yield item
+                return
+
+            assert last_exception is not None
+            raise last_exception
+
+        # Return based on streaming mode
         if self.stream:
-            return self._call_api_with_retry_stream(
-                messages,
-                tools,
-                tool_choice,
-                structured_model,
-                **kwargs,
-            )
+            return _execute_with_retry()
 
-        # For non-streaming responses, retry logic is straightforward
-        return await self._call_api_with_retry_non_stream(
-            messages,
-            tools,
-            tool_choice,
-            structured_model,
-            **kwargs,
-        )
+        # Non-streaming: consume the generator and return single result
+        async for result in _execute_with_retry():
+            return result
 
-    async def _call_api_with_retry_non_stream(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict] | None = None,
-        tool_choice: Literal["auto", "none", "any", "required"]
-        | str
-        | None = None,
-        structured_model: Type[BaseModel] | None = None,
-        **kwargs: Any,
-    ) -> ChatResponse:
-        """Call the DashScope API with retry logic for non-streaming responses.
-
-        Args:
-            messages (`list[dict[str, Any]]`):
-                A list of dictionaries, where `role` and `content` fields are
-                required.
-            tools (`list[dict] | None`, default `None`):
-                The tools JSON schemas that the model can use.
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
-             |  None`,  default `None`):
-                Controls which (if any) tool is called by the model.
-            structured_model (`Type[BaseModel] | None`, default `None`):
-                A Pydantic BaseModel class that defines the expected structure
-                for the model's output.
-            **kwargs (`Any`):
-                The keyword arguments for DashScope chat completions API.
-
-        Returns:
-            ChatResponse:
-                The response from the DashScope API.
-        """
-        last_exception: BaseException | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                result: ChatResponse = await self._call_api(
-                    messages,
-                    tools,
-                    tool_choice,
-                    structured_model,
-                    **kwargs,
-                )
-                return result
-            except Exception as e:
-                last_exception = e
-                if not await self._handle_retry(attempt, e):
-                    break
-
-        # If all retries failed, try fallback model if available
-        if self.fallback_model_name:
-            logger.warning(
-                "All retries with primary model '%s' failed. "
-                "Attempting with fallback model '%s'...",
-                self.model_name,
-                self.fallback_model_name,
-            )
-            try:
-                result = await self._call_api(
-                    messages,
-                    tools,
-                    tool_choice,
-                    structured_model,
-                    model_name_override=self.fallback_model_name,
-                    **kwargs,
-                )
-                return result
-            except Exception as fallback_e:
-                logger.error(
-                    "Fallback model '%s' also failed: %s",
-                    self.fallback_model_name,
-                    fallback_e,
-                )
-                raise fallback_e from last_exception
-
-        # If all retries failed and no fallback, raise the last exception
-        assert last_exception is not None
-        raise last_exception
-
-    async def _call_api_with_retry_stream(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict] | None = None,
-        tool_choice: Literal["auto", "none", "any", "required"]
-        | str
-        | None = None,
-        structured_model: Type[BaseModel] | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[ChatResponse, None]:
-        """Call the DashScope API with retry logic for streaming responses.
-
-        Args:
-            messages (`list[dict[str, Any]]`):
-                A list of dictionaries, where `role` and `content` fields are
-                required.
-            tools (`list[dict] | None`, default `None`):
-                The tools JSON schemas that the model can use.
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
-             |  None`,  default `None`):
-                Controls which (if any) tool is called by the model.
-            structured_model (`Type[BaseModel] | None`, default `None`):
-                A Pydantic BaseModel class that defines the expected structure
-                for the model's output.
-            **kwargs (`Any`):
-                The keyword arguments for DashScope chat completions API.
-
-        Yields:
-            ChatResponse:
-                The streaming response chunks from the DashScope API.
-        """
-        last_exception: BaseException | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                # Get the generator from _call_api
-                generator = await self._call_api(
-                    messages,
-                    tools,
-                    tool_choice,
-                    structured_model,
-                    **kwargs,
-                )
-
-                # Iterate through the generator and yield chunks
-                async for chunk in generator:
-                    yield chunk
-
-                # If we successfully iterated through all chunks, return
-                return
-
-            except Exception as e:
-                last_exception = e
-                if not await self._handle_retry(attempt, e):
-                    break
-
-        # If all retries failed, try fallback model if available
-        if self.fallback_model_name:
-            logger.warning(
-                "All retries with primary model '%s' failed. "
-                "Attempting with fallback model '%s'...",
-                self.model_name,
-                self.fallback_model_name,
-            )
-            try:
-                generator = await self._call_api(
-                    messages,
-                    tools,
-                    tool_choice,
-                    structured_model,
-                    model_name_override=self.fallback_model_name,
-                    **kwargs,
-                )
-
-                async for chunk in generator:
-                    yield chunk
-
-                return
-
-            except Exception as fallback_e:
-                logger.error(
-                    "Fallback model '%s' also failed: %s",
-                    self.fallback_model_name,
-                    fallback_e,
-                )
-                raise fallback_e from last_exception
-
-        # If all retries failed and no fallback, raise the last exception
-        assert last_exception is not None
-        raise last_exception
-
-    async def _handle_retry(self, attempt: int, exception: Exception) -> bool:
-        """Handle retry logic: log and wait if should retry.
-
-        Args:
-            attempt (`int`):
-                The current attempt number (0-indexed).
-            exception (`Exception`):
-                The exception that occurred.
-
-        Returns:
-            `bool`:
-                True if we should retry, False otherwise.
-        """
-        if attempt >= self.max_retries:
-            logger.error(
-                "Failed to call DashScope API after %d attempts: %s",
-                self.max_retries + 1,
-                exception,
-            )
-            return False
-
-        wait_time = self.retry_interval * (2**attempt)
-        logger.warning(
-            "Failed to call DashScope API (attempt %d/%d): %s. "
-            "Retrying in %.2f seconds...",
-            attempt + 1,
-            self.max_retries + 1,
-            exception,
-            wait_time,
-        )
-        await asyncio.sleep(wait_time)
-        return True
+        # This line should never be reached since the generator either
+        # yields a result or raises an exception
+        raise RuntimeError("Unexpected: no result from API call")
 
     async def _call_api(
         self,
