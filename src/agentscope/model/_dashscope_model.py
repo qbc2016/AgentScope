@@ -194,10 +194,12 @@ class DashScopeChatModel(ChatModelBase):
 
                     if self.stream:
                         # Streaming: iterate and yield each chunk
+                        assert isinstance(result, AsyncGenerator)
                         async for chunk in result:
                             yield chunk
                     else:
                         # Non-streaming: yield the single result
+                        assert isinstance(result, ChatResponse)
                         yield result
                     return
 
