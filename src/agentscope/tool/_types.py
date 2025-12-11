@@ -18,9 +18,6 @@ class RegisteredToolFunction:
 
     name: str
     """The name of the tool function."""
-    original_name: str
-    """The original name of the tool function, preserved when the tool is
-    renamed."""
     group: str | Literal["basic"]
     """The belonging group of the tool function"""
     source: Literal["function", "mcp_server", "function_group"]
@@ -34,6 +31,8 @@ class RegisteredToolFunction:
     )
     """The preset keyword arguments, which won't be presented in the JSON
     schema and exposed to the user."""
+    original_name: str | None = None
+    """The original name of the tool function when it has been renamed."""
     extended_model: Type[BaseModel] | None = None
     """The base model used to extend the JSON schema of the original tool
     function, so that we can dynamically adjust the tool function."""

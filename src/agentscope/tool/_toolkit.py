@@ -370,7 +370,6 @@ Check "{dir}/SKILL.md" for how to use this skill"""
 
         func_obj = RegisteredToolFunction(
             name=func_name,
-            original_name=func_name,
             group=group_name,
             source="function",
             original_func=original_func,
@@ -426,6 +425,7 @@ Check "{dir}/SKILL.md" for how to use this skill"""
                 )
 
                 # Replace the function name with the new one
+                func_obj.original_name = func_name
                 func_obj.name = new_func_name
                 func_obj.json_schema["function"]["name"] = new_func_name
 
