@@ -18,6 +18,9 @@ class RegisteredToolFunction:
 
     name: str
     """The name of the tool function."""
+    original_name: str
+    """The original name of the tool function, preserved when the tool is
+    renamed."""
     group: str | Literal["basic"]
     """The belonging group of the tool function"""
     source: Literal["function", "mcp_server", "function_group"]

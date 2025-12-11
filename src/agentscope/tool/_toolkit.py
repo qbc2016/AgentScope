@@ -370,6 +370,7 @@ Check "{dir}/SKILL.md" for how to use this skill"""
 
         func_obj = RegisteredToolFunction(
             name=func_name,
+            original_name=func_name,
             group=group_name,
             source="function",
             original_func=original_func,
