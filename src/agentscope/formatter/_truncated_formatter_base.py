@@ -68,6 +68,8 @@ class TruncatedFormatterBase(FormatterBase, ABC):
 
         msgs = deepcopy(msgs)
 
+        msgs = self.reorder_tool_messages(msgs)
+
         while True:
             formatted_msgs = await self._format(msgs)
             n_tokens = await self._count(formatted_msgs)

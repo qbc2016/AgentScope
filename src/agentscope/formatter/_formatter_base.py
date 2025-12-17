@@ -127,3 +127,52 @@ class FormatterBase:
 
         else:
             return "\n".join("- " + _ for _ in textual_output), multimodal_data
+
+    @staticmethod
+    def reorder_tool_messages(msgs: list[Msg]) -> list[Msg]:
+        """Reorder messages to ensure tool_result immediately follows its
+        corresponding tool_use.
+
+        Args:
+            msgs (`list[Msg]`):
+                The input messages to be reordered.
+
+        Returns:
+            `list[Msg]`:
+                The reordered messages with tool_result following tool_use.
+        """
+        # Build a mapping from tool_id to message index
+        tool_result_map: dict[str, int] = {}
+        for i, msg in enumerate(msgs):
+            for block in msg.get_content_blocks():
+                if block.get("type") == "tool_result":
+                    tool_id = block.get("id")
+                    if tool_id:
+                        tool_result_map[tool_id] = i
+
+        result = []
+        processed: set[int] = set()
+
+        for i, msg in enumerate(msgs):
+            if i in processed:
+                continue
+
+            result.append(msg)
+            processed.add(i)
+
+            # Find corresponding tool_result message indices for all
+            # tool_use ids
+            result_indices: set[int] = set()
+            for block in msg.get_content_blocks():
+                if block.get("type") == "tool_use":
+                    tool_id = block.get("id")
+                    if tool_id and tool_id in tool_result_map:
+                        result_indices.add(tool_result_map[tool_id])
+
+            # Append corresponding tool_result messages in original order
+            for j in sorted(result_indices):
+                if j not in processed:
+                    result.append(msgs[j])
+                    processed.add(j)
+
+        return result
