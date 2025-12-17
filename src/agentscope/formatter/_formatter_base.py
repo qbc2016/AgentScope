@@ -146,7 +146,7 @@ class FormatterBase:
         for i, msg in enumerate(msgs):
             for block in msg.get_content_blocks():
                 if block.get("type") == "tool_result":
-                    tool_id = block.get("id")
+                    tool_id = block["id"]
                     if tool_id:
                         tool_result_map[tool_id] = i
 
@@ -165,7 +165,7 @@ class FormatterBase:
             result_indices: set[int] = set()
             for block in msg.get_content_blocks():
                 if block.get("type") == "tool_use":
-                    tool_id = block.get("id")
+                    tool_id = block["id"]
                     if tool_id and tool_id in tool_result_map:
                         result_indices.add(tool_result_map[tool_id])
 
