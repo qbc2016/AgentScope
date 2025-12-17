@@ -139,6 +139,7 @@ class DashScopeCosyVoiceRealtimeTTSModel(TTSModelBase):
 
     async def close(self) -> None:
         """Close the TTS model and release resources."""
+        self._synthesizer.close()
 
     async def push(
         self,
