@@ -7,7 +7,11 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 
 from agentscope.message import Msg, AudioBlock, Base64Source
-from agentscope.tts import TTSResponse
+from agentscope.tts import (
+    DashScopeCosyVoiceRealtimeTTSModel,
+    DashScopeCosyVoiceTTSModel,
+    TTSResponse,
+)
 
 
 class DashScopeCosyVoiceTTSModelTest(IsolatedAsyncioTestCase):
@@ -51,10 +55,6 @@ class DashScopeCosyVoiceTTSModelTest(IsolatedAsyncioTestCase):
         mock_modules = self._create_mock_dashscope_modules()
 
         with patch.dict("sys.modules", mock_modules):
-            from agentscope.tts._dashscope_cosyvoice_tts_model import (
-                DashScopeCosyVoiceTTSModel,
-            )
-
             model = DashScopeCosyVoiceTTSModel(
                 api_key=self.api_key,
                 model_name="cosyvoice-v3-plus",
@@ -71,10 +71,6 @@ class DashScopeCosyVoiceTTSModelTest(IsolatedAsyncioTestCase):
         mock_modules = self._create_mock_dashscope_modules()
 
         with patch.dict("sys.modules", mock_modules):
-            from agentscope.tts._dashscope_cosyvoice_tts_model import (
-                DashScopeCosyVoiceTTSModel,
-            )
-
             model = DashScopeCosyVoiceTTSModel(
                 api_key=self.api_key,
                 stream=False,
@@ -105,10 +101,6 @@ class DashScopeCosyVoiceTTSModelTest(IsolatedAsyncioTestCase):
         mock_modules = self._create_mock_dashscope_modules()
 
         with patch.dict("sys.modules", mock_modules):
-            from agentscope.tts._dashscope_cosyvoice_tts_model import (
-                DashScopeCosyVoiceTTSModel,
-            )
-
             model = DashScopeCosyVoiceTTSModel(
                 api_key=self.api_key,
                 stream=True,
@@ -226,10 +218,6 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
                 mock_callback_class.return_value = self._create_mock_callback()
                 mock_get_callback.return_value = mock_callback_class
 
-                from agentscope.tts._dashscope_cosyvoice_realtime_tts_model import (  # noqa: E501
-                    DashScopeCosyVoiceRealtimeTTSModel,
-                )
-
                 model = DashScopeCosyVoiceRealtimeTTSModel(
                     api_key=self.api_key,
                     model_name="cosyvoice-v3-plus",
@@ -270,10 +258,6 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
                 )
                 mock_callback_class.return_value = mock_callback
                 mock_get_callback.return_value = mock_callback_class
-
-                from agentscope.tts._dashscope_cosyvoice_realtime_tts_model import (  # noqa: E501
-                    DashScopeCosyVoiceRealtimeTTSModel,
-                )
 
                 model = DashScopeCosyVoiceRealtimeTTSModel(
                     api_key=self.api_key,
@@ -331,10 +315,6 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
                 )
                 mock_callback_class.return_value = mock_callback
                 mock_get_callback.return_value = mock_callback_class
-
-                from agentscope.tts._dashscope_cosyvoice_realtime_tts_model import (  # noqa: E501
-                    DashScopeCosyVoiceRealtimeTTSModel,
-                )
 
                 model = DashScopeCosyVoiceRealtimeTTSModel(
                     api_key=self.api_key,
@@ -401,10 +381,6 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
                 )
                 mock_callback_class.return_value = mock_callback
                 mock_get_callback.return_value = mock_callback_class
-
-                from agentscope.tts._dashscope_cosyvoice_realtime_tts_model import (  # noqa: E501
-                    DashScopeCosyVoiceRealtimeTTSModel,
-                )
 
                 model = DashScopeCosyVoiceRealtimeTTSModel(
                     api_key=self.api_key,
