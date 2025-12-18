@@ -649,18 +649,19 @@ class ReActAgent(ReActAgentBase):
 
             return res_msg
 
+    # pylint: disable=unused-argument
     async def handle_interrupt(
         self,
-        _msg: Msg | list[Msg] | None = None,
-        _structured_model: Type[BaseModel] | None = None,
+        msg: Msg | list[Msg] | None = None,
+        structured_model: Type[BaseModel] | None = None,
     ) -> Msg:
         """The post-processing logic when the reply is interrupted by the
         user or something else.
 
         Args:
-            _msg (`Msg | list[Msg] | None`, optional):
+            msg (`Msg | list[Msg] | None`, optional):
                 The input message(s) to the agent.
-            _structured_model (`Type[BaseModel] | None`, optional):
+            structured_model (`Type[BaseModel] | None`, optional):
                 The required structured output model.
         """
 
