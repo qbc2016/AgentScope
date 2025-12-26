@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """The dashscope API model classes."""
-import asyncio
 import collections
 from datetime import datetime
 from http import HTTPStatus
@@ -56,9 +55,10 @@ class DashScopeChatModel(ChatModelBase):
         enable_thinking: bool | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         base_http_api_url: str | None = None,
-        max_retries: int = 3,
+        max_retries: int = 0,
         retry_interval: float = 1.0,
         fallback_model_name: str | None = None,
+        fallback_max_retries: int = 0,
         **_kwargs: Any,
     ) -> None:
         """Initialize the DashScope chat model.
@@ -91,6 +91,8 @@ class DashScopeChatModel(ChatModelBase):
                 The fallback model name to use when all retries with the
                 primary model fail. If provided, a final attempt will be made
                 using this model before raising the exception.
+            fallback_max_retries (`int`, default `0`):
+                Maximum number of retry attempts for fallback model.
             **_kwargs (`Any`):
                 Additional keyword arguments.
         """
@@ -101,14 +103,18 @@ class DashScopeChatModel(ChatModelBase):
             )
             stream = True
 
-        super().__init__(model_name, stream)
+        super().__init__(
+            model_name,
+            stream,
+            max_retries,
+            retry_interval,
+            fallback_model_name,
+            fallback_max_retries,
+        )
 
         self.api_key = api_key
         self.enable_thinking = enable_thinking
         self.generate_kwargs = generate_kwargs or {}
-        self.max_retries = max_retries
-        self.retry_interval = retry_interval
-        self.fallback_model_name = fallback_model_name
 
         if base_http_api_url is not None:
             import dashscope
@@ -116,7 +122,7 @@ class DashScopeChatModel(ChatModelBase):
             dashscope.base_http_api_url = base_http_api_url
 
     @trace_llm
-    async def __call__(
+    async def _call_api(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict] | None = None,
@@ -124,6 +130,7 @@ class DashScopeChatModel(ChatModelBase):
         | str
         | None = None,
         structured_model: Type[BaseModel] | None = None,
+        model_name_override: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
         """Get the response from the dashscope
@@ -157,144 +164,15 @@ class DashScopeChatModel(ChatModelBase):
                     both `tools` and `tool_choice` parameters are ignored,
                     and the model will only perform structured output
                     generation without calling any other tools.
-
+            model_name_override (`str | None`, default `None`):
+                If provided, use this model name instead of the default
+                `self.model_name`. This is used for fallback model calls.
             **kwargs (`Any`):
                 The keyword arguments for DashScope chat completions API,
                 e.g. `temperature`, `max_tokens`, `top_p`, etc. Please
                 refer to `DashScope documentation
                 <https://help.aliyun.com/zh/dashscope/developer-reference/api-details>`_
                 for more detailed arguments.
-        """
-
-        async def _execute_with_retry(
-            model_name: str | None = None,
-        ) -> AsyncGenerator[ChatResponse, None]:
-            """Unified retry generator that handles both streaming and
-            non-streaming responses.
-
-            Args:
-                model_name (`str | None`, default `None`):
-                    Override model name for fallback calls.
-
-            Yields:
-                ChatResponse: Response chunks (single item for non-streaming).
-            """
-            last_exception: BaseException | None = None
-
-            for attempt in range(self.max_retries + 1):
-                try:
-                    result = await self._call_api(
-                        messages,
-                        tools,
-                        tool_choice,
-                        structured_model,
-                        model_name_override=model_name,
-                        **kwargs,
-                    )
-
-                    if self.stream:
-                        # Streaming: iterate and yield each chunk
-                        assert isinstance(result, AsyncGenerator)
-                        async for chunk in result:
-                            yield chunk
-                    else:
-                        # Non-streaming: yield the single result
-                        assert isinstance(result, ChatResponse)
-                        yield result
-                    return
-
-                except Exception as e:
-                    last_exception = e
-
-                    # Check if max retries reached
-                    if attempt >= self.max_retries:
-                        logger.error(
-                            "Failed to call DashScope API after %d attempts: "
-                            "%s",
-                            self.max_retries + 1,
-                            e,
-                        )
-                        break
-
-                    # Log warning and wait before retry
-                    wait_time = self.retry_interval * (2**attempt)
-                    logger.warning(
-                        "Failed to call DashScope API (attempt %d/%d): %s. "
-                        "Retrying in %.2f seconds...",
-                        attempt + 1,
-                        self.max_retries + 1,
-                        e,
-                        wait_time,
-                    )
-                    await asyncio.sleep(wait_time)
-
-            # All retries failed, try fallback model if available
-            if (
-                self.fallback_model_name
-                and model_name != self.fallback_model_name
-            ):
-                logger.warning(
-                    "All retries with model '%s' failed. "
-                    "Attempting with fallback model '%s'...",
-                    model_name or self.model_name,
-                    self.fallback_model_name,
-                )
-                # Recursively call with fallback model
-                async for item in _execute_with_retry(
-                    self.fallback_model_name,
-                ):
-                    yield item
-                return
-
-            assert last_exception is not None
-            raise last_exception
-
-        # Return based on streaming mode
-        if self.stream:
-            return _execute_with_retry()
-
-        # Non-streaming: consume the generator and return single result
-        async for result in _execute_with_retry():
-            return result
-
-        # This line should never be reached since the generator either
-        # yields a result or raises an exception
-        raise RuntimeError("Unexpected: no result from API call")
-
-    async def _call_api(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict] | None = None,
-        tool_choice: Literal["auto", "none", "any", "required"]
-        | str
-        | None = None,
-        structured_model: Type[BaseModel] | None = None,
-        model_name_override: str | None = None,
-        **kwargs: Any,
-    ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        """Call the DashScope API with the given arguments.
-
-        Args:
-            messages (`list[dict[str, Any]]`):
-                A list of dictionaries, where `role` and `content` fields are
-                required.
-            tools (`list[dict] | None`, default `None`):
-                The tools JSON schemas that the model can use.
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
-             |  None`,  default `None`):
-                Controls which (if any) tool is called by the model.
-            structured_model (`Type[BaseModel] | None`, default `None`):
-                A Pydantic BaseModel class that defines the expected structure
-                for the model's output.
-            model_name_override (`str | None`, default `None`):
-                If provided, use this model name instead of the default
-                `self.model_name`. This is used for fallback model calls.
-            **kwargs (`Any`):
-                The keyword arguments for DashScope chat completions API.
-
-        Returns:
-            ChatResponse | AsyncGenerator[ChatResponse, None]:
-                The response from the DashScope API.
         """
         import dashscope
 
