@@ -82,7 +82,7 @@ class ChatModelBase:
             Args:
                 model_name_override (`str | None`, default `None`):
                     Override model name for fallback calls.
-                retry_number (`int`):
+                retry_number (`int`, default `0`):
                     Number of retries to attempt.
 
             Yields:

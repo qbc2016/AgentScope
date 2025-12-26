@@ -106,7 +106,7 @@ class OpenAIChatModel(ChatModelBase):
              optional):
                 The extra keyword arguments used in OpenAI API generation,
                 e.g. `temperature`, `seed`.
-            max_retries (`int`, default `3`):
+            max_retries (`int`, default `0`):
                 Maximum number of retry attempts when API calls fail.
             retry_interval (`float`, default `1.0`):
                 Initial retry interval in seconds. The interval will increase

@@ -82,7 +82,7 @@ class DashScopeChatModel(ChatModelBase):
             base_http_api_url (`str | None`, optional):
                 The base URL for DashScope API requests. If not provided,
                 the default base URL from the DashScope SDK will be used.
-            max_retries (`int`, default `3`):
+            max_retries (`int`, default `0`):
                 Maximum number of retry attempts when API calls fail.
             retry_interval (`float`, default `1.0`):
                 Initial retry interval in seconds. The interval will increase
