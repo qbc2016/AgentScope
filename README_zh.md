@@ -54,6 +54,7 @@
 </p>
 
 ## 📢 新闻
+- **[2025-12]** AgentScope 已支持 [TTS(Text-to-Speech) 模型](https://doc.agentscope.io/zh_CN/tutorial/task_tts.html) ！欢迎查看 [样例]() 和 [教程](https://doc.agentscope.io/zh_CN/tutorial/task_tts.html) 了解更多详情。
 - **[2025-11]** AgentScope 已支持 [Anthropic Agent Skill](https://claude.com/blog/skills) ！欢迎查看 [样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/agent_skill) 和 [教程](https://doc.agentscope.io/zh_CN/tutorial/task_agent_skill.html) 了解更多详情。
 - **[2025-11]** AgentScope 开源 [Alias-Agent](https://github.com/agentscope-ai/agentscope-samples/tree/main/alias) 用于处理多样化的真实任务，以及 [Data-Juicer Agent](https://github.com/agentscope-ai/agentscope-samples/tree/main/data_juicer_agent) 用于自然语言驱动的数据处理。
 - **[2025-11]** AgentScope 通过集成 [Trinity-RFT](https://github.com/modelscope/Trinity-RFT) 实现对 [Agentic RL](https://github.com/agentscope-ai/agentscope/tree/main/examples/training/react_agent) 的支持。
@@ -109,7 +110,7 @@ AgentScope v1.0 新功能概览:
 |            | 允许智能体自主控制长期记忆                          |                                                                               |
 |            | 支持智能体钩子函数                              |                                                                               |
 | tracing    | 支持基于 OpenTelemetry 的 LLM、工具、智能体和格式化器追踪 | [Tracing](https://doc.agentscope.io/zh_CN/tutorial/task_tracing.html)         |
-|            | 支持连接到第三方追踪平台（如Arize-Phoenix、Langfuse）  |                                                                               |
+|            | 支持连接到第三方追踪平台（如阿里云云监控、Arize-Phoenix、Langfuse）  |                                                                               |
 | memory     | 支持长期记忆                                 | [Memory](https://doc.agentscope.io/zh_CN/tutorial/task_long_term_memory.html) |
 | session    | 提供会话/应用级状态管理                           | [Session](https://doc.agentscope.io/zh_CN/tutorial/task_state.html)           |
 | evaluation | 提供分布式和并行评估                             | [Evaluation](https://doc.agentscope.io/zh_CN/tutorial/task_eval.html)         |
@@ -125,9 +126,9 @@ AgentScope v1.0 新功能概览:
 
 欢迎加入我们的社区，获取最新的更新和支持！
 
-| [Discord](https://discord.gg/eYMpfnkG8h)                                                                                         | 钉钉                                                                                                                              |
-|----------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| <img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="100" height="100"> | <img src="https://img.alicdn.com/imgextra/i1/O1CN01LxzZha1thpIN2cc2E_!!6000000005934-2-tps-497-477.png" width="100" height="100"> |
+| [Discord](https://discord.gg/eYMpfnkG8h)                                                                                         | 钉钉                                                                        |
+|----------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| <img src="https://gw.alicdn.com/imgextra/i1/O1CN01hhD1mu1Dd3BWVUvxN_!!6000000000238-2-tps-400-400.png" width="100" height="100"> | <img src="./assets/images/dingtalk_qr_code.png" width="100" height="100"> |
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -324,22 +325,22 @@ as_studio
 
 <p align="center">
     <img
-        src="./assets/images/home.gif"
+        src="https://img.alicdn.com/imgextra/i1/O1CN01PG2MdF1Zc44A1QM6N_!!6000000003214-1-tps-1971-1080.gif"
         width="49%"
         alt="home"
     />
     <img
-        src="./assets/images/projects.gif"
-        width="49%"
-        alt="projects"
-    />
-    <img
-        src="./assets/images/runtime.gif"
+        src="https://img.alicdn.com/imgextra/i2/O1CN01pGHedL1L4ibmyPeiq_!!6000000001246-1-tps-1971-1080.gif"
         width="49%"
         alt="runtime"
     />
     <img
-        src="./assets/images/friday.gif"
+        src="https://img.alicdn.com/imgextra/i1/O1CN01HfFhy928SSJAcWQ8c_!!6000000007931-1-tps-1971-1080.gif"
+        width="49%"
+        alt="traces"
+    />
+    <img
+        src="https://img.alicdn.com/imgextra/i1/O1CN01vovov821Arms9tEJ1_!!6000000006945-1-tps-1971-1080.gif"
         width="49%"
         alt="friday"
     />
@@ -390,6 +391,8 @@ as_studio
     - [长期记忆](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/long_term_memory)
     - [基于DB的会话管理](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/session_with_sqlite)
     - [流式获取打印消息](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/stream_printing_messages)
+    - [TTS](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/tts)
+    - [高代码部署](https://github.com/agentscope-ai/agentscope/tree/main/examples/deployment/planning_agent)
   - 智能体
     - [ReAct 智能体](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/react_agent)
     - [语音智能体](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/voice_agent)

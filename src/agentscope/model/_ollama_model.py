@@ -123,9 +123,7 @@ class OllamaChatModel(ChatModelBase):
         self,
         messages: list[dict[str, Any]],
         tools: list[dict] | None = None,
-        tool_choice: Literal["auto", "none", "any", "required"]
-        | str
-        | None = None,
+        tool_choice: Literal["auto", "none", "required"] | str | None = None,
         structured_model: Type[BaseModel] | None = None,
         model_name_override: str | None = None,
         **kwargs: Any,
@@ -139,11 +137,9 @@ class OllamaChatModel(ChatModelBase):
                 required, and `name` field is optional.
             tools (`list[dict]`, default `None`):
                 The tools JSON schemas that the model can use.
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
+            tool_choice (`Literal["auto", "none", "required"] | str \
                 | None`, default `None`):
-                Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "any", "required", or specific tool
-                 name.
+                Ollama doesn't support `tool_choice` argument yet.
             structured_model (`Type[BaseModel] | None`, default `None`):
                 A Pydantic BaseModel class that defines the expected structure
                 for the model's output.

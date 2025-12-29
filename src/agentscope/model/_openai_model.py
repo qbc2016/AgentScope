@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-branches
 """OpenAI Chat model class."""
+import warnings
 from datetime import datetime
 from typing import (
     Any,
@@ -169,9 +170,7 @@ class OpenAIChatModel(ChatModelBase):
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
-        tool_choice: Literal["auto", "none", "any", "required"]
-        | str
-        | None = None,
+        tool_choice: Literal["auto", "none", "required"] | str | None = None,
         structured_model: Type[BaseModel] | None = None,
         model_name_override: str | None = None,
         **kwargs: Any,
@@ -185,10 +184,10 @@ class OpenAIChatModel(ChatModelBase):
                 required, and `name` field is optional.
             tools (`list[dict]`, default `None`):
                 The tools JSON schemas that the model can use.
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
+            tool_choice (`Literal["auto", "none", "required"] | str \
             | None`, default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "any", "required", or specific tool
+                 Can be "auto", "none", "required", or specific tool
                  name. For more details, please refer to
                  https://platform.openai.com/docs/api-reference/responses/create#responses_create-tool_choice
             structured_model (`Type[BaseModel] | None`, default `None`):
@@ -252,6 +251,14 @@ class OpenAIChatModel(ChatModelBase):
             kwargs["tools"] = self._format_tools_json_schemas(tools)
 
         if tool_choice:
+            # Handle deprecated "any" option with warning
+            if tool_choice == "any":
+                warnings.warn(
+                    '"any" is deprecated and will be removed in a future '
+                    "version.",
+                    DeprecationWarning,
+                )
+                tool_choice = "required"
             self._validate_tool_choice(tool_choice, tools)
             kwargs["tool_choice"] = self._format_tool_choice(tool_choice)
 
@@ -369,7 +376,7 @@ class OpenAIChatModel(ChatModelBase):
                 thinking += (
                     getattr(choice.delta, "reasoning_content", None) or ""
                 )
-                text += choice.delta.content or ""
+                text += getattr(choice.delta, "content", None) or ""
 
                 if (
                     hasattr(choice.delta, "audio")
@@ -571,16 +578,16 @@ class OpenAIChatModel(ChatModelBase):
 
     def _format_tool_choice(
         self,
-        tool_choice: Literal["auto", "none", "any", "required"] | str | None,
+        tool_choice: Literal["auto", "none", "required"] | str | None,
     ) -> str | dict | None:
         """Format tool_choice parameter for API compatibility.
 
         Args:
-            tool_choice (`Literal["auto", "none", "any", "required"] | str \
+            tool_choice (`Literal["auto", "none", "required"] | str \
             | None`, default `None`):
                 Controls which (if any) tool is called by the model.
-                 Can be "auto", "none", "any", "required", or specific tool
-                 name. For more details, please refer to
+                 Can be "auto", "none", "required", or specific tool name.
+                 For more details, please refer to
                  https://platform.openai.com/docs/api-reference/responses/create#responses_create-tool_choice
         Returns:
             `dict | None`:
@@ -589,10 +596,10 @@ class OpenAIChatModel(ChatModelBase):
         """
         if tool_choice is None:
             return None
+
         mode_mapping = {
             "auto": "auto",
             "none": "none",
-            "any": "required",
             "required": "required",
         }
         if tool_choice in mode_mapping:
