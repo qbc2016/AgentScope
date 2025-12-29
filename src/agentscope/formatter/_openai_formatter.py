@@ -86,7 +86,7 @@ def _to_openai_image_url(url: str) -> str:
 
     # Web url
     if not os.path.exists(url) and parsed_url.scheme != "":
-        path_lower = parsed_url.path.lower()
+        path_lower = parsed_url.path if parsed_url.path else parsed_url.netloc
         if any(path_lower.endswith(_) for _ in support_image_extensions):
             return url
 
