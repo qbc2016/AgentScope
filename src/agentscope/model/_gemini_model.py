@@ -486,6 +486,11 @@ class GeminiChatModel(ChatModelBase):
     ) -> list[dict[str, Any]]:
         """Format the tools JSON schema into required format for Gemini API.
 
+        .. note:: Gemini API does not support `$defs` and `$ref` in JSON
+         schemas. This function resolves all `$ref` references by inlining the
+         referenced definitions, producing a self-contained schema without
+         any references.
+
         Args:
             schemas (`dict[str, Any]`):
                 The tools JSON schemas.
@@ -550,6 +555,7 @@ class GeminiChatModel(ChatModelBase):
                         ]
                     }
                 ]
+
         """
         function_declarations = []
         for schema in schemas:
@@ -576,6 +582,7 @@ class GeminiChatModel(ChatModelBase):
                  Can be "auto", "none", "required", or specific tool name.
                  For more details, please refer to
                  https://ai.google.dev/gemini-api/docs/function-calling?hl=en&example=meeting#function_calling_modes
+
         Returns:
             `dict | None`:
                 The formatted tool choice configuration dict, or None if
