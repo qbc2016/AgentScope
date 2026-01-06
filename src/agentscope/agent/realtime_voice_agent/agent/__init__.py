@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """The voice agent class."""
 
-from ._voice_agent import VoiceAgent
+from ._voice_agent import RealtimeVoiceAgent
 
 __all__ = [
-    "VoiceAgent",
+    "RealtimeVoiceAgent",
 ]

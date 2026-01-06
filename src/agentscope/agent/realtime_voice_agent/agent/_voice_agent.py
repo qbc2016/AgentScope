@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-nested-blocks, too-many-branches
-# pylint: disable=too-many-statements
+# pylint: disable=too-many-statements, too-many-branches
 """Voice Agent implementation based on MsgStream."""
 
 import asyncio
 import base64
 import io
 import json
-from copy import deepcopy
-from typing import Optional
 
 import numpy as np
 
@@ -33,47 +30,10 @@ from .._utils._msg_stream import (
     get_audio_from_msg,
     get_event_from_msg,
 )
-from ..model._voice_model_base import VoiceModelBase
+from ..model._voice_model_base import RealtimeVoiceModelBase
 
 
-def resample_24k_to_16k(audio_24k: bytes) -> bytes:
-    """Resample 24kHz PCM16 audio to 16kHz PCM16.
-
-    Uses scipy.signal.resample_poly (polyphase filter, more suitable for
-    speech).
-    24kHz → 16kHz = ratio 2:3, so up=2, down=3.
-
-    Args:
-        audio_24k (`bytes`):
-            The 24kHz PCM16 audio data.
-
-    Returns:
-        `bytes`:
-            The resampled 16kHz PCM16 audio data.
-    """
-    try:
-        from scipy.signal import resample_poly
-
-        # Convert to numpy array (16-bit signed int)
-        audio_np = np.frombuffer(audio_24k, dtype=np.int16).astype(np.float64)
-
-        # Resample using polyphase filter (24kHz → 16kHz = 2/3)
-        # up=2, down=3 means upsample by 2x then downsample by 3x
-        audio_resampled = resample_poly(audio_np, up=2, down=3)
-
-        # Clip and convert back to int16
-        audio_resampled = np.clip(audio_resampled, -32768, 32767)
-        audio_16k = audio_resampled.astype(np.int16).tobytes()
-        return audio_16k
-    except ImportError:
-        # Fallback to audioop
-        import audioop
-
-        audio_16k, _ = audioop.ratecv(audio_24k, 2, 1, 24000, 16000, None)
-        return audio_16k
-
-
-class VoiceAgent:
+class RealtimeVoiceAgent:
     """Voice Agent implementation based on MsgStream.
 
     Uses MsgStream for message passing, supports streaming Msg push.
@@ -83,20 +43,20 @@ class VoiceAgent:
     def __init__(
         self,
         name: str,
-        model: VoiceModelBase,
+        model: RealtimeVoiceModelBase,
         sys_prompt: str = "You are a helpful assistant.",
-        msg_stream: Optional[MsgStream] = None,
+        msg_stream: MsgStream | None = None,
     ) -> None:
         """Initialize the VoiceAgent.
 
         Args:
             name (`str`):
                 The name of the agent.
-            model (`VoiceModelBase`):
+            model (`RealtimeVoiceModelBase`):
                 The real-time voice model instance.
             sys_prompt (`str`, defaults to `"You are a helpful assistant."`):
                 The system prompt for the model.
-            msg_stream (`Optional[MsgStream]`, defaults to `None`):
+            msg_stream (`MsgStream | None`, defaults to `None`):
                 The message stream for communication. Can be set later via
                 VoiceMsgHub.
         """
@@ -113,7 +73,11 @@ class VoiceAgent:
         self._listening_event = asyncio.Event()
 
         # Current playing message ID (for interruption)
-        self._current_msg_id: Optional[str] = None
+        self._current_msg_id: str | None = None
+
+        self._stream_prefix = {}
+
+        self._listen_task = None
 
     def set_msg_stream(self, msg_stream: MsgStream) -> None:
         """Set the message stream (called by VoiceMsgHub).
@@ -185,62 +149,22 @@ class VoiceAgent:
                 on_response_done=self._on_response_done,
             )
             await self._model.initialize()
+            self._listen_task = asyncio.create_task(self._listen_loop())
             self._initialized = True
             logger.info("VoiceAgent %s initialized", self.name)
 
-    async def say(self, text: str) -> Msg:
-        """Actively say something (triggered by text).
-
-        Args:
-            text (`str`):
-                The text to be spoken.
-
-        Returns:
-            `Msg`:
-                The response message containing both text and speech.
-        """
-        if not self._initialized:
-            await self.initialize()
-
-        self._response_text = ""
-        self._response_audio = bytearray()
-
-        await self._msg_stream.push(
-            create_event_msg(
-                name=self.name,
-                event=MsgEvent.RESPONSE_START,
-            ),
-        )
-
-        await self._model.send_text(text)
-        await self._collect_and_stream_response()
-
-        await self._msg_stream.push(
-            create_event_msg(
-                name=self.name,
-                event=MsgEvent.RESPONSE_END,
-            ),
-        )
-
-        msg = Msg(
-            name=self.name,
-            content=[TextBlock(type="text", text=self._response_text)],
-            role="assistant",
-        )
-        speech = self._build_speech()
-        self._current_msg_id = msg.id
-        await self.print(msg, last=True, speech=speech)
-        self._current_msg_id = None
-        return msg
+    async def _listen_loop(self) -> None:
+        """内部监听循环"""
+        while not self._stop_event.is_set() and not self._msg_stream.is_closed:
+            try:
+                await self.reply()
+            except Exception as e:
+                logger.error("%s: Error in listen loop: %s", self.name, e)
+                await asyncio.sleep(0.1)
 
     async def reply(self) -> Msg:
         """Listen to messages from other participants in the queue and
         generate a reply.
-
-        - enable_turn_detection=True: Real-time audio forwarding,
-        model auto-detects speech end
-        - enable_turn_detection=False: Collect complete audio then send,
-        manual response trigger
 
         Returns:
             `Msg`:
@@ -252,27 +176,11 @@ class VoiceAgent:
         self._response_text = ""
         self._response_audio = bytearray()
 
-        if self._model.enable_turn_detection:
-            return await self._reply_realtime()
-        else:
-            return await self._reply_turn_based()
-
-    async def _reply_realtime(self) -> Msg:
-        """Real-time mode: Forward audio while listening, model
-        auto-detects speech end.
-
-        For agent-to-agent dialogue, manually commit when receiving
-        RESPONSE_END event.
-
-        Returns:
-            `Msg`:
-                The response message from the agent.
-        """
         self._model.callback.reset()
         logger.info("%s: Starting realtime forward...", self.name)
 
         subscriber_id = f"{self.name}_listener"
-        queue: asyncio.Queue[Optional[Msg]] = asyncio.Queue(maxsize=1000)
+        queue: asyncio.Queue[Msg | None] = asyncio.Queue(maxsize=1000)
 
         await self._msg_stream.register_queue(subscriber_id, queue)
 
@@ -350,25 +258,21 @@ class VoiceAgent:
                             "sample_rate",
                             16000,
                         )
-                        if sample_rate == 24000:
-                            audio_data = resample_24k_to_16k(audio_data)
-
-                        audio_b64 = base64.b64encode(audio_data).decode()
-                        if self._model.conversation:
-                            try:
-                                self._model.conversation.append_audio(
-                                    audio_b64,
-                                )
-                            except Exception as e:
-                                logger.warning(
-                                    "%s: Failed to append audio: %s",
-                                    self.name,
-                                    e,
-                                )
-                                # Try to reconnect
-                                if not self._model.is_connected:
-                                    await self._model.reconnect()
-                                    got_audio = False  # Reset state
+                        try:
+                            self._model.append_audio(
+                                audio_data,
+                                sample_rate=sample_rate,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "%s: Failed to append audio: %s",
+                                self.name,
+                                e,
+                            )
+                            # Try to reconnect
+                            if not self._model.is_connected:
+                                await self._model.reconnect()
+                                got_audio = False  # Reset state
 
                 except asyncio.TimeoutError:
                     continue
@@ -399,227 +303,6 @@ class VoiceAgent:
         else:
             logger.info("%s: No response", self.name)
             return Msg(name=self.name, content="", role="assistant")
-
-    async def _reply_turn_based(self) -> Msg:
-        """Turn-based mode: Collect complete audio then send.
-
-        Returns:
-            `Msg`:
-                The response message from the agent.
-        """
-        audio_data = await self._listen_once()
-        if audio_data:
-            return await self._process_audio(audio_data)
-        return Msg(name=self.name, content="", role="assistant")
-
-    async def listen_and_reply_loop(self, max_turns: int = 10) -> None:
-        """Continuously listen and auto-reply (only for turn_based mode).
-
-        Args:
-            max_turns (`int`, defaults to `10`):
-                Maximum number of conversation turns.
-        """
-        if not self._initialized:
-            await self.initialize()
-
-        turns = 0
-        while not self._stop_event.is_set() and turns < max_turns:
-            audio_data = await self._listen_once()
-            if audio_data and not self._stop_event.is_set():
-                await self._process_audio(audio_data)
-                turns += 1
-
-        logger.info("%s: Loop ended after %d turns", self.name, turns)
-
-    async def wait_listening(self, timeout: float = 5.0) -> bool:
-        """Wait for the agent to start listening.
-
-        Args:
-            timeout (`float`, defaults to `5.0`):
-                Maximum time to wait in seconds.
-
-        Returns:
-            `bool`:
-                True if listening started within timeout, False otherwise.
-        """
-        try:
-            await asyncio.wait_for(
-                self._listening_event.wait(),
-                timeout=timeout,
-            )
-            return True
-        except asyncio.TimeoutError:
-            return False
-
-    async def _listen_once(self) -> Optional[bytes]:
-        """Listen to the queue and collect complete audio (for turn_based
-        mode).
-
-        Returns:
-            `Optional[bytes]`:
-                The collected audio data in 16kHz format, or None if no
-                audio received.
-        """
-        audio_buffer = bytearray()
-        got_audio = False
-
-        logger.info("%s: Listening...", self.name)
-
-        subscriber_id = f"{self.name}_listener"
-        queue: asyncio.Queue[Optional[Msg]] = asyncio.Queue(maxsize=1000)
-
-        await self._msg_stream.register_queue(subscriber_id, queue)
-
-        self._listening_event.set()
-
-        try:
-            while (
-                not self._stop_event.is_set()
-                and not self._msg_stream.is_closed
-            ):
-                try:
-                    received_msg = await asyncio.wait_for(
-                        queue.get(),
-                        timeout=0.1,
-                    )
-
-                    if received_msg is None:
-                        break
-
-                    if received_msg.name == self.name:
-                        continue
-
-                    event = get_event_from_msg(received_msg)
-                    audio_data = get_audio_from_msg(received_msg)
-
-                    if audio_data:
-                        audio_buffer.extend(audio_data)
-                        got_audio = True
-
-                    elif event == MsgEvent.RESPONSE_END and got_audio:
-                        logger.info(
-                            "%s: Got %d bytes",
-                            self.name,
-                            len(audio_buffer),
-                        )
-                        break
-
-                    elif event == MsgEvent.RESPONSE_START:
-                        audio_buffer = bytearray()
-                        got_audio = False
-
-                except asyncio.TimeoutError:
-                    continue
-        finally:
-            self._listening_event.clear()
-            await self._msg_stream.unregister_queue(subscriber_id)
-
-        if audio_buffer:
-            audio_16k = resample_24k_to_16k(bytes(audio_buffer))
-            logger.info(
-                "%s: Resampled to %d bytes (16kHz)",
-                self.name,
-                len(audio_16k),
-            )
-            return audio_16k
-        return None
-
-    async def _process_audio(self, audio_data: bytes) -> Msg:
-        """Process audio input (already in 16kHz).
-
-        Args:
-            audio_data (`bytes`):
-                The audio data in 16kHz PCM16 format.
-
-        Returns:
-            `Msg`:
-                The response message containing the agent's reply.
-        """
-        self._response_text = ""
-        self._response_audio = bytearray()
-
-        await self._msg_stream.push(
-            create_event_msg(
-                name=self.name,
-                event=MsgEvent.RESPONSE_START,
-            ),
-        )
-
-        logger.info(
-            "%s: Processing %d bytes audio",
-            self.name,
-            len(audio_data),
-        )
-
-        # Check connection status, reconnect if disconnected
-        if not self._model.is_connected:
-            logger.warning("%s: Connection lost, reconnecting...", self.name)
-            await self._model.reconnect()
-
-        self._model.callback.reset()
-
-        try:
-            self._model.append_audio(audio_data)
-            logger.info("%s: Audio appended", self.name)
-
-            # Reduce wait time to avoid connection timeout
-            await asyncio.sleep(0.1)
-
-            if self._model.conversation:
-                self._model.conversation.commit()
-                logger.info("%s: Audio committed", self.name)
-
-                from dashscope.audio.qwen_omni import MultiModality
-
-                self._model.conversation.create_response(
-                    output_modalities=[
-                        MultiModality.AUDIO,
-                        MultiModality.TEXT,
-                    ],
-                )
-                logger.info("%s: Response requested", self.name)
-        except Exception as e:
-            logger.error("%s: Error sending audio: %s", self.name, e)
-            # Try once more after reconnection
-            try:
-                logger.info("%s: Retrying after reconnect...", self.name)
-                await self._model.reconnect()
-                self._model.callback.reset()
-                self._model.append_audio(audio_data)
-                await asyncio.sleep(0.1)
-                if self._model.conversation:
-                    self._model.conversation.commit()
-                    from dashscope.audio.qwen_omni import MultiModality
-
-                    self._model.conversation.create_response(
-                        output_modalities=[
-                            MultiModality.AUDIO,
-                            MultiModality.TEXT,
-                        ],
-                    )
-                    logger.info("%s: Retry successful", self.name)
-            except Exception as retry_e:
-                logger.error("%s: Retry failed: %s", self.name, retry_e)
-
-        await self._collect_and_stream_response()
-
-        await self._msg_stream.push(
-            create_event_msg(
-                name=self.name,
-                event=MsgEvent.RESPONSE_END,
-            ),
-        )
-
-        result = Msg(
-            name=self.name,
-            content=[TextBlock(type="text", text=self._response_text)],
-            role="assistant",
-        )
-        speech = self._build_speech()
-        self._current_msg_id = result.id
-        await self.print(result, last=True, speech=speech)
-        self._current_msg_id = None
-        return result
 
     async def _collect_and_stream_response(
         self,
@@ -686,11 +369,11 @@ class VoiceAgent:
             except Exception as e:
                 logger.error("Decode error: %s", e)
 
-    def _build_speech(self) -> Optional[AudioBlock]:
+    def _build_speech(self) -> AudioBlock | None:
         """Build AudioBlock for print playback.
 
         Returns:
-            `Optional[AudioBlock]`:
+            `AudioBlock | None`:
                 The audio block for speech playback, or None if no audio.
         """
         if not self._response_audio:
@@ -746,11 +429,6 @@ class VoiceAgent:
                 The audio content block(s) to be played along with the
                 message.
         """
-        if not self._disable_msg_queue:
-            await self.msg_queue.put((deepcopy(msg), last, speech))
-
-        if self._disable_console_output:
-            return
 
         # The accumulated textual content to print, including the text blocks
         # and the thinking blocks

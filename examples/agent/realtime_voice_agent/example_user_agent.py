@@ -7,14 +7,20 @@ users and agents.
 
 import asyncio
 import os
+from aioconsole import ainput
 
 
 from agentscope.agent.realtime_voice_agent import (
-    DashScopeVoiceModel,
-    VoiceAgent,
+    DashScopeRealtimeVoiceModel,
+    RealtimeVoiceAgent,
     RealtimeVoiceInput,
     VoiceMsgHub,
 )
+
+
+async def wait_for_exit_key() -> None:
+    """Wait for user to press Ctrl+C to exit."""
+    await ainput("\nPress Enter to exit...\n")
 
 
 async def main() -> None:
@@ -37,15 +43,14 @@ async def main() -> None:
     """
 
     # Create model with automatic VAD enabled
-    model = DashScopeVoiceModel(
+    model = DashScopeRealtimeVoiceModel(
         api_key=os.getenv("DASHSCOPE_API_KEY"),
         voice="Cherry",
-        enable_turn_detection=True,
     )
 
     # Create VoiceInput and Agent (no need to pass msg_stream)
     voice_input = RealtimeVoiceInput()
-    agent = VoiceAgent(
+    agent = RealtimeVoiceAgent(
         name="assistant",
         model=model,
         sys_prompt="You are a friendly assistant. Please answer questions "
@@ -59,9 +64,6 @@ async def main() -> None:
     # Use VoiceMsgHub to manage participants
     async with VoiceMsgHub(participants=[voice_input, agent]):
         try:
-            # Start voice input
-            await voice_input.start()
-
             print("Real-time voice conversation started")
             print(
                 "- Speak directly, the model will automatically detect "
@@ -74,9 +76,7 @@ async def main() -> None:
             print("- Press Ctrl+C to exit")
             print()
 
-            # Continuous conversation loop
-            while True:
-                await agent.reply()
+            await wait_for_exit_key()
 
         except KeyboardInterrupt:
             print("\n\nUser interrupted")
@@ -85,7 +85,6 @@ async def main() -> None:
             import traceback
 
             traceback.print_exc()
-
     print("\nConversation ended")
 
 

@@ -12,7 +12,7 @@ from typing import Any, Optional, AsyncGenerator, Callable
 
 from agentscope._logging import logger
 
-from ._voice_model_base import VoiceModelBase
+from ._voice_model_base import RealtimeVoiceModelBase
 
 try:
     from dashscope.audio.qwen_omni import (
@@ -27,6 +27,48 @@ except ImportError:
     MultiModality = None
     AudioFormat = None
     OmniRealtimeCallback = None
+
+try:
+    import numpy as np
+    from scipy.signal import resample_poly
+
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
+    import audioop
+
+
+def resample_24k_to_16k(audio_24k: bytes) -> bytes:
+    """Resample 24kHz PCM16 audio to 16kHz PCM16.
+
+    Uses scipy.signal.resample_poly (polyphase filter, more suitable for
+    speech).
+    24kHz → 16kHz = ratio 2:3, so up=2, down=3.
+
+    Args:
+        audio_24k (`bytes`):
+            The 24kHz PCM16 audio data.
+
+    Returns:
+        `bytes`:
+            The resampled 16kHz PCM16 audio data.
+    """
+    if HAS_SCIPY:
+        # Convert to numpy array (16-bit signed int)
+        audio_np = np.frombuffer(audio_24k, dtype=np.int16).astype(np.float64)
+
+        # Resample using polyphase filter (24kHz → 16kHz = 2/3)
+        # up=2, down=3 means upsample by 2x then downsample by 3x
+        audio_resampled = resample_poly(audio_np, up=2, down=3)
+
+        # Clip and convert back to int16
+        audio_resampled = np.clip(audio_resampled, -32768, 32767)
+        audio_16k = audio_resampled.astype(np.int16).tobytes()
+        return audio_16k
+    else:
+        # Fallback to audioop
+        audio_16k, _ = audioop.ratecv(audio_24k, 2, 1, 24000, 16000, None)
+        return audio_16k
 
 
 class RealtimeDashScopeCallback(OmniRealtimeCallback):
@@ -130,19 +172,23 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
         """Handle connection opened event."""
         logger.info("DashScope connection opened")
 
-    def on_close(self, close_status_code: int, close_msg: str) -> None:
+    def on_close(
+        self,
+        close_status_code: Optional[int],
+        close_msg: Optional[str],
+    ) -> None:
         """Handle connection closed event.
 
         Args:
-            close_status_code (`int`):
-                The close status code.
-            close_msg (`str`):
-                The close message.
+            close_status_code (`Optional[int]`):
+                The close status code, or None if not provided.
+            close_msg (`Optional[str]`):
+                The close message, or None if not provided.
         """
         logger.info(
-            "DashScope connection closed: code=%d, msg=%s",
-            close_status_code,
-            close_msg,
+            "DashScope connection closed: code=%s, msg=%s",
+            close_status_code if close_status_code is not None else "unknown",
+            close_msg if close_msg is not None else "unknown",
         )
         self._put_to_queue(self.text_queue, None)
         self._put_to_queue(self.audio_queue, None)
@@ -242,7 +288,7 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                     break
 
 
-class DashScopeVoiceModel(VoiceModelBase):
+class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
     """Real-time DashScope voice model implementation.
 
     A pure model layer that only handles:
@@ -258,7 +304,6 @@ class DashScopeVoiceModel(VoiceModelBase):
         model_name: str = "qwen3-omni-flash-realtime",
         voice: str = "Cherry",
         sys_prompt: str = "You are a helpful assistant.",
-        enable_turn_detection: bool = True,
     ) -> None:
         """Initialize the DashScope voice model.
 
@@ -271,8 +316,6 @@ class DashScopeVoiceModel(VoiceModelBase):
                 The voice style to use for audio responses.
             sys_prompt (`str`, defaults to `"You are a helpful assistant."`):
                 The system prompt for the model.
-            enable_turn_detection (`bool`, defaults to `True`):
-                Whether to enable automatic turn detection.
 
         Raises:
             `ImportError`:
@@ -285,7 +328,6 @@ class DashScopeVoiceModel(VoiceModelBase):
         self.model_name = model_name
         self.voice = voice
         self.sys_prompt = sys_prompt
-        self.enable_turn_detection = enable_turn_detection
 
         dashscope.api_key = api_key
 
@@ -347,7 +389,7 @@ class DashScopeVoiceModel(VoiceModelBase):
             model=self.model_name,
             callback=self.callback,
         )
-        self.callback.conversation = self.conversation
+        # self.callback.conversation = self.conversation
 
         self.conversation.connect()
 
@@ -358,7 +400,7 @@ class DashScopeVoiceModel(VoiceModelBase):
             "output_audio_format": AudioFormat.PCM_24000HZ_MONO_16BIT,
             "enable_input_audio_transcription": True,
             "input_audio_transcription_model": "gummy-realtime-v1",
-            "enable_turn_detection": self.enable_turn_detection,
+            "enable_turn_detection": True,
             "instructions": self.sys_prompt,
         }
 
@@ -366,12 +408,19 @@ class DashScopeVoiceModel(VoiceModelBase):
         self._initialized = True
         logger.info("DashScopeVoiceModel initialized")
 
-    def append_audio(self, audio_data: bytes) -> None:
+    def append_audio(
+        self,
+        audio_data: bytes,
+        sample_rate: Optional[int] = None,
+    ) -> None:
         """Append audio data to the input buffer.
 
         Args:
             audio_data (`bytes`):
-                PCM audio data (16kHz, 16bit, mono).
+                PCM audio data (16bit, mono).
+            sample_rate (`Optional[int]`, defaults to `None`):
+                Sample rate of the audio data. If 24000, will be resampled to
+                16000. If None, assumes 16000.
 
         Raises:
             `RuntimeError`:
@@ -379,6 +428,10 @@ class DashScopeVoiceModel(VoiceModelBase):
         """
         if not self.conversation:
             raise RuntimeError("Not initialized")
+
+        # Resample if needed (24kHz → 16kHz)
+        if sample_rate == 24000:
+            audio_data = resample_24k_to_16k(audio_data)
 
         audio_base64 = base64.b64encode(audio_data).decode("ascii")
         # chunk_size must be multiple of 4 (base64 requirement)

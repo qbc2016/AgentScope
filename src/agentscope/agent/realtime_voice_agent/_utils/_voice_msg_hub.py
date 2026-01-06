@@ -7,8 +7,6 @@ from typing import (
     Any,
     Sequence,
     List,
-    Protocol,
-    runtime_checkable,
     Optional,
     Type,
 )
@@ -19,21 +17,8 @@ from ._msg_stream import MsgStream
 
 # For type hints only, avoiding circular imports
 if TYPE_CHECKING:
-    from ..agent._voice_agent import VoiceAgent
+    from ..agent._voice_agent import RealtimeVoiceAgent
     from ._voice_user_input import RealtimeVoiceInput
-
-
-@runtime_checkable
-class MsgStreamParticipant(Protocol):
-    """Protocol for participants that support MsgStream."""
-
-    def set_msg_stream(self, msg_stream: MsgStream) -> None:
-        """Set the message stream.
-
-        Args:
-            msg_stream (`MsgStream`):
-                The message stream instance to use for communication.
-        """
 
 
 class VoiceMsgHub:
@@ -72,16 +57,14 @@ class VoiceMsgHub:
 
     def __init__(
         self,
-        participants: Sequence[MsgStreamParticipant],
+        participants: Sequence,
         name: Optional[str] = None,
     ) -> None:
         """Initialize the VoiceMsgHub.
 
         Args:
-            participants (`Sequence[MsgStreamParticipant]`):
-                List of conversation participants. Must be instances that
-                implement the MsgStreamParticipant protocol (VoiceAgent or
-                RealtimeVoiceInput).
+            participants (`Sequence`):
+                List of conversation participants.
             name (`Optional[str]`, defaults to `None`):
                 Name of the hub for identification. If None, defaults to
                 "voice_hub".
@@ -92,7 +75,7 @@ class VoiceMsgHub:
                 RealtimeVoiceInput).
         """
         self.name = name or "voice_hub"
-        self._agents: List["VoiceAgent"] = []
+        self._agents: List["RealtimeVoiceAgent"] = []
         self._voice_inputs: List["RealtimeVoiceInput"] = []
 
         # Use duck typing to categorize participants, avoiding circular imports
@@ -120,10 +103,13 @@ class VoiceMsgHub:
                 Self reference for context manager usage.
         """
         # Set msg_stream for all participants
-        for agent in self._agents:
-            agent.set_msg_stream(self._msg_stream)
         for voice_input in self._voice_inputs:
             voice_input.set_msg_stream(self._msg_stream)
+        for agent in self._agents:
+            agent.set_msg_stream(self._msg_stream)
+
+        for voice_input in self._voice_inputs:
+            await voice_input.start()
 
         # Initialize all agents
         for agent in self._agents:
@@ -174,11 +160,11 @@ class VoiceMsgHub:
         logger.info("VoiceMsgHub '%s' closed", self.name)
 
     @property
-    def agents(self) -> List["VoiceAgent"]:
+    def agents(self) -> List["RealtimeVoiceAgent"]:
         """Get all agents in the hub.
 
         Returns:
-            `List[VoiceAgent]`:
+            `List[RealtimeVoiceAgent]`:
                 List of all VoiceAgent instances managed by this hub.
         """
         return self._agents

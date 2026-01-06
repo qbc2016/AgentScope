@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """The related voice modules."""
 
-from .agent import VoiceAgent
-from .model import VoiceModelBase, DashScopeVoiceModel
+from .agent import RealtimeVoiceAgent
+from .model import RealtimeVoiceModelBase, DashScopeRealtimeVoiceModel
 from ._utils import RealtimeVoiceInput, MsgStream, VoiceMsgHub
 
 __all__ = [
-    "VoiceAgent",
-    "VoiceModelBase",
-    "DashScopeVoiceModel",
+    "RealtimeVoiceAgent",
+    "RealtimeVoiceModelBase",
+    "DashScopeRealtimeVoiceModel",
     "RealtimeVoiceInput",
     "MsgStream",
     "VoiceMsgHub",

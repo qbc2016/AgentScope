@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, AsyncGenerator, Callable, Any
 
 
-class VoiceModelBase(ABC):
+class RealtimeVoiceModelBase(ABC):
     """Base class for real-time voice models.
 
     Defines a unified interface for real-time voice models.
@@ -31,6 +31,7 @@ class VoiceModelBase(ABC):
     sys_prompt: str
     enable_turn_detection: bool
     callback: Any  # Callback object, specific type determined by subclass
+    conversation: Any
 
     @abstractmethod
     def set_audio_callbacks(
@@ -67,12 +68,19 @@ class VoiceModelBase(ABC):
         """
 
     @abstractmethod
-    def append_audio(self, audio_data: bytes) -> None:
+    def append_audio(
+        self,
+        audio_data: bytes,
+        sample_rate: Optional[int] = None,
+    ) -> None:
         """Append audio data in PCM format.
 
         Args:
             audio_data (`bytes`):
-                PCM audio data (16kHz, 16bit, mono).
+                PCM audio data (16bit, mono).
+            sample_rate (`Optional[int]`, defaults to `None`):
+                Sample rate of the audio data. If 24000, will be resampled to
+                16000. If None, assumes 16000.
 
         Raises:
             `RuntimeError`:
@@ -104,7 +112,6 @@ class VoiceModelBase(ABC):
             `asyncio.TimeoutError`:
                 If timeout occurs while waiting for fragments.
         """
-        # 抽象异步生成器：使用 yield 让 Python 识别返回类型
         yield ""
         raise NotImplementedError
 
@@ -120,7 +127,6 @@ class VoiceModelBase(ABC):
             `asyncio.TimeoutError`:
                 If timeout occurs while waiting for fragments.
         """
-        # 抽象异步生成器：使用 yield 让 Python 识别返回类型
         yield b""
         raise NotImplementedError
 
