@@ -50,6 +50,7 @@ class EchoAgent(AgentBase):
     """Echo agent that repeats the input message."""
 
     def __init__(self, tts_model: TTSModelBase | None = None) -> None:
+        """Initialize the echo agent."""
         super().__init__()
         self.name = "Moderator"
         self.tts_model = tts_model
