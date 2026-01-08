@@ -11,7 +11,6 @@ from agentscope.message import Msg, AudioBlock
 from agentscope.agent import ReActAgent, AgentBase
 
 from agentscope.tts import TTSModelBase
-from agentscope.agent._utils import _AsyncNullContext
 
 MAX_GAME_ROUND = 30
 MAX_DISCUSSION_ROUND = 3
@@ -57,25 +56,23 @@ class EchoAgent(AgentBase):
 
     async def reply(self, content: str) -> Msg:
         """Repeat the input content with its name and role."""
-        tts_context = self.tts_model or _AsyncNullContext()
 
-        async with tts_context:
-            msg = Msg(
-                self.name,
-                content,
-                role="assistant",
-            )
-            speech: AudioBlock | list[AudioBlock] | None = None
-            if self.tts_model:
-                tts_res = await self.tts_model.synthesize(msg)
-                if self.tts_model.stream:
-                    async for tts_chunk in tts_res:
-                        speech = tts_chunk.content
-                        await self.print(msg, False, speech=speech)
-                else:
-                    speech = tts_res.content
-            await self.print(msg, True, speech=speech)
-            return msg
+        msg = Msg(
+            self.name,
+            content,
+            role="assistant",
+        )
+        speech: AudioBlock | list[AudioBlock] | None = None
+        if self.tts_model:
+            tts_res = await self.tts_model.synthesize(msg)
+            if self.tts_model.stream:
+                async for tts_chunk in tts_res:
+                    speech = tts_chunk.content
+                    await self.print(msg, False, speech=speech)
+            else:
+                speech = tts_res.content
+        await self.print(msg, True, speech=speech)
+        return msg
 
     async def handle_interrupt(
         self,
