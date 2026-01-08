@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-statements, too-many-branches
+# pylint: disable=too-many-statements, too-many-branches,
+# pylint: disable=too-many-nested-blocks
 """Voice Agent implementation based on MsgStream."""
 
 import asyncio
@@ -77,6 +78,7 @@ class RealtimeVoiceAgent(StateModule):
         self._response_audio = bytearray()
         self._stop_event = asyncio.Event()
         self._listening_event = asyncio.Event()
+        self._interrupt_requested = False  # Thread-safe interruption flag
 
         # Current playing message ID (for interruption)
         self._current_msg_id: str | None = None
@@ -114,10 +116,21 @@ class RealtimeVoiceAgent(StateModule):
         self._response_audio.extend(audio_bytes)
 
     def _on_speech_started(self) -> None:
-        """Handle speech started callback from model - interrupt playback."""
-        logger.info("%s: User speaking, interrupting playback", self.name)
+        """Handle speech started callback from model - stop audio playback.
 
-        # Interrupt real-time audio streaming
+        This is called by the model when it detects user speech (VAD).
+        Uses thread-safe flag to signal interruption to the audio streaming
+        task.
+        """
+        logger.info(
+            "%s: 🛑 User speech detected, requesting interruption",
+            self.name,
+        )
+
+        # Thread-safe: set flag for _stream_audio_fragments to check
+        self._interrupt_requested = True
+
+        # Also try to stop the player directly (for immediate effect)
         if hasattr(self, "_streaming_msg") and self._streaming_msg:
             streaming_msg_id = self._streaming_msg.id
             if (
@@ -127,39 +140,13 @@ class RealtimeVoiceAgent(StateModule):
                 player = self._stream_prefix[streaming_msg_id]["audio_player"]
                 try:
                     player.stop()
-                    player.close()
-                    logger.info(
-                        "%s: Real-time audio player interrupted",
-                        self.name,
-                    )
+                    logger.info("%s: ✅ Audio playback stopped", self.name)
                 except Exception as e:
-                    logger.warning(
-                        "%s: Error stopping audio player: %s",
+                    logger.debug(
+                        "%s: Player stop error (may already be stopped): %s",
                         self.name,
                         e,
                     )
-                # Remove player from prefix
-                del self._stream_prefix[streaming_msg_id]["audio_player"]
-
-        # Also handle _process_audio_block style audio (for backward
-        # compatibility)
-        if hasattr(self, "_streaming_msg") and self._streaming_msg:
-            streaming_msg_id = self._streaming_msg.id
-            if (
-                streaming_msg_id in self._stream_prefix
-                and "audio" in self._stream_prefix[streaming_msg_id]
-            ):
-                audio_info = self._stream_prefix[streaming_msg_id]["audio"]
-                if isinstance(audio_info, tuple) and len(audio_info) >= 1:
-                    player = audio_info[0]
-                    try:
-                        player.stop()
-                        player.close()
-                    except Exception:
-                        pass
-                del self._stream_prefix[streaming_msg_id]["audio"]
-
-        self._current_msg_id = None
 
     def _on_response_done(self) -> None:
         """Handle response done callback from model."""
@@ -183,18 +170,27 @@ class RealtimeVoiceAgent(StateModule):
                 on_response_done=self._on_response_done,
             )
             await self._model.initialize()
+            # Start background listening task
             self._listen_task = asyncio.create_task(self._listen_loop())
             self._initialized = True
             logger.info("VoiceAgent %s initialized", self.name)
 
     async def _listen_loop(self) -> None:
-        """内部监听循环"""
-        while not self._stop_event.is_set() and not self._msg_stream.is_closed:
-            try:
-                await self.reply()
-            except Exception as e:
-                logger.error("%s: Error in listen loop: %s", self.name, e)
-                await asyncio.sleep(0.1)
+        """Background task that continuously listens and responds to messages.
+
+        This loop keeps the agent responsive to incoming messages without
+        requiring explicit reply() calls.
+        """
+        logger.info("%s: Starting listen loop", self.name)
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    await self.reply()
+                except Exception as e:
+                    logger.error("%s: Error in listen loop: %s", self.name, e)
+                    await asyncio.sleep(0.1)
+        finally:
+            logger.info("%s: Listen loop stopped", self.name)
 
     async def reply(self) -> Msg:
         """Listen to messages from other participants in the queue and
@@ -220,10 +216,18 @@ class RealtimeVoiceAgent(StateModule):
 
         queue: asyncio.Queue[Msg | None] = asyncio.Queue(maxsize=1000)
 
-        await self._msg_stream.register_queue(self.id, queue)
+        # Only receive user messages to avoid queue being filled with
+        # agent's own partial messages
+        await self._msg_stream.register_queue(
+            self.id,
+            queue,
+            msg_filter=lambda msg: msg.name == "user",
+        )
 
         response_started = False
         got_audio = False
+        streaming_tasks = []
+        audio_chunks_during_response = 0
 
         try:
             while (
@@ -232,92 +236,120 @@ class RealtimeVoiceAgent(StateModule):
             ):
                 if self._model.callback.is_responding and not response_started:
                     response_started = True
+                    audio_chunks_during_response = 0  # Reset counter
                     logger.info("%s: Model is responding...", self.name)
+
+                    # Start streaming tasks immediately when model starts
+                    # responding
+                    text_task = asyncio.create_task(
+                        self._stream_text_fragments(),
+                    )
+                    audio_task = asyncio.create_task(
+                        self._stream_audio_fragments(),
+                    )
+                    streaming_tasks = [text_task, audio_task]
 
                 if (
                     response_started
                     and self._model.callback.complete_event.is_set()
                 ):
-                    logger.info("%s: Model response complete", self.name)
-                    break
-
-                try:
-                    received_msg = await asyncio.wait_for(
-                        queue.get(),
-                        timeout=0.1,
-                    )
-
-                    if received_msg is None:
+                    # Don't break immediately - continue processing user audio
+                    # to support interruption during audio playback
+                    if streaming_tasks:
+                        # Check if streaming tasks are done
+                        if all(task.done() for task in streaming_tasks):
+                            logger.info(
+                                "%s: Model response complete (received %d "
+                                "audio chunks during response)",
+                                self.name,
+                                audio_chunks_during_response,
+                            )
+                            break
+                        # Else continue loop to process more user audio
+                        # while streaming
+                    else:
+                        logger.info(
+                            "%s: Model response complete "
+                            "(received %d audio chunks during response)",
+                            self.name,
+                            audio_chunks_during_response,
+                        )
                         break
 
-                    if received_msg.name == self.name:
-                        continue
+                # Batch process all available messages in queue
+                messages_processed = 0
+                try:
+                    # First, wait for at least one message (with timeout)
+                    received_msg = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=0.05,  # Shorter timeout for faster response
+                    )
 
-                    # Check for RESPONSE_END event (other party finished
-                    # speaking)
-                    event = get_event_from_msg(received_msg)
-                    if event == MsgEvent.RESPONSE_END and got_audio:
-                        logger.info(
-                            "%s: Got RESPONSE_END, committing...",
-                            self.name,
-                        )
-                        # Other party finished, manually commit to trigger
-                        # response
-                        if self._model.conversation:
-                            self._model.conversation.commit()
-                            from dashscope.audio.qwen_omni import MultiModality
+                    # Process all available messages
+                    messages_to_process = [received_msg]
+                    while True:
+                        try:
+                            msg = queue.get_nowait()
+                            messages_to_process.append(msg)
+                        except asyncio.QueueEmpty:
+                            break
 
-                            self._model.conversation.create_response(
-                                output_modalities=[
-                                    MultiModality.AUDIO,
-                                    MultiModality.TEXT,
-                                ],
-                            )
-                        continue
+                    for msg in messages_to_process:
+                        if msg is None:
+                            return  # Exit the entire method
 
-                    audio_data = get_audio_from_msg(received_msg)
-                    if audio_data:
-                        # Determine audio source
-                        is_from_user = received_msg.name == "user"
+                        messages_processed += 1
 
-                        # If model is responding:
-                        # - User audio: Continue forwarding (allow
-                        # interruption)
-                        # - Agent audio: Ignore (avoid false interruption)
-                        if response_started and not is_from_user:
-                            logger.debug(
-                                "%s: Ignoring agent audio while responding",
-                                self.name,
-                            )
+                        # Check for RESPONSE_END event
+                        event = get_event_from_msg(msg)
+                        if event == MsgEvent.RESPONSE_END and got_audio:
+                            if self._model.conversation:
+                                self._model.conversation.commit()
+                                from dashscope.audio.qwen_omni import (
+                                    MultiModality,
+                                )
+
+                                self._model.conversation.create_response(
+                                    output_modalities=[
+                                        MultiModality.AUDIO,
+                                        MultiModality.TEXT,
+                                    ],
+                                )
                             continue
 
-                        got_audio = True
-                        sample_rate = received_msg.metadata.get(
-                            "sample_rate",
-                            16000,
-                        )
-                        try:
-                            self._model.append_audio(
-                                audio_data,
-                                sample_rate=sample_rate,
+                        audio_data = get_audio_from_msg(msg)
+                        if audio_data:
+                            got_audio = True
+                            sample_rate = (
+                                msg.metadata.get("sample_rate", 16000)
+                                if msg.metadata
+                                else 16000
                             )
-                        except Exception as e:
-                            logger.warning(
-                                "%s: Failed to append audio: %s",
-                                self.name,
-                                e,
-                            )
-                            # Try to reconnect
-                            if not self._model.is_connected:
-                                await self._model.reconnect()
-                                got_audio = False  # Reset state
+                            try:
+                                self._model.append_audio(
+                                    audio_data,
+                                    sample_rate=sample_rate,
+                                )
+                                if response_started:
+                                    audio_chunks_during_response += 1
+                            except Exception as e:
+                                logger.warning(
+                                    "%s: Failed to append audio: %s",
+                                    self.name,
+                                    e,
+                                )
+                                if not self._model.is_connected:
+                                    await self._model.reconnect()
+                                    got_audio = False
 
                 except asyncio.TimeoutError:
                     continue
         finally:
             await self._msg_stream.unregister_queue(self.id)
 
-        await self._collect_and_stream_response()
+        # Wait for streaming tasks to complete
+        if streaming_tasks:
+            await asyncio.gather(*streaming_tasks, return_exceptions=True)
 
         if self._response_text or self._response_audio:
             await self._msg_stream.push(
@@ -402,14 +434,32 @@ class RealtimeVoiceAgent(StateModule):
         prefix tracking across fragments.
         """
         streaming_msg_id = self._streaming_msg.id
+        logger.info(
+            "%s: Starting text streaming (msg_id: %s)",
+            self.name,
+            streaming_msg_id,
+        )
 
         try:
+            fragment_count = 0
             async for text_fragment in self._model.iter_text_fragments():
                 if not text_fragment:
                     continue
 
+                fragment_count += 1
                 # Accumulate the text
                 self._response_text += text_fragment
+
+                if fragment_count <= 3 or fragment_count % 10 == 0:
+                    logger.info(
+                        "%s: Text fragment #%d: %r (total length: %d)",
+                        self.name,
+                        fragment_count,
+                        text_fragment[:20] + "..."
+                        if len(text_fragment) > 20
+                        else text_fragment,
+                        len(self._response_text),
+                    )
 
                 # Push incremental text to MsgStream
                 await self._msg_stream.push(
@@ -431,6 +481,11 @@ class RealtimeVoiceAgent(StateModule):
                     thinking_and_text_to_print=thinking_and_text_to_print,
                 )
 
+            logger.info(
+                "%s: Text streaming ended (%d fragments)",
+                self.name,
+                fragment_count,
+            )
         except Exception as e:
             logger.error("%s: Error streaming text: %s", self.name, e)
 
@@ -438,14 +493,18 @@ class RealtimeVoiceAgent(StateModule):
         """Stream audio fragments as they arrive from the model.
 
         Plays audio in real-time using sounddevice.OutputStream.
-        Manages its own player instance separately from _stream_prefix.
+        Uses non-blocking write to allow interruption.
         """
         import sounddevice as sd
 
         streaming_msg_id = self._streaming_msg.id
+        loop = asyncio.get_event_loop()
 
-        # Initialize audio player (separate from _process_audio_block system)
+        # Initialize audio player
         player = None
+        fragment_count = 0
+        self._interrupt_requested = False  # Reset interrupt flag
+
         try:
             player = sd.OutputStream(
                 samplerate=24000,
@@ -454,33 +513,54 @@ class RealtimeVoiceAgent(StateModule):
                 blocksize=1024,
                 latency="low",
             )
-            player.start()
-            logger.info("%s: Real-time audio streaming started", self.name)
-
-            # Store player reference for interruption handling
-            # Use a special key to distinguish from _process_audio_block
+            # Store player reference BEFORE starting for interruption handling
             if streaming_msg_id not in self._stream_prefix:
                 self._stream_prefix[streaming_msg_id] = {}
             self._stream_prefix[streaming_msg_id]["audio_player"] = player
 
+            player.start()
+            logger.info(
+                "%s: Audio streaming started (msg_id: %s)",
+                self.name,
+                streaming_msg_id,
+            )
+
             async for audio_fragment in self._model.iter_audio_fragments():
+                # Check for interruption
+                if self._interrupt_requested:
+                    logger.info("%s: 🛑 Audio interrupted by user", self.name)
+                    break
+
                 if not audio_fragment:
                     continue
+
+                fragment_count += 1
 
                 # Accumulate audio data
                 self._response_audio.extend(audio_fragment)
 
-                # Convert and play the new audio fragment
+                # Convert and play the new audio fragment (non-blocking)
                 try:
                     audio_np = np.frombuffer(audio_fragment, dtype=np.int16)
                     audio_float = audio_np.astype(np.float32) / 32768.0
-                    player.write(audio_float)
+
+                    if fragment_count == 1:
+                        logger.info(
+                            "%s: ▶️ Audio playback started (can interrupt "
+                            "now)",
+                            self.name,
+                        )
+
+                    # Non-blocking write using executor
+                    await loop.run_in_executor(None, player.write, audio_float)
+
                 except Exception as e:
                     logger.warning(
                         "%s: Error playing audio fragment: %s",
                         self.name,
                         e,
                     )
+                    break
 
                 # Push incremental audio to MsgStream
                 await self._msg_stream.push(
@@ -501,8 +581,11 @@ class RealtimeVoiceAgent(StateModule):
                     player.stop()
                     player.close()
                     logger.info(
-                        "%s: Real-time audio streaming ended",
+                        "%s: Real-time audio streaming ended "
+                        "(%d fragments, %d bytes total)",
                         self.name,
+                        fragment_count,
+                        len(self._response_audio),
                     )
                 except Exception:
                     pass

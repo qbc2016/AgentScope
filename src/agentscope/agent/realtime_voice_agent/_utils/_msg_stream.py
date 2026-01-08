@@ -9,7 +9,7 @@ format and support streaming push (incremental TextBlock/AudioBlock).
 import asyncio
 import base64
 from enum import Enum
-from typing import Optional, AsyncGenerator, Literal, Dict
+from typing import Optional, AsyncGenerator, Literal, Dict, Callable
 from collections import defaultdict
 
 from agentscope._logging import logger
@@ -270,6 +270,7 @@ class MsgStream:
         """
         self._max_size = max_size
         self._subscribers: Dict[str, asyncio.Queue[Optional[Msg]]] = {}
+        self._filters: Dict[str, Callable[[Msg], bool]] = {}
         self._lock = asyncio.Lock()
         self._closed = False
         self._stats: Dict[str, int] = defaultdict(int)
@@ -291,6 +292,12 @@ class MsgStream:
         async with self._lock:
             for subscriber_id, queue in self._subscribers.items():
                 try:
+                    # Check filter if exists
+                    if subscriber_id in self._filters:
+                        filter_fn = self._filters[subscriber_id]
+                        if not filter_fn(msg):
+                            continue  # Skip this subscriber
+
                     if queue.qsize() >= self._max_size:
                         try:
                             queue.get_nowait()
@@ -402,6 +409,7 @@ class MsgStream:
         self,
         subscriber_id: str,
         queue: asyncio.Queue[Optional[Msg]],
+        msg_filter: Optional[Callable[[Msg], bool]] = None,
     ) -> None:
         """Register a custom queue as a subscriber.
 
@@ -413,10 +421,19 @@ class MsgStream:
                 Unique identifier for the subscriber.
             queue (`asyncio.Queue[Optional[Msg]]`):
                 The queue to register.
+            msg_filter (`Optional[Callable[[Msg], bool]]`, defaults to `None`):
+                Optional filter function. Only messages where msg_filter(msg)
+                returns True will be pushed to this queue.
         """
         async with self._lock:
             self._subscribers[subscriber_id] = queue
-            logger.info("Queue registered for subscriber %s", subscriber_id)
+            if msg_filter is not None:
+                self._filters[subscriber_id] = msg_filter
+            logger.info(
+                "Queue registered for subscriber %s (filtered=%s)",
+                subscriber_id,
+                msg_filter is not None,
+            )
 
     async def unregister_queue(self, subscriber_id: str) -> None:
         """Unregister a previously registered queue.
@@ -428,6 +445,8 @@ class MsgStream:
         async with self._lock:
             if subscriber_id in self._subscribers:
                 del self._subscribers[subscriber_id]
+                if subscriber_id in self._filters:
+                    del self._filters[subscriber_id]
                 logger.info(
                     "Queue unregistered for subscriber %s",
                     subscriber_id,

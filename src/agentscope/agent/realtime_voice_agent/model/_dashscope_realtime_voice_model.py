@@ -194,7 +194,7 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
         self._put_to_queue(self.audio_queue, None)
         self.complete_event.set()
 
-    # pylint: disable=too-many-branches
+    # pylint: disable=too-many-branches, too-many-statements
     def on_event(self, response: dict[str, Any]) -> None:
         """Handle DashScope events.
 
@@ -215,8 +215,11 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 self._user_speaking = True
                 logger.info("Speech started")
                 # Notify upper layer: user starts speaking (for interruption)
-                if self._is_responding and self._on_speech_started:
+                # Always call the callback to allow interrupting audio playback
+                if self._on_speech_started:
                     self._on_speech_started()
+                # Only cancel response if model is actively responding
+                if self._is_responding:
                     self._response_cancelled = True
 
             elif event_type == "input_audio_buffer.speech_stopped":
@@ -248,6 +251,21 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 if self._response_cancelled:
                     return
                 audio = response.get("delta", "")
+
+                # Debug: log audio delta events
+                if len(self.response_audio) == 0:
+                    logger.info(
+                        "🎵 First audio delta received (%d chars)",
+                        len(audio),
+                    )
+                elif (
+                    len(self.response_audio) % 50000 < 1000
+                ):  # Log every ~50KB
+                    logger.info(
+                        "🎵 Audio delta: total %d chars",
+                        len(self.response_audio),
+                    )
+
                 self.response_audio += audio
                 self._put_to_queue(self.audio_queue, audio)
                 # Notify upper layer: audio data received (for playback)
@@ -480,17 +498,15 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
             `bytes`:
                 PCM audio data (24kHz, 16bit, mono).
         """
-        accumulated = ""
         while True:
             frag = await self.callback.audio_queue.get()
             if frag is None:
-                if accumulated:
-                    try:
-                        yield base64.b64decode(accumulated)
-                    except Exception as e:
-                        logger.error("Decode error: %s", e)
                 break
-            accumulated += frag
+            # Yield each fragment immediately for real-time playback
+            try:
+                yield base64.b64decode(frag)
+            except Exception as e:
+                logger.error("Decode error: %s", e)
 
     async def cancel_response(self) -> None:
         """Cancel the current response generation."""
