@@ -25,60 +25,29 @@ class MsgEvent(Enum):
     RESPONSE_END = "response_end"  # Agent response ended
 
 
-def create_text_msg(
+def create_msg(
     name: str,
-    text: str,
-    role: Literal["assistant", "user", "system"] = "assistant",
-    is_partial: bool = True,
-    event: MsgEvent = MsgEvent.DATA,
-) -> Msg:
-    """Create a text message.
-
-    Args:
-        name (`str`):
-            The sender's name.
-        text (`str`):
-            The text content (incremental).
-        role (`Literal["assistant", "user", "system"]`, defaults to
-        `"assistant"`):
-            The role of the sender.
-        is_partial (`bool`, defaults to `True`):
-            Whether this is a partial message (streaming).
-        event (`MsgEvent`, defaults to `MsgEvent.DATA`):
-            The event type.
-
-    Returns:
-        `Msg`:
-            The created message object.
-    """
-    return Msg(
-        name=name,
-        role=role,
-        content=[TextBlock(type="text", text=text)] if text else [],
-        metadata={
-            "is_partial": is_partial,
-            "event": event.value,
-        },
-    )
-
-
-def create_audio_msg(
-    name: str,
-    audio_data: bytes,
+    text: str | None = None,
+    audio_data: bytes | None = None,
     sample_rate: int = 24000,
     role: Literal["assistant", "user", "system"] = "assistant",
     is_partial: bool = True,
     event: MsgEvent = MsgEvent.DATA,
 ) -> Msg:
-    """Create an audio message.
+    """Create a message with text and/or audio content.
+
+    This is a unified function that can create text-only, audio-only, or
+    multimodal messages.
 
     Args:
         name (`str`):
             The sender's name.
-        audio_data (`bytes`):
-            The audio data (PCM bytes, incremental).
+        text (`str | None`, defaults to `None`):
+            The text content (optional).
+        audio_data (`bytes | None`, defaults to `None`):
+            The audio data in PCM format (optional).
         sample_rate (`int`, defaults to `24000`):
-            The audio sample rate in Hz.
+            The audio sample rate in Hz (only used if audio_data is provided).
         role (`Literal["assistant", "user", "system"]`, defaults to
         `"assistant"`):
             The role of the sender.
@@ -89,25 +58,66 @@ def create_audio_msg(
 
     Returns:
         `Msg`:
-            The created message object.
+            The created message object with text and/or audio blocks.
+
+    Raises:
+        `ValueError`:
+            If both text and audio_data are None.
+
+    Examples:
+        Text-only message:
+
+        .. code-block:: python
+
+            msg = create_msg(name="user", text="Hello")
+
+        Audio-only message:
+
+        .. code-block:: python
+
+            msg = create_msg(name="assistant", audio_data=pcm_bytes)
+
+        Multimodal message:
+
+        .. code-block:: python
+
+            msg = create_msg(
+                name="assistant",
+                text="Here is the audio",
+                audio_data=pcm_bytes,
+            )
     """
-    audio_block = AudioBlock(
-        type="audio",
-        source=Base64Source(
-            type="base64",
-            media_type=f"audio/pcm;rate={sample_rate}",
-            data=base64.b64encode(audio_data).decode("ascii"),
-        ),
-    )
+    if text is None and audio_data is None:
+        raise ValueError("At least one of text or audio_data must be provided")
+
+    content = []
+    metadata = {
+        "is_partial": is_partial,
+        "event": event.value,
+    }
+
+    # Add text block if provided
+    if text:
+        content.append(TextBlock(type="text", text=text))
+
+    # Add audio block if provided
+    if audio_data:
+        audio_block = AudioBlock(
+            type="audio",
+            source=Base64Source(
+                type="base64",
+                media_type=f"audio/pcm;rate={sample_rate}",
+                data=base64.b64encode(audio_data).decode("ascii"),
+            ),
+        )
+        content.append(audio_block)
+        metadata["sample_rate"] = sample_rate
+
     return Msg(
         name=name,
         role=role,
-        content=[audio_block],
-        metadata={
-            "is_partial": is_partial,
-            "event": event.value,
-            "sample_rate": sample_rate,
-        },
+        content=content,
+        metadata=metadata,
     )
 
 
@@ -226,14 +236,14 @@ class MsgStream:
             stream = MsgStream()
 
             # Producer pushing streaming text
-            await stream.push(create_text_msg(
+            await stream.push(create_msg(
                 name="assistant",
                 text="Hello",  # Incremental text
                 is_partial=True,
             ))
 
             # Producer pushing streaming audio
-            await stream.push(create_audio_msg(
+            await stream.push(create_msg(
                 name="assistant",
                 audio_data=pcm_bytes,  # Incremental audio
                 is_partial=True,

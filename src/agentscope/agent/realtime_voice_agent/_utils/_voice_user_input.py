@@ -20,7 +20,7 @@ from agentscope._logging import logger
 from ._msg_stream import (
     MsgStream,
     MsgEvent,
-    create_audio_msg,
+    create_msg,
     create_event_msg,
     get_audio_from_msg,
     get_event_from_msg,
@@ -183,7 +183,7 @@ class AudioCapture:
                         logger.error("Audio callback error: %s", e)
 
                 # Create audio Msg and push to stream
-                msg = create_audio_msg(
+                msg = create_msg(
                     name=self._source_name,
                     audio_data=audio_data,
                     sample_rate=self._sample_rate,

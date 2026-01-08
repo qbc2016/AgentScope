@@ -8,6 +8,7 @@ import io
 import json
 
 import numpy as np
+import shortuuid
 
 from agentscope.message import (
     Msg,
@@ -20,12 +21,12 @@ from agentscope.message import (
     VideoBlock,
 )
 from agentscope._logging import logger
+from agentscope.module import StateModule
 
 from .._utils._msg_stream import (
     MsgStream,
     MsgEvent,
-    create_text_msg,
-    create_audio_msg,
+    create_msg,
     create_event_msg,
     get_audio_from_msg,
     get_event_from_msg,
@@ -33,12 +34,15 @@ from .._utils._msg_stream import (
 from ..model._voice_model_base import RealtimeVoiceModelBase
 
 
-class RealtimeVoiceAgent:
+class RealtimeVoiceAgent(StateModule):
     """Voice Agent implementation based on MsgStream.
 
     Uses MsgStream for message passing, supports streaming Msg push.
     Audio playback is implemented through AgentBase.print()'s speech parameter.
     """
+
+    id: str
+    """The agent's unique identifier, generated using shortuuid."""
 
     def __init__(
         self,
@@ -61,6 +65,8 @@ class RealtimeVoiceAgent:
                 VoiceMsgHub.
         """
         super().__init__()
+        self.id = shortuuid.uuid()
+
         self.name = name
         self._msg_stream = msg_stream  # Can be set later via VoiceMsgHub
         self._model = model
@@ -78,6 +84,7 @@ class RealtimeVoiceAgent:
         self._stream_prefix = {}
 
         self._listen_task = None
+        self._streaming_msg = None
 
     def set_msg_stream(self, msg_stream: MsgStream) -> None:
         """Set the message stream (called by VoiceMsgHub).
@@ -109,22 +116,49 @@ class RealtimeVoiceAgent:
     def _on_speech_started(self) -> None:
         """Handle speech started callback from model - interrupt playback."""
         logger.info("%s: User speaking, interrupting playback", self.name)
-        if (
-            self._current_msg_id
-            and self._current_msg_id in self._stream_prefix
-        ):
-            audio_info = self._stream_prefix.get(self._current_msg_id, {}).get(
-                "audio",
-            )
-            if audio_info:
-                player, _ = audio_info
+
+        # Interrupt real-time audio streaming
+        if hasattr(self, "_streaming_msg") and self._streaming_msg:
+            streaming_msg_id = self._streaming_msg.id
+            if (
+                streaming_msg_id in self._stream_prefix
+                and "audio_player" in self._stream_prefix[streaming_msg_id]
+            ):
+                player = self._stream_prefix[streaming_msg_id]["audio_player"]
                 try:
                     player.stop()
                     player.close()
-                except Exception:
-                    pass
-            if self._current_msg_id in self._stream_prefix:
-                del self._stream_prefix[self._current_msg_id]
+                    logger.info(
+                        "%s: Real-time audio player interrupted",
+                        self.name,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "%s: Error stopping audio player: %s",
+                        self.name,
+                        e,
+                    )
+                # Remove player from prefix
+                del self._stream_prefix[streaming_msg_id]["audio_player"]
+
+        # Also handle _process_audio_block style audio (for backward
+        # compatibility)
+        if hasattr(self, "_streaming_msg") and self._streaming_msg:
+            streaming_msg_id = self._streaming_msg.id
+            if (
+                streaming_msg_id in self._stream_prefix
+                and "audio" in self._stream_prefix[streaming_msg_id]
+            ):
+                audio_info = self._stream_prefix[streaming_msg_id]["audio"]
+                if isinstance(audio_info, tuple) and len(audio_info) >= 1:
+                    player = audio_info[0]
+                    try:
+                        player.stop()
+                        player.close()
+                    except Exception:
+                        pass
+                del self._stream_prefix[streaming_msg_id]["audio"]
+
         self._current_msg_id = None
 
     def _on_response_done(self) -> None:
@@ -170,19 +204,23 @@ class RealtimeVoiceAgent:
             `Msg`:
                 The response message containing the agent's reply.
         """
-        if not self._initialized:
-            await self.initialize()
 
         self._response_text = ""
         self._response_audio = bytearray()
 
+        # Create a streaming message with fixed ID for this response
+        self._streaming_msg = Msg(
+            name=self.name,
+            content=[TextBlock(type="text", text="")],
+            role="assistant",
+        )
+
         self._model.callback.reset()
         logger.info("%s: Starting realtime forward...", self.name)
 
-        subscriber_id = f"{self.name}_listener"
         queue: asyncio.Queue[Msg | None] = asyncio.Queue(maxsize=1000)
 
-        await self._msg_stream.register_queue(subscriber_id, queue)
+        await self._msg_stream.register_queue(self.id, queue)
 
         response_started = False
         got_audio = False
@@ -277,7 +315,7 @@ class RealtimeVoiceAgent:
                 except asyncio.TimeoutError:
                     continue
         finally:
-            await self._msg_stream.unregister_queue(subscriber_id)
+            await self._msg_stream.unregister_queue(self.id)
 
         await self._collect_and_stream_response()
 
@@ -289,17 +327,24 @@ class RealtimeVoiceAgent:
                 ),
             )
 
-            result = Msg(
-                name=self.name,
-                content=[TextBlock(type="text", text=self._response_text)],
-                role="assistant",
-            )
+            # Update the streaming message with final content
+            self._streaming_msg.content = [
+                TextBlock(type="text", text=self._response_text),
+            ]
 
-            speech = self._build_speech()
-            self._current_msg_id = result.id
-            await self.print(result, last=True, speech=speech)
+            # Text and audio have been streamed during
+            # _collect_and_stream_response
+            # This final print is mainly for resource cleanup and newline
+            self._current_msg_id = self._streaming_msg.id
+
+            # Final print with last=True for cleanup
+            # Using the same streaming_msg.id ensures text won't be reprinted
+            # due to _stream_prefix tracking
+            # No speech parameter needed as audio was played in real-time
+            await self.print(self._streaming_msg, last=True)
+
             self._current_msg_id = None
-            return result
+            return self._streaming_msg
         else:
             logger.info("%s: No response", self.name)
             return Msg(name=self.name, content="", role="assistant")
@@ -310,14 +355,17 @@ class RealtimeVoiceAgent:
     ) -> None:
         """Collect model response and stream push to MsgStream.
 
-        Wait for complete_event indicating response completion,
-        then collect data.
-        Audio accumulation is handled by _on_audio_delta callback.
+        Streams both text and audio fragments as they arrive for real-time
+        display and playback.
 
         Args:
             timeout (`float`, defaults to `30.0`):
                 Maximum time to wait for response in seconds.
         """
+        # Create concurrent tasks to stream text and audio fragments
+        text_task = asyncio.create_task(self._stream_text_fragments())
+        audio_task = asyncio.create_task(self._stream_audio_fragments())
+
         # Wait for response completion
         start_time = asyncio.get_event_loop().time()
         while not self._model.callback.complete_event.is_set():
@@ -330,44 +378,140 @@ class RealtimeVoiceAgent:
                 )
                 break
 
-        # After response completion, get complete data from callback
-        if self._model.callback.response_text:
-            self._response_text = self._model.callback.response_text
-            await self._msg_stream.push(
-                create_text_msg(
-                    name=self.name,
-                    text=self._response_text,
-                    is_partial=False,
-                ),
-            )
+        # Wait for streaming tasks to complete
+        await text_task
+        await audio_task
 
-        # Audio already accumulated by _on_audio_delta, push complete audio
-        # to MsgStream
+        # Push final complete message to MsgStream
         if self._response_audio:
             await self._msg_stream.push(
-                create_audio_msg(
+                create_msg(
                     name=self.name,
+                    text=self._response_text,
                     audio_data=bytes(self._response_audio),
                     sample_rate=24000,
                     is_partial=False,
                 ),
             )
-        elif self._model.callback.response_audio:
-            # Fallback: get from callback
-            try:
-                self._response_audio = bytearray(
-                    base64.b64decode(self._model.callback.response_audio),
-                )
+
+    async def _stream_text_fragments(self) -> None:
+        """Stream text fragments as they arrive from the model.
+
+        Pushes incremental text to MsgStream and prints in real-time.
+        Uses the fixed streaming_msg_id created in reply() for consistent
+        prefix tracking across fragments.
+        """
+        streaming_msg_id = self._streaming_msg.id
+
+        try:
+            async for text_fragment in self._model.iter_text_fragments():
+                if not text_fragment:
+                    continue
+
+                # Accumulate the text
+                self._response_text += text_fragment
+
+                # Push incremental text to MsgStream
                 await self._msg_stream.push(
-                    create_audio_msg(
+                    create_msg(
                         name=self.name,
-                        audio_data=bytes(self._response_audio),
-                        sample_rate=24000,
-                        is_partial=False,
+                        text=self._response_text,
+                        is_partial=True,
                     ),
                 )
-            except Exception as e:
-                logger.error("Decode error: %s", e)
+
+                # Print streaming text using the same msg_id for prefix
+                # tracking
+                # Directly call _print_text_block to maintain streaming state
+                thinking_and_text_to_print = []
+                self._print_text_block(
+                    streaming_msg_id,
+                    name_prefix=self.name,
+                    text_content=self._response_text,
+                    thinking_and_text_to_print=thinking_and_text_to_print,
+                )
+
+        except Exception as e:
+            logger.error("%s: Error streaming text: %s", self.name, e)
+
+    async def _stream_audio_fragments(self) -> None:
+        """Stream audio fragments as they arrive from the model.
+
+        Plays audio in real-time using sounddevice.OutputStream.
+        Manages its own player instance separately from _stream_prefix.
+        """
+        import sounddevice as sd
+
+        streaming_msg_id = self._streaming_msg.id
+
+        # Initialize audio player (separate from _process_audio_block system)
+        player = None
+        try:
+            player = sd.OutputStream(
+                samplerate=24000,
+                channels=1,
+                dtype=np.float32,
+                blocksize=1024,
+                latency="low",
+            )
+            player.start()
+            logger.info("%s: Real-time audio streaming started", self.name)
+
+            # Store player reference for interruption handling
+            # Use a special key to distinguish from _process_audio_block
+            if streaming_msg_id not in self._stream_prefix:
+                self._stream_prefix[streaming_msg_id] = {}
+            self._stream_prefix[streaming_msg_id]["audio_player"] = player
+
+            async for audio_fragment in self._model.iter_audio_fragments():
+                if not audio_fragment:
+                    continue
+
+                # Accumulate audio data
+                self._response_audio.extend(audio_fragment)
+
+                # Convert and play the new audio fragment
+                try:
+                    audio_np = np.frombuffer(audio_fragment, dtype=np.int16)
+                    audio_float = audio_np.astype(np.float32) / 32768.0
+                    player.write(audio_float)
+                except Exception as e:
+                    logger.warning(
+                        "%s: Error playing audio fragment: %s",
+                        self.name,
+                        e,
+                    )
+
+                # Push incremental audio to MsgStream
+                await self._msg_stream.push(
+                    create_msg(
+                        name=self.name,
+                        audio_data=audio_fragment,
+                        sample_rate=24000,
+                        is_partial=True,
+                    ),
+                )
+
+        except Exception as e:
+            logger.error("%s: Error streaming audio: %s", self.name, e)
+        finally:
+            # Close the player
+            if player:
+                try:
+                    player.stop()
+                    player.close()
+                    logger.info(
+                        "%s: Real-time audio streaming ended",
+                        self.name,
+                    )
+                except Exception:
+                    pass
+            # Remove from _stream_prefix
+            if (
+                streaming_msg_id in self._stream_prefix
+                and "audio_player" in self._stream_prefix[streaming_msg_id]
+            ):
+                del self._stream_prefix[streaming_msg_id]["audio_player"]
 
     def _build_speech(self) -> AudioBlock | None:
         """Build AudioBlock for print playback.
@@ -463,10 +607,18 @@ class RealtimeVoiceAgent:
 
         # Clean up resources if this is the last message in streaming
         if last and msg.id in self._stream_prefix:
+            # Note: audio_player is already closed in
+            # _stream_audio_fragments finally block
+            # Only clean up _process_audio_block style audio if it exists
             if "audio" in self._stream_prefix[msg.id]:
-                player, _ = self._stream_prefix[msg.id]["audio"]
-                # Close the miniaudio player
-                player.close()
+                audio_info = self._stream_prefix[msg.id]["audio"]
+                # audio_info is (player, base64_str) from _process_audio_block
+                if isinstance(audio_info, tuple) and len(audio_info) >= 1:
+                    player = audio_info[0]
+                    try:
+                        player.close()
+                    except Exception:
+                        pass
             stream_prefix = self._stream_prefix.pop(msg.id)
             if "text" in stream_prefix and not stream_prefix["text"].endswith(
                 "\n",

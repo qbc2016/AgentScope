@@ -50,6 +50,27 @@ async def main() -> None:
 
     # Create VoiceInput and Agent (no need to pass msg_stream)
     voice_input = RealtimeVoiceInput()
+    # devices = voice_input.list_devices()
+    #
+    # print("\n可用的输入设备:")
+    # for device in devices:
+    #     print(f"  [{device['index']}] {device['name']}")
+    #
+    # device_index = None
+    # if len(devices) > 1:
+    #     try:
+    #         choice = input("\n请输入设备编号（直接回车使用默认设备）: ").strip()
+    #         if choice:
+    #             device_index = int(choice)
+    #             print(
+    #                 f"使用设备: {devices[device_index]['name'] if
+    #                 device_index < len(devices) else device_index}")
+    #     except (ValueError, IndexError):
+    #         print("使用默认设备")
+    #
+    # if device_index is not None:
+    #     voice_input = RealtimeVoiceInput(device_index=device_index)
+
     agent = RealtimeVoiceAgent(
         name="assistant",
         model=model,

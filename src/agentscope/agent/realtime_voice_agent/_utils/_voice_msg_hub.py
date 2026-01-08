@@ -39,9 +39,8 @@ class VoiceMsgHub:
             agent1 = VoiceAgent(name="Alice", model=model1, sys_prompt="...")
             agent2 = VoiceAgent(name="Bob", model=model2, sys_prompt="...")
 
-            async with VoiceMsgHub(participants=[agent1, agent2]) as hub:
-                await agent1.say("Hello")
-                await agent2.reply()
+            async with VoiceMsgHub(participants=[agent1, agent2]):
+                xxx
 
         User and agent conversation:
 
@@ -50,9 +49,8 @@ class VoiceMsgHub:
             voice_input = RealtimeVoiceInput()  # No need to pass msg_stream
             agent = VoiceAgent(name="assistant", model=model, sys_prompt="...")
 
-            async with VoiceMsgHub(participants=[voice_input, agent]) as hub:
-                await voice_input.start()
-                await agent.reply()
+            async with VoiceMsgHub(participants=[voice_input, agent]):
+                xxx
     """
 
     def __init__(
@@ -78,16 +76,21 @@ class VoiceMsgHub:
         self._agents: List["RealtimeVoiceAgent"] = []
         self._voice_inputs: List["RealtimeVoiceInput"] = []
 
-        # Use duck typing to categorize participants, avoiding circular imports
+        # Import at runtime to avoid circular imports at module load time
+        from ..agent._voice_agent import RealtimeVoiceAgent
+        from ._voice_user_input import RealtimeVoiceInput
+
+        # Categorize participants by type using isinstance
         for p in participants:
-            # VoiceAgent has 'reply' method and '_model' attribute
-            if hasattr(p, "reply") and hasattr(p, "_model"):
-                self._agents.append(p)  # type: ignore
-            # RealtimeVoiceInput has 'start' method but no '_model' attribute
-            elif hasattr(p, "start") and not hasattr(p, "_model"):
-                self._voice_inputs.append(p)  # type: ignore
+            if isinstance(p, RealtimeVoiceAgent):
+                self._agents.append(p)
+            elif isinstance(p, RealtimeVoiceInput):
+                self._voice_inputs.append(p)
             else:
-                raise TypeError(f"Unsupported participant type: {type(p)}")
+                raise TypeError(
+                    f"Unsupported participant type: {type(p).__name__}. "
+                    f"Expected RealtimeVoiceAgent or RealtimeVoiceInput.",
+                )
 
         self._msg_stream = MsgStream()
         self._initialized = False
