@@ -20,10 +20,10 @@ class RealtimeVoiceModelBase(ABC):
     """Base class for real-time voice models.
 
     Provides common infrastructure for WebSocket-based real-time voice APIs:
-    - Response queues (text and audio)
-    - State tracking (responding, user speaking)
+    - Response queues (text, audio, tool)
+    - State tracking (responding, cancelled)
     - Events (connection ready, response complete)
-    - VAD callback
+    - Callbacks (response done)
 
     Subclasses only need to implement the abstract methods for API-specific
     logic.
@@ -48,25 +48,19 @@ class RealtimeVoiceModelBase(ABC):
         self.event_loop: asyncio.AbstractEventLoop | None = None
 
         # Callbacks
-        self.on_speech_started: Callable[[], None] | None = None
         self.on_response_done: Callable[[], None] | None = None
 
-    def set_audio_callbacks(
+    def set_response_done_callback(
         self,
-        on_speech_started: Callable[[], None] | None = None,
         on_response_done: Callable[[], None] | None = None,
     ) -> None:
-        """Set audio-related callbacks (call before initialize).
+        """Set response done callback (call before initialize).
 
         Args:
-            on_speech_started (`Callable[[], None] | None`, defaults to
-            `None`):
-                Callback when user starts speaking (for interruption).
             on_response_done (`Callable[[], None] | None`, defaults to
             `None`):
                 Callback when response is complete.
         """
-        self.on_speech_started = on_speech_started
         self.on_response_done = on_response_done
 
     def reset(self) -> None:
@@ -113,7 +107,6 @@ class RealtimeVoiceModelBase(ABC):
             `RuntimeError`:
                 If not initialized or connection is lost.
         """
-        raise NotImplementedError
 
     @abstractmethod
     async def send_text(self, text: str) -> None:
@@ -127,6 +120,7 @@ class RealtimeVoiceModelBase(ABC):
             `RuntimeError`:
                 If not initialized or connection is lost.
         """
+        raise NotImplementedError
 
     async def iter_text_fragments(self) -> AsyncGenerator[str, None]:
         """Iterate over text fragments from the model response.
@@ -139,13 +133,12 @@ class RealtimeVoiceModelBase(ABC):
             try:
                 frag = await asyncio.wait_for(
                     self.text_queue.get(),
-                    timeout=0.1,
+                    timeout=0.02,
                 )
                 if frag is None:
                     break
                 yield frag
             except asyncio.TimeoutError:
-                # Check cancelled flag periodically
                 continue
 
     async def iter_audio_fragments(self) -> AsyncGenerator[bytes, None]:
@@ -159,11 +152,10 @@ class RealtimeVoiceModelBase(ABC):
             try:
                 frag = await asyncio.wait_for(
                     self.audio_queue.get(),
-                    timeout=0.1,
+                    timeout=0.02,
                 )
                 if frag is None:
                     break
-                # Yield each fragment immediately for real-time playback
                 try:
                     yield base64.b64decode(frag)
                 except Exception as e:
@@ -177,7 +169,7 @@ class RealtimeVoiceModelBase(ABC):
             try:
                 frag = await asyncio.wait_for(
                     self.tool_queue.get(),
-                    timeout=0.1,
+                    timeout=0.02,
                 )
                 if frag is None:
                     break
@@ -194,17 +186,17 @@ class RealtimeVoiceModelBase(ABC):
         """
 
     async def handle_interrupt(self) -> None:
-        """Handle interruption signal from the model (user started speaking).
+        """Handle interruption when user starts speaking.
 
-        Only notifies upper layer to stop audio playback.
-        Does NOT cancel model response - model will process user's interrupt
-        and generate new response.
+        Cancels the current response. The iterators will detect
+        response_cancelled flag and exit, causing audio playback to stop.
+        VAD mode will automatically process user's input and generate new
+        response.
         """
-        logger.info("Speech started")
-        # Just notify upper layer to stop audio playback
-        # Don't cancel model response or modify state
-        if self.on_speech_started:
-            self.on_speech_started()
+        if not self.is_responding:
+            return
+        logger.info("Speech started, cancelling current response")
+        await self.cancel_response()
 
     @property
     @abstractmethod

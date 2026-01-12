@@ -178,12 +178,16 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 self._model.is_responding = False
                 logger.info("Response done")
 
-                if not self._model.response_cancelled:
-                    if self._model.on_response_done:
-                        self._model.on_response_done()
-                    self._model.complete_event.set()
-                    self._put_to_queue(self._model.text_queue, None)
-                    self._put_to_queue(self._model.audio_queue, None)
+                # Always set complete_event and send None to queues
+                # This ensures reply() can properly exit the loop
+                if (
+                    self._model.on_response_done
+                    and not self._model.response_cancelled
+                ):
+                    self._model.on_response_done()
+                self._model.complete_event.set()
+                self._put_to_queue(self._model.text_queue, None)
+                self._put_to_queue(self._model.audio_queue, None)
 
         except Exception as e:
             logger.error("Callback error: %s", e)
@@ -204,7 +208,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         api_key: str,
         model_name: str = "qwen3-omni-flash-realtime",
         voice: str = "Cherry",
-        sys_prompt: str = "You are a helpful assistant.",
+        instructions: str = "You are a helpful assistant.",
     ) -> None:
         """Initialize the DashScope voice model.
 
@@ -215,8 +219,8 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
                 The name of the DashScope model to use.
              voice (`str`, defaults to `"Cherry"`):
                 The voice style to use for audio responses.
-            sys_prompt (`str`, defaults to `"You are a helpful assistant."`):
-                The system prompt for the model.
+            instructions (`str`, defaults to `"You are a helpful assistant."`):
+                The instructions for the model.
 
         Raises:
             `ImportError`:
@@ -231,7 +235,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         # DashScope specific
         self.model_name = model_name
         self.voice = voice
-        self.instructions = sys_prompt
+        self.instructions = instructions
 
         dashscope.api_key = api_key
 
@@ -259,7 +263,6 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
             model=self.model_name,
             callback=self.callback,
         )
-        # self.callback.conversation = self.conversation
 
         # Clear the connection_ready event before connecting
         self.connection_ready.clear()
@@ -279,12 +282,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
             "input_audio_transcription_model": "gummy-realtime-v1",
             "enable_turn_detection": True,
             "instructions": self.instructions,
-            # Note: instructions should be passed to create_response(),
-            # not here
-            # Server VAD mode will auto-call create_response with instructions
         }
-        # Store instructions for later use in create_response
-        # self._instructions = self.sys_prompt
 
         self.conversation.update_session(**session_kwargs)
         self._initialized = True
@@ -343,10 +341,22 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         )
 
     async def cancel_response(self) -> None:
-        """Cancel the current response generation."""
+        """Cancel the current response generation.
+
+        Clears queues to immediately stop playback.
+        """
         self.response_cancelled = True
-        # Iterators will check _response_cancelled flag and exit
-        # Don't put None to queues - that would interfere with next response
+        self.is_responding = False
+
+        # Clear queues to stop playback immediately
+        for q in [self.text_queue, self.audio_queue]:
+            while True:
+                try:
+                    q.get_nowait()
+                except Exception:
+                    break
+
+        # Send cancel event to server
         try:
             self.conversation.cancel_response()
         except Exception:

@@ -15,7 +15,6 @@ from ....message import (
     Msg,
     TextBlock,
     AudioBlock,
-    Base64Source,
     ToolUseBlock,
     ToolResultBlock,
     ImageBlock,
@@ -34,10 +33,10 @@ from ..model._voice_model_base import RealtimeVoiceModelBase
 
 
 class RealtimeVoiceAgent(StateModule):
-    """Voice Agent implementation based on MsgStream.
+    """Real-time voice agent implementation based on MsgStream.
 
-    Uses MsgStream for message passing, supports streaming Msg push.
-    Audio playback is implemented through AgentBase.print()'s speech parameter.
+    Uses MsgStream for message passing with other participants.
+    Supports real-time audio streaming and playback via sounddevice.
     """
 
     id: str
@@ -73,16 +72,15 @@ class RealtimeVoiceAgent(StateModule):
         self.name = name
         self._msg_stream = msg_stream  # Can be set later via VoiceMsgHub
         self._model = model
-        self._model.sys_prompt = sys_prompt
+        self._model.instructions = sys_prompt
 
         self._initialized = False
         self._response_text = ""
         self._response_audio = bytearray()
         self._stop_event = asyncio.Event()
         self._listening_event = asyncio.Event()
-        self._interrupt_requested = False  # Thread-safe interruption flag
 
-        # Current playing message ID (for interruption)
+        # Current playing message ID
         self._current_msg_id: str | None = None
 
         self._stream_prefix = {}
@@ -110,42 +108,6 @@ class RealtimeVoiceAgent(StateModule):
             )
         self._msg_stream = msg_stream
 
-    def _on_speech_started(self) -> None:
-        """Handle speech started callback from model - stop audio playback.
-
-        This is called by the model when it detects user speech (VAD).
-        Uses thread-safe flag to signal interruption to the audio streaming
-        task.
-        """
-        logger.info(
-            "%s: 🛑 User speech detected, requesting interruption",
-            self.name,
-        )
-
-        # Thread-safe: set flag for _stream_audio_fragments to check
-        self._interrupt_requested = True
-
-        # Also try to stop the player directly (for immediate effect)
-        if hasattr(self, "_streaming_msg") and self._streaming_msg:
-            streaming_msg_id = self._streaming_msg.id
-            if (
-                streaming_msg_id in self._stream_prefix
-                and "audio_player" in self._stream_prefix[streaming_msg_id]
-            ):
-                player = self._stream_prefix[streaming_msg_id]["audio_player"]
-                try:
-                    player.stop()
-                    logger.info("%s: ✅ Audio playback stopped", self.name)
-                except Exception as e:
-                    logger.debug(
-                        "%s: Player stop error (may already be stopped): %s",
-                        self.name,
-                        e,
-                    )
-
-    def _on_response_done(self) -> None:
-        """Handle response done callback from model."""
-
     async def initialize(self) -> None:
         """Initialize the agent and model.
 
@@ -159,10 +121,6 @@ class RealtimeVoiceAgent(StateModule):
                     f"VoiceAgent '{self.name}' requires msg_stream. "
                     "Either pass it to constructor or use VoiceMsgHub.",
                 )
-            self._model.set_audio_callbacks(
-                on_speech_started=self._on_speech_started,
-                on_response_done=self._on_response_done,
-            )
             await self._model.initialize()
             # Start background listening task
             self._listen_task = asyncio.create_task(self._listen_loop())
@@ -341,9 +299,6 @@ class RealtimeVoiceAgent(StateModule):
                 TextBlock(type="text", text=self._response_text),
             ]
 
-            # Text and audio have been streamed during
-            # _collect_and_stream_response
-            # This final print is mainly for resource cleanup and newline
             self._current_msg_id = self._streaming_msg.id
 
             # Final print with last=True for cleanup
@@ -357,51 +312,6 @@ class RealtimeVoiceAgent(StateModule):
 
         logger.info("%s: No response", self.name)
         return Msg(name=self.name, content="", role="assistant")
-
-    async def _collect_and_stream_response(
-        self,
-        timeout: float = 30.0,
-    ) -> None:
-        """Collect model response and stream push to MsgStream.
-
-        Streams both text and audio fragments as they arrive for real-time
-        display and playback.
-
-        Args:
-            timeout (`float`, defaults to `30.0`):
-                Maximum time to wait for response in seconds.
-        """
-        # Create concurrent tasks to stream text and audio fragments
-        text_task = asyncio.create_task(self._stream_text_fragments())
-        audio_task = asyncio.create_task(self._stream_audio_fragments())
-
-        # Wait for response completion
-        start_time = asyncio.get_event_loop().time()
-        while not self._model.complete_event.is_set():
-            await asyncio.sleep(0.1)
-            if asyncio.get_event_loop().time() - start_time > timeout:
-                logger.warning(
-                    "%s: Response timeout after %0.1fs",
-                    self.name,
-                    timeout,
-                )
-                break
-
-        # Wait for streaming tasks to complete
-        await text_task
-        await audio_task
-
-        # Push final complete message to MsgStream
-        if self._response_audio:
-            await self._msg_stream.push(
-                create_msg(
-                    name=self.name,
-                    text=self._response_text,
-                    audio_data=bytes(self._response_audio),
-                    sample_rate=24000,
-                    is_partial=False,
-                ),
-            )
 
     async def _stream_text_fragments(self) -> None:
         """Stream text fragments as they arrive from the model.
@@ -447,16 +357,16 @@ class RealtimeVoiceAgent(StateModule):
         """Stream audio fragments as they arrive from the model.
 
         Plays audio in real-time using sounddevice.OutputStream.
-        Uses non-blocking write to allow interruption.
+        When user interrupts (speech detected), model.cancel_response() is
+        called, which sets response_cancelled=True. The iterator will then
+        exit, stopping playback automatically.
         """
         import sounddevice as sd
 
         streaming_msg_id = self._streaming_msg.id
         loop = asyncio.get_event_loop()
 
-        # Initialize audio player
         player = None
-        self._interrupt_requested = False  # Reset interrupt flag
 
         try:
             player = sd.OutputStream(
@@ -466,18 +376,14 @@ class RealtimeVoiceAgent(StateModule):
                 blocksize=1024,
                 latency="low",
             )
-            # Store player reference BEFORE starting for interruption handling
             if streaming_msg_id not in self._stream_prefix:
                 self._stream_prefix[streaming_msg_id] = {}
             self._stream_prefix[streaming_msg_id]["audio_player"] = player
 
             player.start()
 
+            # Iterator exits when response_cancelled=True (interruption)
             async for audio_fragment in self._model.iter_audio_fragments():
-                # Check for interruption
-                if self._interrupt_requested:
-                    break
-
                 if not audio_fragment:
                     continue
 
@@ -526,26 +432,6 @@ class RealtimeVoiceAgent(StateModule):
                 and "audio_player" in self._stream_prefix[streaming_msg_id]
             ):
                 del self._stream_prefix[streaming_msg_id]["audio_player"]
-
-    def _build_speech(self) -> AudioBlock | None:
-        """Build AudioBlock for print playback.
-
-        Returns:
-            `AudioBlock | None`:
-                The audio block for speech playback, or None if no audio.
-        """
-        if not self._response_audio:
-            return None
-        return AudioBlock(
-            type="audio",
-            source=Base64Source(
-                type="base64",
-                media_type="audio/pcm;rate=24000",
-                data=base64.b64encode(bytes(self._response_audio)).decode(
-                    "ascii",
-                ),
-            ),
-        )
 
     def stop(self) -> None:
         """Stop the agent's operation."""
