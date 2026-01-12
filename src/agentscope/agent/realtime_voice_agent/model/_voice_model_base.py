@@ -8,7 +8,7 @@ Defines the interface for real-time voice models, supporting:
 """
 
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Callable, Any
+from typing import AsyncGenerator, Callable
 
 
 class RealtimeVoiceModelBase(ABC):
@@ -17,36 +17,17 @@ class RealtimeVoiceModelBase(ABC):
     Defines a unified interface for real-time voice models.
     The model layer is only responsible for API interaction,
     not audio playback.
-
-    Attributes:
-        sys_prompt (`str`):
-            The system prompt for the model.
-        enable_turn_detection (`bool`):
-            Whether automatic turn detection is enabled.
-        callback (`Any`):
-            The callback object, specific type determined by subclass.
     """
-
-    # Properties that subclasses must set
-    sys_prompt: str
-    enable_turn_detection: bool
-    callback: Any  # Callback object, specific type determined by subclass
-    conversation: Any
 
     @abstractmethod
     def set_audio_callbacks(
         self,
-        on_audio_delta: Callable[[bytes], None] | None = None,
         on_speech_started: Callable[[], None] | None = None,
         on_response_done: Callable[[], None] | None = None,
     ) -> None:
         """Set audio-related callbacks (call before initialize).
 
         Args:
-            on_audio_delta (`Callable[[bytes], None] | None`, defaults
-            to `None`):
-                Callback when audio data is received. The callback receives
-                the audio bytes as parameter.
             on_speech_started (`Callable[[], None] | None`, defaults to
             `None`):
                 Callback when user starts speaking (for interruption).

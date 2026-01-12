@@ -110,15 +110,6 @@ class RealtimeVoiceAgent(StateModule):
             )
         self._msg_stream = msg_stream
 
-    def _on_audio_delta(self, audio_bytes: bytes) -> None:
-        """Handle audio delta callback from model - accumulate for playback.
-
-        Args:
-            audio_bytes (`bytes`):
-                The incremental audio data.
-        """
-        self._response_audio.extend(audio_bytes)
-
     def _on_speech_started(self) -> None:
         """Handle speech started callback from model - stop audio playback.
 
@@ -169,7 +160,6 @@ class RealtimeVoiceAgent(StateModule):
                     "Either pass it to constructor or use VoiceMsgHub.",
                 )
             self._model.set_audio_callbacks(
-                on_audio_delta=self._on_audio_delta,
                 on_speech_started=self._on_speech_started,
                 on_response_done=self._on_response_done,
             )
@@ -185,7 +175,6 @@ class RealtimeVoiceAgent(StateModule):
         This loop keeps the agent responsive to incoming messages without
         requiring explicit reply() calls.
         """
-        logger.info("%s: Starting listen loop", self.name)
         try:
             while not self._stop_event.is_set():
                 try:
@@ -194,7 +183,7 @@ class RealtimeVoiceAgent(StateModule):
                     logger.error("%s: Error in listen loop: %s", self.name, e)
                     await asyncio.sleep(0.1)
         finally:
-            logger.info("%s: Listen loop stopped", self.name)
+            pass
 
     async def reply(self) -> Msg:
         """Listen to messages from other participants in the queue and
@@ -216,7 +205,6 @@ class RealtimeVoiceAgent(StateModule):
         )
 
         self._model.callback.reset()
-        logger.info("%s: Starting realtime forward...", self.name)
 
         queue: asyncio.Queue[Msg | None] = asyncio.Queue(maxsize=1000)
 
@@ -241,7 +229,6 @@ class RealtimeVoiceAgent(StateModule):
                 if self._model.callback.is_responding and not response_started:
                     response_started = True
                     audio_chunks_during_response = 0  # Reset counter
-                    logger.info("%s: Model is responding...", self.name)
 
                     # Start streaming tasks immediately when model starts
                     # responding
@@ -262,22 +249,10 @@ class RealtimeVoiceAgent(StateModule):
                     if streaming_tasks:
                         # Check if streaming tasks are done
                         if all(task.done() for task in streaming_tasks):
-                            logger.info(
-                                "%s: Model response complete (received %d "
-                                "audio chunks during response)",
-                                self.name,
-                                audio_chunks_during_response,
-                            )
                             break
                         # Else continue loop to process more user audio
                         # while streaming
                     else:
-                        logger.info(
-                            "%s: Model response complete "
-                            "(received %d audio chunks during response)",
-                            self.name,
-                            audio_chunks_during_response,
-                        )
                         break
 
                 # Batch process all available messages in queue
@@ -439,32 +414,14 @@ class RealtimeVoiceAgent(StateModule):
         prefix tracking across fragments.
         """
         streaming_msg_id = self._streaming_msg.id
-        logger.info(
-            "%s: Starting text streaming (msg_id: %s)",
-            self.name,
-            streaming_msg_id,
-        )
 
         try:
-            fragment_count = 0
             async for text_fragment in self._model.iter_text_fragments():
                 if not text_fragment:
                     continue
 
-                fragment_count += 1
                 # Accumulate the text
                 self._response_text += text_fragment
-
-                if fragment_count <= 3 or fragment_count % 10 == 0:
-                    logger.info(
-                        "%s: Text fragment #%d: %r (total length: %d)",
-                        self.name,
-                        fragment_count,
-                        text_fragment[:20] + "..."
-                        if len(text_fragment) > 20
-                        else text_fragment,
-                        len(self._response_text),
-                    )
 
                 # Push incremental text to MsgStream
                 await self._msg_stream.push(
@@ -486,11 +443,6 @@ class RealtimeVoiceAgent(StateModule):
                     thinking_and_text_to_print=thinking_and_text_to_print,
                 )
 
-            logger.info(
-                "%s: Text streaming ended (%d fragments)",
-                self.name,
-                fragment_count,
-            )
         except Exception as e:
             logger.error("%s: Error streaming text: %s", self.name, e)
 
@@ -507,7 +459,6 @@ class RealtimeVoiceAgent(StateModule):
 
         # Initialize audio player
         player = None
-        fragment_count = 0
         self._interrupt_requested = False  # Reset interrupt flag
 
         try:
@@ -524,22 +475,14 @@ class RealtimeVoiceAgent(StateModule):
             self._stream_prefix[streaming_msg_id]["audio_player"] = player
 
             player.start()
-            logger.info(
-                "%s: Audio streaming started (msg_id: %s)",
-                self.name,
-                streaming_msg_id,
-            )
 
             async for audio_fragment in self._model.iter_audio_fragments():
                 # Check for interruption
                 if self._interrupt_requested:
-                    logger.info("%s: 🛑 Audio interrupted by user", self.name)
                     break
 
                 if not audio_fragment:
                     continue
-
-                fragment_count += 1
 
                 # Accumulate audio data
                 self._response_audio.extend(audio_fragment)
@@ -548,13 +491,6 @@ class RealtimeVoiceAgent(StateModule):
                 try:
                     audio_np = np.frombuffer(audio_fragment, dtype=np.int16)
                     audio_float = audio_np.astype(np.float32) / 32768.0
-
-                    if fragment_count == 1:
-                        logger.info(
-                            "%s: ▶️ Audio playback started (can interrupt "
-                            "now)",
-                            self.name,
-                        )
 
                     # Non-blocking write using executor
                     await loop.run_in_executor(None, player.write, audio_float)
@@ -585,13 +521,6 @@ class RealtimeVoiceAgent(StateModule):
                 try:
                     player.stop()
                     player.close()
-                    logger.info(
-                        "%s: Real-time audio streaming ended "
-                        "(%d fragments, %d bytes total)",
-                        self.name,
-                        fragment_count,
-                        len(self._response_audio),
-                    )
                 except Exception:
                     pass
             # Remove from _stream_prefix
