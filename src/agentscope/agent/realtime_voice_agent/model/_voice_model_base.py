@@ -8,7 +8,7 @@ Defines the interface for real-time voice models, supporting:
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, AsyncGenerator, Callable, Any
+from typing import AsyncGenerator, Callable, Any
 
 
 class RealtimeVoiceModelBase(ABC):
@@ -36,21 +36,21 @@ class RealtimeVoiceModelBase(ABC):
     @abstractmethod
     def set_audio_callbacks(
         self,
-        on_audio_delta: Optional[Callable[[bytes], None]] = None,
-        on_speech_started: Optional[Callable[[], None]] = None,
-        on_response_done: Optional[Callable[[], None]] = None,
+        on_audio_delta: Callable[[bytes], None] | None = None,
+        on_speech_started: Callable[[], None] | None = None,
+        on_response_done: Callable[[], None] | None = None,
     ) -> None:
         """Set audio-related callbacks (call before initialize).
 
         Args:
-            on_audio_delta (`Optional[Callable[[bytes], None]]`, defaults
+            on_audio_delta (`Callable[[bytes], None] | None`, defaults
             to `None`):
                 Callback when audio data is received. The callback receives
                 the audio bytes as parameter.
-            on_speech_started (`Optional[Callable[[], None]]`, defaults to
+            on_speech_started (`Callable[[], None] | None`, defaults to
             `None`):
                 Callback when user starts speaking (for interruption).
-            on_response_done (`Optional[Callable[[], None]]`, defaults to
+            on_response_done (`Callable[[], None] | None`, defaults to
             `None`):
                 Callback when response is complete.
         """
@@ -71,14 +71,14 @@ class RealtimeVoiceModelBase(ABC):
     def append_audio(
         self,
         audio_data: bytes,
-        sample_rate: Optional[int] = None,
+        sample_rate: int | None = None,
     ) -> None:
         """Append audio data in PCM format.
 
         Args:
             audio_data (`bytes`):
                 PCM audio data (16bit, mono).
-            sample_rate (`Optional[int]`, defaults to `None`):
+            sample_rate (`int | None`, defaults to `None`):
                 Sample rate of the audio data. If 24000, will be resampled to
                 16000. If None, assumes 16000.
 

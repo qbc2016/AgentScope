@@ -11,7 +11,7 @@ import json
 import numpy as np
 import shortuuid
 
-from agentscope.message import (
+from ....message import (
     Msg,
     TextBlock,
     AudioBlock,
@@ -21,8 +21,9 @@ from agentscope.message import (
     ImageBlock,
     VideoBlock,
 )
-from agentscope._logging import logger
-from agentscope.module import StateModule
+from ...._logging import logger
+from ....module import StateModule
+from ....tool import Toolkit
 
 from .._utils._msg_stream import (
     MsgStream,
@@ -47,6 +48,7 @@ class RealtimeVoiceAgent(StateModule):
         name: str,
         model: RealtimeVoiceModelBase,
         sys_prompt: str = "You are a helpful assistant.",
+        toolkit: Toolkit | None = None,
         msg_stream: MsgStream | None = None,
     ) -> None:
         """Initialize the VoiceAgent.
@@ -58,6 +60,9 @@ class RealtimeVoiceAgent(StateModule):
                 The real-time voice model instance.
             sys_prompt (`str`, defaults to `"You are a helpful assistant."`):
                 The system prompt for the model.
+            toolkit (`Toolkit | None`, optional):
+                A `Toolkit` object that contains the tool functions. If not
+                provided, a default empty `Toolkit` will be created.
             msg_stream (`MsgStream | None`, defaults to `None`):
                 The message stream for communication. Can be set later via
                 VoiceMsgHub.
@@ -81,6 +86,8 @@ class RealtimeVoiceAgent(StateModule):
         self._current_msg_id: str | None = None
 
         self._stream_prefix = {}
+
+        self.toolkit = toolkit or Toolkit()
 
         self._listen_task = None
         self._streaming_msg = None
@@ -293,7 +300,12 @@ class RealtimeVoiceAgent(StateModule):
 
                     for msg in messages_to_process:
                         if msg is None:
-                            return  # Exit the entire method
+                            # Stream closed, return empty message
+                            return Msg(
+                                name=self.name,
+                                content="",
+                                role="assistant",
+                            )
 
                         messages_processed += 1
 
@@ -318,7 +330,7 @@ class RealtimeVoiceAgent(StateModule):
                         audio_data = get_audio_from_msg(msg)
                         if audio_data:
                             got_audio = True
-                            sample_rate = (
+                            sample_rate: int = (
                                 msg.metadata.get("sample_rate", 16000)
                                 if msg.metadata
                                 else 16000
@@ -349,7 +361,9 @@ class RealtimeVoiceAgent(StateModule):
         if streaming_tasks:
             await asyncio.gather(*streaming_tasks, return_exceptions=True)
 
-        if self._response_text or self._response_audio:
+        if (
+            self._response_text or self._response_audio
+        ) and self._streaming_msg:
             # Update the streaming message with final content
             self._streaming_msg.content = [
                 TextBlock(type="text", text=self._response_text),
@@ -368,9 +382,9 @@ class RealtimeVoiceAgent(StateModule):
 
             self._current_msg_id = None
             return self._streaming_msg
-        else:
-            logger.info("%s: No response", self.name)
-            return Msg(name=self.name, content="", role="assistant")
+
+        logger.info("%s: No response", self.name)
+        return Msg(name=self.name, content="", role="assistant")
 
     async def _collect_and_stream_response(
         self,
