@@ -204,7 +204,7 @@ class RealtimeVoiceAgent(StateModule):
             role="assistant",
         )
 
-        self._model.callback.reset()
+        self._model.reset()
 
         queue: asyncio.Queue[Msg | None] = asyncio.Queue(maxsize=1000)
 
@@ -226,7 +226,7 @@ class RealtimeVoiceAgent(StateModule):
                 not self._stop_event.is_set()
                 and not self._msg_stream.is_closed
             ):
-                if self._model.callback.is_responding and not response_started:
+                if self._model.is_responding and not response_started:
                     response_started = True
                     audio_chunks_during_response = 0  # Reset counter
 
@@ -240,10 +240,7 @@ class RealtimeVoiceAgent(StateModule):
                     )
                     streaming_tasks = [text_task, audio_task]
 
-                if (
-                    response_started
-                    and self._model.callback.complete_event.is_set()
-                ):
+                if response_started and self._model.complete_event.is_set():
                     # Don't break immediately - continue processing user audio
                     # to support interruption during audio playback
                     if streaming_tasks:
@@ -311,7 +308,7 @@ class RealtimeVoiceAgent(StateModule):
                                 else 16000
                             )
                             try:
-                                self._model.append_audio(
+                                self._model.send_audio(
                                     audio_data,
                                     sample_rate=sample_rate,
                                 )
@@ -380,7 +377,7 @@ class RealtimeVoiceAgent(StateModule):
 
         # Wait for response completion
         start_time = asyncio.get_event_loop().time()
-        while not self._model.callback.complete_event.is_set():
+        while not self._model.complete_event.is_set():
             await asyncio.sleep(0.1)
             if asyncio.get_event_loop().time() - start_time > timeout:
                 logger.warning(

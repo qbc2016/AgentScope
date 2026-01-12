@@ -6,9 +6,8 @@ Audio playback is handled by the upper-layer VoiceAgent.
 """
 
 import asyncio
-import threading
 import base64
-from typing import Any, Optional, AsyncGenerator, Callable
+from typing import Any, Optional
 
 from agentscope._logging import logger
 
@@ -79,22 +78,13 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
 
     def __init__(
         self,
-        event_loop: Optional[asyncio.AbstractEventLoop] = None,
-        on_speech_started: Optional[Callable[[], None]] = None,
-        on_response_done: Optional[Callable[[], None]] = None,
+        model: "DashScopeRealtimeVoiceModel",
     ) -> None:
         """Initialize the callback handler.
 
         Args:
-            event_loop (`Optional[asyncio.AbstractEventLoop]`, defaults to
-            `None`):
-                The event loop to use for async operations.
-            on_speech_started (`Optional[Callable[[], None]]`, defaults to
-            `None`):
-                Callback when user starts speaking.
-            on_response_done (`Optional[Callable[[], None]]`, defaults to
-            `None`):
-                Callback when response is complete.
+            model (`DashScopeRealtimeVoiceModel`):
+                Reference to the parent model for accessing queues and state.
 
         Raises:
             `ImportError`:
@@ -102,70 +92,22 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
         """
         super().__init__()
 
-        self.event_loop = event_loop
-
-        # Callbacks registered by upper layer
-        self._on_speech_started = on_speech_started
-        self._on_response_done = on_response_done
-
-        # Response queues
-        self.text_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
-        self.audio_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
-
-        self.complete_event = threading.Event()
-        # For sync between connect and update_session
-        self.connection_ready = threading.Event()
+        self._model = model
         self.conversation: Optional[Any] = None
 
-        self._response_cancelled = False
-        self._is_responding = False
-        self._user_speaking = False
-
-    @property
-    def is_responding(self) -> bool:
-        """Check if the model is currently generating a response.
-
-        Returns:
-            `bool`:
-                True if responding, False otherwise.
-        """
-        return self._is_responding
-
-    def set_response_cancelled(self, cancelled: bool = True) -> None:
-        """Set the response cancelled flag.
-
-        Args:
-            cancelled (`bool`, defaults to `True`):
-                Whether the response is cancelled.
-        """
-        self._response_cancelled = cancelled
-
-    def put_to_queue(self, queue: asyncio.Queue[Any], item: Any) -> None:
-        """Put item to queue in a thread-safe manner.
-
-        Args:
-            queue (`asyncio.Queue[Any]`):
-                The queue to put item into.
-            item (`Any`):
-                The item to put into the queue.
-        """
-        if self.event_loop and not self.event_loop.is_closed():
+    def _put_to_queue(self, queue: asyncio.Queue[Any], item: Any) -> None:
+        """Put item to queue in a thread-safe manner."""
+        event_loop = self._model._event_loop
+        if event_loop and not event_loop.is_closed():
             try:
-                asyncio.run_coroutine_threadsafe(
-                    queue.put(item),
-                    self.event_loop,
-                )
+                asyncio.run_coroutine_threadsafe(queue.put(item), event_loop)
             except Exception as e:
                 logger.warning("Failed to put to queue: %s", e)
-
-    def _put_to_queue(self, queue: asyncio.Queue[Any], item: Any) -> None:
-        """Deprecated: Use put_to_queue instead."""
-        self.put_to_queue(queue, item)
 
     def on_open(self) -> None:
         """Handle connection opened event."""
         logger.info("DashScope connection opened")
-        self.connection_ready.set()  # Signal that connection is ready
+        self._model.connection_ready.set()  # Signal that connection is ready
 
     def on_close(
         self,
@@ -185,9 +127,9 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
             close_status_code if close_status_code is not None else "unknown",
             close_msg if close_msg is not None else "unknown",
         )
-        self._put_to_queue(self.text_queue, None)
-        self._put_to_queue(self.audio_queue, None)
-        self.complete_event.set()
+        self._put_to_queue(self._model.text_queue, None)
+        self._put_to_queue(self._model.audio_queue, None)
+        self._model.complete_event.set()
 
     # pylint: disable=too-many-branches, too-many-statements
     def on_event(self, response: dict[str, Any]) -> None:
@@ -207,21 +149,11 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 logger.debug("Event: %s", event_type)
 
             if event_type == "input_audio_buffer.speech_started":
-                self._user_speaking = True
-                logger.info("Speech started")
-                # Notify upper layer: user starts speaking (for interruption)
-                # This should only stop current audio playback, NOT cancel
-                # response
-                # The model will continue generating response, and audio will
-                # continue to be received (matching official DashScope example)
-                if self._on_speech_started:
-                    self._on_speech_started()
-                # Note: Do NOT set _response_cancelled here!
-                # Official example only calls b64_player.cancel_playing()
-                # without cancelling the response itself
-
-            elif event_type == "input_audio_buffer.speech_stopped":
-                self._user_speaking = False
+                if self._model._event_loop:
+                    asyncio.run_coroutine_threadsafe(
+                        self._model.handle_interrupt(),
+                        self._model._event_loop,
+                    )
 
             elif (
                 event_type
@@ -231,47 +163,30 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 logger.info("User said: %s", transcript)
 
             elif event_type == "response.created":
-                self._is_responding = True
-                self._response_cancelled = False
+                self._model._is_responding = True
+                self._model._response_cancelled = False
 
             elif event_type == "response.audio_transcript.delta":
-                # Continue receiving text even after interruption
-                # (matching official DashScope example behavior)
                 text = response.get("delta", "")
-                self._put_to_queue(self.text_queue, text)
+                self._put_to_queue(self._model.text_queue, text)
 
             elif event_type == "response.audio.delta":
-                # Continue receiving audio even after interruption
-                # Upper layer (VoiceAgent) decides whether to play it
                 audio = response.get("delta", "")
-                self._put_to_queue(self.audio_queue, audio)
+                self._put_to_queue(self._model.audio_queue, audio)
 
             elif event_type == "response.done":
-                self._is_responding = False
+                self._model._is_responding = False
                 logger.info("Response done")
-                if not self._response_cancelled:
-                    # Notify upper layer: response complete (for waiting
-                    # playback)
-                    if self._on_response_done:
-                        self._on_response_done()
-                    self.complete_event.set()
-                    self._put_to_queue(self.text_queue, None)
-                    self._put_to_queue(self.audio_queue, None)
+
+                if not self._model._response_cancelled:
+                    if self._model._on_response_done:
+                        self._model._on_response_done()
+                    self._model.complete_event.set()
+                    self._put_to_queue(self._model.text_queue, None)
+                    self._put_to_queue(self._model.audio_queue, None)
 
         except Exception as e:
             logger.error("Callback error: %s", e)
-
-    def reset(self) -> None:
-        """Reset the callback state and clear queues."""
-        self._response_cancelled = False
-        self.complete_event = threading.Event()
-        # Clear queues
-        for q in [self.text_queue, self.audio_queue]:
-            while True:
-                try:
-                    q.get_nowait()
-                except Exception:
-                    break
 
 
 class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
@@ -311,9 +226,12 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         """
         import dashscope
 
+        super().__init__()
+
+        # DashScope specific
         self.model_name = model_name
         self.voice = voice
-        self.sys_prompt = sys_prompt
+        self.instructions = sys_prompt
 
         dashscope.api_key = api_key
 
@@ -321,28 +239,6 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         self.callback: Optional[RealtimeDashScopeCallback] = None
         self.conversation: Optional[Any] = None
         self._initialized = False
-
-        # Callbacks registered by upper layer (used during initialize)
-        self._on_speech_started: Optional[Callable[[], None]] = None
-        self._on_response_done: Optional[Callable[[], None]] = None
-
-    def set_audio_callbacks(
-        self,
-        on_speech_started: Optional[Callable[[], None]] = None,
-        on_response_done: Optional[Callable[[], None]] = None,
-    ) -> None:
-        """Set audio-related callbacks (call before initialize).
-
-        Args:
-            on_speech_started (`Optional[Callable[[], None]]`, defaults to
-            `None`):
-                Callback when user starts speaking (for interruption).
-            on_response_done (`Optional[Callable[[], None]]`, defaults to
-            `None`):
-                Callback when response is complete.
-        """
-        self._on_speech_started = on_speech_started
-        self._on_response_done = on_response_done
 
     async def initialize(self) -> None:
         """Initialize the model connection and session.
@@ -358,11 +254,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         except RuntimeError:
             self._event_loop = asyncio.get_event_loop()
 
-        self.callback = RealtimeDashScopeCallback(
-            event_loop=self._event_loop,
-            on_speech_started=self._on_speech_started,
-            on_response_done=self._on_response_done,
-        )
+        self.callback = RealtimeDashScopeCallback(model=self)
 
         self.conversation = OmniRealtimeConversation(
             model=self.model_name,
@@ -371,12 +263,12 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         # self.callback.conversation = self.conversation
 
         # Clear the connection_ready event before connecting
-        self.callback.connection_ready.clear()
+        self.connection_ready.clear()
 
         self.conversation.connect()
 
         # Wait for connection to be ready (on_open callback)
-        if not self.callback.connection_ready.wait(timeout=10.0):
+        if not self.connection_ready.wait(timeout=10.0):
             raise RuntimeError("Timeout waiting for DashScope connection")
 
         session_kwargs = {
@@ -387,6 +279,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
             "enable_input_audio_transcription": True,
             "input_audio_transcription_model": "gummy-realtime-v1",
             "enable_turn_detection": True,
+            "instructions": self.instructions,
             # Note: instructions should be passed to create_response(),
             # not here
             # Server VAD mode will auto-call create_response with instructions
@@ -398,7 +291,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         self._initialized = True
         logger.info("DashScopeVoiceModel initialized")
 
-    def append_audio(
+    def send_audio(
         self,
         audio_data: bytes,
         sample_rate: Optional[int] = None,
@@ -443,49 +336,22 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         if not self.conversation:
             raise RuntimeError("Not initialized")
 
-        self.callback.reset()
+        self.reset()
         self.conversation.commit()
         self.conversation.create_response(
             instructions=text,
             output_modalities=[MultiModality.AUDIO, MultiModality.TEXT],
         )
 
-    async def iter_text_fragments(self) -> AsyncGenerator[str, None]:
-        """Iterate over text fragments from the model response.
-
-        Yields:
-            `str`:
-                Text fragments as they are received.
-        """
-        while True:
-            frag = await self.callback.text_queue.get()
-            if frag is None:
-                break
-            yield frag
-
-    async def iter_audio_fragments(self) -> AsyncGenerator[bytes, None]:
-        """Iterate over audio fragments from the model response.
-
-        Yields:
-            `bytes`:
-                PCM audio data (24kHz, 16bit, mono).
-        """
-        while True:
-            frag = await self.callback.audio_queue.get()
-            if frag is None:
-                break
-            # Yield each fragment immediately for real-time playback
-            try:
-                yield base64.b64decode(frag)
-            except Exception as e:
-                logger.error("Decode error: %s", e)
-
     async def cancel_response(self) -> None:
         """Cancel the current response generation."""
-        if self.callback:
-            self.callback.set_response_cancelled(True)
-            self.callback.put_to_queue(self.callback.text_queue, None)
-            self.callback.put_to_queue(self.callback.audio_queue, None)
+        self._response_cancelled = True
+        # Iterators will check _response_cancelled flag and exit
+        # Don't put None to queues - that would interfere with next response
+        try:
+            self.conversation.cancel_response()
+        except Exception:
+            pass
 
     @property
     def is_connected(self) -> bool:
@@ -530,13 +396,3 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
                 logger.error("Close error: %s", e)
         self._initialized = False
         logger.info("DashScopeVoiceModel closed")
-
-    @property
-    def is_responding(self) -> bool:
-        """Check if the model is currently generating a response.
-
-        Returns:
-            `bool`:
-                True if responding, False otherwise.
-        """
-        return self.callback.is_responding if self.callback else False
