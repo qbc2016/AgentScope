@@ -11,7 +11,7 @@ import asyncio
 import base64
 import threading
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Callable, Optional
+from typing import AsyncGenerator, Callable
 
 from ...._logging import logger
 
@@ -32,26 +32,29 @@ class RealtimeVoiceModelBase(ABC):
     def __init__(self) -> None:
         """Initialize common queues, state, and events."""
         # Response queues
-        self.text_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
-        self.audio_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
-        self.tool_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        self.text_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        self.audio_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        self.tool_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
         # State
-        self._is_responding = False
-        self._response_cancelled = False
+        self.is_responding = False
+        self.response_cancelled = False
 
         # Events
         self.complete_event = threading.Event()
         self.connection_ready = threading.Event()
 
+        # Event loop for async operations from sync callbacks
+        self.event_loop: asyncio.AbstractEventLoop | None = None
+
         # Callbacks
-        self._on_speech_started: Optional[Callable[[], None]] = None
-        self._on_response_done: Optional[Callable[[], None]] = None
+        self.on_speech_started: Callable[[], None] | None = None
+        self.on_response_done: Callable[[], None] | None = None
 
     def set_audio_callbacks(
         self,
-        on_speech_started: Optional[Callable[[], None]] = None,
-        on_response_done: Optional[Callable[[], None]] = None,
+        on_speech_started: Callable[[], None] | None = None,
+        on_response_done: Callable[[], None] | None = None,
     ) -> None:
         """Set audio-related callbacks (call before initialize).
 
@@ -63,13 +66,13 @@ class RealtimeVoiceModelBase(ABC):
             `None`):
                 Callback when response is complete.
         """
-        self._on_speech_started = on_speech_started
-        self._on_response_done = on_response_done
+        self.on_speech_started = on_speech_started
+        self.on_response_done = on_response_done
 
     def reset(self) -> None:
         """Reset state and clear queues for new response."""
-        self._is_responding = False
-        self._response_cancelled = False
+        self.is_responding = False
+        self.response_cancelled = False
         self.complete_event = threading.Event()
         # Clear queues
         for q in [self.text_queue, self.audio_queue, self.tool_queue]:
@@ -78,16 +81,6 @@ class RealtimeVoiceModelBase(ABC):
                     q.get_nowait()
                 except Exception:
                     break
-
-    @property
-    def is_responding(self) -> bool:
-        """Check if the model is currently generating a response.
-
-        Returns:
-            `bool`:
-                True if currently responding, False otherwise.
-        """
-        return self._is_responding
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -105,7 +98,7 @@ class RealtimeVoiceModelBase(ABC):
     def send_audio(
         self,
         audio_data: bytes,
-        sample_rate: Optional[int] = None,
+        sample_rate: int | None = None,
     ) -> None:
         """Send incremental audio data in PCM format.
 
@@ -142,7 +135,7 @@ class RealtimeVoiceModelBase(ABC):
             `str`:
                 Text fragments as they are received.
         """
-        while not self._response_cancelled:
+        while not self.response_cancelled:
             try:
                 frag = await asyncio.wait_for(
                     self.text_queue.get(),
@@ -162,7 +155,7 @@ class RealtimeVoiceModelBase(ABC):
             `bytes`:
                 PCM audio data (24kHz, 16bit, mono).
         """
-        while not self._response_cancelled:
+        while not self.response_cancelled:
             try:
                 frag = await asyncio.wait_for(
                     self.audio_queue.get(),
@@ -180,7 +173,7 @@ class RealtimeVoiceModelBase(ABC):
 
     async def iter_tool_fragments(self) -> AsyncGenerator[str, None]:
         """Iterate over tool fragments from the model response."""
-        while not self._response_cancelled:
+        while not self.response_cancelled:
             try:
                 frag = await asyncio.wait_for(
                     self.tool_queue.get(),
@@ -210,8 +203,8 @@ class RealtimeVoiceModelBase(ABC):
         logger.info("Speech started")
         # Just notify upper layer to stop audio playback
         # Don't cancel model response or modify state
-        if self._on_speech_started:
-            self._on_speech_started()
+        if self.on_speech_started:
+            self.on_speech_started()
 
     @property
     @abstractmethod

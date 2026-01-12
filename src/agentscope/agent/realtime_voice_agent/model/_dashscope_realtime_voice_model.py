@@ -7,7 +7,7 @@ Audio playback is handled by the upper-layer VoiceAgent.
 
 import asyncio
 import base64
-from typing import Any, Optional
+from typing import Any
 
 from agentscope._logging import logger
 
@@ -93,11 +93,11 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
         super().__init__()
 
         self._model = model
-        self.conversation: Optional[Any] = None
+        self.conversation: Any | None = None
 
     def _put_to_queue(self, queue: asyncio.Queue[Any], item: Any) -> None:
         """Put item to queue in a thread-safe manner."""
-        event_loop = self._model._event_loop
+        event_loop = self._model.event_loop
         if event_loop and not event_loop.is_closed():
             try:
                 asyncio.run_coroutine_threadsafe(queue.put(item), event_loop)
@@ -111,15 +111,15 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
 
     def on_close(
         self,
-        close_status_code: Optional[int],
-        close_msg: Optional[str],
+        close_status_code: int | None,
+        close_msg: str | None,
     ) -> None:
         """Handle connection closed event.
 
         Args:
-            close_status_code (`Optional[int]`):
+            close_status_code (`int | None`):
                 The close status code, or None if not provided.
-            close_msg (`Optional[str]`):
+            close_msg (`str | None`):
                 The close message, or None if not provided.
         """
         logger.info(
@@ -149,10 +149,10 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 logger.debug("Event: %s", event_type)
 
             if event_type == "input_audio_buffer.speech_started":
-                if self._model._event_loop:
+                if self._model.event_loop:
                     asyncio.run_coroutine_threadsafe(
                         self._model.handle_interrupt(),
-                        self._model._event_loop,
+                        self._model.event_loop,
                     )
 
             elif (
@@ -163,8 +163,8 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 logger.info("User said: %s", transcript)
 
             elif event_type == "response.created":
-                self._model._is_responding = True
-                self._model._response_cancelled = False
+                self._model.is_responding = True
+                self._model.response_cancelled = False
 
             elif event_type == "response.audio_transcript.delta":
                 text = response.get("delta", "")
@@ -175,12 +175,12 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 self._put_to_queue(self._model.audio_queue, audio)
 
             elif event_type == "response.done":
-                self._model._is_responding = False
+                self._model.is_responding = False
                 logger.info("Response done")
 
-                if not self._model._response_cancelled:
-                    if self._model._on_response_done:
-                        self._model._on_response_done()
+                if not self._model.response_cancelled:
+                    if self._model.on_response_done:
+                        self._model.on_response_done()
                     self._model.complete_event.set()
                     self._put_to_queue(self._model.text_queue, None)
                     self._put_to_queue(self._model.audio_queue, None)
@@ -235,9 +235,8 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
 
         dashscope.api_key = api_key
 
-        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
-        self.callback: Optional[RealtimeDashScopeCallback] = None
-        self.conversation: Optional[Any] = None
+        self.callback: RealtimeDashScopeCallback | None = None
+        self.conversation: Any | None = None
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -250,9 +249,9 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
             return
 
         try:
-            self._event_loop = asyncio.get_running_loop()
+            self.event_loop = asyncio.get_running_loop()
         except RuntimeError:
-            self._event_loop = asyncio.get_event_loop()
+            self.event_loop = asyncio.get_event_loop()
 
         self.callback = RealtimeDashScopeCallback(model=self)
 
@@ -294,14 +293,14 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
     def send_audio(
         self,
         audio_data: bytes,
-        sample_rate: Optional[int] = None,
+        sample_rate: int | None = None,
     ) -> None:
         """Append audio data to the input buffer.
 
         Args:
             audio_data (`bytes`):
                 PCM audio data (16bit, mono).
-            sample_rate (`Optional[int]`, defaults to `None`):
+            sample_rate (`int | None`, defaults to `None`):
                 Sample rate of the audio data. If 24000, will be resampled to
                 16000. If None, assumes 16000.
 
@@ -345,7 +344,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
 
     async def cancel_response(self) -> None:
         """Cancel the current response generation."""
-        self._response_cancelled = True
+        self.response_cancelled = True
         # Iterators will check _response_cancelled flag and exit
         # Don't put None to queues - that would interfere with next response
         try:
