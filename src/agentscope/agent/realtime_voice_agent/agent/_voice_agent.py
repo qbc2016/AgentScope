@@ -26,11 +26,8 @@ from agentscope.module import StateModule
 
 from .._utils._msg_stream import (
     MsgStream,
-    MsgEvent,
     create_msg,
-    create_event_msg,
     get_audio_from_msg,
-    get_event_from_msg,
 )
 from ..model._voice_model_base import RealtimeVoiceModelBase
 
@@ -300,9 +297,10 @@ class RealtimeVoiceAgent(StateModule):
 
                         messages_processed += 1
 
-                        # Check for RESPONSE_END event
-                        event = get_event_from_msg(msg)
-                        if event == MsgEvent.RESPONSE_END and got_audio:
+                        # Check for response end (is_partial=False)
+                        # This triggers creating a new response
+                        is_partial = msg.metadata.get("is_partial", True)
+                        if not is_partial and got_audio:
                             if self._model.conversation:
                                 self._model.conversation.commit()
                                 from dashscope.audio.qwen_omni import (
@@ -352,13 +350,6 @@ class RealtimeVoiceAgent(StateModule):
             await asyncio.gather(*streaming_tasks, return_exceptions=True)
 
         if self._response_text or self._response_audio:
-            await self._msg_stream.push(
-                create_event_msg(
-                    name=self.name,
-                    event=MsgEvent.RESPONSE_END,
-                ),
-            )
-
             # Update the streaming message with final content
             self._streaming_msg.content = [
                 TextBlock(type="text", text=self._response_text),

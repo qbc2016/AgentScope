@@ -118,6 +118,8 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
         self.audio_queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
         self.complete_event = threading.Event()
+        # For sync between connect and update_session
+        self.connection_ready = threading.Event()
         self.conversation: Optional[Any] = None
 
         self.response_text = ""
@@ -171,6 +173,7 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
     def on_open(self) -> None:
         """Handle connection opened event."""
         logger.info("DashScope connection opened")
+        self.connection_ready.set()  # Signal that connection is ready
 
     def on_close(
         self,
@@ -215,12 +218,15 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 self._user_speaking = True
                 logger.info("Speech started")
                 # Notify upper layer: user starts speaking (for interruption)
-                # Always call the callback to allow interrupting audio playback
+                # This should only stop current audio playback, NOT cancel
+                # response
+                # The model will continue generating response, and audio will
+                # continue to be received (matching official DashScope example)
                 if self._on_speech_started:
                     self._on_speech_started()
-                # Only cancel response if model is actively responding
-                if self._is_responding:
-                    self._response_cancelled = True
+                # Note: Do NOT set _response_cancelled here!
+                # Official example only calls b64_player.cancel_playing()
+                # without cancelling the response itself
 
             elif event_type == "input_audio_buffer.speech_stopped":
                 self._user_speaking = False
@@ -241,15 +247,16 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 logger.info("Response created")
 
             elif event_type == "response.audio_transcript.delta":
-                if self._response_cancelled:
-                    return
+                # Continue receiving text even after interruption
+                # (matching official DashScope example behavior)
                 text = response.get("delta", "")
                 self.response_text += text
                 self._put_to_queue(self.text_queue, text)
 
             elif event_type == "response.audio.delta":
-                if self._response_cancelled:
-                    return
+                # Continue receiving audio even after interruption
+                # Upper layer (VoiceAgent) decides whether to play it
+                # (matching official DashScope example behavior)
                 audio = response.get("delta", "")
 
                 # Debug: log audio delta events
@@ -409,7 +416,14 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         )
         # self.callback.conversation = self.conversation
 
+        # Clear the connection_ready event before connecting
+        self.callback.connection_ready.clear()
+
         self.conversation.connect()
+
+        # Wait for connection to be ready (on_open callback)
+        if not self.callback.connection_ready.wait(timeout=10.0):
+            raise RuntimeError("Timeout waiting for DashScope connection")
 
         session_kwargs = {
             "output_modalities": [MultiModality.AUDIO, MultiModality.TEXT],
@@ -419,8 +433,12 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
             "enable_input_audio_transcription": True,
             "input_audio_transcription_model": "gummy-realtime-v1",
             "enable_turn_detection": True,
-            "instructions": self.sys_prompt,
+            # Note: instructions should be passed to create_response(),
+            # not here
+            # Server VAD mode will auto-call create_response with instructions
         }
+        # Store instructions for later use in create_response
+        # self._instructions = self.sys_prompt
 
         self.conversation.update_session(**session_kwargs)
         self._initialized = True

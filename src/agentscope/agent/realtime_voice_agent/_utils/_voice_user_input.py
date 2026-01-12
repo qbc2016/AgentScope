@@ -7,23 +7,17 @@ Contains:
 """
 
 import asyncio
-import base64
 import threading
 from typing import Any, Type, Optional, Callable, List, Dict
 
 from pydantic import BaseModel
 
 from agentscope.agent._user_input import UserInputBase, UserInputData
-from agentscope.message import AudioBlock, Base64Source
 from agentscope._logging import logger
 
 from ._msg_stream import (
     MsgStream,
-    MsgEvent,
     create_msg,
-    create_event_msg,
-    get_audio_from_msg,
-    get_event_from_msg,
 )
 
 # Lazy import for audio libraries
@@ -230,15 +224,6 @@ class AudioCapture:
                 pass
             self._pyaudio = None
 
-        # Push SPEECH_END event
-        await self._msg_stream.push(
-            create_event_msg(
-                name=self._source_name,
-                event=MsgEvent.SPEECH_END,
-                role="user",
-            ),
-        )
-
         logger.info("AudioCapture stopped")
 
     @property
@@ -381,10 +366,11 @@ class RealtimeVoiceInput(UserInputBase):
         structured_model: Optional[Type[BaseModel]] = None,
         **kwargs: Any,
     ) -> UserInputData:
-        """Get user voice input (for UserAgent, waits for SPEECH_END).
+        """Get user voice input (for UserAgent).
 
-        Implements UserInputBase interface. Collects audio data until
-        SPEECH_END event is received.
+        Note: In VAD mode, this method is not typically used as the model
+        automatically detects speech end. This method is kept for interface
+        compatibility but simply returns empty input.
 
         Args:
             agent_id (`str`):
@@ -400,61 +386,13 @@ class RealtimeVoiceInput(UserInputBase):
 
         Returns:
             `UserInputData`:
-                The user input data containing audio block.
+                Empty user input data (VAD mode handles input automatically).
         """
-        if not self._running:
-            await self.start()
-
-        audio_buffer = bytearray()
-        got_audio = False
-
-        logger.info("Waiting for voice input (timeout=%ss)...", self._timeout)
-
-        try:
-            async for msg in self._msg_stream.subscribe(
-                subscriber_id=f"voice_input_{agent_id}",
-                filter_names=[self._source_name],
-            ):
-                if msg is None:
-                    break
-
-                event = get_event_from_msg(msg)
-                audio_data = get_audio_from_msg(msg)
-
-                if audio_data:
-                    audio_buffer.extend(audio_data)
-                    got_audio = True
-
-                elif event == MsgEvent.SPEECH_END:
-                    if got_audio:
-                        logger.info(
-                            "Got voice input: %s bytes",
-                            len(audio_buffer),
-                        )
-                        break
-
-        except asyncio.TimeoutError:
-            logger.warning("Voice input timeout")
-
-        finally:
-            await self._msg_stream.unsubscribe(f"voice_input_{agent_id}")
-
-        blocks_input = []
-        if audio_buffer:
-            blocks_input.append(
-                AudioBlock(
-                    type="audio",
-                    source=Base64Source(
-                        type="base64",
-                        media_type="audio/pcm;rate=16000",
-                        data=base64.b64encode(bytes(audio_buffer)).decode(
-                            "ascii",
-                        ),
-                    ),
-                ),
-            )
-
-        return UserInputData(blocks_input=blocks_input)
+        logger.warning(
+            "get_user_input is not used in VAD mode. "
+            "Audio is streamed directly to the model.",
+        )
+        return UserInputData(blocks_input=[])
 
     def list_devices(self) -> List[Dict[str, int | str]]:
         """List available audio input devices.

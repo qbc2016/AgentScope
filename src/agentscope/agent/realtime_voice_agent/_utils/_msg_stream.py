@@ -8,7 +8,6 @@ format and support streaming push (incremental TextBlock/AudioBlock).
 
 import asyncio
 import base64
-from enum import Enum
 from typing import Optional, AsyncGenerator, Literal, Dict, Callable
 from collections import defaultdict
 
@@ -16,13 +15,8 @@ from agentscope._logging import logger
 from agentscope.message import Msg, TextBlock, AudioBlock, Base64Source
 
 
-class MsgEvent(Enum):
-    """Message event types (passed via metadata)."""
-
-    DATA = "data"  # Data message (default)
-    SPEECH_END = "speech_end"  # User finished speaking (manual recording mode)
-    RESPONSE_START = "response_start"  # Agent starts responding
-    RESPONSE_END = "response_end"  # Agent response ended
+# Event constants (used in msg.metadata["event"])
+EVENT_SESSION_END = "session_end"  # Request to end the session
 
 
 def create_msg(
@@ -32,7 +26,7 @@ def create_msg(
     sample_rate: int = 24000,
     role: Literal["assistant", "user", "system"] = "assistant",
     is_partial: bool = True,
-    event: MsgEvent = MsgEvent.DATA,
+    event: str | None = None,
 ) -> Msg:
     """Create a message with text and/or audio content.
 
@@ -53,8 +47,8 @@ def create_msg(
             The role of the sender.
         is_partial (`bool`, defaults to `True`):
             Whether this is a partial message (streaming).
-        event (`MsgEvent`, defaults to `MsgEvent.DATA`):
-            The event type.
+        event (`str | None`, defaults to `None`):
+            Optional event string (e.g., EVENT_SESSION_END).
 
     Returns:
         `Msg`:
@@ -93,8 +87,9 @@ def create_msg(
     content = []
     metadata = {
         "is_partial": is_partial,
-        "event": event.value,
     }
+    if event is not None:
+        metadata["event"] = event
 
     # Add text block if provided
     if text:
@@ -123,7 +118,7 @@ def create_msg(
 
 def create_event_msg(
     name: str,
-    event: MsgEvent,
+    event: str,
     role: Literal["assistant", "user", "system"] = "assistant",
 ) -> Msg:
     """Create an event message (no actual data).
@@ -131,8 +126,8 @@ def create_event_msg(
     Args:
         name (`str`):
             The sender's name.
-        event (`MsgEvent`):
-            The event type.
+        event (`str`):
+            The event string (e.g., EVENT_SESSION_END).
         role (`Literal["assistant", "user", "system"]`, defaults to
         `"assistant"`):
             The role of the sender.
@@ -147,7 +142,7 @@ def create_event_msg(
         content=[],
         metadata={
             "is_partial": False,
-            "event": event.value,
+            "event": event,
         },
     )
 
@@ -190,22 +185,20 @@ def get_text_from_msg(msg: Msg) -> Optional[str]:
     return None
 
 
-def get_event_from_msg(msg: Msg) -> MsgEvent:
-    """Get event type from a message.
+def get_event_from_msg(msg: Msg) -> str | None:
+    """Get event string from a message.
 
     Args:
         msg (`Msg`):
             The message object.
 
     Returns:
-        `MsgEvent`:
-            The event type. Returns MsgEvent.DATA if not specified.
+        `str | None`:
+            The event string, or None for regular data messages.
     """
-    event_str = msg.metadata.get("event", MsgEvent.DATA.value)
-    try:
-        return MsgEvent(event_str)
-    except ValueError:
-        return MsgEvent.DATA
+    if not msg.metadata:
+        return None
+    return msg.metadata.get("event")
 
 
 def is_partial_msg(msg: Msg) -> bool:
@@ -451,26 +444,6 @@ class MsgStream:
                     "Queue unregistered for subscriber %s",
                     subscriber_id,
                 )
-
-    async def broadcast_event(
-        self,
-        name: str,
-        event: MsgEvent,
-        role: Literal["assistant", "user", "system"] = "assistant",
-    ) -> None:
-        """Broadcast an event message to all subscribers.
-
-        Args:
-            name (`str`):
-                The sender's name.
-            event (`MsgEvent`):
-                The event type to broadcast.
-            role (`Literal["assistant", "user", "system"]`, defaults to
-            `"assistant"`):
-                The role of the sender.
-        """
-        msg = create_event_msg(name=name, event=event, role=role)
-        await self.push(msg)
 
     def get_subscriber_count(self) -> int:
         """Get the current number of subscribers.
