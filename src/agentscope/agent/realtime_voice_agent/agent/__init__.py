@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""The voice agent class."""
+"""The voice agent classes."""
 
-from ._voice_agent import RealtimeVoiceAgent
+from ._websocket_voice_agent import WebSocketVoiceAgent
 
 __all__ = [
-    "RealtimeVoiceAgent",
+    "WebSocketVoiceAgent",
 ]

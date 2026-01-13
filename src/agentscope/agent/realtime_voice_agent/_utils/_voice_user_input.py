@@ -418,3 +418,25 @@ class RealtimeVoiceInput(UserInputBase):
                 True if actively capturing voice, False otherwise.
         """
         return self._running
+
+    def set_on_audio_callback(
+        self,
+        callback: Callable[[bytes], None],
+    ) -> None:
+        """Set callback for raw audio data.
+
+        When set, the callback will be invoked with each chunk of captured
+        audio data. This is useful for sending audio directly to a model.
+
+        Args:
+            callback (`Callable[[bytes], None]`):
+                Function to call with each chunk of audio bytes.
+        """
+        # Ensure capture instance exists
+        if self._capture is None:
+            self._capture = AudioCapture(
+                msg_stream=self._msg_stream,
+                device_index=self._device_index,
+                source_name=self._source_name,
+            )
+        self._capture.set_on_audio_callback(callback)

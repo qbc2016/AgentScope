@@ -23,7 +23,7 @@ from ._msg_stream import (
 
 # For type hints only, avoiding circular imports
 if TYPE_CHECKING:
-    from ..agent._voice_agent import RealtimeVoiceAgent
+    from ..agent._websocket_voice_agent import WebSocketVoiceAgent
     from ._voice_user_input import RealtimeVoiceInput
 
 
@@ -87,23 +87,23 @@ class VoiceMsgHub:
                 RealtimeVoiceInput).
         """
         self.name = name or "voice_hub"
-        self._agents: List["RealtimeVoiceAgent"] = []
+        self._agents: List["WebSocketVoiceAgent"] = []
         self._voice_inputs: List["RealtimeVoiceInput"] = []
 
         # Import at runtime to avoid circular imports at module load time
-        from ..agent._voice_agent import RealtimeVoiceAgent
+        from ..agent._websocket_voice_agent import WebSocketVoiceAgent
         from ._voice_user_input import RealtimeVoiceInput
 
         # Categorize participants by type using isinstance
         for p in participants:
-            if isinstance(p, RealtimeVoiceAgent):
+            if isinstance(p, WebSocketVoiceAgent):
                 self._agents.append(p)
             elif isinstance(p, RealtimeVoiceInput):
                 self._voice_inputs.append(p)
             else:
                 raise TypeError(
                     f"Unsupported participant type: {type(p).__name__}. "
-                    f"Expected RealtimeVoiceAgent or RealtimeVoiceInput.",
+                    f"Expected WebSocketVoiceAgent or RealtimeVoiceInput.",
                 )
 
         self._msg_stream = MsgStream()
@@ -322,11 +322,11 @@ class VoiceMsgHub:
         await self.stop()
 
     @property
-    def agents(self) -> List["RealtimeVoiceAgent"]:
+    def agents(self) -> List["WebSocketVoiceAgent"]:
         """Get all agents in the hub.
 
         Returns:
-            `List[RealtimeVoiceAgent]`:
+            `List[WebSocketVoiceAgent]`:
                 List of all VoiceAgent instances managed by this hub.
         """
         return self._agents

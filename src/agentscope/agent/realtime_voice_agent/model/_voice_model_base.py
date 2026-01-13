@@ -1,43 +1,155 @@
 # -*- coding: utf-8 -*-
-"""Base class for real-time voice models.
+"""Base class for WebSocket-based real-time voice models.
 
-Defines the interface for WebSocket-based real-time voice models, supporting:
-- DashScope (implemented)
-- OpenAI Realtime API (future)
-- Other voice models (future)
+This unified base class combines the functionality of the previous
+RealtimeVoiceModelBase and WebSocketVoiceModel, providing:
+- WebSocket connection management
+- State and queue handling
+- Common event types and callbacks
+
+Subclasses implement provider-specific message formatting directly,
+without a separate Formatter layer.
 """
 
 import asyncio
+import base64
 import threading
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Callable, TypeAlias
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any, AsyncGenerator, TypeAlias
+
+import websockets
+from websockets.asyncio.client import ClientConnection
 
 from ...._logging import logger
-from ....message import TextBlock, AudioBlock, ToolUseBlock
+from ....message import Msg, TextBlock, AudioBlock, Base64Source, ToolUseBlock
+
+
+# =============================================================================
+# Event Types and Data Structures
+# =============================================================================
+
+
+class LiveEventType(Enum):
+    """Types of live events from the server."""
+
+    # Session lifecycle
+    SESSION_CREATED = auto()
+    SESSION_UPDATED = auto()
+    SESSION_ENDED = auto()
+
+    # Content deltas
+    TEXT_DELTA = auto()
+    AUDIO_DELTA = auto()
+
+    # Transcription
+    INPUT_TRANSCRIPTION = auto()
+    OUTPUT_TRANSCRIPTION = auto()
+
+    # Turn management
+    RESPONSE_STARTED = auto()
+    RESPONSE_DONE = auto()
+    TURN_COMPLETE = auto()
+
+    # Tool calling
+    TOOL_CALL = auto()
+
+    # Voice activity detection
+    SPEECH_STARTED = auto()
+    SPEECH_STOPPED = auto()
+
+    # Interruption
+    INTERRUPTED = auto()
+
+    # Connection state
+    CONNECTED = auto()
+    DISCONNECTED = auto()
+
+    # Errors
+    ERROR = auto()
+
+    # Unknown/other
+    UNKNOWN = auto()
+
+
+@dataclass
+class LiveEvent:
+    """A live event from the real-time API."""
+
+    type: LiveEventType
+    """The type of the event."""
+
+    message: Msg | None = None
+    """Optional message associated with the event."""
+
+    is_last: bool = False
+    """Whether this is the last event in a sequence."""
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+    """Additional metadata for the event."""
+
 
 # Type alias for response content blocks
 ResponseBlock: TypeAlias = TextBlock | AudioBlock | ToolUseBlock
 
 
-class RealtimeVoiceModelBase(ABC):
-    """Base class for real-time voice models.
+# =============================================================================
+# Base Model Class
+# =============================================================================
 
-    Provides common infrastructure for WebSocket-based real-time voice APIs:
-    - Single response queue for all content types
+
+class WebSocketVoiceModelBase(ABC):
+    """Base class for WebSocket-based real-time voice models.
+
+    This class provides:
+    - WebSocket connection management
     - State tracking (responding, cancelled)
-    - Events (connection ready, response complete)
-    - Callbacks (response done)
+    - Response queue for text/audio blocks
+    - Event queue for all events
+    - Callbacks (response done, input transcription, tool call)
 
-    Subclasses only need to implement the abstract methods for API-specific
-    logic.
+    Subclasses implement provider-specific logic:
+    - _get_websocket_url(): Return the WebSocket endpoint URL
+    - _get_headers(): Return authentication headers
+    - _build_session_config(): Build initial session configuration
+    - _format_audio_message(): Format audio data for sending
+    - _parse_server_message(): Parse received server messages
     """
 
-    def __init__(self) -> None:
-        """Initialize queue, state, and events."""
-        # Single response queue for text and audio blocks
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str,
+        voice: str = "Cherry",
+        instructions: str = "You are a helpful assistant.",
+    ) -> None:
+        """Initialize the voice model.
+
+        Args:
+            api_key: API key for authentication.
+            model_name: Model name to use.
+            voice: Voice style for audio output.
+            instructions: System instructions for the model.
+        """
+        # Configuration
+        self.api_key = api_key
+        self.model_name = model_name
+        self.voice = voice
+        self.instructions = instructions
+
+        # WebSocket connection
+        self._websocket: ClientConnection | None = None
+        self._receive_task: asyncio.Task[None] | None = None
+        self._initialized = False
+
+        # Response queue for text and audio blocks
         self.response_queue: asyncio.Queue[
             ResponseBlock | None
         ] = asyncio.Queue()
+
+        # Event queue for iter_events()
+        self._event_queue: asyncio.Queue[LiveEvent | None] = asyncio.Queue()
 
         # State
         self.is_responding = False
@@ -50,21 +162,230 @@ class RealtimeVoiceModelBase(ABC):
         # Event loop for async operations from sync callbacks
         self.event_loop: asyncio.AbstractEventLoop | None = None
 
-        # Callbacks
-        self.on_response_done: Callable[[], None] | None = None
+    # =========================================================================
+    # Abstract Methods - Subclasses Must Implement
+    # =========================================================================
 
-    def set_response_done_callback(
-        self,
-        on_response_done: Callable[[], None] | None = None,
-    ) -> None:
-        """Set response done callback (call before initialize).
+    @abstractmethod
+    def _get_websocket_url(self) -> str:
+        """Get WebSocket endpoint URL.
+
+        Returns:
+            WebSocket URL string.
+        """
+
+    @abstractmethod
+    def _get_headers(self) -> dict[str, str]:
+        """Get authentication headers.
+
+        Returns:
+            Headers dictionary.
+        """
+
+    @abstractmethod
+    def _build_session_config(self) -> str:
+        """Build session configuration message.
+
+        Returns:
+            JSON string to send after connection.
+        """
+
+    @abstractmethod
+    def _format_audio_message(self, audio_b64: str) -> str:
+        """Format audio data for sending.
 
         Args:
-            on_response_done (`Callable[[], None] | None`, defaults to
-            `None`):
-                Callback when response is complete.
+            audio_b64: Base64-encoded audio data.
+
+        Returns:
+            JSON string to send to server.
         """
-        self.on_response_done = on_response_done
+
+    @abstractmethod
+    def _parse_server_message(self, message: str) -> LiveEvent:
+        """Parse a server message into a LiveEvent.
+
+        Args:
+            message: Raw message string from server.
+
+        Returns:
+            Parsed LiveEvent.
+        """
+
+    @abstractmethod
+    def _format_cancel_message(self) -> str | None:
+        """Format cancel response message.
+
+        Returns:
+            JSON string to send, or None if not supported.
+        """
+
+    @abstractmethod
+    def _format_tool_result_message(
+        self,
+        tool_id: str,
+        tool_name: str,
+        result: str,
+    ) -> str:
+        """Format tool result message.
+
+        Args:
+            tool_id: Tool call ID.
+            tool_name: Tool name.
+            result: Result as JSON string.
+
+        Returns:
+            JSON string to send.
+        """
+
+    @property
+    @abstractmethod
+    def provider_name(self) -> str:
+        """Get the provider name (e.g., 'dashscope', 'gemini', 'openai')."""
+
+    # =========================================================================
+    # Connection Management
+    # =========================================================================
+
+    async def initialize(self) -> None:
+        """Initialize the model connection."""
+        if self._initialized:
+            return
+
+        try:
+            self.event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.event_loop = asyncio.get_event_loop()
+
+        # Connect to WebSocket
+        url = self._get_websocket_url()
+        headers = self._get_headers()
+
+        logger.info("Connecting to %s WebSocket...", self.provider_name)
+
+        self._websocket = await websockets.connect(
+            url,
+            additional_headers=headers,
+        )
+
+        logger.info("WebSocket connection opened")
+        self.connection_ready.set()
+
+        # Start receive loop
+        self._receive_task = asyncio.create_task(self._receive_loop())
+
+        # Send session configuration
+        config_msg = self._build_session_config()
+        await self._websocket.send(config_msg)
+
+        self._initialized = True
+        logger.info("%s model initialized", self.provider_name)
+
+    async def _receive_loop(self) -> None:
+        """Background task to receive and process WebSocket messages."""
+        if not self._websocket:
+            return
+
+        try:
+            async for message in self._websocket:
+                if isinstance(message, bytes):
+                    message = message.decode("utf-8")
+
+                event = self._parse_server_message(message)
+                await self._handle_event(event)
+
+        except websockets.exceptions.ConnectionClosed as e:
+            logger.info("WebSocket connection closed: %s", e)
+        except Exception as e:
+            logger.error("Error in receive loop: %s", e)
+        finally:
+            self.complete_event.set()
+            await self.response_queue.put(None)
+            await self._event_queue.put(None)
+
+    # pylint: disable=too-many-branches, too-many-statements
+    async def _handle_event(self, event: LiveEvent) -> None:
+        """Handle a parsed LiveEvent."""
+        # Put event to event queue
+        await self._event_queue.put(event)
+
+        event_type = event.type
+
+        # Response started
+        if event_type == LiveEventType.RESPONSE_STARTED:
+            self.is_responding = True
+            self.response_cancelled = False
+
+        # Text delta
+        elif event_type == LiveEventType.TEXT_DELTA:
+            if event.message:
+                for block in event.message.get_content_blocks():
+                    if block.get("type") == "text":
+                        await self.response_queue.put(
+                            TextBlock(type="text", text=block.get("text", "")),
+                        )
+
+        # Audio delta
+        elif event_type == LiveEventType.AUDIO_DELTA:
+            if event.message:
+                for block in event.message.get_content_blocks():
+                    if block.get("type") == "audio":
+                        source = block.get("source", {})
+                        if source.get("type") == "base64":
+                            await self.response_queue.put(
+                                AudioBlock(
+                                    type="audio",
+                                    source=Base64Source(
+                                        type="base64",
+                                        media_type=source.get(
+                                            "media_type",
+                                            "audio/pcm",
+                                        ),
+                                        data=source.get("data", ""),
+                                    ),
+                                ),
+                            )
+
+        # Output transcription
+        elif event_type == LiveEventType.OUTPUT_TRANSCRIPTION:
+            if event.message:
+                for block in event.message.get_content_blocks():
+                    if block.get("type") == "text":
+                        await self.response_queue.put(
+                            TextBlock(type="text", text=block["text"]),
+                        )
+
+        # Input transcription - just pass event to queue, Agent handles it
+        elif event_type == LiveEventType.INPUT_TRANSCRIPTION:
+            pass  # Event already added to event_queue above
+
+        # Tool call - just pass event to queue, Agent handles it
+        elif event_type == LiveEventType.TOOL_CALL:
+            pass  # Event already added to event_queue above
+
+        # Response done
+        elif event_type in (
+            LiveEventType.RESPONSE_DONE,
+            LiveEventType.TURN_COMPLETE,
+        ):
+            self.is_responding = False
+            self.complete_event.set()
+            await self.response_queue.put(None)
+
+        # Speech started (VAD)
+        elif event_type == LiveEventType.SPEECH_STARTED:
+            if self.is_responding:
+                logger.info("Speech started, cancelling current response")
+                await self.cancel_response()
+
+        # Error
+        elif event_type == LiveEventType.ERROR:
+            error_msg = event.metadata.get("error_message", "Unknown error")
+            logger.error("Server error: %s", error_msg)
+
+    # =========================================================================
+    # State Management
+    # =========================================================================
 
     def reset(self) -> None:
         """Reset state and clear queue for new response."""
@@ -78,58 +399,91 @@ class RealtimeVoiceModelBase(ABC):
             except Exception:
                 break
 
-    @abstractmethod
-    async def initialize(self) -> None:
-        """Initialize the model connection.
+    # =========================================================================
+    # Audio/Text Operations
+    # =========================================================================
 
-        This method should establish the connection to the model service
-        and set up necessary configurations.
-
-        Raises:
-            `Exception`:
-                If connection fails or configuration is invalid.
-        """
-
-    @abstractmethod
     def send_audio(
         self,
         audio_data: bytes,
-        sample_rate: int | None = None,
+        sample_rate: int | None = None,  # noqa: ARG002
     ) -> None:
-        """Send incremental audio data in PCM format.
+        """Send audio data to the model.
 
         Args:
-            audio_data (`bytes`):
-                PCM audio data (16bit, mono).
-            sample_rate (`int | None`, defaults to `None`):
-                Sample rate of the audio data. If 24000, will be resampled to
-                16000. If None, assumes 16000.
-
-        Raises:
-            `RuntimeError`:
-                If not initialized or connection is lost.
+            audio_data: PCM audio bytes.
+            sample_rate: Sample rate (not used, kept for API compatibility).
         """
+        del sample_rate  # Not used in base class
+        if not self._websocket:
+            raise RuntimeError("Not initialized")
 
-    @abstractmethod
+        audio_b64 = base64.b64encode(audio_data).decode("ascii")
+        wire_msg = self._format_audio_message(audio_b64)
+
+        if self.event_loop and not self.event_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                self._websocket.send(wire_msg),
+                self.event_loop,
+            )
+
     async def send_text(self, text: str) -> None:
-        """Send incremental text message to trigger model response.
+        """Send text message (not all providers support this)."""
+        del text  # Not used in base class
+        logger.warning("send_text not implemented for %s", self.provider_name)
 
-        Args:
-            text (`str`):
-                The text content to send.
+    async def cancel_response(self) -> None:
+        """Cancel the current response."""
+        self.response_cancelled = True
+        self.is_responding = False
 
-        Raises:
-            `RuntimeError`:
-                If not initialized or connection is lost.
-        """
-        raise NotImplementedError
+        # Clear queue
+        while True:
+            try:
+                self.response_queue.get_nowait()
+            except Exception:
+                break
+
+        # Send cancel message
+        cancel_msg = self._format_cancel_message()
+        if cancel_msg and self._websocket:
+            await self._websocket.send(cancel_msg)
+
+    async def send_tool_result(
+        self,
+        tool_id: str,
+        tool_name: str,
+        result: str | dict | list,
+    ) -> None:
+        """Send tool execution result back to the model."""
+        if not self._websocket:
+            raise RuntimeError("Not initialized")
+
+        # Convert result to string
+        if isinstance(result, (dict, list)):
+            import json
+
+            result_str = json.dumps(result)
+        else:
+            result_str = str(result)
+
+        wire_msg = self._format_tool_result_message(
+            tool_id,
+            tool_name,
+            result_str,
+        )
+        await self._websocket.send(wire_msg)
+        logger.info("Tool result sent: %s", tool_name)
+
+    # =========================================================================
+    # Iterators
+    # =========================================================================
 
     async def iter_response(self) -> AsyncGenerator[ResponseBlock, None]:
         """Iterate over response blocks from the model.
 
         Yields:
-            `ResponseBlock`:
-                TextBlock or AudioBlock as they are received.
+            TextBlock or AudioBlock as they are received.
         """
         while not self.response_cancelled:
             try:
@@ -143,53 +497,55 @@ class RealtimeVoiceModelBase(ABC):
             except asyncio.TimeoutError:
                 continue
 
-    @abstractmethod
-    async def cancel_response(self) -> None:
-        """Cancel the current response.
+    async def iter_events(self) -> AsyncGenerator[LiveEvent, None]:
+        """Iterate over all events continuously.
 
-        This method should stop the current response generation and
-        clean up any pending data in queues.
+        Yields:
+            LiveEvent as they are received.
         """
+        while self.is_connected:
+            try:
+                event = await asyncio.wait_for(
+                    self._event_queue.get(),
+                    timeout=0.1,
+                )
+                if event is None:
+                    break
+                yield event
+            except asyncio.TimeoutError:
+                continue
 
-    async def handle_interrupt(self) -> None:
-        """Handle interruption when user starts speaking.
-
-        Cancels the current response. The iterators will detect
-        response_cancelled flag and exit, causing audio playback to stop.
-        VAD mode will automatically process user's input and generate new
-        response.
-        """
-        if not self.is_responding:
-            return
-        logger.info("Speech started, cancelling current response")
-        await self.cancel_response()
+    # =========================================================================
+    # Connection Properties
+    # =========================================================================
 
     @property
-    @abstractmethod
     def is_connected(self) -> bool:
-        """Check if the connection is valid.
+        """Check if connected."""
+        return (
+            self._websocket is not None
+            and self._websocket.state.name == "OPEN"
+            and self._initialized
+        )
 
-        Returns:
-            `bool`:
-                True if connected and ready, False otherwise.
-        """
-
-    @abstractmethod
     async def reconnect(self) -> None:
-        """Reconnect to the model service.
+        """Reconnect to the service."""
+        logger.info("Reconnecting...")
 
-        This method should close existing connection if any,
-        then establish a new connection.
+        await self.close()
+        await asyncio.sleep(0.5)
+        await self.initialize()
 
-        Raises:
-            `Exception`:
-                If reconnection fails.
-        """
-
-    @abstractmethod
     async def close(self) -> None:
-        """Close the connection.
+        """Close the connection."""
+        if self._receive_task:
+            self._receive_task.cancel()
 
-        This method should properly close the connection and
-        clean up all resources.
-        """
+        if self._websocket:
+            try:
+                await self._websocket.close()
+            except Exception as e:
+                logger.error("Close error: %s", e)
+
+        self._initialized = False
+        logger.info("%s model closed", self.provider_name)
