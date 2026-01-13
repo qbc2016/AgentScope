@@ -9,7 +9,9 @@ import asyncio
 import base64
 from typing import Any
 
-from agentscope._logging import logger
+from ...._logging import logger
+from ....message import TextBlock, AudioBlock, Base64Source
+from ....types import JSONSerializableObject
 
 from ._voice_model_base import RealtimeVoiceModelBase
 
@@ -127,8 +129,7 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
             close_status_code if close_status_code is not None else "unknown",
             close_msg if close_msg is not None else "unknown",
         )
-        self._put_to_queue(self._model.text_queue, None)
-        self._put_to_queue(self._model.audio_queue, None)
+        self._put_to_queue(self._model.response_queue, None)
         self._model.complete_event.set()
 
     # pylint: disable=too-many-branches, too-many-statements
@@ -149,11 +150,10 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 logger.debug("Event: %s", event_type)
 
             if event_type == "input_audio_buffer.speech_started":
-                if self._model.event_loop:
-                    asyncio.run_coroutine_threadsafe(
-                        self._model.handle_interrupt(),
-                        self._model.event_loop,
-                    )
+                # NOTE: 不在客户端主动打断，让服务端 VAD 自行处理
+                # 这样可以避免因 AEC 不完美导致的模型自打断问题
+                # Java 版本也不在客户端处理 speech_started 事件
+                logger.debug("Speech started detected (handled by server VAD)")
 
             elif (
                 event_type
@@ -168,17 +168,26 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
 
             elif event_type == "response.audio_transcript.delta":
                 text = response.get("delta", "")
-                self._put_to_queue(self._model.text_queue, text)
+                block = TextBlock(type="text", text=text)
+                self._put_to_queue(self._model.response_queue, block)
 
             elif event_type == "response.audio.delta":
-                audio = response.get("delta", "")
-                self._put_to_queue(self._model.audio_queue, audio)
+                audio_b64 = response.get("delta", "")
+                block = AudioBlock(
+                    type="audio",
+                    source=Base64Source(
+                        type="base64",
+                        media_type="audio/pcm;rate=24000",
+                        data=audio_b64,
+                    ),
+                )
+                self._put_to_queue(self._model.response_queue, block)
 
             elif event_type == "response.done":
                 self._model.is_responding = False
                 logger.info("Response done")
 
-                # Always set complete_event and send None to queues
+                # Always set complete_event and send None to queue
                 # This ensures reply() can properly exit the loop
                 if (
                     self._model.on_response_done
@@ -186,8 +195,7 @@ class RealtimeDashScopeCallback(OmniRealtimeCallback):
                 ):
                     self._model.on_response_done()
                 self._model.complete_event.set()
-                self._put_to_queue(self._model.text_queue, None)
-                self._put_to_queue(self._model.audio_queue, None)
+                self._put_to_queue(self._model.response_queue, None)
 
         except Exception as e:
             logger.error("Callback error: %s", e)
@@ -209,6 +217,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         model_name: str = "qwen3-omni-flash-realtime",
         voice: str = "Cherry",
         instructions: str = "You are a helpful assistant.",
+        generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the DashScope voice model.
 
@@ -221,6 +230,10 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
                 The voice style to use for audio responses.
             instructions (`str`, defaults to `"You are a helpful assistant."`):
                 The instructions for the model.
+            generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
+            optional):
+               The extra keyword arguments used in DashScope API generation,
+               e.g. `temperature`, `seed`.
 
         Raises:
             `ImportError`:
@@ -242,6 +255,8 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
         self.callback: RealtimeDashScopeCallback | None = None
         self.conversation: Any | None = None
         self._initialized = False
+
+        self.generate_kwargs = generate_kwargs or {}
 
     async def initialize(self) -> None:
         """Initialize the model connection and session.
@@ -282,6 +297,7 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
             "input_audio_transcription_model": "gummy-realtime-v1",
             "enable_turn_detection": True,
             "instructions": self.instructions,
+            **self.generate_kwargs,
         }
 
         self.conversation.update_session(**session_kwargs)
@@ -343,18 +359,17 @@ class DashScopeRealtimeVoiceModel(RealtimeVoiceModelBase):
     async def cancel_response(self) -> None:
         """Cancel the current response generation.
 
-        Clears queues to immediately stop playback.
+        Clears queue to immediately stop playback.
         """
         self.response_cancelled = True
         self.is_responding = False
 
-        # Clear queues to stop playback immediately
-        for q in [self.text_queue, self.audio_queue]:
-            while True:
-                try:
-                    q.get_nowait()
-                except Exception:
-                    break
+        # Clear queue to stop playback immediately
+        while True:
+            try:
+                self.response_queue.get_nowait()
+            except Exception:
+                break
 
         # Send cancel event to server
         try:

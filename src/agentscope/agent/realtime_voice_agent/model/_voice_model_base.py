@@ -8,19 +8,22 @@ Defines the interface for WebSocket-based real-time voice models, supporting:
 """
 
 import asyncio
-import base64
 import threading
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Callable
+from typing import AsyncGenerator, Callable, TypeAlias
 
 from ...._logging import logger
+from ....message import TextBlock, AudioBlock, ToolUseBlock
+
+# Type alias for response content blocks
+ResponseBlock: TypeAlias = TextBlock | AudioBlock | ToolUseBlock
 
 
 class RealtimeVoiceModelBase(ABC):
     """Base class for real-time voice models.
 
     Provides common infrastructure for WebSocket-based real-time voice APIs:
-    - Response queues (text, audio, tool)
+    - Single response queue for all content types
     - State tracking (responding, cancelled)
     - Events (connection ready, response complete)
     - Callbacks (response done)
@@ -30,11 +33,11 @@ class RealtimeVoiceModelBase(ABC):
     """
 
     def __init__(self) -> None:
-        """Initialize common queues, state, and events."""
-        # Response queues
-        self.text_queue: asyncio.Queue[str | None] = asyncio.Queue()
-        self.audio_queue: asyncio.Queue[str | None] = asyncio.Queue()
-        self.tool_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        """Initialize queue, state, and events."""
+        # Single response queue for text and audio blocks
+        self.response_queue: asyncio.Queue[
+            ResponseBlock | None
+        ] = asyncio.Queue()
 
         # State
         self.is_responding = False
@@ -64,17 +67,16 @@ class RealtimeVoiceModelBase(ABC):
         self.on_response_done = on_response_done
 
     def reset(self) -> None:
-        """Reset state and clear queues for new response."""
+        """Reset state and clear queue for new response."""
         self.is_responding = False
         self.response_cancelled = False
         self.complete_event = threading.Event()
-        # Clear queues
-        for q in [self.text_queue, self.audio_queue, self.tool_queue]:
-            while True:
-                try:
-                    q.get_nowait()
-                except Exception:
-                    break
+        # Clear queue
+        while True:
+            try:
+                self.response_queue.get_nowait()
+            except Exception:
+                break
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -122,58 +124,22 @@ class RealtimeVoiceModelBase(ABC):
         """
         raise NotImplementedError
 
-    async def iter_text_fragments(self) -> AsyncGenerator[str, None]:
-        """Iterate over text fragments from the model response.
+    async def iter_response(self) -> AsyncGenerator[ResponseBlock, None]:
+        """Iterate over response blocks from the model.
 
         Yields:
-            `str`:
-                Text fragments as they are received.
+            `ResponseBlock`:
+                TextBlock or AudioBlock as they are received.
         """
         while not self.response_cancelled:
             try:
-                frag = await asyncio.wait_for(
-                    self.text_queue.get(),
+                block = await asyncio.wait_for(
+                    self.response_queue.get(),
                     timeout=0.02,
                 )
-                if frag is None:
+                if block is None:
                     break
-                yield frag
-            except asyncio.TimeoutError:
-                continue
-
-    async def iter_audio_fragments(self) -> AsyncGenerator[bytes, None]:
-        """Iterate over audio fragments from the model response.
-
-        Yields:
-            `bytes`:
-                PCM audio data (24kHz, 16bit, mono).
-        """
-        while not self.response_cancelled:
-            try:
-                frag = await asyncio.wait_for(
-                    self.audio_queue.get(),
-                    timeout=0.02,
-                )
-                if frag is None:
-                    break
-                try:
-                    yield base64.b64decode(frag)
-                except Exception as e:
-                    logger.error("Decode error: %s", e)
-            except asyncio.TimeoutError:
-                continue
-
-    async def iter_tool_fragments(self) -> AsyncGenerator[str, None]:
-        """Iterate over tool fragments from the model response."""
-        while not self.response_cancelled:
-            try:
-                frag = await asyncio.wait_for(
-                    self.tool_queue.get(),
-                    timeout=0.02,
-                )
-                if frag is None:
-                    break
-                yield frag
+                yield block
             except asyncio.TimeoutError:
                 continue
 

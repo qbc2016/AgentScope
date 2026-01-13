@@ -49,6 +49,7 @@ class RealtimeVoiceAgent(StateModule):
         sys_prompt: str = "You are a helpful assistant.",
         toolkit: Toolkit | None = None,
         msg_stream: MsgStream | None = None,
+        play_audio: bool = True,
     ) -> None:
         """Initialize the VoiceAgent.
 
@@ -65,6 +66,9 @@ class RealtimeVoiceAgent(StateModule):
             msg_stream (`MsgStream | None`, defaults to `None`):
                 The message stream for communication. Can be set later via
                 VoiceMsgHub.
+            play_audio (`bool`, defaults to `True`):
+                Whether to play audio on the server side. Set to False for
+                WebSocket deployment where audio is played on the client side.
         """
         super().__init__()
         self.id = shortuuid.uuid()
@@ -73,6 +77,7 @@ class RealtimeVoiceAgent(StateModule):
         self._msg_stream = msg_stream  # Can be set later via VoiceMsgHub
         self._model = model
         self._model.instructions = sys_prompt
+        self._play_audio = play_audio
 
         self._initialized = False
         self._response_text = ""
@@ -162,8 +167,6 @@ class RealtimeVoiceAgent(StateModule):
             role="assistant",
         )
 
-        self._model.reset()
-
         queue: asyncio.Queue[Msg | None] = asyncio.Queue(maxsize=1000)
 
         # Only receive user messages to avoid queue being filled with
@@ -171,7 +174,7 @@ class RealtimeVoiceAgent(StateModule):
         await self._msg_stream.register_queue(
             self.id,
             queue,
-            msg_filter=lambda msg: msg.name == "user",
+            msg_filter=lambda msg: msg.name != self.name,
         )
 
         response_started = False
@@ -188,15 +191,11 @@ class RealtimeVoiceAgent(StateModule):
                     response_started = True
                     audio_chunks_during_response = 0  # Reset counter
 
-                    # Start streaming tasks immediately when model starts
-                    # responding
-                    text_task = asyncio.create_task(
-                        self._stream_text_fragments(),
+                    # Start streaming task when model starts responding
+                    streaming_task = asyncio.create_task(
+                        self._stream_response(),
                     )
-                    audio_task = asyncio.create_task(
-                        self._stream_audio_fragments(),
-                    )
-                    streaming_tasks = [text_task, audio_task]
+                    streaming_tasks = [streaming_task]
 
                 if response_started and self._model.complete_event.is_set():
                     # Don't break immediately - continue processing user audio
@@ -313,55 +312,14 @@ class RealtimeVoiceAgent(StateModule):
         logger.info("%s: No response", self.name)
         return Msg(name=self.name, content="", role="assistant")
 
-    async def _stream_text_fragments(self) -> None:
-        """Stream text fragments as they arrive from the model.
+    async def _stream_response(self) -> None:
+        """Stream response blocks (text and audio) from the model.
 
-        Pushes incremental text to MsgStream and prints in real-time.
-        Uses the fixed streaming_msg_id created in reply() for consistent
-        prefix tracking across fragments.
-        """
-        streaming_msg_id = self._streaming_msg.id
-
-        try:
-            async for text_fragment in self._model.iter_text_fragments():
-                if not text_fragment:
-                    continue
-
-                # Accumulate the text
-                self._response_text += text_fragment
-
-                # Push incremental text to MsgStream
-                await self._msg_stream.push(
-                    create_msg(
-                        name=self.name,
-                        text=self._response_text,
-                        is_partial=True,
-                    ),
-                )
-
-                # Print streaming text using the same msg_id for prefix
-                # tracking
-                # Directly call _print_text_block to maintain streaming state
-                thinking_and_text_to_print = []
-                self._print_text_block(
-                    streaming_msg_id,
-                    name_prefix=self.name,
-                    text_content=self._response_text,
-                    thinking_and_text_to_print=thinking_and_text_to_print,
-                )
-
-        except Exception as e:
-            logger.error("%s: Error streaming text: %s", self.name, e)
-
-    async def _stream_audio_fragments(self) -> None:
-        """Stream audio fragments as they arrive from the model.
-
-        Plays audio in real-time using sounddevice.OutputStream.
+        Handles both text printing and audio playback in a single loop.
         When user interrupts (speech detected), model.cancel_response() is
         called, which sets response_cancelled=True. The iterator will then
         exit, stopping playback automatically.
         """
-        import sounddevice as sd
 
         streaming_msg_id = self._streaming_msg.id
         loop = asyncio.get_event_loop()
@@ -369,56 +327,116 @@ class RealtimeVoiceAgent(StateModule):
         player = None
 
         try:
-            player = sd.OutputStream(
-                samplerate=24000,
-                channels=1,
-                dtype=np.float32,
-                blocksize=1024,
-                latency="low",
-            )
-            if streaming_msg_id not in self._stream_prefix:
-                self._stream_prefix[streaming_msg_id] = {}
-            self._stream_prefix[streaming_msg_id]["audio_player"] = player
+            # Initialize audio player only if play_audio is enabled
+            if self._play_audio:
+                import sounddevice as sd
 
-            player.start()
+                player = sd.OutputStream(
+                    samplerate=24000,
+                    channels=1,
+                    dtype=np.float32,
+                    blocksize=1024,
+                    latency="low",
+                )
+                if streaming_msg_id not in self._stream_prefix:
+                    self._stream_prefix[streaming_msg_id] = {}
+                self._stream_prefix[streaming_msg_id]["audio_player"] = player
 
-            # Iterator exits when response_cancelled=True (interruption)
-            async for audio_fragment in self._model.iter_audio_fragments():
-                if not audio_fragment:
-                    continue
+                player.start()
 
-                # Accumulate audio data
-                self._response_audio.extend(audio_fragment)
+            # Iterate over all response blocks
+            async for block in self._model.iter_response():
+                block_type = block.get("type", "")
+                if block_type == "text":
+                    # Handle text block
+                    text_fragment = str(block.get("text", ""))
+                    if not text_fragment:
+                        continue
 
-                # Convert and play the new audio fragment (non-blocking)
-                try:
-                    audio_np = np.frombuffer(audio_fragment, dtype=np.int16)
-                    audio_float = audio_np.astype(np.float32) / 32768.0
+                    # Accumulate text
+                    self._response_text += text_fragment
 
-                    # Non-blocking write using executor
-                    await loop.run_in_executor(None, player.write, audio_float)
-
-                except Exception as e:
-                    logger.warning(
-                        "%s: Error playing audio fragment: %s",
-                        self.name,
-                        e,
+                    # Push to MsgStream
+                    await self._msg_stream.push(
+                        create_msg(
+                            name=self.name,
+                            text=self._response_text,
+                            is_partial=True,
+                        ),
                     )
-                    break
 
-                # Push incremental audio to MsgStream
+                    # Print streaming text
+                    if self._streaming_msg is not None:
+                        self._streaming_msg.content = [
+                            TextBlock(type="text", text=self._response_text),
+                        ]
+                        await self.print(self._streaming_msg, last=False)
+
+                elif block_type == "audio":
+                    # Handle audio block
+                    source = block.get("source", {})
+                    if source.get("type") != "base64":
+                        continue
+
+                    audio_b64 = source.get("data", "")
+                    if not audio_b64:
+                        continue
+
+                    try:
+                        audio_bytes = base64.b64decode(audio_b64)
+                    except Exception as e:
+                        logger.error("Audio decode error: %s", e)
+                        continue
+
+                    # Accumulate audio data
+                    self._response_audio.extend(audio_bytes)
+
+                    # Play audio only if play_audio is enabled
+                    if player:
+                        try:
+                            audio_np = np.frombuffer(
+                                audio_bytes,
+                                dtype=np.int16,
+                            )
+                            audio_float = audio_np.astype(np.float32) / 32768.0
+                            await loop.run_in_executor(
+                                None,
+                                player.write,
+                                audio_float,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "%s: Error playing audio: %s",
+                                self.name,
+                                e,
+                            )
+                            break
+
+                    # Push to MsgStream
+                    await self._msg_stream.push(
+                        create_msg(
+                            name=self.name,
+                            audio_data=audio_bytes,
+                            sample_rate=24000,
+                            is_partial=True,
+                        ),
+                    )
+
+        except Exception as e:
+            logger.error("%s: Error streaming response: %s", self.name, e)
+        finally:
+            # Send final message with is_partial=False to signal response end
+            if self._response_text or self._response_audio:
                 await self._msg_stream.push(
                     create_msg(
                         name=self.name,
-                        audio_data=audio_fragment,
-                        sample_rate=24000,
-                        is_partial=True,
+                        text=self._response_text
+                        if self._response_text
+                        else None,
+                        is_partial=False,  # Signal response end
                     ),
                 )
 
-        except Exception as e:
-            logger.error("%s: Error streaming audio: %s", self.name, e)
-        finally:
             # Close the player
             if player:
                 try:
