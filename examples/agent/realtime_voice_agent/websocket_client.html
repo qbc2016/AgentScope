@@ -171,6 +171,16 @@
             box-shadow: 0 10px 30px rgba(255, 68, 68, 0.3);
         }
 
+        .btn-warning {
+            background: linear-gradient(135deg, #ff9800, #f57c00);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(255, 152, 0, 0.3);
+        }
+
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -278,6 +288,9 @@
                     <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1 1.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V20h-2v-4.07z"/>
                 </svg>
             </button>
+            <button class="btn btn-warning" id="interruptBtn" onclick="interrupt()" disabled>
+                ✋ 打断
+            </button>
             <button class="btn btn-danger" id="disconnectBtn" onclick="disconnect()" disabled>
                 ⏹️ 断开
             </button>
@@ -373,6 +386,16 @@
             document.getElementById('micBtn').disabled = true;
             document.getElementById('disconnectBtn').disabled = true;
             document.getElementById('connectBtn').disabled = false;
+            document.getElementById('interruptBtn').disabled = true;
+        }
+
+        // Interrupt current response
+        function interrupt() {
+            if (ws && isConnected) {
+                ws.send(JSON.stringify({ type: 'control', action: 'interrupt' }));
+                stopAudioPlayback();
+                addMessage('system', '🛑 已打断当前响应');
+            }
         }
 
         function handleMessage(data) {
@@ -406,6 +429,7 @@
                     addSystemMessage('语音助手已就绪，点击麦克风开始对话');
                     document.getElementById('micBtn').disabled = false;
                     document.getElementById('disconnectBtn').disabled = false;
+                    document.getElementById('interruptBtn').disabled = false;
                     document.getElementById('connectBtn').disabled = true;
                     break;
                 case 'response_end':
