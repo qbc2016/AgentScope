@@ -15,7 +15,7 @@ import asyncio
 import base64
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum
 from typing import Any, AsyncGenerator
 
 import websockets
@@ -30,46 +30,44 @@ from ....message import ContentBlock
 # =============================================================================
 
 
-class LiveEventType(Enum):
+class LiveEventType(str, Enum):
     """Types of live events from the server."""
 
     # Session lifecycle
-    SESSION_CREATED = auto()
-    SESSION_UPDATED = auto()
-    SESSION_ENDED = auto()
+    SESSION_CREATED = "session_created"
+    SESSION_UPDATED = "session_updated"
 
     # Content deltas
-    TEXT_DELTA = auto()
-    AUDIO_DELTA = auto()
+    TEXT_DELTA = "text_delta"
+    AUDIO_DELTA = "audio_delta"
 
     # Transcription
-    INPUT_TRANSCRIPTION = auto()
-    OUTPUT_TRANSCRIPTION = auto()
+    INPUT_TRANSCRIPTION = "input_transcription"
+    OUTPUT_TRANSCRIPTION = "output_transcription"
 
     # Turn management
-    RESPONSE_STARTED = auto()
-    RESPONSE_DONE = auto()
-    TURN_COMPLETE = auto()
+    RESPONSE_STARTED = "response_started"
+    RESPONSE_DONE = "response_done"
+    TURN_COMPLETE = "turn_complete"
 
     # Tool calling
-    TOOL_CALL = auto()
+    TOOL_CALL = "tool_call"
 
     # Voice activity detection
-    SPEECH_STARTED = auto()
-    SPEECH_STOPPED = auto()
+    SPEECH_STARTED = "speech_started"
+    SPEECH_STOPPED = "speech_stopped"
 
-    # Interruption
-    INTERRUPTED = auto()
+    # Interruption (Gemini specific)
+    INTERRUPTED = "interrupted"
 
-    # Connection state
-    CONNECTED = auto()
-    DISCONNECTED = auto()
+    # Connection state (Gemini specific)
+    DISCONNECTED = "disconnected"
 
     # Errors
-    ERROR = auto()
+    ERROR = "error"
 
     # Unknown/other
-    UNKNOWN = auto()
+    UNKNOWN = "unknown"
 
 
 @dataclass
