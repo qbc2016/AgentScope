@@ -17,13 +17,13 @@ import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, AsyncGenerator, TypeAlias
+from typing import Any, AsyncGenerator
 
 import websockets
 from websockets.asyncio.client import ClientConnection
 
 from ...._logging import logger
-from ....message import Msg, TextBlock, AudioBlock, Base64Source, ToolUseBlock
+from ....message import Msg
 
 
 # =============================================================================
@@ -90,10 +90,6 @@ class LiveEvent:
     """Additional metadata for the event."""
 
 
-# Type alias for response content blocks
-ResponseBlock: TypeAlias = TextBlock | AudioBlock | ToolUseBlock
-
-
 # =============================================================================
 # Base Model Class
 # =============================================================================
@@ -105,9 +101,7 @@ class WebSocketVoiceModelBase(ABC):
     This class provides:
     - WebSocket connection management
     - State tracking (responding, cancelled)
-    - Response queue for text/audio blocks
     - Event queue for all events
-    - Callbacks (response done, input transcription, tool call)
 
     Subclasses implement provider-specific logic:
     - _get_websocket_url(): Return the WebSocket endpoint URL
@@ -142,11 +136,6 @@ class WebSocketVoiceModelBase(ABC):
         self._websocket: ClientConnection | None = None
         self._receive_task: asyncio.Task[None] | None = None
         self._initialized = False
-
-        # Response queue for text and audio blocks
-        self.response_queue: asyncio.Queue[
-            ResponseBlock | None
-        ] = asyncio.Queue()
 
         # Event queue for iter_events()
         self._event_queue: asyncio.Queue[LiveEvent | None] = asyncio.Queue()
@@ -300,13 +289,11 @@ class WebSocketVoiceModelBase(ABC):
             logger.error("Error in receive loop: %s", e)
         finally:
             self.complete_event.set()
-            await self.response_queue.put(None)
             await self._event_queue.put(None)
 
-    # pylint: disable=too-many-branches, too-many-statements
     async def _handle_event(self, event: LiveEvent) -> None:
         """Handle a parsed LiveEvent."""
-        # Put event to event queue
+        # Put event to event queue for Agent to consume via iter_events()
         await self._event_queue.put(event)
 
         event_type = event.type
@@ -316,53 +303,6 @@ class WebSocketVoiceModelBase(ABC):
             self.is_responding = True
             self.response_cancelled = False
 
-        # Text delta
-        elif event_type == LiveEventType.TEXT_DELTA:
-            if event.message:
-                for block in event.message.get_content_blocks():
-                    if block.get("type") == "text":
-                        await self.response_queue.put(
-                            TextBlock(type="text", text=block.get("text", "")),
-                        )
-
-        # Audio delta
-        elif event_type == LiveEventType.AUDIO_DELTA:
-            if event.message:
-                for block in event.message.get_content_blocks():
-                    if block.get("type") == "audio":
-                        source = block.get("source", {})
-                        if source.get("type") == "base64":
-                            await self.response_queue.put(
-                                AudioBlock(
-                                    type="audio",
-                                    source=Base64Source(
-                                        type="base64",
-                                        media_type=source.get(
-                                            "media_type",
-                                            "audio/pcm",
-                                        ),
-                                        data=source.get("data", ""),
-                                    ),
-                                ),
-                            )
-
-        # Output transcription
-        elif event_type == LiveEventType.OUTPUT_TRANSCRIPTION:
-            if event.message:
-                for block in event.message.get_content_blocks():
-                    if block.get("type") == "text":
-                        await self.response_queue.put(
-                            TextBlock(type="text", text=block["text"]),
-                        )
-
-        # Input transcription - just pass event to queue, Agent handles it
-        elif event_type == LiveEventType.INPUT_TRANSCRIPTION:
-            pass  # Event already added to event_queue above
-
-        # Tool call - just pass event to queue, Agent handles it
-        elif event_type == LiveEventType.TOOL_CALL:
-            pass  # Event already added to event_queue above
-
         # Response done
         elif event_type in (
             LiveEventType.RESPONSE_DONE,
@@ -370,9 +310,8 @@ class WebSocketVoiceModelBase(ABC):
         ):
             self.is_responding = False
             self.complete_event.set()
-            await self.response_queue.put(None)
 
-        # Speech started (VAD)
+        # Speech started (VAD) - cancel current response
         elif event_type == LiveEventType.SPEECH_STARTED:
             if self.is_responding:
                 logger.info("Speech started, cancelling current response")
@@ -388,16 +327,10 @@ class WebSocketVoiceModelBase(ABC):
     # =========================================================================
 
     def reset(self) -> None:
-        """Reset state and clear queue for new response."""
+        """Reset state for new response."""
         self.is_responding = False
         self.response_cancelled = False
         self.complete_event = threading.Event()
-        # Clear queue
-        while True:
-            try:
-                self.response_queue.get_nowait()
-            except Exception:
-                break
 
     # =========================================================================
     # Audio/Text Operations
@@ -437,14 +370,7 @@ class WebSocketVoiceModelBase(ABC):
         self.response_cancelled = True
         self.is_responding = False
 
-        # Clear queue
-        while True:
-            try:
-                self.response_queue.get_nowait()
-            except Exception:
-                break
-
-        # Send cancel message
+        # Send cancel message to server
         cancel_msg = self._format_cancel_message()
         if cancel_msg and self._websocket:
             await self._websocket.send(cancel_msg)
@@ -478,24 +404,6 @@ class WebSocketVoiceModelBase(ABC):
     # =========================================================================
     # Iterators
     # =========================================================================
-
-    async def iter_response(self) -> AsyncGenerator[ResponseBlock, None]:
-        """Iterate over response blocks from the model.
-
-        Yields:
-            TextBlock or AudioBlock as they are received.
-        """
-        while not self.response_cancelled:
-            try:
-                block = await asyncio.wait_for(
-                    self.response_queue.get(),
-                    timeout=0.02,
-                )
-                if block is None:
-                    break
-                yield block
-            except asyncio.TimeoutError:
-                continue
 
     async def iter_events(self) -> AsyncGenerator[LiveEvent, None]:
         """Iterate over all events continuously.
