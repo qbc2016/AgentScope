@@ -136,7 +136,13 @@ class WebSocketVoiceAgent(StateModule):
                 # Extract audio from message and send to model
                 audio_bytes = get_audio_from_msg(msg)
                 if audio_bytes:
-                    self.model.send_audio(audio_bytes)
+                    # Get sample rate from message metadata
+                    sample_rate = (
+                        msg.metadata.get("sample_rate", 16000)
+                        if msg.metadata
+                        else 16000
+                    )
+                    self.model.send_audio(audio_bytes, sample_rate)
 
         except asyncio.CancelledError:
             pass

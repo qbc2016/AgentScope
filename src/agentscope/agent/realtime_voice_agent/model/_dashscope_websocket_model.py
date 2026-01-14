@@ -8,6 +8,8 @@ and handles message formatting internally without a separate Formatter layer.
 import json
 from typing import Any
 
+import numpy as np
+
 from ...._logging import logger
 from ....message import Msg, AudioBlock, TextBlock, Base64Source
 
@@ -16,6 +18,38 @@ from ._voice_model_base import (
     LiveEvent,
     LiveEventType,
 )
+
+
+def _resample_audio(
+    audio_data: bytes,
+    from_rate: int,
+    to_rate: int,
+) -> bytes:
+    """Resample audio data from one sample rate to another.
+
+    Args:
+        audio_data: PCM audio bytes (16-bit signed, mono).
+        from_rate: Source sample rate in Hz.
+        to_rate: Target sample rate in Hz.
+
+    Returns:
+        Resampled PCM audio bytes.
+    """
+    if from_rate == to_rate:
+        return audio_data
+
+    # Convert bytes to numpy array (16-bit signed)
+    audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+
+    # Calculate the number of samples in the resampled audio
+    num_samples = int(len(audio_array) * to_rate / from_rate)
+
+    # Resample using linear interpolation
+    indices = np.linspace(0, len(audio_array) - 1, num_samples)
+    resampled = np.interp(indices, np.arange(len(audio_array)), audio_array)
+
+    # Convert back to 16-bit signed integer bytes
+    return resampled.astype(np.int16).tobytes()
 
 
 class DashScopeWebSocketModel(WebSocketVoiceModelBase):
@@ -133,6 +167,20 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
     def _format_cancel_message(self) -> str | None:
         """Format cancel response message."""
         return json.dumps({"type": "response.cancel"})
+
+    def _preprocess_audio(
+        self,
+        audio_data: bytes,
+        sample_rate: int | None,
+    ) -> bytes:
+        """Resample audio if needed."""
+        if sample_rate and sample_rate != self.input_sample_rate:
+            return _resample_audio(
+                audio_data,
+                sample_rate,
+                self.input_sample_rate,
+            )
+        return audio_data
 
     def _format_tool_result_message(
         self,

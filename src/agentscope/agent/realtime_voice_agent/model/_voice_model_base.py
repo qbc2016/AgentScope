@@ -330,7 +330,7 @@ class WebSocketVoiceModelBase(ABC):
     def send_audio(
         self,
         audio_data: bytes,
-        sample_rate: int | None = None,  # noqa: ARG002
+        sample_rate: int | None = None,
     ) -> None:
         """Send audio data to the model.
 
@@ -338,9 +338,10 @@ class WebSocketVoiceModelBase(ABC):
             audio_data: PCM audio bytes.
             sample_rate: Sample rate (not used, kept for API compatibility).
         """
-        del sample_rate  # Not used in base class
         if not self._websocket:
             raise RuntimeError("Not initialized")
+
+        audio_data = self._preprocess_audio(audio_data, sample_rate)
 
         audio_b64 = base64.b64encode(audio_data).decode("ascii")
         wire_msg = self._format_audio_message(audio_b64)
@@ -351,10 +352,16 @@ class WebSocketVoiceModelBase(ABC):
                 self.event_loop,
             )
 
+    def _preprocess_audio(
+        self,
+        audio_data: bytes,
+        sample_rate: int | None,  # pylint: disable=unused-argument
+    ) -> bytes:
+        """Hook for subclasses to preprocess audio. Default: no-op."""
+        return audio_data
+
     async def send_text(self, text: str) -> None:
         """Send text message (not all providers support this)."""
-        del text  # Not used in base class
-        logger.warning("send_text not implemented for %s", self.provider_name)
 
     async def cancel_response(self) -> None:
         """Cancel the current response."""
