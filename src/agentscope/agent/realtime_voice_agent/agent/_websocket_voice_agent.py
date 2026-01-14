@@ -10,7 +10,14 @@ import json
 
 import shortuuid
 
-from ....message import Msg, TextBlock, ToolUseBlock, ToolResultBlock
+from ....message import (
+    Msg,
+    TextBlock,
+    AudioBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+    Base64Source,
+)
 from ....memory import MemoryBase, InMemoryMemory
 from ....tool import Toolkit
 from ....module import StateModule
@@ -137,11 +144,11 @@ class WebSocketVoiceAgent(StateModule):
                 audio_bytes = get_audio_from_msg(msg)
                 if audio_bytes:
                     # Get sample rate from message metadata
-                    sample_rate = (
-                        msg.metadata.get("sample_rate", 16000)
-                        if msg.metadata
-                        else 16000
-                    )
+                    sample_rate = 16000
+                    if msg.metadata:
+                        rate_val = msg.metadata.get("sample_rate")
+                        if isinstance(rate_val, int):
+                            sample_rate = rate_val
                     self.model.send_audio(audio_bytes, sample_rate)
 
         except asyncio.CancelledError:
@@ -267,73 +274,70 @@ class WebSocketVoiceAgent(StateModule):
 
                 event_type = event.type
 
-                # Handle text delta
+                # Handle text delta (block is TextBlock)
                 if event_type == LiveEventType.TEXT_DELTA:
-                    if event.message:
-                        for block in event.message.get_content_blocks():
-                            if block.get("type") == "text":
-                                text = block["text"]
-                                self._response_text += text
-                                await self._push_streaming_msg(
-                                    text=self._response_text,
-                                )
+                    if event.content:
+                        for block in event.content:
+                            self._response_text += str(
+                                block["text"],
+                            )
+                            await self._push_streaming_msg(
+                                text=self._response_text,
+                            )
 
-                # Handle output transcription
+                # Handle output transcription (block is TextBlock)
                 elif event_type == LiveEventType.OUTPUT_TRANSCRIPTION:
-                    if event.message:
-                        for block in event.message.get_content_blocks():
-                            if block.get("type") == "text":
-                                text = block["text"]
-                                self._response_text += text
-                                await self._push_streaming_msg(
-                                    text=self._response_text,
-                                )
+                    if event.content:
+                        for block in event.content:
+                            self._response_text += block["text"]
 
-                # Handle audio delta
+                            await self._push_streaming_msg(
+                                text=self._response_text,
+                            )
+
+                # Handle audio delta (block is AudioBlock)
                 elif event_type == LiveEventType.AUDIO_DELTA:
-                    if event.message:
-                        for block in event.message.get_content_blocks():
-                            if block.get("type") == "audio":
-                                source = block.get("source", {})
-                                if source.get("type") == "base64":
-                                    audio_data = source.get("data", "")
-                                    media_type = source.get("media_type", "")
-                                    sample_rate = 24000
-                                    if "rate=" in media_type:
-                                        try:
-                                            rate_str = media_type.split(
-                                                "rate=",
-                                            )[1].split(";")[0]
-                                            sample_rate = int(rate_str)
-                                        except (ValueError, IndexError):
-                                            pass
-                                    await self._push_audio_msg(
-                                        audio_data,
-                                        sample_rate,
-                                    )
+                    if event.content:
+                        for block in event.content:
+                            source = block["source"]
+                            audio_data = source["data"]
+                            media_type = source["media_type"]
+                            sample_rate = 24000
+                            if "rate=" in media_type:
+                                try:
+                                    rate_str = media_type.split(
+                                        "rate=",
+                                    )[
+                                        1
+                                    ].split(";")[0]
+                                    sample_rate = int(rate_str)
+                                except (ValueError, IndexError):
+                                    pass
+                            await self._push_audio_msg(
+                                audio_data,
+                                sample_rate,
+                            )
 
-                # Handle input transcription (save user input to memory)
+                # Handle input transcription (block is TextBlock)
                 elif event_type == LiveEventType.INPUT_TRANSCRIPTION:
-                    if event.message:
-                        for block in event.message.get_content_blocks():
-                            if block.get("type") == "text":
-                                text = block["text"]
-                                await self._handle_input_transcription(text)
+                    if event.content:
+                        for block in event.content:
+                            await self._handle_input_transcription(
+                                block["text"],
+                            )
 
-                # Handle tool call (execute tool and send result)
+                # Handle tool call (block is ToolUseBlock)
                 elif event_type == LiveEventType.TOOL_CALL:
-                    if event.message:
-                        for block in event.message.get_content_blocks():
-                            if block.get("type") == "tool_use":
-                                tool_id = block["id"]
-                                tool_name = block["name"]
-                                tool_input = block["input"]
-                                if isinstance(tool_input, dict):
-                                    await self._handle_tool_call(
-                                        tool_id,
-                                        tool_name,
-                                        tool_input,
-                                    )
+                    if event.content:
+                        for block in event.content:
+                            tool_id = block["id"]
+                            tool_name = block["name"]
+                            tool_input = block["input"]
+                            await self._handle_tool_call(
+                                tool_id,
+                                tool_name,
+                                tool_input,
+                            )
 
                 # Handle response complete
                 elif event_type in (
@@ -368,7 +372,6 @@ class WebSocketVoiceAgent(StateModule):
 
     async def _push_audio_msg(self, audio_b64: str, sample_rate: int) -> None:
         """Push an audio message to MsgStream."""
-        from ....message import AudioBlock, Base64Source
 
         # Directly create AudioBlock with base64 data to avoid encode/decode
         msg = Msg(

@@ -11,13 +11,14 @@ from typing import Any
 import numpy as np
 
 from ...._logging import logger
-from ....message import Msg, AudioBlock, TextBlock, Base64Source
+from ....message import AudioBlock, TextBlock, Base64Source
 
 from ._voice_model_base import (
     WebSocketVoiceModelBase,
     LiveEvent,
     LiveEventType,
 )
+from ....types import JSONSerializableObject
 
 
 def _resample_audio(
@@ -86,6 +87,7 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
         input_sample_rate: int = 16000,
         output_audio_format: str = "pcm",
         output_sample_rate: int = 24000,
+        generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the DashScope WebSocket model.
 
@@ -111,6 +113,7 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
         self.input_sample_rate = input_sample_rate
         self.output_audio_format = output_audio_format
         self.output_sample_rate = output_sample_rate
+        self.generate_kwargs = generate_kwargs or {}
 
     @property
     def provider_name(self) -> str:
@@ -139,6 +142,7 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             "input_audio_transcription": {
                 "model": "gummy-realtime-v1",
             },
+            **self.generate_kwargs,
         }
 
         if self.vad_enabled:
@@ -201,6 +205,7 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
         )
 
     # pylint: disable=too-many-return-statements, too-many-branches
+    # pylint: disable=too-many-nested-blocks
     def _parse_server_message(self, message: str) -> LiveEvent:
         """Parse DashScope server message to LiveEvent."""
         try:
@@ -247,21 +252,17 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             audio_data = msg.get("delta", "")
             return LiveEvent(
                 type=LiveEventType.AUDIO_DELTA,
-                message=Msg(
-                    name="assistant",
-                    role="assistant",
-                    content=[
-                        AudioBlock(
-                            type="audio",
-                            source=Base64Source(
-                                type="base64",
-                                media_type=f"audio/pcm;"
-                                f"rate={self.output_sample_rate}",
-                                data=audio_data,
-                            ),
+                content=[
+                    AudioBlock(
+                        type="audio",
+                        source=Base64Source(
+                            type="base64",
+                            media_type=f"audio/pcm;"
+                            f"rate={self.output_sample_rate}",
+                            data=audio_data,
                         ),
-                    ],
-                ),
+                    ),
+                ],
             )
 
         # Text/transcript events
@@ -269,22 +270,14 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             text = msg.get("delta", "")
             return LiveEvent(
                 type=LiveEventType.OUTPUT_TRANSCRIPTION,
-                message=Msg(
-                    name="assistant",
-                    role="assistant",
-                    content=[TextBlock(type="text", text=text)],
-                ),
+                content=[TextBlock(type="text", text=text)],
             )
 
         elif event_type == "response.text.delta":
             text = msg.get("delta", "")
             return LiveEvent(
                 type=LiveEventType.TEXT_DELTA,
-                message=Msg(
-                    name="assistant",
-                    role="assistant",
-                    content=[TextBlock(type="text", text=text)],
-                ),
+                content=[TextBlock(type="text", text=text)],
             )
 
         elif (
@@ -295,11 +288,7 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             logger.info("User said: %s", text)
             return LiveEvent(
                 type=LiveEventType.INPUT_TRANSCRIPTION,
-                message=Msg(
-                    name="user",
-                    role="user",
-                    content=[TextBlock(type="text", text=text)],
-                ),
+                content=[TextBlock(type="text", text=text)],
                 is_last=True,
             )
 

@@ -22,7 +22,7 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 
 from ...._logging import logger
-from ....message import Msg
+from ....message import ContentBlock
 
 
 # =============================================================================
@@ -74,13 +74,18 @@ class LiveEventType(Enum):
 
 @dataclass
 class LiveEvent:
-    """A live event from the real-time API."""
+    """A live event from the real-time API.
+
+    Note: This is a Model-layer concept. It only contains raw content blocks,
+    not full Msg objects. The Agent layer is responsible for wrapping content
+    into Msg with appropriate name and role.
+    """
 
     type: LiveEventType
     """The type of the event."""
 
-    message: Msg | None = None
-    """Optional message associated with the event."""
+    content: list[ContentBlock] | None = None
+    """Content blocks (TextBlock, AudioBlock, ToolUseBlock, etc.)."""
 
     is_last: bool = False
     """Whether this is the last event in a sequence."""
