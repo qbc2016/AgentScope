@@ -166,13 +166,11 @@ async def main() -> None:
     )
 
     # Create VoiceInput with same msg_stream
+    # Agent will consume audio from MsgStream and send to model
     voice_input = RealtimeVoiceInput(
         msg_stream=msg_stream,
         device_index=device_index,
     )
-
-    # Set callback to send audio directly to the model
-    voice_input.set_on_audio_callback(model.send_audio)
 
     print("\n" + "=" * 60)
     print("User-Agent Conversation Example (WebSocket Mode)")

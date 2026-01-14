@@ -29,7 +29,7 @@ from fastapi.responses import HTMLResponse
 # Agent and Model imports
 from agentscope.agent.realtime_voice_agent import WebSocketVoiceAgent
 from agentscope.agent.realtime_voice_agent.model import DashScopeWebSocketModel
-from agentscope.agent.realtime_voice_agent._utils import MsgStream
+from agentscope.agent.realtime_voice_agent._utils import MsgStream, create_msg
 from agentscope.memory import InMemoryMemory
 
 # Configure logging
@@ -266,7 +266,8 @@ class WebSocketVoiceSession:
                     )
 
                     if data.get("type") == "audio":
-                        # Decode audio and send to model
+                        # Decode audio and push to MsgStream
+                        # Agent will consume and send to model
                         audio_bytes = base64.b64decode(data["data"])
                         sample_rate = data.get("sample_rate", 16000)
 
@@ -279,8 +280,14 @@ class WebSocketVoiceSession:
                                 len(audio_bytes),
                             )
 
-                        # Send to model (Agent will process via model)
-                        self.model.send_audio(audio_bytes, sample_rate)
+                        # Push audio to MsgStream for Agent to consume
+                        if self.msg_stream:
+                            audio_msg = create_msg(
+                                name="user",
+                                audio_data=audio_bytes,
+                                sample_rate=sample_rate,
+                            )
+                            await self.msg_stream.push(audio_msg)
 
                     elif data.get("type") == "control":
                         action = data.get("action")

@@ -8,12 +8,14 @@ This agent is designed to work with WebSocketVoiceModelBase and its subclasses
 import asyncio
 import json
 
+import shortuuid
+
 from ....message import Msg, TextBlock, ToolUseBlock, ToolResultBlock
 from ....memory import MemoryBase, InMemoryMemory
 from ....tool import Toolkit
 from ....module import StateModule
 
-from .._utils import MsgStream, create_msg
+from .._utils import MsgStream, create_msg, get_audio_from_msg
 from ..model import WebSocketVoiceModelBase, LiveEventType
 
 from ...._logging import logger
@@ -56,6 +58,9 @@ class WebSocketVoiceAgent(StateModule):
         ```
     """
 
+    id: str
+    """The agent's unique identifier, generated using shortuuid."""
+
     def __init__(
         self,
         name: str,
@@ -76,6 +81,8 @@ class WebSocketVoiceAgent(StateModule):
             memory: Optional memory for conversation history.
         """
         super().__init__()
+
+        self.id = shortuuid.uuid()
         self.name = name
         self.model = model
         self.sys_prompt = sys_prompt
@@ -86,6 +93,7 @@ class WebSocketVoiceAgent(StateModule):
         self._initialized = False
         self._stop_event = asyncio.Event()
         self._listen_task: asyncio.Task | None = None
+        self._consume_task: asyncio.Task | None = None
 
         # Response state
         self._response_text = ""
@@ -105,8 +113,35 @@ class WebSocketVoiceAgent(StateModule):
         # Start listening for model events
         self._listen_task = asyncio.create_task(self._listen_loop())
 
+        # Start consuming audio from MsgStream
+        self._consume_task = asyncio.create_task(self._consume_audio())
+
         self._initialized = True
         logger.info("WebSocketVoiceAgent %s initialized", self.name)
+
+    async def _consume_audio(self) -> None:
+        """Consume audio from MsgStream and forward to model.
+
+        Subscribes to MsgStream and sends audio from other participants
+        (e.g., user) to the model.
+        """
+        try:
+            async for msg in self.msg_stream.subscribe(
+                self.id,
+                exclude_names=[self.name],
+            ):
+                if self._stop_event.is_set():
+                    break
+
+                # Extract audio from message and send to model
+                audio_bytes = get_audio_from_msg(msg)
+                if audio_bytes:
+                    self.model.send_audio(audio_bytes)
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error("Error in _consume_audio: %s", e)
 
     async def _handle_input_transcription(self, text: str) -> None:
         """Handle user input transcription and save to memory.
@@ -395,7 +430,7 @@ class WebSocketVoiceAgent(StateModule):
 
         async def wait_for_response() -> None:
             nonlocal saved_text
-            async for msg in self.msg_stream.subscribe(f"{self.name}_reply"):
+            async for msg in self.msg_stream.subscribe(self.id):
                 if self._stop_event.is_set():
                     break
                 if msg.role == "user":
@@ -444,6 +479,14 @@ class WebSocketVoiceAgent(StateModule):
             self._listen_task.cancel()
             try:
                 await self._listen_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel consume task
+        if self._consume_task and not self._consume_task.done():
+            self._consume_task.cancel()
+            try:
+                await self._consume_task
             except asyncio.CancelledError:
                 pass
 
