@@ -363,8 +363,12 @@ class WebSocketVoiceModelBase(ABC):
         """Hook for subclasses to preprocess audio. Default: no-op."""
         return audio_data
 
-    async def send_text(self, text: str) -> None:
-        """Send text message (not all providers support this)."""
+    async def create_response(self) -> None:
+        """Trigger model to generate a response.
+
+        Override in subclasses if the provider supports manual response
+        trigger.
+        """
 
     async def cancel_response(self) -> None:
         """Cancel the current response."""
