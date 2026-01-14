@@ -204,6 +204,39 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             },
         )
 
+    async def send_text(self, text: str) -> None:
+        """Send text message to trigger model response.
+
+        This creates a user message and triggers a response from the model.
+
+        Args:
+            text: The text message to send.
+        """
+        if not self._websocket:
+            raise RuntimeError("Not initialized")
+
+        # Create user message
+        create_msg = json.dumps(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": text,
+                        },
+                    ],
+                },
+            },
+        )
+        await self._websocket.send(create_msg)
+
+        # Trigger response
+        response_create = json.dumps({"type": "response.create"})
+        await self._websocket.send(response_create)
+
     # pylint: disable=too-many-return-statements, too-many-branches
     # pylint: disable=too-many-nested-blocks
     def _parse_server_message(self, message: str) -> LiveEvent:
