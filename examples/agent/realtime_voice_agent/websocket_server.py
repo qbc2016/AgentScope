@@ -19,7 +19,6 @@ Requirements:
 
 import asyncio
 import base64
-import logging
 import os
 from typing import Optional
 
@@ -31,10 +30,7 @@ from agentscope.agent.realtime_voice_agent import WebSocketVoiceAgent
 from agentscope.agent.realtime_voice_agent.model import DashScopeWebSocketModel
 from agentscope.agent.realtime_voice_agent._utils import MsgStream, create_msg
 from agentscope.memory import InMemoryMemory
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from agentscope import logger
 
 app = FastAPI(title="VoiceAgent WebSocket Server")
 
@@ -52,15 +48,10 @@ class WebSocketVoiceSession:
         self.session_id = session_id
         self.websocket = websocket
         self.agent: Optional[WebSocketVoiceAgent] = None
-        self.model: Optional[DashScopeWebSocketModel] = None
         self.msg_stream: Optional[MsgStream] = None
         self._running = False
+        self._stop_event = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
-
-    @property
-    def is_running(self) -> bool:
-        """Check if the session is running."""
-        return self._running
 
     async def initialize(self) -> None:
         """Initialize the voice agent and model."""
@@ -72,7 +63,7 @@ class WebSocketVoiceSession:
         self.msg_stream = MsgStream()
 
         # 2. Create WebSocket Model
-        self.model = DashScopeWebSocketModel(
+        model = DashScopeWebSocketModel(
             api_key=api_key,
             model_name="qwen3-omni-flash-realtime",
             voice="Cherry",
@@ -84,11 +75,10 @@ class WebSocketVoiceSession:
         # 3. Create Agent with Memory
         self.agent = WebSocketVoiceAgent(
             name="assistant",
-            model=self.model,
+            model=model,
             sys_prompt="You are a helpful voice assistant.",
             msg_stream=self.msg_stream,
-            memory=InMemoryMemory(),  # Enable Memory
-            # toolkit=toolkit,  # Can add Toolkit here
+            memory=InMemoryMemory(),
         )
 
         # 4. Initialize agent (connects WebSocket)
@@ -101,60 +91,15 @@ class WebSocketVoiceSession:
         if not self.agent or not self.msg_stream:
             raise RuntimeError("Session not initialized")
 
-        # Task 1: Agent reply loop
-        self._tasks.append(
-            asyncio.create_task(self._agent_loop()),
-        )
-
-        # Task 2: Forward MsgStream to WebSocket
+        # Task 1: Forward MsgStream to WebSocket
         self._tasks.append(
             asyncio.create_task(self._forward_to_websocket()),
         )
 
-        # Task 3: Receive from WebSocket and send to Agent
+        # Task 2: Receive from WebSocket and send to Agent
         self._tasks.append(
             asyncio.create_task(self._receive_from_websocket()),
         )
-
-    async def _agent_loop(self) -> None:
-        """Agent reply loop - continuously process and respond."""
-        if not self.agent:
-            return
-
-        logger.info("Session %s: Agent loop started", self.session_id)
-        try:
-            while self._running:
-                try:
-                    # Agent processes input and generates response
-                    response = await asyncio.wait_for(
-                        self.agent.reply(),
-                        timeout=60.0,  # Timeout for each reply cycle
-                    )
-                    if response:
-                        text_content = response.get_text_content()
-                        preview = (
-                            text_content[:50] if text_content else "(audio)"
-                        )
-                        logger.info(
-                            "Session %s: Agent replied: %s",
-                            self.session_id,
-                            preview,
-                        )
-                except asyncio.TimeoutError:
-                    # No input for a while, continue waiting
-                    continue
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.error(
-                        "Session %s: Agent error: %s",
-                        self.session_id,
-                        e,
-                    )
-                    await asyncio.sleep(0.5)
-
-        finally:
-            logger.info("Session %s: Agent loop ended", self.session_id)
 
     async def _forward_to_websocket(self) -> None:
         """Forward MsgStream messages to WebSocket client."""
@@ -251,8 +196,8 @@ class WebSocketVoiceSession:
             )
 
     async def _receive_from_websocket(self) -> None:
-        """Receive audio from WebSocket and send to Agent."""
-        if not self.model:
+        """Receive audio from WebSocket and send to MsgStream."""
+        if not self.agent:
             return
 
         audio_chunk_count = 0
@@ -267,7 +212,6 @@ class WebSocketVoiceSession:
 
                     if data.get("type") == "audio":
                         # Decode audio and push to MsgStream
-                        # Agent will consume and send to model
                         audio_bytes = base64.b64decode(data["data"])
                         sample_rate = data.get("sample_rate", 16000)
 
@@ -284,6 +228,7 @@ class WebSocketVoiceSession:
                         if self.msg_stream:
                             audio_msg = create_msg(
                                 name="user",
+                                role="user",
                                 audio_data=audio_bytes,
                                 sample_rate=sample_rate,
                             )
@@ -297,23 +242,32 @@ class WebSocketVoiceSession:
                             action,
                         )
                         if action == "stop":
-                            self._running = False
+                            self._stop()
                             break
                         if action == "interrupt":
-                            await self.model.cancel_response()
+                            await self.agent.model.cancel_response()
 
                 except asyncio.TimeoutError:
                     continue
 
         except WebSocketDisconnect:
             logger.info("Session %s: WebSocket disconnected", self.session_id)
-            self._running = False
+            self._stop()
         except Exception as e:
             logger.error("Session %s: Error receiving: %s", self.session_id, e)
 
+    def _stop(self) -> None:
+        """Signal the session to stop."""
+        self._running = False
+        self._stop_event.set()
+
+    async def wait_until_stopped(self) -> None:
+        """Wait until the session is stopped."""
+        await self._stop_event.wait()
+
     async def stop(self) -> None:
         """Stop the session and cleanup."""
-        self._running = False
+        self._stop()
 
         # Cancel all tasks
         for task in self._tasks:
@@ -372,8 +326,7 @@ async def voice_websocket(websocket: WebSocket, session_id: str) -> None:
         logger.info("Session %s: Session started", session_id)
 
         # Wait for session to end
-        while session.is_running:
-            await asyncio.sleep(0.1)
+        await session.wait_until_stopped()
 
     except WebSocketDisconnect:
         logger.info("Session %s: Client disconnected", session_id)
