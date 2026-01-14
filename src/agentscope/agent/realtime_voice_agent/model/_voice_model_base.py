@@ -13,7 +13,6 @@ without a separate Formatter layer.
 
 import asyncio
 import base64
-import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -144,10 +143,6 @@ class WebSocketVoiceModelBase(ABC):
         self.is_responding = False
         self.response_cancelled = False
 
-        # Events
-        self.complete_event = threading.Event()
-        self.connection_ready = threading.Event()
-
         # Event loop for async operations from sync callbacks
         self.event_loop: asyncio.AbstractEventLoop | None = None
 
@@ -258,7 +253,6 @@ class WebSocketVoiceModelBase(ABC):
         )
 
         logger.info("WebSocket connection opened")
-        self.connection_ready.set()
 
         # Start receive loop
         self._receive_task = asyncio.create_task(self._receive_loop())
@@ -288,7 +282,6 @@ class WebSocketVoiceModelBase(ABC):
         except Exception as e:
             logger.error("Error in receive loop: %s", e)
         finally:
-            self.complete_event.set()
             await self._event_queue.put(None)
 
     async def _handle_event(self, event: LiveEvent) -> None:
@@ -309,7 +302,6 @@ class WebSocketVoiceModelBase(ABC):
             LiveEventType.TURN_COMPLETE,
         ):
             self.is_responding = False
-            self.complete_event.set()
 
         # Speech started (VAD) - cancel current response
         elif event_type == LiveEventType.SPEECH_STARTED:
@@ -330,7 +322,6 @@ class WebSocketVoiceModelBase(ABC):
         """Reset state for new response."""
         self.is_responding = False
         self.response_cancelled = False
-        self.complete_event = threading.Event()
 
     # =========================================================================
     # Audio/Text Operations
