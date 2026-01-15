@@ -460,11 +460,11 @@ class AnthropicChatModel(ChatModelBase):
                         ),
                     )
 
-                # Only add intermediate tool use blocks if
-                # intermediate_tool_parsing is True
-                if self.intermediate_tool_parsing:
-                    for block_index, tool_call in tool_calls.items():
-                        input_str = tool_call["input"]
+                for block_index, tool_call in tool_calls.items():
+                    input_str = tool_call["input"]
+                    # Only add intermediate tool use blocks if
+                    # intermediate_tool_parsing is True
+                    if self.intermediate_tool_parsing:
                         try:
                             input_obj = _json_loads_with_repair(
                                 input_str or "{}",
@@ -474,17 +474,20 @@ class AnthropicChatModel(ChatModelBase):
 
                         except Exception:
                             input_obj = {}
+                    else:
+                        input_obj = {}
 
-                        contents.append(
-                            ToolUseBlock(
-                                type=tool_call["type"],
-                                id=tool_call["id"],
-                                name=tool_call["name"],
-                                input=input_obj,
-                            ),
-                        )
-                        if structured_model:
-                            metadata = input_obj
+                    contents.append(
+                        ToolUseBlock(
+                            type=tool_call["type"],
+                            id=tool_call["id"],
+                            name=tool_call["name"],
+                            input=input_obj,
+                            raw_input=input_str,
+                        ),
+                    )
+                    if structured_model:
+                        metadata = input_obj
 
                 if contents:
                     res = ChatResponse(

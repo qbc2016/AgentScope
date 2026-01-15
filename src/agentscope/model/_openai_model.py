@@ -433,20 +433,24 @@ class OpenAIChatModel(ChatModelBase):
                     if structured_model:
                         metadata = _json_loads_with_repair(text)
 
-                # Only add intermediate tool use blocks if
-                # intermediate_tool_parsing is True
-                if self.intermediate_tool_parsing:
-                    for tool_call in tool_calls.values():
-                        contents.append(
-                            ToolUseBlock(
-                                type=tool_call["type"],
-                                id=tool_call["id"],
-                                name=tool_call["name"],
-                                input=_json_loads_with_repair(
-                                    tool_call["input"] or "{}",
-                                ),
-                            ),
-                        )
+                for tool_call in tool_calls.values():
+                    input_str = tool_call["input"]
+                    # Only add intermediate tool use blocks if
+                    # intermediate_tool_parsing is True
+                    if self.intermediate_tool_parsing:
+                        input_obj = _json_loads_with_repair(input_str) or {}
+                    else:
+                        input_obj = {}
+
+                    contents.append(
+                        ToolUseBlock(
+                            type=tool_call["type"],
+                            id=tool_call["id"],
+                            name=tool_call["name"],
+                            input=input_obj,
+                            raw_input=input_str,
+                        ),
+                    )
 
                 if contents:
                     res = ChatResponse(

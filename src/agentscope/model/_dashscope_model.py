@@ -352,28 +352,32 @@ class DashScopeChatModel(ChatModelBase):
                     ),
                 )
 
-            # Only add intermediate tool use blocks if
-            # intermediate_tool_parsing is True
-            if self.intermediate_tool_parsing:
-                for tool_call in acc_tool_calls.values():
+            for tool_call in acc_tool_calls.values():
+                # Only add intermediate tool use blocks if
+                # intermediate_tool_parsing is True
+                input_str = tool_call.get("arguments")
+                if self.intermediate_tool_parsing:
                     repaired_input = _json_loads_with_repair(
-                        tool_call.get("arguments", "{}") or "{}",
+                        input_str or "{}",
                     )
+                else:
+                    repaired_input = {}
 
-                    if not isinstance(repaired_input, dict):
-                        repaired_input = {}
+                if not isinstance(repaired_input, dict):
+                    repaired_input = {}
 
-                    content_blocks.append(
-                        ToolUseBlock(
-                            type="tool_use",
-                            id=tool_call.get("id", ""),
-                            name=tool_call.get("name", ""),
-                            input=repaired_input,
-                        ),
-                    )
+                content_blocks.append(
+                    ToolUseBlock(
+                        type="tool_use",
+                        id=tool_call.get("id", ""),
+                        name=tool_call.get("name", ""),
+                        input=repaired_input,
+                        raw_input=input_str,
+                    ),
+                )
 
-                    if structured_model:
-                        metadata = repaired_input
+                if structured_model:
+                    metadata = repaired_input
 
             usage = None
             if chunk.usage:
@@ -397,8 +401,9 @@ class DashScopeChatModel(ChatModelBase):
 
             # Add complete tool use blocks
             for tool_call in acc_tool_calls.values():
+                raw_input = tool_call.get("arguments", "{}")
                 repaired_input = _json_loads_with_repair(
-                    tool_call.get("arguments", "{}") or "{}",
+                    raw_input or "{}",
                 )
 
                 if not isinstance(repaired_input, dict):
@@ -410,6 +415,7 @@ class DashScopeChatModel(ChatModelBase):
                         id=tool_call.get("id", ""),
                         name=tool_call.get("name", ""),
                         input=repaired_input,
+                        raw_input=raw_input,
                     ),
                 )
 
