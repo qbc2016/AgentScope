@@ -48,14 +48,12 @@ class LiveEventType(str, Enum):
     # Turn management
     RESPONSE_STARTED = "response_started"
     RESPONSE_DONE = "response_done"
-    TURN_COMPLETE = "turn_complete"
 
     # Tool calling
     TOOL_CALL = "tool_call"
 
     # Voice activity detection
     SPEECH_STARTED = "speech_started"
-    SPEECH_STOPPED = "speech_stopped"
 
     # Interruption (Gemini specific)
     INTERRUPTED = "interrupted"
@@ -300,10 +298,7 @@ class WebSocketVoiceModelBase(ABC):
             self.response_cancelled = False
 
         # Response done
-        elif event_type in (
-            LiveEventType.RESPONSE_DONE,
-            LiveEventType.TURN_COMPLETE,
-        ):
+        elif event_type == LiveEventType.RESPONSE_DONE:
             self.is_responding = False
 
         # Speech started (VAD) - cancel current response

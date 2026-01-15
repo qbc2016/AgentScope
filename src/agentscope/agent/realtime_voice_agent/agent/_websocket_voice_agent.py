@@ -340,10 +340,7 @@ class WebSocketVoiceAgent(StateModule):
                             )
 
                 # Handle response complete
-                elif event_type in (
-                    LiveEventType.RESPONSE_DONE,
-                    LiveEventType.TURN_COMPLETE,
-                ):
+                elif event_type in (LiveEventType.RESPONSE_DONE,):
                     await self._finalize_response()
 
                 # Handle errors

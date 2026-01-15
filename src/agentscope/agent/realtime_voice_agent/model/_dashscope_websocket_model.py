@@ -317,13 +317,6 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
                 is_last=True,
             )
 
-        # Turn events
-        elif event_type == "response.output_item.done":
-            return LiveEvent(
-                type=LiveEventType.TURN_COMPLETE,
-                is_last=True,
-            )
-
         # Error events
         elif event_type == "error":
             error_msg = msg.get("error", {}).get("message", "Unknown error")
