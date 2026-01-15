@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VoiceAgent - 实时语音助手</title>
+    <title>VoiceAgent - Realtime Voice Assistant</title>
     <style>
         * {
             margin: 0;
@@ -250,28 +250,28 @@
     <div class="container">
         <header>
             <h1>🎙️ VoiceAgent</h1>
-            <p class="subtitle">实时语音对话助手</p>
+            <p class="subtitle">Realtime Voice Assistant</p>
         </header>
 
         <div class="status-bar">
             <div class="status-item">
                 <div class="status-dot" id="connectionStatus"></div>
-                <span id="connectionText">未连接</span>
+                <span id="connectionText">Disconnected</span>
             </div>
             <div class="status-item">
                 <div class="status-dot" id="recordingStatus"></div>
-                <span id="recordingText">待机</span>
+                <span id="recordingText">Standby</span>
             </div>
             <div class="status-item">
                 <div class="status-dot" id="playingStatus"></div>
-                <span id="playingText">静音</span>
+                <span id="playingText">Muted</span>
             </div>
         </div>
 
         <div class="chat-container" id="chatContainer">
             <div class="message assistant">
-                <div class="name">系统</div>
-                <div class="content">点击下方按钮连接语音助手</div>
+                <div class="name">System</div>
+                <div class="content">Click the button below to connect to the voice assistant</div>
             </div>
         </div>
 
@@ -281,7 +281,7 @@
 
         <div class="controls">
             <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">
-                🔌 连接
+                🔌 Connect
             </button>
             <button class="mic-button" id="micBtn" onclick="toggleRecording()" disabled>
                 <svg class="mic-icon" viewBox="0 0 24 24">
@@ -289,10 +289,10 @@
                 </svg>
             </button>
             <button class="btn btn-warning" id="interruptBtn" onclick="interrupt()" disabled>
-                ✋ 打断
+                ✋ Interrupt
             </button>
             <button class="btn btn-danger" id="disconnectBtn" onclick="disconnect()" disabled>
-                ⏹️ 断开
+                ⏹️ Disconnect
             </button>
         </div>
 
@@ -394,7 +394,7 @@
             if (ws && isConnected) {
                 ws.send(JSON.stringify({ type: 'control', action: 'interrupt' }));
                 stopAudioPlayback();
-                addMessage('system', '🛑 已打断当前响应');
+                addMessage('system', '🛑 Current response interrupted');
             }
         }
 
@@ -410,7 +410,7 @@
                     handleAudio(data);
                     break;
                 case 'error':
-                    addSystemMessage('错误: ' + data.message);
+                    addSystemMessage('Error: ' + data.message);
                     break;
             }
         }
@@ -421,12 +421,12 @@
         function handleEvent(data) {
             switch (data.event) {
                 case 'connected':
-                    addSystemMessage('已连接到服务器，正在初始化...');
+                    addSystemMessage('Connected to server, initializing...');
                     break;
                 case 'ready':
                     isConnected = true;
                     updateConnectionStatus(true);
-                    addSystemMessage('语音助手已就绪，点击麦克风开始对话');
+                    addSystemMessage('Voice assistant ready. Click the microphone to start');
                     document.getElementById('micBtn').disabled = false;
                     document.getElementById('disconnectBtn').disabled = false;
                     document.getElementById('interruptBtn').disabled = false;
@@ -701,10 +701,10 @@
             const text = document.getElementById('connectionText');
             if (connected) {
                 dot.classList.add('connected');
-                text.textContent = '已连接';
+                text.textContent = 'Connected';
             } else {
                 dot.classList.remove('connected');
-                text.textContent = '未连接';
+                text.textContent = 'Disconnect';
             }
         }
 
@@ -713,10 +713,10 @@
             const text = document.getElementById('recordingText');
             if (recording) {
                 dot.classList.add('recording');
-                text.textContent = '录音中';
+                text.textContent = 'Recording';
             } else {
                 dot.classList.remove('recording');
-                text.textContent = '待机';
+                text.textContent = 'Standby';
             }
         }
 
@@ -725,10 +725,10 @@
             const text = document.getElementById('playingText');
             if (playing) {
                 dot.classList.add('playing');
-                text.textContent = '播放中';
+                text.textContent = 'Playing';
             } else {
                 dot.classList.remove('playing');
-                text.textContent = '静音';
+                text.textContent = 'Muted';
             }
         }
 
@@ -737,7 +737,7 @@
             const div = document.createElement('div');
             div.className = 'message assistant';
             div.innerHTML = `
-                <div class="name">系统</div>
+                <div class="name">System</div>
                 <div class="content">${content}</div>
             `;
             container.appendChild(div);
