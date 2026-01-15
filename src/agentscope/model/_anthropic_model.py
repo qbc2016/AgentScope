@@ -459,21 +459,14 @@ class AnthropicChatModel(ChatModelBase):
                             text=text_buffer,
                         ),
                     )
-
                 for block_index, tool_call in tool_calls.items():
                     input_str = tool_call["input"]
                     # Only add intermediate tool use blocks if
                     # intermediate_tool_parsing is True
                     if self.intermediate_tool_parsing:
-                        try:
-                            input_obj = _json_loads_with_repair(
-                                input_str or "{}",
-                            )
-                            if not isinstance(input_obj, dict):
-                                input_obj = {}
-
-                        except Exception:
-                            input_obj = {}
+                        input_obj = _json_loads_with_repair(
+                            input_str or "{}",
+                        )
                     else:
                         input_obj = {}
 
@@ -488,7 +481,6 @@ class AnthropicChatModel(ChatModelBase):
                     )
                     if structured_model:
                         metadata = input_obj
-
                 if contents:
                     res = ChatResponse(
                         content=contents,

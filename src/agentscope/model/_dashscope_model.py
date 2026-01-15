@@ -363,9 +363,6 @@ class DashScopeChatModel(ChatModelBase):
                 else:
                     repaired_input = {}
 
-                if not isinstance(repaired_input, dict):
-                    repaired_input = {}
-
                 content_blocks.append(
                     ToolUseBlock(
                         type="tool_use",

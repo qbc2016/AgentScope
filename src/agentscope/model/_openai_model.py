@@ -438,7 +438,7 @@ class OpenAIChatModel(ChatModelBase):
                     # Only add intermediate tool use blocks if
                     # intermediate_tool_parsing is True
                     if self.intermediate_tool_parsing:
-                        input_obj = _json_loads_with_repair(input_str) or {}
+                        input_obj = _json_loads_with_repair(input_str)
                     else:
                         input_obj = {}
 
