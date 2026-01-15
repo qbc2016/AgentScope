@@ -130,7 +130,7 @@ class VoiceMsgHub:
         for voice_input in self._voice_inputs:
             voice_input.set_msg_stream(self._msg_stream)
         for agent in self._agents:
-            agent.set_msg_stream(self._msg_stream)
+            agent.msg_stream = self._msg_stream
 
         # Start voice inputs
         for voice_input in self._voice_inputs:

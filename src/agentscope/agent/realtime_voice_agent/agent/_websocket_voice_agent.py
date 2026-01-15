@@ -114,8 +114,15 @@ class WebSocketVoiceAgent(StateModule):
         if self._initialized:
             return
 
+        if self.toolkit:
+            tools = self.toolkit.get_json_schemas()
+        else:
+            tools = None
         # Initialize the model (connects WebSocket)
-        await self.model.initialize()
+        await self.model.initialize(
+            instructions=self.sys_prompt,
+            tools=tools,
+        )
 
         # Start listening for model events
         self._listen_task = asyncio.create_task(self._listen_loop())

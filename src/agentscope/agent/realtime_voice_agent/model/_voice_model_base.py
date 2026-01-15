@@ -54,6 +54,7 @@ class LiveEventType(str, Enum):
 
     # Voice activity detection
     SPEECH_STARTED = "speech_started"
+    SPEECH_STOPPED = "speech_stopped"
 
     # Interruption (Gemini specific)
     INTERRUPTED = "interrupted"
@@ -168,12 +169,19 @@ class WebSocketVoiceModelBase(ABC):
         """
 
     @abstractmethod
-    def _build_session_config(self) -> str:
+    def _build_session_config(self, **kwargs: Any) -> str:
         """Build session configuration message.
 
         Returns:
             JSON string to send after connection.
         """
+
+    def _format_toolkit_schema(
+        self,
+        schemas: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Format the tools JSON schema into required format."""
+        raise NotImplementedError
 
     @abstractmethod
     def _format_audio_message(self, audio_b64: str) -> str:
@@ -232,7 +240,7 @@ class WebSocketVoiceModelBase(ABC):
     # Connection Management
     # =========================================================================
 
-    async def initialize(self) -> None:
+    async def initialize(self, **kwargs: Any) -> None:
         """Initialize the model connection."""
         if self._initialized:
             return
@@ -259,7 +267,7 @@ class WebSocketVoiceModelBase(ABC):
         self._receive_task = asyncio.create_task(self._receive_loop())
 
         # Send session configuration
-        config_msg = self._build_session_config()
+        config_msg = self._build_session_config(**kwargs)
         await self._websocket.send(config_msg)
 
         self._initialized = True

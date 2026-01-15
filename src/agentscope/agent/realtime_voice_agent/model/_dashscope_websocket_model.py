@@ -131,8 +131,9 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             "X-DashScope-DataInspection": "disable",
         }
 
-    def _build_session_config(self) -> str:
+    def _build_session_config(self, **kwargs: Any) -> str:
         """Build DashScope session configuration message."""
+
         session_config: dict[str, Any] = {
             "modalities": ["audio", "text"],
             "input_audio_format": self.input_audio_format,
@@ -142,8 +143,16 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             "input_audio_transcription": {
                 "model": "gummy-realtime-v1",
             },
+            **kwargs,
             **self.generate_kwargs,
         }
+
+        tools = session_config.pop("tools", [])
+        if tools:
+            raise NotImplementedError(
+                "Tool calling is not supported for DashScope WebSocket model.",
+            )
+            # setup["tools"] = self._format_toolkit_schema(tools)
 
         if self.vad_enabled:
             session_config["turn_detection"] = {
