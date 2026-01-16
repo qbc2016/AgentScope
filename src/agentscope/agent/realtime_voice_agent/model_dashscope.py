@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""DashScope WebSocket-based real-time voice model.
+# pylint: disable=too-many-return-statements, too-many-branches
+"""DashScope WebSocket-based real-time voice model with callback pattern.
 
-This implementation connects directly to DashScope's WebSocket API
-and handles message formatting internally without a separate Formatter layer.
+This implementation uses the callback-based architecture where:
+- API messages are parsed to ModelEvents
+- ModelEvents are emitted via callback to Agent
 """
 
 import json
@@ -10,15 +12,28 @@ from typing import Any
 
 import numpy as np
 
-from ...._logging import logger
-from ....message import AudioBlock, TextBlock, Base64Source
+from ..._logging import logger
+from ...types import JSONSerializableObject
 
-from ._voice_model_base import (
-    WebSocketVoiceModelBase,
-    LiveEvent,
-    LiveEventType,
+from .model import RealtimeVoiceModelBase
+from .events import (
+    ModelEvent,
+    ModelEventType,
+    ModelSessionCreated,
+    ModelSessionUpdated,
+    ModelResponseCreated,
+    ModelResponseAudioDelta,
+    ModelResponseAudioDone,
+    ModelResponseAudioTranscriptDelta,
+    ModelResponseAudioTranscriptDone,
+    ModelResponseToolUseDelta,
+    ModelResponseToolUseDone,
+    ModelResponseDone,
+    ModelInputTranscriptionDone,
+    ModelInputStarted,
+    ModelInputDone,
+    ModelError,
 )
-from ....types import JSONSerializableObject
 
 
 def _resample_audio(
@@ -53,25 +68,34 @@ def _resample_audio(
     return resampled.astype(np.int16).tobytes()
 
 
-class DashScopeWebSocketModel(WebSocketVoiceModelBase):
-    """DashScope real-time voice model using WebSocket.
+class DashScopeRealtimeModel(RealtimeVoiceModelBase):
+    """DashScope real-time voice model using callback pattern.
 
-    Connects directly to DashScope's Realtime API via WebSocket.
+    This model:
+    - Connects to DashScope Realtime API via WebSocket
+    - Parses API messages to unified ModelEvents
+    - Emits ModelEvents via callback to Agent
 
     Features:
     - PCM audio input (16kHz mono)
     - PCM audio output (24kHz mono)
     - Server-side VAD (Voice Activity Detection)
     - Input audio transcription
-    - Tool calling support
 
-    Usage:
-        model = DashScopeWebSocketModel(
+    Example:
+        ```python
+        model = DashScopeRealtimeModel(
             api_key="your-api-key",
             model_name="qwen3-omni-flash-realtime",
             voice="Cherry",
         )
-        await model.initialize()
+
+        def on_event(event: ModelEvent):
+            print(f"Event: {event.type}")
+
+        model.agent_callback = on_event
+        await model.start()
+        ```
     """
 
     WEBSOCKET_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
@@ -89,7 +113,7 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
         output_sample_rate: int = 24000,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
-        """Initialize the DashScope WebSocket model.
+        """Initialize the DashScope callback model.
 
         Args:
             api_key: DashScope API key.
@@ -101,6 +125,7 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             input_sample_rate: Input sample rate in Hz (default: 16000).
             output_audio_format: Output audio format (default: pcm).
             output_sample_rate: Output sample rate in Hz (default: 24000).
+            generate_kwargs: Additional generation parameters.
         """
         super().__init__(
             api_key=api_key,
@@ -114,6 +139,10 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
         self.output_audio_format = output_audio_format
         self.output_sample_rate = output_sample_rate
         self.generate_kwargs = generate_kwargs or {}
+
+        # Track current response/item IDs
+        self._current_response_id: str | None = None
+        self._current_item_id: str | None = None
 
     @property
     def provider_name(self) -> str:
@@ -133,26 +162,17 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
 
     def _build_session_config(self, **kwargs: Any) -> str:
         """Build DashScope session configuration message."""
-
         session_config: dict[str, Any] = {
             "modalities": ["audio", "text"],
             "input_audio_format": self.input_audio_format,
             "output_audio_format": self.output_audio_format,
             "voice": self.voice,
-            "instructions": self.instructions,
+            "instructions": kwargs.get("instructions", self.instructions),
             "input_audio_transcription": {
                 "model": "gummy-realtime-v1",
             },
-            **kwargs,
             **self.generate_kwargs,
         }
-
-        tools = session_config.pop("tools", [])
-        if tools:
-            raise NotImplementedError(
-                "Tool calling is not supported for DashScope WebSocket model.",
-            )
-            # setup["tools"] = self._format_toolkit_schema(tools)
 
         if self.vad_enabled:
             session_config["turn_detection"] = {
@@ -181,20 +201,6 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
         """Format cancel response message."""
         return json.dumps({"type": "response.cancel"})
 
-    def _preprocess_audio(
-        self,
-        audio_data: bytes,
-        sample_rate: int | None,
-    ) -> bytes:
-        """Resample audio if needed."""
-        if sample_rate and sample_rate != self.input_sample_rate:
-            return _resample_audio(
-                audio_data,
-                sample_rate,
-                self.input_sample_rate,
-            )
-        return audio_data
-
     def _format_tool_result_message(
         self,
         tool_id: str,
@@ -213,135 +219,161 @@ class DashScopeWebSocketModel(WebSocketVoiceModelBase):
             },
         )
 
-    async def create_response(self) -> None:
-        """Trigger model to generate a response.
+    def _preprocess_audio(
+        self,
+        audio_data: bytes,
+        sample_rate: int | None,
+    ) -> bytes:
+        """Resample audio if needed."""
+        if sample_rate and sample_rate != self.input_sample_rate:
+            return _resample_audio(
+                audio_data,
+                sample_rate,
+                self.input_sample_rate,
+            )
+        return audio_data
 
-        This is useful for non-VAD mode where you want to manually
-        trigger the model to respond after receiving audio input.
-        """
+    async def create_response(self) -> None:
+        """Trigger model to generate a response."""
         if not self._websocket:
-            raise RuntimeError("Not initialized")
+            raise RuntimeError("Not started")
 
         response_create = json.dumps({"type": "response.create"})
         await self._websocket.send(response_create)
 
-    # pylint: disable=too-many-return-statements, too-many-branches
-    # pylint: disable=too-many-nested-blocks
-    def _parse_server_message(self, message: str) -> LiveEvent:
-        """Parse DashScope server message to LiveEvent."""
+    def _parse_server_message(self, message: str) -> ModelEvent:
+        """Parse DashScope server message to ModelEvent."""
         try:
             msg = json.loads(message)
         except json.JSONDecodeError as e:
             logger.warning("Failed to parse DashScope message: %s", e)
-            return LiveEvent(
-                type=LiveEventType.ERROR,
-                metadata={"error_message": f"JSON parse error: {e}"},
+            return ModelError(
+                error_type="parse_error",
+                code="JSON_PARSE_ERROR",
+                message=f"JSON parse error: {e}",
             )
 
         event_type = msg.get("type", "")
 
         # Session events
         if event_type == "session.created":
-            return LiveEvent(
-                type=LiveEventType.SESSION_CREATED,
-                is_last=True,
-                metadata=msg.get("session", {}),
-            )
+            session_id = msg.get("session", {}).get("id", "")
+            return ModelSessionCreated(session_id=session_id)
 
         elif event_type == "session.updated":
-            return LiveEvent(
-                type=LiveEventType.SESSION_UPDATED,
-                is_last=True,
-                metadata=msg.get("session", {}),
-            )
+            session_id = msg.get("session", {}).get("id", "")
+            return ModelSessionUpdated(session_id=session_id)
 
         # Response events
         elif event_type == "response.created":
-            return LiveEvent(
-                type=LiveEventType.RESPONSE_STARTED,
-                is_last=True,
-            )
+            response = msg.get("response", {})
+            response_id = response.get("id", "")
+            self._current_response_id = response_id
+            return ModelResponseCreated(response_id=response_id)
 
         elif event_type == "response.done":
-            return LiveEvent(
-                type=LiveEventType.RESPONSE_DONE,
-                is_last=True,
+            response = msg.get("response", {})
+            response_id = response.get("id", self._current_response_id or "")
+            usage = response.get("usage", {})
+            return ModelResponseDone(
+                response_id=response_id,
+                input_tokens=usage.get("input_tokens", 0),
+                output_tokens=usage.get("output_tokens", 0),
             )
 
-        # Audio events
+        # Audio delta
         elif event_type == "response.audio.delta":
             audio_data = msg.get("delta", "")
-            return LiveEvent(
-                type=LiveEventType.AUDIO_DELTA,
-                content=[
-                    AudioBlock(
-                        type="audio",
-                        source=Base64Source(
-                            type="base64",
-                            media_type=f"audio/pcm;"
-                            f"rate={self.output_sample_rate}",
-                            data=audio_data,
-                        ),
-                    ),
-                ],
+            return ModelResponseAudioDelta(
+                response_id=self._current_response_id or "",
+                delta=audio_data,
+                item_id=msg.get("item_id"),
+                content_index=msg.get("content_index"),
+                output_index=msg.get("output_index"),
             )
 
-        # Text/transcript events
+        elif event_type == "response.audio.done":
+            return ModelResponseAudioDone(
+                response_id=self._current_response_id or "",
+                item_id=msg.get("item_id"),
+                content_index=msg.get("content_index"),
+                output_index=msg.get("output_index"),
+            )
+
+        # Transcript delta
         elif event_type == "response.audio_transcript.delta":
             text = msg.get("delta", "")
-            return LiveEvent(
-                type=LiveEventType.OUTPUT_TRANSCRIPTION,
-                content=[TextBlock(type="text", text=text)],
+            return ModelResponseAudioTranscriptDelta(
+                response_id=self._current_response_id or "",
+                delta=text,
+                item_id=msg.get("item_id"),
+                content_index=msg.get("content_index"),
+                output_index=msg.get("output_index"),
             )
 
-        elif event_type == "response.text.delta":
-            text = msg.get("delta", "")
-            return LiveEvent(
-                type=LiveEventType.TEXT_DELTA,
-                content=[TextBlock(type="text", text=text)],
+        elif event_type == "response.audio_transcript.done":
+            return ModelResponseAudioTranscriptDone(
+                response_id=self._current_response_id or "",
+                item_id=msg.get("item_id"),
+                content_index=msg.get("content_index"),
+                output_index=msg.get("output_index"),
             )
 
+        # Tool use events (function calling)
+        elif event_type == "response.function_call_arguments.delta":
+            return ModelResponseToolUseDelta(
+                response_id=self._current_response_id or "",
+                call_id=msg.get("call_id", ""),
+                delta=msg.get("delta", ""),
+                item_id=msg.get("item_id"),
+                output_index=msg.get("output_index"),
+                name=msg.get("name"),
+            )
+
+        elif event_type == "response.function_call_arguments.done":
+            return ModelResponseToolUseDone(
+                response_id=self._current_response_id or "",
+                call_id=msg.get("call_id", ""),
+                item_id=msg.get("item_id"),
+                output_index=msg.get("output_index"),
+            )
+
+        # Input transcription
         elif (
             event_type
             == "conversation.item.input_audio_transcription.completed"
         ):
             text = msg.get("transcript", "")
             logger.info("User said: %s", text)
-            return LiveEvent(
-                type=LiveEventType.INPUT_TRANSCRIPTION,
-                content=[TextBlock(type="text", text=text)],
-                is_last=True,
+            return ModelInputTranscriptionDone(
+                transcript=text,
+                item_id=msg.get("item_id"),
             )
 
         # VAD events
         elif event_type == "input_audio_buffer.speech_started":
-            return LiveEvent(
-                type=LiveEventType.SPEECH_STARTED,
-                is_last=True,
+            return ModelInputStarted(
+                item_id=msg.get("item_id", ""),
+                audio_start_ms=msg.get("audio_start_ms", 0),
             )
 
         elif event_type == "input_audio_buffer.speech_stopped":
-            return LiveEvent(
-                type=LiveEventType.SPEECH_STOPPED,
-                is_last=True,
+            return ModelInputDone(
+                item_id=msg.get("item_id", ""),
+                audio_end_ms=msg.get("audio_end_ms", 0),
             )
 
         # Error events
         elif event_type == "error":
-            error_msg = msg.get("error", {}).get("message", "Unknown error")
-            error_code = msg.get("error", {}).get("code")
-            return LiveEvent(
-                type=LiveEventType.ERROR,
-                metadata={
-                    "error_message": error_msg,
-                    "error_code": error_code,
-                },
+            error = msg.get("error", {})
+            return ModelError(
+                error_type=error.get("type", "unknown"),
+                code=error.get("code", "UNKNOWN"),
+                message=error.get("message", "Unknown error"),
             )
 
-        # Unknown event
+        # Unknown event - return generic event
         else:
             logger.debug("Unknown DashScope event type: %s", event_type)
-            return LiveEvent(
-                type=LiveEventType.UNKNOWN,
-                metadata=msg,
-            )
+            # Return a generic session event for unknown types
+            return ModelEvent(type=ModelEventType.SESSION_UPDATED)

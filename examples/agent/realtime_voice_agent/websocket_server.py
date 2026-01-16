@@ -1,17 +1,23 @@
 # -*- coding: utf-8 -*-
-"""WebSocket server using WebSocketVoiceAgent.
+"""WebSocket server using Callback-based Voice Agent.
 
-This example demonstrates the correct architecture:
-- WebSocketVoiceAgent: High-level agent with Memory and Toolkit support
-- DashScopeWebSocketModel: WebSocket model for DashScope
-- Unified event handling
+This example demonstrates the new callback-based architecture:
+- RealtimeVoiceAgent: Agent with incoming_queue and callback pattern
+- DashScopeRealtimeModel: Model that emits ModelEvents via callback
+- EventMsgStream: Central queue with dispatch_loop
+- ModelEvent/AgentEvent: Unified event system
 
 Architecture:
-    Browser → FastAPI WebSocket → WebSocketVoiceAgent →
-    DashScopeWebSocketModel → DashScope
+    Browser → FastAPI WebSocket → EventMsgStream
+                                      ↓
+    DashScope ← Model ← Agent ← dispatch_loop
+                  ↓         ↓
+              callback   incoming_queue
+                  ↓         ↓
+        ModelEvents → AgentEvents → MsgStream.queue → dispatch → Browser
 
 Usage:
-    uvicorn websocket_server:app --host 0.0.0.0 --port 8000
+    uvicorn websocket_server_v2:app --host 0.0.0.0 --port 8000
 
 Requirements:
     pip install fastapi uvicorn websockets
@@ -20,38 +26,117 @@ Requirements:
 import asyncio
 import base64
 import os
-from typing import Optional
+import dataclasses
+from typing import Optional, Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
-# Agent and Model imports
-from agentscope.agent.realtime_voice_agent import WebSocketVoiceAgent
-from agentscope.agent.realtime_voice_agent.model import DashScopeWebSocketModel
-from agentscope.agent.realtime_voice_agent._utils import MsgStream, create_msg
-from agentscope.memory import InMemoryMemory
+# Live Voice Agent imports
+from agentscope.agent.realtime_voice_agent import (
+    RealtimeVoiceAgent,
+    DashScopeRealtimeModel,
+    EventMsgStream,
+    AgentEvent,
+    AgentEventType,
+    AgentSessionCreated,
+    AgentResponseCreated,
+    AgentResponseDelta,
+    AgentResponseDone,
+    AgentInputTranscriptionDelta,
+    AgentInputTranscriptionDone,
+    AgentInputStarted,
+    AgentInputDone,
+    AgentError,
+    TextBlock,
+    AudioBlock,
+)
 from agentscope import logger
 
-app = FastAPI(title="VoiceAgent WebSocket Server")
+app = FastAPI(title="VoiceAgent WebSocket Server V2")
 
 
-class WebSocketVoiceSession:
-    """Voice session using WebSocketVoiceAgent.
+def event_to_dict(event: AgentEvent) -> dict[str, Any]:
+    """Convert AgentEvent to JSON-serializable dict for WebSocket."""
+    result: dict[str, Any] = {
+        "type": event.type.value,
+        "agent_id": event.agent_id,
+        "agent_name": event.agent_name,
+    }
+
+    # Add event-specific fields
+    if isinstance(event, AgentSessionCreated):
+        result["session_id"] = event.session_id
+
+    elif isinstance(event, AgentResponseCreated):
+        result["response_id"] = event.response_id
+
+    elif isinstance(event, AgentResponseDelta):
+        result["response_id"] = event.response_id
+        delta = event.delta
+        if isinstance(delta, TextBlock):
+            result["delta"] = {
+                "type": "text",
+                "text": delta.text,
+            }
+        elif isinstance(delta, AudioBlock):
+            result["delta"] = {
+                "type": "audio",
+                "data": delta.data,
+                "media_type": delta.media_type,
+            }
+        else:
+            result["delta"] = dataclasses.asdict(delta)
+
+    elif isinstance(event, AgentResponseDone):
+        result["response_id"] = event.response_id
+
+    elif isinstance(event, AgentInputTranscriptionDelta):
+        result["delta"] = event.delta
+        result["item_id"] = event.item_id
+        result["content_index"] = event.content_index
+
+    elif isinstance(event, AgentInputTranscriptionDone):
+        result["transcription"] = event.transcription
+        result["item_id"] = event.item_id
+
+    elif isinstance(event, AgentInputStarted):
+        result["item_id"] = event.item_id
+        result["audio_start_ms"] = event.audio_start_ms
+
+    elif isinstance(event, AgentInputDone):
+        result["item_id"] = event.item_id
+        result["audio_end_ms"] = event.audio_end_ms
+
+    elif isinstance(event, AgentError):
+        result["error_type"] = event.error_type
+        result["code"] = event.code
+        result["message"] = event.message
+
+    return result
+
+
+class WebSocketVoiceSessionV2:
+    """Voice session using Callback-based Voice Agent.
 
     Architecture:
-    - WebSocketVoiceAgent: Handles Memory, Toolkit, and high-level logic
-    - DashScopeWebSocketModel: WebSocket communication with DashScope
-    - MsgStream: Message queue for Agent-Server communication
+    - RealtimeVoiceAgent: Receives ModelEvents via callback, outputs
+    AgentEvents
+    - DashScopeRealtimeModel: WebSocket communication with DashScope
+    - EventMsgStream: Central queue with dispatch_loop
     """
 
     def __init__(self, session_id: str, websocket: WebSocket):
         self.session_id = session_id
         self.websocket = websocket
-        self.agent: Optional[WebSocketVoiceAgent] = None
-        self.msg_stream: Optional[MsgStream] = None
+        self.agent: Optional[RealtimeVoiceAgent] = None
+        self.msg_stream: Optional[EventMsgStream] = None
         self._running = False
         self._stop_event = asyncio.Event()
         self._tasks: list[asyncio.Task] = []
+
+        # Track accumulated text for streaming display
+        self._accumulated_text: dict[str, str] = {}
 
     async def initialize(self) -> None:
         """Initialize the voice agent and model."""
@@ -59,144 +144,161 @@ class WebSocketVoiceSession:
         if not api_key:
             raise ValueError("DASHSCOPE_API_KEY environment variable not set")
 
-        # 1. Create MsgStream for communication
-        self.msg_stream = MsgStream()
-
-        # 2. Create WebSocket Model
-        model = DashScopeWebSocketModel(
+        # 1. Create WebSocket Model (callback-based)
+        model = DashScopeRealtimeModel(
             api_key=api_key,
             model_name="qwen3-omni-flash-realtime",
             voice="Cherry",
-            instructions="You are a helpful voice assistant."
-            " Keep responses concise.",
+            instructions="You are a helpful voice assistant. "
+            "Keep responses concise.",
             vad_enabled=True,
         )
 
-        # 3. Create Agent with Memory
-        self.agent = WebSocketVoiceAgent(
+        # 2. Create Agent (with incoming_queue)
+        self.agent = RealtimeVoiceAgent(
             name="assistant",
             model=model,
             sys_prompt="You are a helpful voice assistant.",
-            msg_stream=self.msg_stream,
-            memory=InMemoryMemory(),
         )
 
-        # 4. Initialize agent (connects WebSocket)
-        await self.agent.initialize()
+        # 3. Create MsgStream (with dispatch_loop)
+        self.msg_stream = EventMsgStream(
+            agents=[self.agent],
+            queue_max_size=1000,
+        )
+
+        # 4. Register external callback for WebSocket forwarding
+        self.msg_stream.on_event = self._on_agent_event
+
+        # 5. Start MsgStream (which starts agents)
+        await self.msg_stream.start()
+
         self._running = True
         logger.info("Session %s: Agent initialized", self.session_id)
+
+    def _on_agent_event(self, event: AgentEvent) -> None:
+        """Callback for AgentEvents - forward to WebSocket.
+
+        This is called by MsgStream's dispatch_loop for every AgentEvent.
+        """
+        if not self._running:
+            return
+
+        # Schedule async send in event loop
+        asyncio.create_task(self._send_event_to_websocket(event))
+
+    async def _send_event_to_websocket(self, event: AgentEvent) -> None:
+        """Send AgentEvent to WebSocket client."""
+        try:
+            # Convert event to dict
+            event_dict = event_to_dict(event)
+
+            # Handle specific events for frontend compatibility
+            if event.type == AgentEventType.RESPONSE_DELTA:
+                assert isinstance(event, AgentResponseDelta)
+                delta = event.delta
+
+                if isinstance(delta, TextBlock):
+                    # Accumulate text for streaming display
+                    key = f"{event.agent_id}_{event.response_id}"
+                    self._accumulated_text.setdefault(key, "")
+                    self._accumulated_text[key] += delta.text
+
+                    # Send accumulated text (matching old behavior)
+                    await self.websocket.send_json(
+                        {
+                            "type": "text",
+                            "name": event.agent_name,
+                            "data": self._accumulated_text[key],
+                            "is_partial": True,
+                        },
+                    )
+
+                elif isinstance(delta, AudioBlock):
+                    # Send audio directly
+                    await self.websocket.send_json(
+                        {
+                            "type": "audio",
+                            "name": event.agent_name,
+                            "data": delta.data,
+                            "sample_rate": 24000,  # Default PCM rate
+                        },
+                    )
+
+            elif event.type == AgentEventType.RESPONSE_DONE:
+                assert isinstance(event, AgentResponseDone)
+                # Send final text
+                key = f"{event.agent_id}_{event.response_id}"
+                if key in self._accumulated_text:
+                    await self.websocket.send_json(
+                        {
+                            "type": "text",
+                            "name": event.agent_name,
+                            "data": self._accumulated_text[key],
+                            "is_partial": False,
+                        },
+                    )
+                    del self._accumulated_text[key]
+
+                # Send response_end event
+                await self.websocket.send_json(
+                    {
+                        "type": "event",
+                        "event": "response_end",
+                        "name": event.agent_name,
+                    },
+                )
+                logger.info("Session %s: Response complete", self.session_id)
+
+            elif event.type == AgentEventType.SESSION_CREATED:
+                await self.websocket.send_json(
+                    {
+                        "type": "event",
+                        "event": "session_created",
+                        **event_dict,
+                    },
+                )
+
+            elif event.type == AgentEventType.ERROR:
+                assert isinstance(event, AgentError)
+                await self.websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": event.message,
+                        "code": event.code,
+                    },
+                )
+
+            # Log other events
+            elif event.type in (
+                AgentEventType.INPUT_STARTED,
+                AgentEventType.INPUT_DONE,
+            ):
+                logger.debug(
+                    "Session %s: %s event",
+                    self.session_id,
+                    event.type.value,
+                )
+
+        except Exception as e:
+            logger.error(
+                "Session %s: Error sending event: %s",
+                self.session_id,
+                e,
+            )
 
     async def start(self) -> None:
         """Start the session tasks."""
         if not self.agent or not self.msg_stream:
             raise RuntimeError("Session not initialized")
 
-        # Task 1: Forward MsgStream to WebSocket
-        self._tasks.append(
-            asyncio.create_task(self._forward_to_websocket()),
-        )
-
-        # Task 2: Receive from WebSocket and send to Agent
+        # Task: Receive from WebSocket and inject to MsgStream
         self._tasks.append(
             asyncio.create_task(self._receive_from_websocket()),
         )
 
-    async def _forward_to_websocket(self) -> None:
-        """Forward MsgStream messages to WebSocket client."""
-        if not self.msg_stream:
-            return
-
-        logger.info("Session %s: Forward loop started", self.session_id)
-        msg_count = 0
-
-        try:
-            async for msg in self.msg_stream.subscribe(
-                f"forward_{self.session_id}",
-            ):
-                if not self._running:
-                    break
-
-                msg_count += 1
-
-                # Skip user messages (don't echo back)
-                if msg.role == "user":
-                    continue
-
-                # Get metadata
-                is_partial = (
-                    msg.metadata.get("is_partial", True)
-                    if msg.metadata
-                    else True
-                )
-
-                # Process content blocks
-                for block in msg.get_content_blocks():
-                    block_type = block.get("type")
-
-                    if block_type == "text":
-                        # Note: The agent already sends accumulated text,
-                        # so we don't need to accumulate here
-                        text = block.get("text", "")
-
-                        await self.websocket.send_json(
-                            {
-                                "type": "text",
-                                "name": msg.name,
-                                "data": text,
-                                "is_partial": is_partial,
-                            },
-                        )
-
-                        if not is_partial:
-                            # Response complete
-                            await self.websocket.send_json(
-                                {
-                                    "type": "event",
-                                    "event": "response_end",
-                                    "name": msg.name,
-                                },
-                            )
-                            logger.info(
-                                "Session %s: Response complete",
-                                self.session_id,
-                            )
-
-                    elif block_type == "audio":
-                        source = block.get("source", {})
-                        if source.get("type") == "base64":
-                            audio_data = source.get("data", "")
-                            media_type = source.get("media_type", "")
-
-                            sample_rate = 24000
-                            if "rate=" in media_type:
-                                try:
-                                    rate_str = media_type.split("rate=")[
-                                        1
-                                    ].split(";")[0]
-                                    sample_rate = int(rate_str)
-                                except (ValueError, IndexError):
-                                    pass
-
-                            await self.websocket.send_json(
-                                {
-                                    "type": "audio",
-                                    "name": msg.name,
-                                    "data": audio_data,
-                                    "sample_rate": sample_rate,
-                                },
-                            )
-
-        except Exception as e:
-            logger.error("Session %s: Forward error: %s", self.session_id, e)
-        finally:
-            logger.info(
-                "Session %s: Forward loop ended (%d messages)",
-                self.session_id,
-                msg_count,
-            )
-
     async def _receive_from_websocket(self) -> None:
-        """Receive audio from WebSocket and send to MsgStream."""
+        """Receive audio from WebSocket and send to Agent's model."""
         if not self.agent:
             return
 
@@ -211,7 +313,7 @@ class WebSocketVoiceSession:
                     )
 
                     if data.get("type") == "audio":
-                        # Decode audio and push to MsgStream
+                        # Decode audio and send directly to model
                         audio_bytes = base64.b64decode(data["data"])
                         sample_rate = data.get("sample_rate", 16000)
 
@@ -224,15 +326,8 @@ class WebSocketVoiceSession:
                                 len(audio_bytes),
                             )
 
-                        # Push audio to MsgStream for Agent to consume
-                        if self.msg_stream:
-                            audio_msg = create_msg(
-                                name="user",
-                                role="user",
-                                audio_data=audio_bytes,
-                                sample_rate=sample_rate,
-                            )
-                            await self.msg_stream.push(audio_msg)
+                        # Send audio directly to model
+                        self.agent.model.send_audio(audio_bytes, sample_rate)
 
                     elif data.get("type") == "control":
                         action = data.get("action")
@@ -279,17 +374,13 @@ class WebSocketVoiceSession:
                     pass
         self._tasks.clear()
 
-        # Close the agent (closes model internally)
-        if self.agent:
-            await self.agent.close()
-
-        # Close MsgStream
+        # Stop MsgStream (which stops agents)
         if self.msg_stream:
-            await self.msg_stream.close()
+            await self.msg_stream.stop()
 
 
 # Store active sessions
-sessions: dict[str, WebSocketVoiceSession] = {}
+sessions: dict[str, WebSocketVoiceSessionV2] = {}
 
 
 @app.websocket("/ws/voice/{session_id}")
@@ -298,7 +389,7 @@ async def voice_websocket(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     logger.info("Session %s: WebSocket connected", session_id)
 
-    session = WebSocketVoiceSession(session_id, websocket)
+    session = WebSocketVoiceSessionV2(session_id, websocket)
 
     try:
         await websocket.send_json(
@@ -366,6 +457,7 @@ async def get_frontend() -> str:
             <p>WebSocket endpoint: ws://localhost:8000/ws/voice/{
             session_id}</p>
             <p>Please use websocket_client.html for the full frontend.</p>
+            <p><b>Architecture:</b> Callback-based ModelEvent/AgentEvent</p>
         </body>
     </html>
     """
@@ -376,6 +468,7 @@ async def health_check() -> dict:
     """Health check endpoint."""
     return {
         "status": "healthy",
+        "version": "realtime_voice_agent",
         "active_sessions": len(sessions),
         "session_ids": list(sessions.keys()),
     }

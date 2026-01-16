@@ -1,38 +1,108 @@
 # -*- coding: utf-8 -*-
-"""The realtime voice agent modules.
+"""Live voice agent module with callback-based architecture.
 
-Provides:
-- WebSocketVoiceAgent: WebSocket-based voice agent for real-time voice
-- WebSocketVoiceModelBase: Base class for all WebSocket voice models
-- DashScopeWebSocketModel, GeminiWebSocketModel, OpenAIWebSocketModel
-- RealtimeVoiceInput, MsgStream, VoiceMsgHub
+This module provides:
+- RealtimeVoiceAgent: Agent with incoming_queue and callback pattern
+- RealtimeVoiceModelBase: Base class for callback-based models
+- DashScopeRealtimeModel: DashScope implementation
+- EventMsgStream: Central queue with dispatch loop
+- ModelEvent/AgentEvent: Unified event system
 """
 
-from .agent import WebSocketVoiceAgent
-from .model import (
-    WebSocketVoiceModelBase,
-    DashScopeWebSocketModel,
-    # GeminiWebSocketModel,
-    # OpenAIWebSocketModel,
-    LiveEvent,
-    LiveEventType,
+from .events import (
+    # Model Event Types
+    ModelEventType,
+    ModelEvent,
+    ModelSessionCreated,
+    ModelSessionUpdated,
+    ModelResponseCreated,
+    ModelResponseAudioDelta,
+    ModelResponseAudioDone,
+    ModelResponseAudioTranscriptDelta,
+    ModelResponseAudioTranscriptDone,
+    ModelResponseToolUseDelta,
+    ModelResponseToolUseDone,
+    ModelResponseDone,
+    ModelInputTranscriptionDelta,
+    ModelInputTranscriptionDone,
+    ModelInputStarted,
+    ModelInputDone,
+    ModelError,
+    ModelWebSocketConnect,
+    ModelWebSocketDisconnect,
+    # Agent Event Types
+    AgentEventType,
+    AgentEvent,
+    AgentSessionCreated,
+    AgentSessionUpdated,
+    AgentResponseCreated,
+    AgentResponseDelta,
+    AgentResponseDone,
+    AgentInputTranscriptionDelta,
+    AgentInputTranscriptionDone,
+    AgentInputStarted,
+    AgentInputDone,
+    AgentError,
+    # Content Blocks
+    TextBlock,
+    AudioBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+    ContentBlock,
 )
-from ._utils import RealtimeVoiceInput, MsgStream, VoiceMsgHub
+
+from .model import RealtimeVoiceModelBase, ModelEventCallback
+from .model_dashscope import DashScopeRealtimeModel
+from .agent import RealtimeVoiceAgent
+from .msg_stream import EventMsgStream, ExternalEventCallback
 
 __all__ = [
-    # Agents
-    "WebSocketVoiceAgent",
-    # Base class
-    "WebSocketVoiceModelBase",
-    # Event types
-    "LiveEvent",
-    "LiveEventType",
-    # WebSocket models
-    "DashScopeWebSocketModel",
-    # "GeminiWebSocketModel",
-    # "OpenAIWebSocketModel",
-    # Utils
-    "RealtimeVoiceInput",
-    "MsgStream",
-    "VoiceMsgHub",
+    # Model
+    "RealtimeVoiceModelBase",
+    "DashScopeRealtimeModel",
+    "ModelEventCallback",
+    # Agent
+    "RealtimeVoiceAgent",
+    # MsgStream
+    "EventMsgStream",
+    "ExternalEventCallback",
+    # Model Events
+    "ModelEventType",
+    "ModelEvent",
+    "ModelSessionCreated",
+    "ModelSessionUpdated",
+    "ModelResponseCreated",
+    "ModelResponseAudioDelta",
+    "ModelResponseAudioDone",
+    "ModelResponseAudioTranscriptDelta",
+    "ModelResponseAudioTranscriptDone",
+    "ModelResponseToolUseDelta",
+    "ModelResponseToolUseDone",
+    "ModelResponseDone",
+    "ModelInputTranscriptionDelta",
+    "ModelInputTranscriptionDone",
+    "ModelInputStarted",
+    "ModelInputDone",
+    "ModelError",
+    "ModelWebSocketConnect",
+    "ModelWebSocketDisconnect",
+    # Agent Events
+    "AgentEventType",
+    "AgentEvent",
+    "AgentSessionCreated",
+    "AgentSessionUpdated",
+    "AgentResponseCreated",
+    "AgentResponseDelta",
+    "AgentResponseDone",
+    "AgentInputTranscriptionDelta",
+    "AgentInputTranscriptionDone",
+    "AgentInputStarted",
+    "AgentInputDone",
+    "AgentError",
+    # Content Blocks
+    "TextBlock",
+    "AudioBlock",
+    "ToolUseBlock",
+    "ToolResultBlock",
+    "ContentBlock",
 ]
