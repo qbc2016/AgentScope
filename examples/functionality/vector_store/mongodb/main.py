@@ -112,12 +112,15 @@ async def example_filter_search() -> None:
     print("Test 2: Search with Metadata Filtering")
     print("=" * 60)
 
+    # To use filter in search, specify filter_fields when creating the store.
+    # These fields will be indexed for filtering in $vectorSearch.
     store = MongoDBStore(
         host=os.getenv("MONGODB_HOST"),
         db_name="filter_test_db",
         collection_name="filter_collection",
         dimensions=4,
         distance="cosine",
+        filter_fields=["payload.doc_id"],  # Enable filtering on doc_id
     )
 
     # Create documents with different categories
@@ -178,20 +181,32 @@ async def example_filter_search() -> None:
         score = result.score
         print(f"  {i}. Doc ID: {doc_id}, Score: {score:.4f}")
 
-    print("\n✓ All search results (showing doc_id patterns):")
-    prog_count = 0
-    ai_count = 0
-    for i, result in enumerate(all_results, 1):
+    # Search with filter for programming docs
+    # Note: doc_id is stored in payload.doc_id in MongoDB documents
+    # MongoDB $vectorSearch filter supports: $gt, $gte, $lt, $lte, $eq, $ne,
+    # $in, $nin, $exists, $not (NOT $regex)
+    prog_results = await store.search(
+        query_embedding=query_embedding,
+        limit=4,
+        filter={"payload.doc_id": {"$in": ["prog_1", "prog_2"]}},
+    )
+    print(f"\n✓ Search with filter (prog docs): {len(prog_results)} results")
+    for i, result in enumerate(prog_results, 1):
         doc_id = result.metadata.doc_id
         score = result.score
-        if doc_id.startswith("prog"):
-            prog_count += 1
-        elif doc_id.startswith("ai"):
-            ai_count += 1
         print(f"  {i}. Doc ID: {doc_id}, Score: {score:.4f}")
 
-    print(f"\n✓ Programming docs (prog*): {prog_count}")
-    print(f"✓ AI docs (ai*): {ai_count}")
+    # Search with filter for AI docs
+    ai_results = await store.search(
+        query_embedding=query_embedding,
+        limit=4,
+        filter={"payload.doc_id": {"$in": ["ai_1", "ai_2"]}},
+    )
+    print(f"\n✓ Search with filter (ai docs): {len(ai_results)} results")
+    for i, result in enumerate(ai_results, 1):
+        doc_id = result.metadata.doc_id
+        score = result.score
+        print(f"  {i}. Doc ID: {doc_id}, Score: {score:.4f}")
 
     await store.close()
 
@@ -316,9 +331,9 @@ async def main() -> None:
     print("=" * 60)
 
     try:
-        await example_basic_operations()
-        await example_filter_search()
-        await example_multiple_chunks()
+        # await example_basic_operations()
+        # await example_filter_search()
+        # await example_multiple_chunks()
         await example_distance_metrics()
 
         print("\n" + "=" * 60)

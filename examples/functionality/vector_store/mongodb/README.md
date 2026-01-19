@@ -60,6 +60,16 @@ store = MongoDBStore(
     distance="cosine",
 )
 
+# To enable filtering in search, specify filter_fields:
+store = MongoDBStore(
+    host="mongodb://localhost:27017/?directConnection=true",
+    db_name="test_db",
+    collection_name="test_collection",
+    dimensions=768,
+    distance="cosine",
+    filter_fields=["payload.doc_id", "payload.chunk_id"],  # Fields for filtering
+)
+
 # No manual initialization needed - everything is automatic!
 # Database, collection, and vector search index are created automatically
 # when you first call add() or search()
@@ -90,9 +100,13 @@ await store.add([doc])
 results = await store.search(
     query_embedding=[0.15, 0.25, ...],
     limit=5,
-    score_threshold=0.9,                # Optional
-    filter={"doc_id": {"$regex": "prefix.*"}},  # Optional MongoDB filter
+    score_threshold=0.9,                                # Optional
+    filter={"payload.doc_id": {"$in": ["doc_1", "doc_2"]}},  # Optional filter
 )
+# Note:
+# - To use filter, the field must be declared in filter_fields when creating store
+# - MongoDB $vectorSearch filter supports: $gt, $gte, $lt, $lte,
+#   $eq, $ne, $in, $nin, $exists, $not (NOT $regex)
 ```
 
 ### Delete

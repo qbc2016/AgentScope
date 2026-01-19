@@ -43,6 +43,7 @@ class MongoDBStore(VDBStoreBase):
         dimensions: int,
         index_name: str = "vector_index",
         distance: Literal["cosine", "euclidean", "dotProduct"] = "cosine",
+        filter_fields: list[str] | None = None,
         client_kwargs: dict[str, Any] | None = None,
         db_kwargs: dict[str, Any] | None = None,
         collection_kwargs: dict[str, Any] | None = None,
@@ -65,6 +66,12 @@ class MongoDBStore(VDBStoreBase):
             defaults to "cosine"):
                 Distance metric for vector similarity. Can be one of "cosine",
                 "euclidean", or "dotProduct".
+            filter_fields (`list[str] | None`, optional):
+                List of field paths to index for filtering in $vectorSearch.
+                For example: ["payload.doc_id", "payload.chunk_id"].
+                These fields can then be used in the `filter` parameter of
+                the `search` method. MongoDB $vectorSearch filter supports:
+                $gt, $gte, $lt, $lte, $eq, $ne, $in, $nin, $exists, $not.
             client_kwargs (`dict[str, Any] | None`, optional):
                 Additional kwargs for MongoDB client.
             db_kwargs (`dict[str, Any] | None`, optional):
@@ -92,6 +99,7 @@ class MongoDBStore(VDBStoreBase):
         self.index_name = index_name
         self.dimensions = dimensions
         self.distance = distance
+        self.filter_fields = filter_fields or []
         self.db_kwargs = db_kwargs or {}
         self.collection_kwargs = collection_kwargs or {}
 
@@ -124,17 +132,27 @@ class MongoDBStore(VDBStoreBase):
 
         from pymongo.operations import SearchIndexModel
 
-        search_index_model = SearchIndexModel(
-            definition={
-                "fields": [
-                    {
-                        "type": "vector",
-                        "path": "vector",
-                        "similarity": self.distance,
-                        "numDimensions": self.dimensions,
-                    },
-                ],
+        # Build index fields: vector field + optional filter fields
+        index_fields: list[dict[str, Any]] = [
+            {
+                "type": "vector",
+                "path": "vector",
+                "similarity": self.distance,
+                "numDimensions": self.dimensions,
             },
+        ]
+
+        # Add user-specified filter fields
+        for field_path in self.filter_fields:
+            index_fields.append(
+                {
+                    "type": "filter",
+                    "path": field_path,
+                },
+            )
+
+        search_index_model = SearchIndexModel(
+            definition={"fields": index_fields},
             name=self.index_name,
             type="vectorSearch",
         )
