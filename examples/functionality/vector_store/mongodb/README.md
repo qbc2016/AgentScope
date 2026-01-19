@@ -123,7 +123,7 @@ await store.delete_database()
 ```python
 client = store.get_client()
 # Use MongoDB client for advanced operations
-stats = await client[db_name].command("collStats", collection_name)
+stats = await client[store.db_name].command("collStats", store.collection_name)
 ```
 
 ### Document Metadata
@@ -156,7 +156,7 @@ MongoDBStore automatically creates vector search indexes with the following conf
 
 ```python
 store = MongoDBStore(
-    host=${MONGO_ATLAS_CONNECTION_STRING},
+    host="<YOUR_MONGO_ATLAS_CONNECTION_STRING>",
     db_name="production_db",
     collection_name="documents",
     dimensions=1536,

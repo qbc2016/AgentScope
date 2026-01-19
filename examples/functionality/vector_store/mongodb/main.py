@@ -178,8 +178,6 @@ async def example_filter_search() -> None:
         score = result.score
         print(f"  {i}. Doc ID: {doc_id}, Score: {score:.4f}")
 
-    # Note: MongoDBStore doesn't support filter expressions in search
-    # We'll just show all results and filter manually for demonstration
     print("\n✓ All search results (showing doc_id patterns):")
     prog_count = 0
     ai_count = 0

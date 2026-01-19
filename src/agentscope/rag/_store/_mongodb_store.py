@@ -5,8 +5,8 @@ This implementation provides a vector database store using MongoDB's vector
  search capabilities. It requires MongoDB with vector search support and
  automatically creates vector search indexes.
 """
-
-from __future__ import annotations
+import asyncio
+import time
 
 from typing import Any, Literal, TYPE_CHECKING
 
@@ -16,9 +16,9 @@ from .._document import DocMetadata
 from ...types import Embedding
 
 if TYPE_CHECKING:
-    from pymongo import AsyncMongoClient as _AsyncMongoClient
+    from pymongo import AsyncMongoClient
 else:
-    _AsyncMongoClient = "pymongo.AsyncMongoClient"
+    AsyncMongoClient = "pymongo.AsyncMongoClient"
 
 
 class MongoDBStore(VDBStoreBase):
@@ -76,14 +76,14 @@ class MongoDBStore(VDBStoreBase):
             ImportError: If pymongo is not installed.
         """
         try:
-            from pymongo import AsyncMongoClient as _Client
-        except Exception as e:
+            from pymongo import AsyncMongoClient
+        except ImportError as e:
             raise ImportError(
                 "Please install the latest pymongo package to use "
                 "AsyncMongoClient: `pip install pymongo`",
             ) from e
 
-        self._client: _AsyncMongoClient = _Client(
+        self._client: AsyncMongoClient = AsyncMongoClient(
             host,
             **(client_kwargs or {}),
         )
@@ -154,8 +154,6 @@ class MongoDBStore(VDBStoreBase):
         Raises:
             TimeoutError: If index is not ready within the timeout period.
         """
-        import asyncio
-        import time
 
         start_time = time.time()
         while time.time() - start_time < timeout:
@@ -186,13 +184,16 @@ class MongoDBStore(VDBStoreBase):
             **kwargs (`Any`):
                 Additional arguments (unused).
 
-        Note:
+        .. note::
             Each inserted record has structure:
-            {
-                "id": str,                # Document ID
-                "vector": list[float],    # Vector embedding
-                "payload": dict,          # DocMetadata as dict
-            }
+
+            .. code-block:: python
+
+                {
+                    "id": str,                # Document ID
+                    "vector": list[float],    # Vector embedding
+                    "payload": dict,          # DocMetadata as dict
+                }
         """
         await self._validate_db_and_collection()
 
@@ -216,12 +217,19 @@ class MongoDBStore(VDBStoreBase):
             docs_to_insert.append(doc_record)
 
         # Insert documents using upsert to handle duplicates
-        for doc_record in docs_to_insert:
-            await self._collection.replace_one(
+        if not docs_to_insert:
+            return
+        from pymongo import ReplaceOne
+
+        operations = [
+            ReplaceOne(
                 {"id": doc_record["id"]},
                 doc_record,
                 upsert=True,
             )
+            for doc_record in docs_to_insert
+        ]
+        await self._collection.bulk_write(operations)
 
     async def search(
         self,
@@ -251,10 +259,11 @@ class MongoDBStore(VDBStoreBase):
             `list[Document]`: List of Document objects with embedding,
             score, and metadata.
 
-        Note:
+        .. note::
             - Requires MongoDB with vector search support
             - Uses $vectorSearch aggregation pipeline
         """
+        await self._validate_db_and_collection()
         # Wait for index to be ready before searching
         await self._wait_for_index_ready()
 
@@ -278,6 +287,7 @@ class MongoDBStore(VDBStoreBase):
                     "queryVector": list(query_embedding),
                     "numCandidates": num_candidates,
                     "limit": limit,
+                    **kwargs,
                 },
             },
             {
@@ -322,17 +332,19 @@ class MongoDBStore(VDBStoreBase):
                 with matching doc_id in payload.
         """
 
+        if not ids:
+            return
+
         if isinstance(ids, str):
             ids = [ids]
 
-        for doc_id in ids:
-            await self._collection.delete_many({"payload.doc_id": doc_id})
+        await self._collection.delete_many({"payload.doc_id": {"$in": ids}})
 
-    def get_client(self) -> _AsyncMongoClient:
+    def get_client(self) -> AsyncMongoClient:
         """Get the underlying MongoDB client for advanced operations.
 
         Returns:
-            `_AsyncMongoClient`: The AsyncMongoClient instance.
+            `AsyncMongoClient`: The AsyncMongoClient instance.
         """
         return self._client
 
