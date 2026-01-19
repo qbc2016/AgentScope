@@ -8,9 +8,31 @@ from typing import Any, Literal
 
 from ._reader_base import ReaderBase
 from ._text_reader import TextReader
+from ._utils import _get_media_type_from_data
 from .._document import Document, DocMetadata
 from ...message import ImageBlock, Base64Source, TextBlock
 from ..._logging import logger
+
+
+def _get_excel_column_name(col_index: int) -> str:
+    """Convert a 0-based column index to Excel column name (A, B, ..., Z, AA,
+    AB, ...).
+
+    Args:
+        col_index (`int`):
+            The 0-based column index.
+
+    Returns:
+        `str`:
+            The Excel column name (e.g., 'A' for 0, 'B' for 1, 'AA' for 26).
+    """
+    result = ""
+    col_index += 1  # Convert to 1-based
+    while col_index > 0:
+        col_index -= 1
+        result = chr(ord("A") + col_index % 26) + result
+        col_index //= 26
+    return result
 
 
 def _extract_table_data(df: Any) -> list[list[str]]:
@@ -95,45 +117,46 @@ def _extract_images_from_worksheet(
     return images
 
 
-def _get_media_type_from_data(data: bytes) -> str:
-    """Determine media type from image data.
-
-    Args:
-        data (`bytes`):
-            The raw image data.
-
-    Returns:
-        `str`:
-            The MIME type of the image (e.g., "image/png", "image/jpeg").
-    """
-    # Image signature mapping
-    signatures = {
-        b"\x89PNG\r\n\x1a\n": "image/png",
-        b"\xff\xd8": "image/jpeg",
-        b"GIF87a": "image/gif",
-        b"GIF89a": "image/gif",
-        b"BM": "image/bmp",
-    }
-
-    # Check signatures
-    for signature, media_type in signatures.items():
-        if data.startswith(signature):
-            return media_type
-
-    # Check WebP (RIFF at start + WEBP at offset 8)
-    if len(data) > 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-
-    # Default to JPEG
-    return "image/jpeg"
-
-
 class ExcelReader(ReaderBase):
     """The Excel reader that supports reading text, image, and table
     content from Excel files (.xlsx, .xls files), and chunking the text
     content into smaller pieces.
 
     .. note:: The table content can be extracted in Markdown or JSON format.
+
+        **Markdown format example** (``include_cell_coordinates=False``):
+
+        .. code-block:: text
+
+            | Name  | Age | City     |
+            |-------|-----|----------|
+            | Alice | 25  | New York |
+            | Bob   | 30  | London   |
+
+        **Markdown format example** (``include_cell_coordinates=True``):
+
+        .. code-block:: text
+
+            | [A1] Name  | [B1] Age | [C1] City     |
+            |------------|----------|---------------|
+            | [A2] Alice | [B2] 25  | [C2] New York |
+            | [A3] Bob   | [B3] 30  | [C3] London   |
+
+        **JSON format example** (``include_cell_coordinates=False``):
+
+        .. code-block:: json
+
+            ["Name", "Age", "City"]
+            ["Alice", "25", "New York"]
+            ["Bob", "30", "London"]
+
+        **JSON format example** (``include_cell_coordinates=True``):
+
+        .. code-block:: json
+
+            {"A1": "Name", "B1": "Age", "C1": "City"}
+            {"A2": "Alice", "B2": "25", "C2": "New York"}
+            {"A3": "Bob", "B3": "30", "C3": "London"}
     """
 
     def __init__(
@@ -558,10 +581,21 @@ class ExcelReader(ReaderBase):
         # structure
         def escape_pipes(cell_text: str) -> str:
             """Escape pipe characters in cell content."""
-            return cell_text.replace("|", "||")
+            return cell_text.replace("|", "\\|")
+
+        def format_cell(cell: str, row_idx: int, col_idx: int) -> str:
+            """Format cell content with optional coordinates."""
+            escaped = escape_pipes(cell)
+            if self.include_cell_coordinates:
+                coord = f"{_get_excel_column_name(col_idx)}{row_idx + 1}"
+                return f"[{coord}] {escaped}"
+            return escaped
 
         # Header row (first row)
-        escaped_header = [escape_pipes(cell) for cell in table_data[0]]
+        escaped_header = [
+            format_cell(cell, 0, col_idx)
+            for col_idx, cell in enumerate(table_data[0])
+        ]
         header_row = "| " + " | ".join(escaped_header) + " |\n"
         md_table += header_row
 
@@ -570,13 +604,16 @@ class ExcelReader(ReaderBase):
         md_table += separator_row
 
         # Data rows
-        for row in table_data[1:]:
+        for row_idx, row in enumerate(table_data[1:], start=1):
             # Ensure row has same number of columns as header
             while len(row) < num_cols:
                 row.append("")
-            # Escape pipe characters in each cell
-            escaped_row = [escape_pipes(cell) for cell in row[:num_cols]]
-            data_row = "| " + " | ".join(escaped_row) + " |\n"
+            # Format each cell with optional coordinates
+            formatted_row = [
+                format_cell(cell, row_idx, col_idx)
+                for col_idx, cell in enumerate(row[:num_cols])
+            ]
+            data_row = "| " + " | ".join(formatted_row) + " |\n"
             md_table += data_row
 
         return md_table
@@ -609,10 +646,16 @@ class ExcelReader(ReaderBase):
             "<system-info>A table loaded as a JSON array:</system-info>",
         )
 
-        for row in table_data:
-            json_strs.append(
-                json.dumps(row, ensure_ascii=False),
-            )
+        for row_idx, row in enumerate(table_data):
+            if self.include_cell_coordinates:
+                # Include cell coordinates in the format {"A1": "value", ...}
+                row_dict = {
+                    f"{_get_excel_column_name(col_idx)}{row_idx + 1}": cell
+                    for col_idx, cell in enumerate(row)
+                }
+                json_strs.append(json.dumps(row_dict, ensure_ascii=False))
+            else:
+                json_strs.append(json.dumps(row, ensure_ascii=False))
 
         return "\n".join(json_strs)
 
