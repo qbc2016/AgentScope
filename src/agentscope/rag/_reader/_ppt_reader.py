@@ -285,7 +285,7 @@ class PowerPointReader(ReaderBase):
         """
         blocks: list[TextBlock | ImageBlock] = []
         last_type = None
-        slide_header = f"[Page {slide_idx + 1}]"
+        slide_header = f"[Slide {slide_idx + 1}]"
 
         for shape in slide.shapes:
             # Try to extract image, table, or text in order

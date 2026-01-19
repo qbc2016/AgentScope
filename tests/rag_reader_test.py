@@ -283,11 +283,11 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         # Verify slide content matches exactly
         self.assertEqual(
             doc_texts[0],
-            "[Page 1]\nAgentScope\nText content in slide 1",
+            "[Slide 1]\nAgentScope\nText content in slide 1",
         )
         self.assertEqual(
             doc_texts[1],
-            "[Page 2]\nTitle 2\nText content above table",
+            "[Slide 2]\nTitle 2\nText content above table",
         )
         # Table should be extracted as a separate block with Markdown format
         self.assertEqual(
@@ -303,7 +303,7 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             doc_texts[4],
-            "[Page 3]\nTitle 3\ntext content above image",
+            "[Slide 3]\nTitle 3\ntext content above image",
         )
         # Image block
         self.assertIsNone(doc_texts[5])
@@ -419,7 +419,7 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         table_text = table_doc.metadata.content.get("text", "")
         self.assertEqual(
             table_text,
-            "[Page 2]\n"
+            "[Slide 2]\n"
             "Title 2\n"
             "Text content above table\n"
             "| Name | Age | Career |\n"
