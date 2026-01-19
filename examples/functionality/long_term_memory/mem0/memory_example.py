@@ -9,7 +9,7 @@ import asyncio
 import os
 
 from dotenv import load_dotenv
-
+from mem0.vector_stores.configs import VectorStoreConfig
 from agentscope.memory import Mem0LongTermMemory
 from agentscope.agent import ReActAgent
 from agentscope.embedding import DashScopeTextEmbedding
@@ -18,6 +18,7 @@ from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.model import DashScopeChatModel
 from agentscope.tool import Toolkit
+
 
 load_dotenv()
 
@@ -34,11 +35,58 @@ async def main() -> None:
             stream=False,
         ),
         embedding_model=DashScopeTextEmbedding(
-            model_name="text-embedding-v2",
+            model_name="text-embedding-v3",
             api_key=os.environ.get("DASHSCOPE_API_KEY"),
+            dimensions=1024,
         ),
-        on_disk=False,
+        vector_store_config=VectorStoreConfig(
+            provider="qdrant",
+            config={
+                "on_disk": True,
+                "path": "../memory/qdrant_data",  # Specify custom path
+                "embedding_model_dims": 1024,
+            },
+        ),
     )
+
+    # If you want to also use graph memory in mem0,
+    # the following is an example of using Neo4j graph store.
+    # from mem0.configs.base import MemoryConfig
+    # from mem0.graphs.configs import GraphStoreConfig
+    # long_term_memory = Mem0LongTermMemory(
+    #     agent_name="Friday",
+    #     user_name="user_123",
+    #     embedding_model=DashScopeTextEmbedding(
+    #         model_name="text-embedding-v3",
+    #         api_key=os.environ.get("DASHSCOPE_API_KEY"),
+    #         dimensions=1024,
+    #     ),
+    #     model=DashScopeChatModel(
+    #         model_name="qwen-max-latest",
+    #         api_key=os.environ.get("DASHSCOPE_API_KEY"),
+    #         stream=False,
+    #     ),
+    #     vector_store_config=VectorStoreConfig(
+    #         provider="qdrant",
+    #         config={
+    #             "on_disk": True,
+    #             "path": "../memory/qdrant_data",  # Specify custom path
+    #             "embedding_model_dims": 1024,
+    #         }),
+    #     mem0_config=MemoryConfig(
+    #         graph_store=GraphStoreConfig(
+    #             provider="neo4j",
+    #             config={
+    #                 "url": os.environ.get("NEO4J_URL",
+    #                 "neo4j://localhost:7687"),
+    #                 "username": os.environ.get("NEO4J_USER", "neo4j"),
+    #                 "password": os.environ.get("NEO4J_PASSWORD",
+    #                 "12345678"),
+    #                 "database": "neo4j",
+    #             },
+    #         ),
+    #     ),
+    # )
 
     print("=== Long Term Memory Examples with mem0 ===\n")
 
@@ -92,7 +140,14 @@ async def main() -> None:
     toolkit = Toolkit()
     agent = ReActAgent(
         name="Friday",
-        sys_prompt="You are a helpful assistant named Friday.",
+        sys_prompt=(
+            "You are a helpful assistant named Friday. "
+            "If you think there is relevant information about "
+            "user's preference, you can record it to the long term "
+            "memory by tool call `record_to_memory`. "
+            "If you need to retrieve information from the long term "
+            "memory, you can use the tool call `retrieve_from_memory`."
+        ),
         model=DashScopeChatModel(
             model_name="qwen-max-latest",
             api_key=os.environ.get("DASHSCOPE_API_KEY"),
@@ -115,6 +170,13 @@ async def main() -> None:
     print(f"ReActAgent response: {msg.get_text_content()}\n")
 
     msg = Msg(role="user", content="what preference do I have?", name="user")
+    msg = await agent(msg)
+    print(f"ReActAgent response: {msg.get_text_content()}\n")
+    msg = Msg(
+        role="user",
+        content="I prefer to visit the West Lake",
+        name="user",
+    )
     msg = await agent(msg)
     print(f"ReActAgent response: {msg.get_text_content()}\n")
 
