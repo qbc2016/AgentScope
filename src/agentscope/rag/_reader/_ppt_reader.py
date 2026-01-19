@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from ._reader_base import ReaderBase
 from ._text_reader import TextReader
+from ._utils import _get_media_type_from_data
 from .._document import Document, DocMetadata
 from ...message import ImageBlock, Base64Source, TextBlock
 from ..._logging import logger
@@ -82,50 +83,7 @@ def _extract_images_from_shape(shape: Any) -> list[ImageBlock]:
         except Exception as e:
             logger.warning("Failed to extract image from shape: %s", e)
 
-    # Also check for images in text frames (e.g., inline images)
-    if hasattr(shape, "has_text_frame") and shape.has_text_frame:
-        try:
-            # Check if text frame contains inline images
-            # This is a simplified check - pptx doesn't directly support
-            # inline images in text frames like Word does
-            pass
-        except Exception:
-            pass
-
     return images
-
-
-def _get_media_type_from_data(data: bytes) -> str:
-    """Determine media type from image data.
-
-    Args:
-        data (`bytes`):
-            The raw image data.
-
-    Returns:
-        `str`:
-            The MIME type of the image (e.g., "image/png", "image/jpeg").
-    """
-    # Image signature mapping
-    signatures = {
-        b"\x89PNG\r\n\x1a\n": "image/png",
-        b"\xff\xd8": "image/jpeg",
-        b"GIF87a": "image/gif",
-        b"GIF89a": "image/gif",
-        b"BM": "image/bmp",
-    }
-
-    # Check signatures
-    for signature, media_type in signatures.items():
-        if data.startswith(signature):
-            return media_type
-
-    # Check WebP (RIFF at start + WEBP at offset 8)
-    if len(data) > 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-
-    # Default to JPEG
-    return "image/jpeg"
 
 
 class PowerPointReader(ReaderBase):
@@ -247,14 +205,10 @@ class PowerPointReader(ReaderBase):
             ) from e
 
         # Process slides
-        try:
-            if self.separate_slide:
-                return await self._process_slides_separately(prs, doc_id)
-            else:
-                return await self._process_slides_merged(prs, doc_id)
-        finally:
-            # Cleanup if needed
-            pass
+        if self.separate_slide:
+            return await self._process_slides_separately(prs, doc_id)
+        else:
+            return await self._process_slides_merged(prs, doc_id)
 
     async def _process_slides_merged(
         self,
@@ -331,7 +285,7 @@ class PowerPointReader(ReaderBase):
         """
         blocks: list[TextBlock | ImageBlock] = []
         last_type = None
-        slide_header = f"Slide {slide_idx + 1}"
+        slide_header = f"[Page {slide_idx + 1}]"
 
         for shape in slide.shapes:
             # Try to extract image, table, or text in order
@@ -611,18 +565,14 @@ class PowerPointReader(ReaderBase):
 
         Returns:
             `str`:
-                Table in JSON string format.
+                A JSON string representing the table as a 2D array,
+                prefixed with a system-info tag.
         """
-        json_strs = [
-            "<system-info>A table loaded as a JSON array:</system-info>",
-        ]
-
-        for row in table_data:
-            json_strs.append(
-                json.dumps(row, ensure_ascii=False),
-            )
-
-        return "\n".join(json_strs)
+        json_str = json.dumps(table_data, ensure_ascii=False)
+        return (
+            "<system-info>A table loaded as a JSON array:</system-info>\n"
+            + json_str
+        )
 
     def get_doc_id(self, ppt_path: str) -> str:
         """Generate unique document ID from file path.

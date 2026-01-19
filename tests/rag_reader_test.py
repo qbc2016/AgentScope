@@ -283,11 +283,11 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         # Verify slide content matches exactly
         self.assertEqual(
             doc_texts[0],
-            "Slide 1\nAgentScope\nText content in slide 1",
+            "[Page 1]\nAgentScope\nText content in slide 1",
         )
         self.assertEqual(
             doc_texts[1],
-            "Slide 2\nTitle 2\nText content above table",
+            "[Page 2]\nTitle 2\nText content above table",
         )
         # Table should be extracted as a separate block with Markdown format
         self.assertEqual(
@@ -303,7 +303,7 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             doc_texts[4],
-            "Slide 3\nTitle 3\ntext content above image",
+            "[Page 3]\nTitle 3\ntext content above image",
         )
         # Image block
         self.assertIsNone(doc_texts[5])
@@ -320,4 +320,112 @@ class RAGReaderText(IsolatedAsyncioTestCase):
                 if _.metadata.content["type"] == "image"
             ],
             ["image/png"],
+        )
+
+    async def test_ppt_reader_with_json_table_format(self) -> None:
+        """Test the PowerPointReader with JSON table format."""
+        import json
+
+        reader = PowerPointReader(
+            chunk_size=500,
+            split_by="sentence",
+            include_image=False,
+            separate_table=True,
+            table_format="json",
+        )
+        ppt_path = os.path.join(
+            os.path.abspath(os.path.dirname(__file__)),
+            "../tests/test.pptx",
+        )
+        docs = await reader(ppt_path=ppt_path)
+
+        # Find the table block
+        table_texts = [
+            _.metadata.content.get("text")
+            for _ in docs
+            if _.metadata.content.get("text")
+            and "JSON array" in _.metadata.content.get("text", "")
+        ]
+
+        # Verify we have a table in JSON format
+        self.assertEqual(len(table_texts), 1)
+
+        # Extract JSON part (after the system-info tag)
+        table_text = table_texts[0]
+        json_part = table_text.split("\n", 1)[1]
+
+        # Verify it's valid JSON and matches expected table content
+        parsed = json.loads(json_part)
+        self.assertEqual(
+            parsed,
+            [
+                ["Name", "Age", "Career"],
+                ["Alice", "25", "Teacher"],
+                ["Bob", "26", "Doctor"],
+            ],
+        )
+
+    async def test_ppt_reader_without_image(self) -> None:
+        """Test the PowerPointReader without image extraction."""
+        reader = PowerPointReader(
+            chunk_size=200,
+            split_by="sentence",
+            include_image=False,
+            separate_table=True,
+        )
+        ppt_path = os.path.join(
+            os.path.abspath(os.path.dirname(__file__)),
+            "../tests/test.pptx",
+        )
+        docs = await reader(ppt_path=ppt_path)
+
+        # Verify no image blocks are present
+        image_blocks = [
+            _ for _ in docs if _.metadata.content["type"] == "image"
+        ]
+        self.assertEqual(len(image_blocks), 0)
+
+        # All blocks should be text type
+        self.assertTrue(
+            all(_.metadata.content["type"] == "text" for _ in docs),
+        )
+
+    async def test_ppt_reader_merged_table(self) -> None:
+        """Test the PowerPointReader with merged table
+        (separate_table=False)."""
+        reader = PowerPointReader(
+            chunk_size=500,
+            split_by="sentence",
+            include_image=False,
+            separate_table=False,
+        )
+        ppt_path = os.path.join(
+            os.path.abspath(os.path.dirname(__file__)),
+            "../tests/test.pptx",
+        )
+        docs = await reader(ppt_path=ppt_path)
+
+        # When separate_table=False, table should be merged with adjacent text
+        # Find the document that contains the table
+        table_doc = None
+        for doc in docs:
+            text = doc.metadata.content.get("text", "")
+            if "Name" in text and "Age" in text and "Career" in text:
+                table_doc = doc
+                break
+
+        self.assertIsNotNone(table_doc)
+        # The table should be merged with surrounding text
+        table_text = table_doc.metadata.content.get("text", "")
+        self.assertEqual(
+            table_text,
+            "[Page 2]\n"
+            "Title 2\n"
+            "Text content above table\n"
+            "| Name | Age | Career |\n"
+            "| --- | --- | --- |\n"
+            "| Alice | 25 | Teacher |\n"
+            "| Bob | 26 | Doctor |\n"
+            "\n"
+            "Text content below table",
         )
