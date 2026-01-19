@@ -83,14 +83,14 @@ memory = [
 
 # ------------ RAG ------------
 # readers
-text_reader = ["nltk"]
-pdf_reader = [
+text-reader = ["nltk"]
+pdf-reader = [
     "agentscope[text_reader]",
     # TODO: the latest pypdf has some issues with parsing PDFs
     #  (2026-01-13), so we fix the version here temporarily.
     "pypdf<=6.5.0",
 ]
-docx_reader = [
+docx-reader = [
     "agentscope[text-reader]",
     "python-docx"
 ]
@@ -99,7 +99,7 @@ excel-reader = [
     "pandas",
     "openpyxl",
 ]
-ppt_reader = [
+ppt-reader = [
     "agentscope[text-reader]",
     "python-pptx"
 ]

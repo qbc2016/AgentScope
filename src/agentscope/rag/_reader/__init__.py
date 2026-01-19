@@ -9,7 +9,6 @@ from ._image_reader import ImageReader
 from ._excel_reader import ExcelReader
 from ._ppt_reader import PowerPointReader
 
-
 __all__ = [
     "Document",
     "ReaderBase",
