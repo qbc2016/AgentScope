@@ -126,10 +126,22 @@ class RealtimeVoiceModelBase(ABC):
     ) -> str:
         """Format tool result message."""
 
+    @abstractmethod
+    def _format_image_message(self, image_b64: str) -> str | None:
+        """Format image data for sending as JSON string.
+
+        Returns None if the model does not support image input.
+        """
+
     @property
     @abstractmethod
     def provider_name(self) -> str:
         """Get the provider name (e.g., 'dashscope', 'gemini', 'openai')."""
+
+    @property
+    def supports_image(self) -> bool:
+        """Check if the model supports image input."""
+        return False  # Override in subclass if supported
 
     # =========================================================================
     # Connection Management
@@ -284,6 +296,50 @@ class RealtimeVoiceModelBase(ABC):
     ) -> bytes:
         """Hook for subclasses to preprocess audio (e.g., resample)."""
         return audio_data
+
+    # =========================================================================
+    # Image Operations
+    # =========================================================================
+
+    def send_image(self, image_data: bytes) -> None:
+        """Send image data to the model.
+
+        This is a non-blocking call that sends image to the model.
+
+        Args:
+            image_data: JPEG image bytes.
+
+        Note:
+            - Image format must be JPEG. Recommended resolution: 480P or 720P,
+              max 1080P.
+            - Single image should not exceed 500KB.
+            - Recommended frequency: 1 image per second.
+            - Must send audio data before sending images.
+        """
+        if not self._websocket:
+            raise RuntimeError("Model not started")
+
+        if not self.supports_image:
+            logger.warning(
+                "%s model does not support image input",
+                self.provider_name,
+            )
+            return
+
+        # Encode and format
+        image_b64 = base64.b64encode(image_data).decode("ascii")
+        wire_msg = self._format_image_message(image_b64)
+
+        if wire_msg is None:
+            logger.warning("Image message format not implemented")
+            return
+
+        # Send asynchronously
+        if self._event_loop and not self._event_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                self._websocket.send(wire_msg),
+                self._event_loop,
+            )
 
     # =========================================================================
     # Response Control

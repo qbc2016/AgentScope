@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-nested-blocks, too-many-branches
 """WebSocket server using Callback-based Voice Agent.
 
 This example demonstrates the new callback-based architecture:
@@ -298,11 +299,13 @@ class WebSocketVoiceSessionV2:
         )
 
     async def _receive_from_websocket(self) -> None:
-        """Receive audio from WebSocket and send to Agent's model."""
+        """Receive audio/image from WebSocket and send to Agent's model."""
         if not self.agent:
             return
 
         audio_chunk_count = 0
+        image_chunk_count = 0
+        has_audio_sent = False  # Track if audio has been sent before image
 
         try:
             while self._running:
@@ -318,6 +321,7 @@ class WebSocketVoiceSessionV2:
                         sample_rate = data.get("sample_rate", 16000)
 
                         audio_chunk_count += 1
+                        has_audio_sent = True
                         if audio_chunk_count == 1:
                             logger.info(
                                 "Session %s: First audio chunk received "
@@ -328,6 +332,40 @@ class WebSocketVoiceSessionV2:
 
                         # Send audio directly to model
                         self.agent.model.send_audio(audio_bytes, sample_rate)
+
+                    elif data.get("type") == "image":
+                        # Image input (optional, for multimodal models)
+                        # Requirement: must send audio before image
+                        if not has_audio_sent:
+                            logger.warning(
+                                "Session %s: Image received before audio, "
+                                "skipping (audio must be sent first)",
+                                self.session_id,
+                            )
+                            continue
+
+                        # Decode image and send to model
+                        image_bytes = base64.b64decode(data["image"])
+                        image_chunk_count += 1
+
+                        if image_chunk_count == 1:
+                            logger.info(
+                                "Session %s: First image chunk received "
+                                "(%d bytes)",
+                                self.session_id,
+                                len(image_bytes),
+                            )
+
+                        # Send image to model (if supported)
+                        if hasattr(self.agent.model, "send_image"):
+                            self.agent.model.send_image(image_bytes)
+                        else:
+                            if image_chunk_count == 1:
+                                logger.warning(
+                                    "Session %s: Model does not support "
+                                    "image input",
+                                    self.session_id,
+                                )
 
                     elif data.get("type") == "control":
                         action = data.get("action")

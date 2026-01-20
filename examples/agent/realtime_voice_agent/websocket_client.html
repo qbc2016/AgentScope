@@ -238,6 +238,71 @@
             transition: height 0.1s ease;
         }
 
+        /* Camera styles */
+        .camera-container {
+            position: relative;
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .camera-preview {
+            width: 320px;
+            height: 240px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 15px;
+            overflow: hidden;
+            display: none;
+            border: 2px solid rgba(255,255,255,0.1);
+        }
+
+        .camera-preview.active {
+            display: block;
+        }
+
+        .camera-preview video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .camera-status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.6);
+            padding: 5px 10px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .camera-status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ff4444;
+            animation: pulse 1s infinite;
+        }
+
+        .btn-camera {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+        }
+
+        .btn-camera:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(0, 184, 148, 0.3);
+        }
+
+        .btn-camera.active {
+            background: linear-gradient(135deg, #e17055, #d63031);
+        }
+
         footer {
             text-align: center;
             padding: 20px;
@@ -279,6 +344,18 @@
             <!-- 动态生成 -->
         </div>
 
+        <!-- Camera preview -->
+        <div class="camera-container">
+            <div class="camera-preview" id="cameraPreview">
+                <video id="cameraVideo" autoplay muted playsinline></video>
+                <div class="camera-status">
+                    <div class="dot"></div>
+                    <span>Streaming</span>
+                </div>
+            </div>
+            <canvas id="cameraCanvas" style="display: none;"></canvas>
+        </div>
+
         <div class="controls">
             <button class="btn btn-primary" id="connectBtn" onclick="toggleConnection()">
                 🔌 Connect
@@ -287,6 +364,9 @@
                 <svg class="mic-icon" viewBox="0 0 24 24">
                     <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1 1.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V20h-2v-4.07z"/>
                 </svg>
+            </button>
+            <button class="btn btn-camera" id="cameraBtn" onclick="toggleCamera()" disabled>
+                📷 Camera
             </button>
             <button class="btn btn-warning" id="interruptBtn" onclick="interrupt()" disabled>
                 ✋ Interrupt
@@ -306,6 +386,9 @@
         const WS_URL = `ws://${window.location.host}/ws/voice/`;
         const SAMPLE_RATE = 16000;
         const BUFFER_SIZE = 4096;
+        const IMAGE_SEND_INTERVAL = 1000;  // 1 frame per second
+        const IMAGE_MAX_WIDTH = 720;       // Max 720p
+        const IMAGE_QUALITY = 0.8;         // JPEG quality
 
         // State
         let ws = null;
@@ -318,6 +401,11 @@
         let audioQueue = [];
         let isPlaying = false;
         let currentMessageId = null;
+
+        // Camera state
+        let isCameraActive = false;
+        let cameraStream = null;
+        let imageSendInterval = null;
 
         // Initialize visualizer
         function initVisualizer() {
@@ -376,6 +464,9 @@
             if (isRecording) {
                 stopRecording();
             }
+            if (isCameraActive) {
+                stopCamera();
+            }
             if (ws) {
                 ws.send(JSON.stringify({ type: 'control', action: 'stop' }));
                 ws.close();
@@ -387,6 +478,7 @@
             document.getElementById('disconnectBtn').disabled = true;
             document.getElementById('connectBtn').disabled = false;
             document.getElementById('interruptBtn').disabled = true;
+            document.getElementById('cameraBtn').disabled = true;
         }
 
         // Interrupt current response
@@ -426,11 +518,12 @@
                 case 'ready':
                     isConnected = true;
                     updateConnectionStatus(true);
-                    addSystemMessage('Voice assistant ready. Click the microphone to start');
+                    addSystemMessage('Voice assistant ready. Click the microphone to start, then enable camera for video');
                     document.getElementById('micBtn').disabled = false;
                     document.getElementById('disconnectBtn').disabled = false;
                     document.getElementById('interruptBtn').disabled = false;
                     document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('cameraBtn').disabled = false;
                     break;
                 case 'response_end':
                     // Response ended, reset current message (like Java's TURN_COMPLETE)
@@ -744,6 +837,113 @@
             container.scrollTop = container.scrollHeight;
         }
 
+
+        // ==================== Camera Functions ====================
+
+        async function toggleCamera() {
+            if (isCameraActive) {
+                stopCamera();
+            } else {
+                await startCamera();
+            }
+        }
+
+        async function startCamera() {
+            try {
+                // Check if audio has been sent (required before sending images)
+                if (!isRecording) {
+                    addSystemMessage('Please start recording audio before enabling camera (audio must be sent first)');
+                    return;
+                }
+
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: IMAGE_MAX_WIDTH },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    }
+                });
+
+                const video = document.getElementById('cameraVideo');
+                video.srcObject = cameraStream;
+
+                // Show preview
+                document.getElementById('cameraPreview').classList.add('active');
+                document.getElementById('cameraBtn').classList.add('active');
+                document.getElementById('cameraBtn').innerHTML = '📷 Stop Camera';
+
+                isCameraActive = true;
+
+                // Start sending images at 1 fps
+                imageSendInterval = setInterval(captureAndSendImage, IMAGE_SEND_INTERVAL);
+
+                addSystemMessage('Camera enabled - streaming at 1 fps');
+
+            } catch (error) {
+                console.error('Error starting camera:', error);
+                addSystemMessage('Cannot access camera: ' + error.message);
+            }
+        }
+
+        function stopCamera() {
+            if (imageSendInterval) {
+                clearInterval(imageSendInterval);
+                imageSendInterval = null;
+            }
+
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+
+            const video = document.getElementById('cameraVideo');
+            video.srcObject = null;
+
+            document.getElementById('cameraPreview').classList.remove('active');
+            document.getElementById('cameraBtn').classList.remove('active');
+            document.getElementById('cameraBtn').innerHTML = '📷 Camera';
+
+            isCameraActive = false;
+        }
+
+        function captureAndSendImage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !isCameraActive) {
+                return;
+            }
+
+            const video = document.getElementById('cameraVideo');
+            const canvas = document.getElementById('cameraCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas size to video size (max 720p)
+            const scale = Math.min(1, IMAGE_MAX_WIDTH / video.videoWidth);
+            canvas.width = video.videoWidth * scale;
+            canvas.height = video.videoHeight * scale;
+
+            // Draw video frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Convert to JPEG base64
+            canvas.toBlob(
+                (blob) => {
+                    if (blob && blob.size <= 500 * 1024) {  // Max 500KB
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const base64 = reader.result.split(',')[1];
+                            ws.send(JSON.stringify({
+                                type: 'image',
+                                image: base64
+                            }));
+                        };
+                        reader.readAsDataURL(blob);
+                    } else if (blob) {
+                        console.warn('Image too large:', blob.size, 'bytes');
+                    }
+                },
+                'image/jpeg',
+                IMAGE_QUALITY
+            );
+        }
 
         // Initialize
         initVisualizer();

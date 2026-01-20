@@ -219,6 +219,30 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             },
         )
 
+    def _format_image_message(self, image_b64: str) -> str | None:
+        """Format image data for DashScope.
+
+        DashScope Realtime API supports image input via
+        input_image_buffer.append.
+
+        Note:
+            - Image format: JPEG, recommended 480P or 720P, max 1080P.
+            - Single image should not exceed 500KB.
+            - Recommended frequency: 1 image per second.
+            - Must send audio data before sending images.
+        """
+        return json.dumps(
+            {
+                "type": "input_image_buffer.append",
+                "image": image_b64,
+            },
+        )
+
+    @property
+    def supports_image(self) -> bool:
+        """DashScope Realtime API supports image input."""
+        return True
+
     def _preprocess_audio(
         self,
         audio_data: bytes,
