@@ -280,14 +280,14 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         # Verify exact document content
         doc_texts = [_.metadata.content.get("text") for _ in docs]
 
-        # Verify slide content matches exactly
+        # Verify slide content (no slide tags by default)
         self.assertEqual(
             doc_texts[0],
-            "[Slide 1]\nAgentScope\nText content in slide 1",
+            "AgentScope\nText content in slide 1",
         )
         self.assertEqual(
             doc_texts[1],
-            "[Slide 2]\nTitle 2\nText content above table",
+            "Title 2\nText content above table",
         )
         # Table should be extracted as a separate block with Markdown format
         self.assertEqual(
@@ -303,7 +303,7 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             doc_texts[4],
-            "[Slide 3]\nTitle 3\ntext content above image",
+            "Title 3\ntext content above image",
         )
         # Image block
         self.assertIsNone(doc_texts[5])
@@ -419,7 +419,6 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         table_text = table_doc.metadata.content.get("text", "")
         self.assertEqual(
             table_text,
-            "[Slide 2]\n"
             "Title 2\n"
             "Text content above table\n"
             "| Name | Age | Career |\n"
@@ -428,4 +427,53 @@ class RAGReaderText(IsolatedAsyncioTestCase):
             "| Bob | 26 | Doctor |\n"
             "\n"
             "Text content below table",
+        )
+
+    async def test_ppt_reader_with_slide_tags(self) -> None:
+        """Test the PowerPointReader with slide prefix/suffix XML tags."""
+        reader = PowerPointReader(
+            chunk_size=500,
+            split_by="sentence",
+            include_image=False,
+            separate_table=False,
+            slide_prefix="<slide index={index}>",
+            slide_suffix="</slide>",
+        )
+        ppt_path = os.path.join(
+            os.path.abspath(os.path.dirname(__file__)),
+            "../tests/test.pptx",
+        )
+        docs = await reader(ppt_path=ppt_path)
+
+        # With slide_prefix/suffix, content should have XML tags
+        doc_texts = [_.metadata.content.get("text") for _ in docs]
+
+        # Verify exact content with slide tags
+        self.assertEqual(
+            doc_texts[0],
+            "<slide index=1>\n"
+            "AgentScope\n"
+            "Text content in slide 1\n"
+            "</slide>",
+        )
+        self.assertEqual(
+            doc_texts[1],
+            "<slide index=2>\n"
+            "Title 2\n"
+            "Text content above table\n"
+            "| Name | Age | Career |\n"
+            "| --- | --- | --- |\n"
+            "| Alice | 25 | Teacher |\n"
+            "| Bob | 26 | Doctor |\n"
+            "\n"
+            "Text content below table\n"
+            "</slide>",
+        )
+        self.assertEqual(
+            doc_texts[2],
+            "<slide index=3>\n"
+            "Title 3\n"
+            "text content above image\n"
+            "text content below image\n"
+            "</slide>",
         )

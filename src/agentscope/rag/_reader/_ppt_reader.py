@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-branches
 """The PowerPoint reader to read and chunk PowerPoint presentations."""
 import base64
 import hashlib
@@ -102,6 +103,8 @@ class PowerPointReader(ReaderBase):
         separate_slide: bool = False,
         separate_table: bool = False,
         table_format: Literal["markdown", "json"] = "markdown",
+        slide_prefix: str | None = None,
+        slide_suffix: str | None = None,
     ) -> None:
         """Initialize the PowerPoint reader.
 
@@ -130,6 +133,14 @@ class PowerPointReader(ReaderBase):
                 contains `\n`, the Markdown format may not render correctly.
                 In that case, you can use the `json` format, which extracts
                 the table as a JSON string of a `list[list[str]]` object.
+            slide_prefix (`str | None`, default to None):
+                Optional prefix to add before each slide's content. Supports
+                `{index}` placeholder for 1-based slide number. For example,
+                `"<slide index={index}>"` will produce `"<slide index=1>"` for
+                the first slide. If None, no prefix is added.
+            slide_suffix (`str | None`, default to None):
+                Optional suffix to add after each slide's content. For example,
+                `"</slide>"`. If None, no suffix is added.
         """
         self._validate_init_params(chunk_size, split_by)
 
@@ -145,6 +156,8 @@ class PowerPointReader(ReaderBase):
         self.separate_slide = separate_slide
         self.separate_table = separate_table
         self.table_format = table_format
+        self.slide_prefix = slide_prefix
+        self.slide_suffix = slide_suffix
 
         # Use TextReader to do the chunking
         self._text_reader = TextReader(self.chunk_size, self.split_by)
@@ -285,7 +298,12 @@ class PowerPointReader(ReaderBase):
         """
         blocks: list[TextBlock | ImageBlock] = []
         last_type = None
-        slide_header = f"[Slide {slide_idx + 1}]"
+
+        # Generate slide header from prefix if provided
+        if self.slide_prefix is not None:
+            slide_header = self.slide_prefix.format(index=slide_idx + 1)
+        else:
+            slide_header = ""
 
         for shape in slide.shapes:
             # Try to extract image, table, or text in order
@@ -319,6 +337,30 @@ class PowerPointReader(ReaderBase):
                         extracted_data,
                         last_type,
                         slide_header,
+                    )
+
+        # Add slide suffix to the last text block if provided
+        # Note: suffix can only be appended to text blocks since ImageBlock
+        # doesn't have a text field.
+        if self.slide_suffix is not None and blocks:
+            # Find the last text block and append suffix
+            for i in range(len(blocks) - 1, -1, -1):
+                if blocks[i].get("type") == "text":
+                    blocks[i]["text"] += "\n" + self.slide_suffix
+                    break
+            else:
+                # No text block found (slide contains only images),
+                # create a new text block for the suffix
+                if slide_header:
+                    blocks.append(
+                        TextBlock(
+                            type="text",
+                            text=slide_header + "\n" + self.slide_suffix,
+                        ),
+                    )
+                else:
+                    blocks.append(
+                        TextBlock(type="text", text=self.slide_suffix),
                     )
 
         return blocks
@@ -414,7 +456,7 @@ class PowerPointReader(ReaderBase):
         if should_merge:
             blocks[-1]["text"] += "\n" + table_text
         else:
-            if last_type is None:
+            if last_type is None and slide_header:
                 table_text = slide_header + "\n" + table_text
             blocks.append(
                 TextBlock(
@@ -456,7 +498,7 @@ class PowerPointReader(ReaderBase):
         if should_merge:
             blocks[-1]["text"] += "\n" + text
         else:
-            if last_type is None:
+            if last_type is None and slide_header:
                 text = slide_header + "\n" + text
             blocks.append(
                 TextBlock(
