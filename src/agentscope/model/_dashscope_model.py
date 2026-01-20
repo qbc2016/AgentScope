@@ -152,15 +152,6 @@ class DashScopeChatModel(ChatModelBase):
         """
         import dashscope
 
-        # For qvq and qwen-vl models, the content field cannot be `None` or
-        # `[{"text": None}]`, so we need to convert it to an empty list.
-        if self.model_name.startswith("qvq") or "-vl" in self.model_name:
-            for msg in messages:
-                if msg["content"] is None or msg["content"] == [
-                    {"text": None},
-                ]:
-                    msg["content"] = []
-
         kwargs = {
             "messages": messages,
             "model": self.model_name,
