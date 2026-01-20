@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Test the RAG reader implementations."""
 import os
+import json
 from unittest.async_case import IsolatedAsyncioTestCase
 
 from agentscope.rag import (
@@ -257,11 +258,10 @@ class RAGReaderText(IsolatedAsyncioTestCase):
     async def test_ppt_reader_with_images_and_tables(self) -> None:
         """Test the PowerPointReader implementation with images and table
         separation."""
-        # Test with images and table separation enabled
+        # Test with images and table separation enabled (using defaults)
         reader = PowerPointReader(
             chunk_size=200,
             split_by="sentence",
-            include_image=True,
             separate_table=True,
         )
         ppt_path = os.path.join(
@@ -280,14 +280,14 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         # Verify exact document content
         doc_texts = [_.metadata.content.get("text") for _ in docs]
 
-        # Verify slide content (no slide tags by default)
+        # Verify slide content (with slide tags by default)
         self.assertEqual(
             doc_texts[0],
-            "AgentScope\nText content in slide 1",
+            "<slide index=1>\nAgentScope\nText content in slide 1\n</slide>",
         )
         self.assertEqual(
             doc_texts[1],
-            "Title 2\nText content above table",
+            "<slide index=2>\nTitle 2\nText content above table",
         )
         # Table should be extracted as a separate block with Markdown format
         self.assertEqual(
@@ -299,17 +299,17 @@ class RAGReaderText(IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             doc_texts[3],
-            "Text content below table",
+            "Text content below table\n</slide>",
         )
         self.assertEqual(
             doc_texts[4],
-            "Title 3\ntext content above image",
+            "<slide index=3>\nTitle 3\ntext content above image",
         )
         # Image block
         self.assertIsNone(doc_texts[5])
         self.assertEqual(
             doc_texts[6],
-            "text content below image",
+            "text content below image\n</slide>",
         )
 
         # Verify image media types
@@ -324,7 +324,6 @@ class RAGReaderText(IsolatedAsyncioTestCase):
 
     async def test_ppt_reader_with_json_table_format(self) -> None:
         """Test the PowerPointReader with JSON table format."""
-        import json
 
         reader = PowerPointReader(
             chunk_size=500,
@@ -415,49 +414,10 @@ class RAGReaderText(IsolatedAsyncioTestCase):
                 break
 
         self.assertIsNotNone(table_doc)
-        # The table should be merged with surrounding text
+        # The table should be merged with surrounding text (with slide tags)
         table_text = table_doc.metadata.content.get("text", "")
         self.assertEqual(
             table_text,
-            "Title 2\n"
-            "Text content above table\n"
-            "| Name | Age | Career |\n"
-            "| --- | --- | --- |\n"
-            "| Alice | 25 | Teacher |\n"
-            "| Bob | 26 | Doctor |\n"
-            "\n"
-            "Text content below table",
-        )
-
-    async def test_ppt_reader_with_slide_tags(self) -> None:
-        """Test the PowerPointReader with slide prefix/suffix XML tags."""
-        reader = PowerPointReader(
-            chunk_size=500,
-            split_by="sentence",
-            include_image=False,
-            separate_table=False,
-            slide_prefix="<slide index={index}>",
-            slide_suffix="</slide>",
-        )
-        ppt_path = os.path.join(
-            os.path.abspath(os.path.dirname(__file__)),
-            "../tests/test.pptx",
-        )
-        docs = await reader(ppt_path=ppt_path)
-
-        # With slide_prefix/suffix, content should have XML tags
-        doc_texts = [_.metadata.content.get("text") for _ in docs]
-
-        # Verify exact content with slide tags
-        self.assertEqual(
-            doc_texts[0],
-            "<slide index=1>\n"
-            "AgentScope\n"
-            "Text content in slide 1\n"
-            "</slide>",
-        )
-        self.assertEqual(
-            doc_texts[1],
             "<slide index=2>\n"
             "Title 2\n"
             "Text content above table\n"
@@ -469,11 +429,43 @@ class RAGReaderText(IsolatedAsyncioTestCase):
             "Text content below table\n"
             "</slide>",
         )
+
+    async def test_ppt_reader_without_slide_tags(self) -> None:
+        """Test the PowerPointReader without slide prefix/suffix XML tags."""
+        reader = PowerPointReader(
+            chunk_size=500,
+            split_by="sentence",
+            include_image=False,
+            separate_table=False,
+            slide_prefix=None,
+            slide_suffix=None,
+        )
+        ppt_path = os.path.join(
+            os.path.abspath(os.path.dirname(__file__)),
+            "../tests/test.pptx",
+        )
+        docs = await reader(ppt_path=ppt_path)
+
+        # Without slide_prefix/suffix, content should not have XML tags
+        doc_texts = [_.metadata.content.get("text") for _ in docs]
+
+        # Verify exact content without slide tags
+        self.assertEqual(
+            doc_texts[0],
+            "AgentScope\nText content in slide 1",
+        )
+        self.assertEqual(
+            doc_texts[1],
+            "Title 2\n"
+            "Text content above table\n"
+            "| Name | Age | Career |\n"
+            "| --- | --- | --- |\n"
+            "| Alice | 25 | Teacher |\n"
+            "| Bob | 26 | Doctor |\n"
+            "\n"
+            "Text content below table",
+        )
         self.assertEqual(
             doc_texts[2],
-            "<slide index=3>\n"
-            "Title 3\n"
-            "text content above image\n"
-            "text content below image\n"
-            "</slide>",
+            "Title 3\ntext content above image\ntext content below image",
         )

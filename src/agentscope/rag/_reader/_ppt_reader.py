@@ -3,12 +3,15 @@
 """The PowerPoint reader to read and chunk PowerPoint presentations."""
 import base64
 import hashlib
-import json
 from typing import Any, Literal
 
 from ._reader_base import ReaderBase
 from ._text_reader import TextReader
-from ._utils import _get_media_type_from_data
+from ._utils import (
+    _get_media_type_from_data,
+    _table_to_json,
+    _table_to_markdown,
+)
 from .._document import Document, DocMetadata
 from ...message import ImageBlock, Base64Source, TextBlock
 from ..._logging import logger
@@ -99,12 +102,12 @@ class PowerPointReader(ReaderBase):
         self,
         chunk_size: int = 512,
         split_by: Literal["char", "sentence", "paragraph"] = "sentence",
-        include_image: bool = False,
+        include_image: bool = True,
         separate_slide: bool = False,
         separate_table: bool = False,
         table_format: Literal["markdown", "json"] = "markdown",
-        slide_prefix: str | None = None,
-        slide_suffix: str | None = None,
+        slide_prefix: str | None = "<slide index={index}>",
+        slide_suffix: str | None = "</slide>",
     ) -> None:
         """Initialize the PowerPoint reader.
 
@@ -116,7 +119,7 @@ class PowerPointReader(ReaderBase):
                 The unit to split the text, can be "char", "sentence", or
                 "paragraph". The "sentence" option is implemented using the
                 "nltk" library, which only supports English text.
-            include_image (`bool`, default to False):
+            include_image (`bool`, default to True):
                 Whether to include image content in the document. If True,
                 images will be extracted and included as base64-encoded images.
             separate_slide (`bool`, default to False):
@@ -133,12 +136,12 @@ class PowerPointReader(ReaderBase):
                 contains `\n`, the Markdown format may not render correctly.
                 In that case, you can use the `json` format, which extracts
                 the table as a JSON string of a `list[list[str]]` object.
-            slide_prefix (`str | None`, default to None):
+            slide_prefix (`str`, default to `<slide index={index}>`):
                 Optional prefix to add before each slide's content. Supports
                 `{index}` placeholder for 1-based slide number. For example,
                 `"<slide index={index}>"` will produce `"<slide index=1>"` for
                 the first slide. If None, no prefix is added.
-            slide_suffix (`str | None`, default to None):
+            slide_suffix (`str`, default to `</slide>`):
                 Optional suffix to add after each slide's content. For example,
                 `"</slide>"`. If None, no suffix is added.
         """
@@ -211,10 +214,6 @@ class PowerPointReader(ReaderBase):
             raise ImportError(
                 "Please install python-pptx to use the PowerPoint reader. "
                 "You can install it by `pip install python-pptx`.",
-            ) from e
-        except Exception as e:
-            raise ValueError(
-                f"Failed to read PowerPoint file {ppt_path}: {e}",
             ) from e
 
         # Process slides
@@ -394,8 +393,8 @@ class PowerPointReader(ReaderBase):
             try:
                 table_data = _extract_table_data(shape.table)
                 if self.table_format == "markdown":
-                    return ("table", self._table_to_markdown(table_data))
-                return ("table", self._table_to_json(table_data))
+                    return ("table", _table_to_markdown(table_data))
+                return ("table", _table_to_json(table_data))
             except Exception as e:
                 logger.warning(
                     "Failed to extract table from slide %d: %s",
@@ -557,64 +556,6 @@ class PowerPointReader(ReaderBase):
             doc.metadata.total_chunks = total_chunks
 
         return documents
-
-    @staticmethod
-    def _table_to_markdown(table_data: list[list[str]]) -> str:
-        """Convert table data to Markdown format.
-
-        Args:
-            table_data (`list[list[str]]`):
-                Table data represented as a 2D list.
-
-        Returns:
-            `str`:
-                Table in Markdown format.
-        """
-        if not table_data:
-            return ""
-
-        num_cols = len(table_data[0]) if table_data else 0
-        if num_cols == 0:
-            return ""
-
-        md_table = ""
-
-        # Header row
-        header_row = "| " + " | ".join(table_data[0]) + " |\n"
-        md_table += header_row
-
-        # Separator row
-        separator_row = "| " + " | ".join(["---"] * num_cols) + " |\n"
-        md_table += separator_row
-
-        # Data rows
-        for row in table_data[1:]:
-            # Ensure row has same number of columns as header
-            while len(row) < num_cols:
-                row.append("")
-            data_row = "| " + " | ".join(row[:num_cols]) + " |\n"
-            md_table += data_row
-
-        return md_table
-
-    @staticmethod
-    def _table_to_json(table_data: list[list[str]]) -> str:
-        """Convert table data to JSON string.
-
-        Args:
-            table_data (`list[list[str]]`):
-                Table data represented as a 2D list.
-
-        Returns:
-            `str`:
-                A JSON string representing the table as a 2D array,
-                prefixed with a system-info tag.
-        """
-        json_str = json.dumps(table_data, ensure_ascii=False)
-        return (
-            "<system-info>A table loaded as a JSON array:</system-info>\n"
-            + json_str
-        )
 
     def get_doc_id(self, ppt_path: str) -> str:
         """Generate unique document ID from file path.
