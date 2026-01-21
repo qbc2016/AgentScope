@@ -303,6 +303,63 @@
             background: linear-gradient(135deg, #e17055, #d63031);
         }
 
+        /* Text input styles */
+        .text-input-container {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            padding: 0 20px;
+        }
+
+        .text-input {
+            flex: 1;
+            padding: 15px 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 25px;
+            background: rgba(255,255,255,0.05);
+            color: #e8e8e8;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        .text-input:focus {
+            border-color: #00d4ff;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.2);
+        }
+
+        .text-input::placeholder {
+            color: #666;
+        }
+
+        .text-input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-send {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-send:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn-send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
         footer {
             text-align: center;
             padding: 20px;
@@ -354,6 +411,16 @@
                 </div>
             </div>
             <canvas id="cameraCanvas" style="display: none;"></canvas>
+        </div>
+
+        <!-- Text Input -->
+        <div class="text-input-container">
+            <input type="text" class="text-input" id="textInput"
+                   placeholder="Type a message... (or use voice)"
+                   onkeypress="handleTextKeypress(event)" disabled>
+            <button class="btn-send" id="sendBtn" onclick="sendText()" disabled>
+                Send
+            </button>
         </div>
 
         <div class="controls">
@@ -479,6 +546,8 @@
             document.getElementById('connectBtn').disabled = false;
             document.getElementById('interruptBtn').disabled = true;
             document.getElementById('cameraBtn').disabled = true;
+            document.getElementById('textInput').disabled = true;
+            document.getElementById('sendBtn').disabled = true;
         }
 
         // Interrupt current response
@@ -486,7 +555,37 @@
             if (ws && isConnected) {
                 ws.send(JSON.stringify({ type: 'control', action: 'interrupt' }));
                 stopAudioPlayback();
-                addMessage('system', '🛑 Current response interrupted');
+                addSystemMessage('🛑 Current response interrupted');
+            }
+        }
+
+        // Text input functions
+        function sendText() {
+            const textInput = document.getElementById('textInput');
+            const text = textInput.value.trim();
+            if (!text || !ws || !isConnected) return;
+
+            // Send text message to server
+            ws.send(JSON.stringify({ type: 'text', text: text }));
+
+            // Add to chat display
+            const container = document.getElementById('chatContainer');
+            const div = document.createElement('div');
+            div.className = 'message user';
+            div.innerHTML = `
+                <div class="name">User</div>
+                <div class="content">${text}</div>
+            `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+
+            // Clear input
+            textInput.value = '';
+        }
+
+        function handleTextKeypress(event) {
+            if (event.key === 'Enter') {
+                sendText();
             }
         }
 
@@ -524,6 +623,8 @@
                     document.getElementById('interruptBtn').disabled = false;
                     document.getElementById('connectBtn').disabled = true;
                     document.getElementById('cameraBtn').disabled = false;
+                    document.getElementById('textInput').disabled = false;
+                    document.getElementById('sendBtn').disabled = false;
                     break;
                 case 'response_end':
                     // Response ended, reset current message (like Java's TURN_COMPLETE)
@@ -932,7 +1033,8 @@
                             const base64 = reader.result.split(',')[1];
                             ws.send(JSON.stringify({
                                 type: 'image',
-                                image: base64
+                                image: base64,
+                                mime_type: 'image/jpeg'
                             }));
                         };
                         reader.readAsDataURL(blob);

@@ -317,7 +317,11 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
             },
         )
 
-    def _format_image_message(self, image_b64: str) -> str | None:
+    def _format_image_message(
+        self,
+        image_b64: str,
+        mime_type: str = "image/jpeg",
+    ) -> str | None:
         """Format image data for Gemini Live API.
 
         Gemini supports image input via realtimeInput with image mime type.
@@ -325,13 +329,16 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         Args:
             image_b64 (`str`):
                 The base64 encoded image data.
+            mime_type (`str`):
+                The MIME type of the image. Defaults to "image/jpeg".
+                Supported: "image/jpeg", "image/png", "image/webp".
 
         Returns:
             `str | None`:
                 The formatted JSON message.
 
         .. note::
-            - Image format: JPEG, recommended 480P or 720P, max 1080P.
+            - Image format: JPEG recommended, 480P or 720P, max 1080P.
             - Single image should not exceed 500KB.
             - Recommended frequency: 1 image per second.
         """
@@ -339,9 +346,36 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
             {
                 "realtimeInput": {
                     "video": {
-                        "mimeType": "image/jpeg",
+                        "mimeType": mime_type,
                         "data": image_b64,
                     },
+                },
+            },
+        )
+
+    def _format_text_message(self, text: str) -> str | None:
+        """Format text input for Gemini Live API.
+
+        Gemini supports text input via clientContent message.
+
+        Args:
+            text (`str`):
+                The text message to send.
+
+        Returns:
+            `str | None`:
+                The formatted JSON message.
+        """
+        return json.dumps(
+            {
+                "clientContent": {
+                    "turns": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": text}],
+                        },
+                    ],
+                    "turnComplete": True,
                 },
             },
         )
@@ -725,27 +759,3 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
             response_id=self._current_response_id or "",
             call_id=call_id,
         )
-
-    async def send_text(self, text: str) -> None:
-        """Send text input to Gemini.
-
-        Args:
-            text: Text input to send.
-        """
-        if not self._websocket:
-            raise RuntimeError("Not started")
-
-        text_msg = json.dumps(
-            {
-                "clientContent": {
-                    "turns": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": text}],
-                        },
-                    ],
-                    "turnComplete": True,
-                },
-            },
-        )
-        await self._websocket.send(text_msg)

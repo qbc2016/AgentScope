@@ -12,6 +12,7 @@ import base64
 from abc import ABC, abstractmethod
 from typing import Any, Callable
 
+import numpy as np
 import websockets
 from websockets.asyncio.client import ClientConnection
 
@@ -24,6 +25,51 @@ from .events import (
     ModelWebSocketConnect,
     ModelWebSocketDisconnect,
 )
+
+
+def resample_audio(
+    audio_data: bytes,
+    from_rate: int,
+    to_rate: int,
+) -> bytes:
+    """Resample audio data from one sample rate to another.
+
+    Uses linear interpolation for resampling. Suitable for real-time
+    applications where quality trade-offs are acceptable.
+
+    Args:
+        audio_data (`bytes`):
+            The PCM audio bytes (16-bit signed, mono).
+        from_rate (`int`):
+            The source sample rate in Hz.
+        to_rate (`int`):
+            The target sample rate in Hz.
+
+    Returns:
+        `bytes`:
+            The resampled PCM audio bytes.
+
+    Example:
+        .. code-block:: python
+
+            # Resample 44.1kHz audio to 16kHz
+            resampled = resample_audio(audio_data, 44100, 16000)
+    """
+    if from_rate == to_rate:
+        return audio_data
+
+    # Convert bytes to numpy array (16-bit signed)
+    audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+
+    # Calculate the number of samples in the resampled audio
+    num_samples = int(len(audio_array) * to_rate / from_rate)
+
+    # Resample using linear interpolation
+    indices = np.linspace(0, len(audio_array) - 1, num_samples)
+    resampled = np.interp(indices, np.arange(len(audio_array)), audio_array)
+
+    # Convert back to 16-bit signed integer
+    return resampled.astype(np.int16).tobytes()
 
 
 class RealtimeVoiceModelBase(ABC):
@@ -184,16 +230,36 @@ class RealtimeVoiceModelBase(ABC):
         """
 
     @abstractmethod
-    def _format_image_message(self, image_b64: str) -> str | None:
+    def _format_image_message(
+        self,
+        image_b64: str,
+        mime_type: str = "image/jpeg",
+    ) -> str | None:
         """Format image data for sending as JSON string.
 
         Args:
             image_b64 (`str`):
-                The base64 encoded image data.
+                The base64 encoded image data (without data URI prefix).
+            mime_type (`str`):
+                The MIME type of the image. Defaults to "image/jpeg".
+                Supported: "image/jpeg", "image/png", "image/webp".
 
         Returns:
             `str | None`:
                 The formatted image message, or None if not supported.
+        """
+
+    @abstractmethod
+    def _format_text_message(self, text: str) -> str | None:
+        """Format text input for sending as JSON string.
+
+        Args:
+            text (`str`):
+                The text message to send.
+
+        Returns:
+            `str | None`:
+                The formatted text message, or None if not supported.
         """
 
     @property
@@ -402,18 +468,24 @@ class RealtimeVoiceModelBase(ABC):
     # Image Operations
     # =========================================================================
 
-    def send_image(self, image_data: bytes) -> None:
+    def send_image(
+        self,
+        image_data: bytes,
+        mime_type: str = "image/jpeg",
+    ) -> None:
         """Send image data to the model.
 
         This is a non-blocking call that sends image to the model.
 
         Args:
             image_data (`bytes`):
-                The JPEG image bytes.
+                The image bytes.
+            mime_type (`str`):
+                The MIME type of the image. Defaults to "image/jpeg".
+                Supported: "image/jpeg", "image/png", "image/webp".
 
         .. note::
-            - Image format must be JPEG. Recommended resolution: 480P or 720P,
-              max 1080P.
+            - Recommended format: JPEG. Resolution: 480P or 720P, max 1080P.
             - Single image should not exceed 500KB.
             - Recommended frequency: 1 image per second.
             - Must send audio data before sending images.
@@ -430,10 +502,43 @@ class RealtimeVoiceModelBase(ABC):
 
         # Encode and format
         image_b64 = base64.b64encode(image_data).decode("ascii")
-        wire_msg = self._format_image_message(image_b64)
+        wire_msg = self._format_image_message(image_b64, mime_type)
 
         if wire_msg is None:
             logger.warning("Image message format not implemented")
+            return
+
+        # Send asynchronously
+        if self._event_loop and not self._event_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(
+                self._websocket.send(wire_msg),
+                self._event_loop,
+            )
+
+    # =========================================================================
+    # Text Operations
+    # =========================================================================
+
+    def send_text(self, text: str) -> None:
+        """Send text input to the model.
+
+        This is a non-blocking call that sends text to the model.
+        The model will respond with audio output.
+
+        Args:
+            text (`str`):
+                The text message to send.
+        """
+        if not self._websocket:
+            raise RuntimeError("Model not started")
+
+        wire_msg = self._format_text_message(text)
+
+        if wire_msg is None:
+            logger.warning(
+                "%s model does not support text input",
+                self.provider_name,
+            )
             return
 
         # Send asynchronously

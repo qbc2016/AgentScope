@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-nested-blocks, too-many-branches
+# pylint: disable=too-many-nested-blocks, too-many-branches,
+# pylint: disable=too-many-statements
 """WebSocket server using Callback-based Voice Agent.
 
 This example demonstrates the new callback-based architecture:
@@ -403,24 +404,45 @@ class WebSocketVoiceSessionV2:
 
                         # Decode image and send to model
                         image_bytes = base64.b64decode(data["image"])
+                        mime_type = data.get("mime_type", "image/jpeg")
                         image_chunk_count += 1
 
                         if image_chunk_count == 1:
                             logger.info(
                                 "Session %s: First image chunk received "
-                                "(%d bytes)",
+                                "(%d bytes, %s)",
                                 self.session_id,
                                 len(image_bytes),
+                                mime_type,
                             )
 
                         # Send image to model (if supported)
                         if hasattr(self.agent.model, "send_image"):
-                            self.agent.model.send_image(image_bytes)
+                            self.agent.model.send_image(image_bytes, mime_type)
                         else:
                             if image_chunk_count == 1:
                                 logger.warning(
                                     "Session %s: Model does not support "
                                     "image input",
+                                    self.session_id,
+                                )
+
+                    elif data.get("type") == "text":
+                        # Text input (for text-based interaction)
+                        text = data.get("text", "")
+                        if text:
+                            logger.info(
+                                "Session %s: Text input received: %s",
+                                self.session_id,
+                                text[:50] + "..." if len(text) > 50 else text,
+                            )
+                            # Send text to model
+                            if hasattr(self.agent.model, "send_text"):
+                                self.agent.model.send_text(text)
+                            else:
+                                logger.warning(
+                                    "Session %s: Model does not support "
+                                    "text input",
                                     self.session_id,
                                 )
 

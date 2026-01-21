@@ -51,7 +51,7 @@ from .events import (
     ContentBlock,
 )
 
-from .model import RealtimeVoiceModelBase
+from .model import RealtimeVoiceModelBase, resample_audio
 from .model_dashscope import DashScopeRealtimeModel
 from .model_gemini import GeminiRealtimeModel
 from .agent import RealtimeVoiceAgent
@@ -62,6 +62,8 @@ __all__ = [
     "RealtimeVoiceModelBase",
     "DashScopeRealtimeModel",
     "GeminiRealtimeModel",
+    # Utilities
+    "resample_audio",
     # Agent
     "RealtimeVoiceAgent",
     # MsgStream

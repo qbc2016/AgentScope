@@ -10,12 +10,10 @@ This implementation uses the callback-based architecture where:
 import json
 from typing import Any
 
-import numpy as np
-
 from ..._logging import logger
 from ...types import JSONSerializableObject
 
-from .model import RealtimeVoiceModelBase
+from .model import RealtimeVoiceModelBase, resample_audio
 from .events import (
     ModelEvent,
     ModelEventType,
@@ -36,42 +34,6 @@ from .events import (
 )
 
 
-def _resample_audio(
-    audio_data: bytes,
-    from_rate: int,
-    to_rate: int,
-) -> bytes:
-    """Resample audio data from one sample rate to another.
-
-    Args:
-        audio_data (`bytes`):
-            The PCM audio bytes (16-bit signed, mono).
-        from_rate (`int`):
-            The source sample rate in Hz.
-        to_rate (`int`):
-            The target sample rate in Hz.
-
-    Returns:
-        `bytes`:
-            The resampled PCM audio bytes.
-    """
-    if from_rate == to_rate:
-        return audio_data
-
-    # Convert bytes to numpy array (16-bit signed)
-    audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
-
-    # Calculate the number of samples in the resampled audio
-    num_samples = int(len(audio_array) * to_rate / from_rate)
-
-    # Resample using linear interpolation
-    indices = np.linspace(0, len(audio_array) - 1, num_samples)
-    resampled = np.interp(indices, np.arange(len(audio_array)), audio_array)
-
-    # Convert back to 16-bit signed integer bytes
-    return resampled.astype(np.int16).tobytes()
-
-
 class DashScopeRealtimeModel(RealtimeVoiceModelBase):
     """DashScope real-time voice model using callback pattern.
 
@@ -89,17 +51,17 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
     Example:
         .. code-block:: python
 
-            model = DashScopeRealtimeModel(
-                api_key="your-api-key",
-                model_name="qwen3-omni-flash-realtime",
-                voice="Cherry",
-            )
+        model = DashScopeRealtimeModel(
+            api_key="your-api-key",
+            model_name="qwen3-omni-flash-realtime",
+            voice="Cherry",
+        )
 
-            def on_event(event: ModelEvent):
-                print(f"Event: {event.type}")
+        def on_event(event: ModelEvent):
+            print(f"Event: {event.type}")
 
-            model.agent_callback = on_event
-            await model.start()
+        model.agent_callback = on_event
+        await model.start()
     """
 
     WEBSOCKET_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
@@ -285,7 +247,11 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             },
         )
 
-    def _format_image_message(self, image_b64: str) -> str | None:
+    def _format_image_message(
+        self,
+        image_b64: str,
+        mime_type: str = "image/jpeg",
+    ) -> str | None:
         """Format image data for DashScope.
 
         DashScope Realtime API supports image input via
@@ -294,23 +260,46 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         Args:
             image_b64 (`str`):
                 The base64 encoded image data.
+            mime_type (`str`):
+                The MIME type of the image. Defaults to "image/jpeg".
 
         Returns:
             `str | None`:
                 The formatted JSON message.
 
         .. note::
-            - Image format: JPEG, recommended 480P or 720P, max 1080P.
+            - Image format: JPEG recommended, 480P or 720P, max 1080P.
             - Single image should not exceed 500KB.
             - Recommended frequency: 1 image per second.
             - Must send audio data before sending images.
         """
+        # DashScope currently only supports JPEG
+        if mime_type not in ("image/jpeg", "image/jpg"):
+            logger.warning(
+                "DashScope only supports JPEG images, got %s",
+                mime_type,
+            )
         return json.dumps(
             {
                 "type": "input_image_buffer.append",
                 "image": image_b64,
             },
         )
+
+    # pylint: disable=useless-return
+    def _format_text_message(self, text: str) -> str | None:
+        """Format text input for DashScope.
+
+        Args:
+            text (`str`):
+                The text message to send.
+
+        Returns:
+            `str | None`:
+                None, as DashScope Realtime API does not support text input.
+        """
+        logger.warning("DashScope Realtime API does not support text input")
+        return None
 
     @property
     def supports_image(self) -> bool:
@@ -340,7 +329,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 The preprocessed audio data.
         """
         if sample_rate and sample_rate != self.input_sample_rate:
-            return _resample_audio(
+            return resample_audio(
                 audio_data,
                 sample_rate,
                 self.input_sample_rate,
