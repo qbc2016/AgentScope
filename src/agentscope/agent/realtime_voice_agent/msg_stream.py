@@ -37,21 +37,21 @@ class EventMsgStream:
                   (filtered)            (filtered)          (all events)
 
     Example:
-        ```python
-        agent1 = RealtimeVoiceAgent(name="agent1", model=model1)
-        agent2 = RealtimeVoiceAgent(name="agent2", model=model2)
+        .. code-block:: python
 
-        stream = EventMsgStream(agents=[agent1, agent2])
+            agent1 = RealtimeVoiceAgent(name="agent1", model=model1)
+            agent2 = RealtimeVoiceAgent(name="agent2", model=model2)
 
-        # Optional: register external callback for WebSocket forwarding
-        async def forward_to_websocket(event: AgentEvent):
-            await websocket.send_json(event_to_dict(event))
+            stream = EventMsgStream(agents=[agent1, agent2])
 
-        stream.on_event = forward_to_websocket
+            # Optional: register external callback for WebSocket forwarding
+            async def forward_to_websocket(event: AgentEvent):
+                await websocket.send_json(event_to_dict(event))
 
-        await stream.start()
-        await stream.join()  # Wait until stopped
-        ```
+            stream.on_event = forward_to_websocket
+
+            await stream.start()
+            await stream.join()  # Wait until stopped
     """
 
     def __init__(

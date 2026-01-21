@@ -41,16 +41,16 @@ class RealtimeVoiceModelBase(ABC):
     invokes the registered callback for each event.
 
     Usage:
-        ```python
-        model = DashScopeRealtimeModel(api_key="xxx", model_name="xxx")
+        .. code-block:: python
 
-        def my_callback(event: ModelEvent):
-            print(f"Received: {event.type}")
-            # Convert to AgentEvent and dispatch...
+            model = DashScopeRealtimeModel(api_key="xxx", model_name="xxx")
 
-        model.agent_callback = my_callback
-        await model.start()
-        ```
+            def my_callback(event: ModelEvent):
+                print(f"Received: {event.type}")
+                # Convert to AgentEvent and dispatch...
+
+            model.agent_callback = my_callback
+            await model.start()
     """
 
     def __init__(
@@ -414,7 +414,7 @@ class RealtimeVoiceModelBase(ABC):
             image_data (`bytes`):
                 The JPEG image bytes.
 
-        Note:
+        .. note::
             - Image format must be JPEG. Recommended resolution: 480P or 720P,
               max 1080P.
             - Single image should not exceed 500KB.

@@ -75,16 +75,16 @@ class RealtimeVoiceAgent(StateModule):
         incoming_queue <-------- MsgStream dispatch_loop
 
     Example:
-        ```python
-        model = DashScopeRealtimeModel(api_key="xxx")
-        agent = RealtimeVoiceAgent(
-            name="assistant",
-            model=model,
-        )
+        .. code-block:: python
 
-        msg_stream = EventMsgStream(agents=[agent])
-        await msg_stream.start()
-        ```
+            model = DashScopeRealtimeModel(api_key="xxx")
+            agent = RealtimeVoiceAgent(
+                name="assistant",
+                model=model,
+            )
+
+            msg_stream = EventMsgStream(agents=[agent])
+            await msg_stream.start()
     """
 
     id: str

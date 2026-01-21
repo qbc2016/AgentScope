@@ -87,19 +87,19 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
     - Input audio transcription
 
     Example:
-        ```python
-        model = DashScopeRealtimeModel(
-            api_key="your-api-key",
-            model_name="qwen3-omni-flash-realtime",
-            voice="Cherry",
-        )
+        .. code-block:: python
 
-        def on_event(event: ModelEvent):
-            print(f"Event: {event.type}")
+            model = DashScopeRealtimeModel(
+                api_key="your-api-key",
+                model_name="qwen3-omni-flash-realtime",
+                voice="Cherry",
+            )
 
-        model.agent_callback = on_event
-        await model.start()
-        ```
+            def on_event(event: ModelEvent):
+                print(f"Event: {event.type}")
+
+            model.agent_callback = on_event
+            await model.start()
     """
 
     WEBSOCKET_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
@@ -299,7 +299,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             `str | None`:
                 The formatted JSON message.
 
-        Note:
+        .. note::
             - Image format: JPEG, recommended 480P or 720P, max 1080P.
             - Single image should not exceed 500KB.
             - Recommended frequency: 1 image per second.

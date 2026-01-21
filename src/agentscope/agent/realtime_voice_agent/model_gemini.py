@@ -59,23 +59,24 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
     - Thinking/reasoning support
 
     Example:
-        ```python
-        model = GeminiRealtimeModel(
-            api_key="your-api-key",
-            model_name="gemini-2.5-flash-native-audio-preview-12-2025",
-            voice="Puck",
-        )
+        .. code-block:: python
 
-        def on_event(event: ModelEvent):
-            print(f"Event: {event.type}")
+            model = GeminiRealtimeModel(
+                api_key="your-api-key",
+                model_name="gemini-2.5-flash-native-audio-preview-12-2025",
+                voice="Puck",
+            )
 
-        model.agent_callback = on_event
-        await model.start()
-        ```
+            def on_event(event: ModelEvent):
+                print(f"Event: {event.type}")
 
-    Note:
+            model.agent_callback = on_event
+            await model.start()
+
+    .. note::
         Gemini Live API uses a different message format than OpenAI/DashScope.
         Key differences:
+
         - Setup message is sent first to configure the session
         - Audio is sent via "realtimeInput" messages
         - Responses come as "serverContent" messages
@@ -329,7 +330,7 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
             `str | None`:
                 The formatted JSON message.
 
-        Note:
+        .. note::
             - Image format: JPEG, recommended 480P or 720P, max 1080P.
             - Single image should not exceed 500KB.
             - Recommended frequency: 1 image per second.
@@ -600,9 +601,10 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
     def _parse_model_turn(self, model_turn: dict[str, Any]) -> ModelEvent:
         """Parse modelTurn message.
 
-        Note: Gemini may return multiple parts including 'thought' parts
-        which contain internal reasoning. We process thought parts as
-        normal content since they may contain the actual response.
+        .. note::
+            Gemini may return multiple parts including 'thought' parts
+            which contain internal reasoning. We process thought parts as
+            normal content since they may contain the actual response.
 
         Args:
             model_turn (`dict[str, Any]`):
