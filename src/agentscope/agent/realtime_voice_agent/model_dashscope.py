@@ -44,12 +44,16 @@ def _resample_audio(
     """Resample audio data from one sample rate to another.
 
     Args:
-        audio_data: PCM audio bytes (16-bit signed, mono).
-        from_rate: Source sample rate in Hz.
-        to_rate: Target sample rate in Hz.
+        audio_data (`bytes`):
+            The PCM audio bytes (16-bit signed, mono).
+        from_rate (`int`):
+            The source sample rate in Hz.
+        to_rate (`int`):
+            The target sample rate in Hz.
 
     Returns:
-        Resampled PCM audio bytes.
+        `bytes`:
+            The resampled PCM audio bytes.
     """
     if from_rate == to_rate:
         return audio_data
@@ -116,16 +120,27 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         """Initialize the DashScope callback model.
 
         Args:
-            api_key: DashScope API key.
-            model_name: Model name (default: qwen3-omni-flash-realtime).
-            voice: Voice style (default: Cherry).
-            instructions: System instructions.
-            vad_enabled: Whether to enable VAD (default: True).
-            input_audio_format: Input audio format (default: pcm).
-            input_sample_rate: Input sample rate in Hz (default: 16000).
-            output_audio_format: Output audio format (default: pcm).
-            output_sample_rate: Output sample rate in Hz (default: 24000).
-            generate_kwargs: Additional generation parameters.
+            api_key (`str`):
+                The DashScope API key.
+            model_name (`str`, optional):
+                The model name. Defaults to "qwen3-omni-flash-realtime".
+            voice (`str`, optional):
+                The voice style. Defaults to "Cherry".
+            instructions (`str`, optional):
+                The system instructions. Defaults to
+                "You are a helpful assistant.".
+            vad_enabled (`bool`, optional):
+                Whether to enable VAD. Defaults to True.
+            input_audio_format (`str`, optional):
+                The input audio format. Defaults to "pcm".
+            input_sample_rate (`int`, optional):
+                The input sample rate in Hz. Defaults to 16000.
+            output_audio_format (`str`, optional):
+                The output audio format. Defaults to "pcm".
+            output_sample_rate (`int`, optional):
+                The output sample rate in Hz. Defaults to 24000.
+            generate_kwargs (`dict[str, JSONSerializableObject]`, optional):
+                Additional generation parameters. Defaults to None.
         """
         super().__init__(
             api_key=api_key,
@@ -146,22 +161,46 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
 
     @property
     def provider_name(self) -> str:
-        """Get the provider name."""
+        """Get the provider name.
+
+        Returns:
+            `str`:
+                The provider name "dashscope".
+        """
         return "dashscope"
 
     def _get_websocket_url(self) -> str:
-        """Get DashScope WebSocket URL."""
+        """Get DashScope WebSocket URL.
+
+        Returns:
+            `str`:
+                The WebSocket URL.
+        """
         return f"{self.WEBSOCKET_URL}?model={self.model_name}"
 
     def _get_headers(self) -> dict[str, str]:
-        """Get DashScope authentication headers."""
+        """Get DashScope authentication headers.
+
+        Returns:
+            `dict[str, str]`:
+                The authentication headers.
+        """
         return {
             "Authorization": f"Bearer {self.api_key}",
             "X-DashScope-DataInspection": "disable",
         }
 
     def _build_session_config(self, **kwargs: Any) -> str:
-        """Build DashScope session configuration message."""
+        """Build DashScope session configuration message.
+
+        Args:
+            **kwargs:
+                Additional configuration parameters.
+
+        Returns:
+            `str`:
+                The session configuration JSON message.
+        """
         session_config: dict[str, Any] = {
             "modalities": ["audio", "text"],
             "input_audio_format": self.input_audio_format,
@@ -189,7 +228,16 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         )
 
     def _format_audio_message(self, audio_b64: str) -> str:
-        """Format audio data for DashScope."""
+        """Format audio data for DashScope.
+
+        Args:
+            audio_b64 (`str`):
+                The base64 encoded audio data.
+
+        Returns:
+            `str`:
+                The formatted JSON message.
+        """
         return json.dumps(
             {
                 "type": "input_audio_buffer.append",
@@ -198,7 +246,12 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         )
 
     def _format_cancel_message(self) -> str | None:
-        """Format cancel response message."""
+        """Format cancel response message.
+
+        Returns:
+            `str | None`:
+                The cancel message JSON.
+        """
         return json.dumps({"type": "response.cancel"})
 
     def _format_tool_result_message(
@@ -207,7 +260,20 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         tool_name: str,
         result: str,
     ) -> str:
-        """Format tool result message for DashScope."""
+        """Format tool result message for DashScope.
+
+        Args:
+            tool_id (`str`):
+                The tool call ID.
+            tool_name (`str`):
+                The tool name.
+            result (`str`):
+                The tool execution result.
+
+        Returns:
+            `str`:
+                The formatted JSON message.
+        """
         return json.dumps(
             {
                 "type": "conversation.item.create",
@@ -225,6 +291,14 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         DashScope Realtime API supports image input via
         input_image_buffer.append.
 
+        Args:
+            image_b64 (`str`):
+                The base64 encoded image data.
+
+        Returns:
+            `str | None`:
+                The formatted JSON message.
+
         Note:
             - Image format: JPEG, recommended 480P or 720P, max 1080P.
             - Single image should not exceed 500KB.
@@ -240,7 +314,12 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
 
     @property
     def supports_image(self) -> bool:
-        """DashScope Realtime API supports image input."""
+        """Check if the model supports image input.
+
+        Returns:
+            `bool`:
+                True, DashScope Realtime API supports image input.
+        """
         return True
 
     def _preprocess_audio(
@@ -248,7 +327,18 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         audio_data: bytes,
         sample_rate: int | None,
     ) -> bytes:
-        """Resample audio if needed."""
+        """Resample audio if needed.
+
+        Args:
+            audio_data (`bytes`):
+                The raw audio data.
+            sample_rate (`int`, optional):
+                The sample rate of the audio.
+
+        Returns:
+            `bytes`:
+                The preprocessed audio data.
+        """
         if sample_rate and sample_rate != self.input_sample_rate:
             return _resample_audio(
                 audio_data,
@@ -258,7 +348,12 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         return audio_data
 
     async def create_response(self) -> None:
-        """Trigger model to generate a response."""
+        """Trigger model to generate a response.
+
+        Raises:
+            RuntimeError:
+                If the model is not started.
+        """
         if not self._websocket:
             raise RuntimeError("Not started")
 
@@ -266,7 +361,16 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         await self._websocket.send(response_create)
 
     def _parse_server_message(self, message: str) -> ModelEvent:
-        """Parse DashScope server message to ModelEvent."""
+        """Parse DashScope server message to ModelEvent.
+
+        Args:
+            message (`str`):
+                The server message to parse.
+
+        Returns:
+            `ModelEvent`:
+                The parsed ModelEvent.
+        """
         try:
             msg = json.loads(message)
         except json.JSONDecodeError as e:

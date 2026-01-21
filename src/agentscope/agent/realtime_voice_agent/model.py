@@ -63,10 +63,15 @@ class RealtimeVoiceModelBase(ABC):
         """Initialize the voice model.
 
         Args:
-            api_key: API key for authentication.
-            model_name: Model name to use.
-            voice: Voice style for audio output.
-            instructions: System instructions for the model.
+            api_key (`str`):
+                The API key for authentication.
+            model_name (`str`):
+                The model name to use.
+            voice (`str`, optional):
+                The voice style for audio output. Defaults to "Cherry".
+            instructions (`str`, optional):
+                The system instructions for the model. Defaults to
+                "You are a helpful assistant.".
         """
         # Configuration
         self.api_key = api_key
@@ -95,27 +100,69 @@ class RealtimeVoiceModelBase(ABC):
 
     @abstractmethod
     def _get_websocket_url(self) -> str:
-        """Get WebSocket endpoint URL."""
+        """Get WebSocket endpoint URL.
+
+        Returns:
+            `str`:
+                The WebSocket endpoint URL.
+        """
 
     @abstractmethod
     def _get_headers(self) -> dict[str, str]:
-        """Get authentication headers."""
+        """Get authentication headers.
+
+        Returns:
+            `dict[str, str]`:
+                The authentication headers.
+        """
 
     @abstractmethod
     def _build_session_config(self, **kwargs: Any) -> str:
-        """Build session configuration message as JSON string."""
+        """Build session configuration message as JSON string.
+
+        Args:
+            **kwargs:
+                Additional session configuration parameters.
+
+        Returns:
+            `str`:
+                The session configuration message as JSON string.
+        """
 
     @abstractmethod
     def _format_audio_message(self, audio_b64: str) -> str:
-        """Format audio data for sending as JSON string."""
+        """Format audio data for sending as JSON string.
+
+        Args:
+            audio_b64 (`str`):
+                The base64 encoded audio data.
+
+        Returns:
+            `str`:
+                The formatted audio message as JSON string.
+        """
 
     @abstractmethod
     def _parse_server_message(self, message: str) -> ModelEvent:
-        """Parse server message to ModelEvent."""
+        """Parse server message to ModelEvent.
+
+        Args:
+            message (`str`):
+                The server message to parse.
+
+        Returns:
+            `ModelEvent`:
+                The parsed ModelEvent.
+        """
 
     @abstractmethod
     def _format_cancel_message(self) -> str | None:
-        """Format cancel response message."""
+        """Format cancel response message.
+
+        Returns:
+            `str | None`:
+                The cancel message, or None if not supported.
+        """
 
     @abstractmethod
     def _format_tool_result_message(
@@ -124,23 +171,52 @@ class RealtimeVoiceModelBase(ABC):
         tool_name: str,
         result: str,
     ) -> str:
-        """Format tool result message."""
+        """Format tool result message.
+
+        Args:
+            tool_id (`str`):
+                The tool call ID.
+            tool_name (`str`):
+                The tool name.
+            result (`str`):
+                The tool execution result.
+
+        Returns:
+            `str`:
+                The formatted tool result message as JSON string.
+        """
 
     @abstractmethod
     def _format_image_message(self, image_b64: str) -> str | None:
         """Format image data for sending as JSON string.
 
-        Returns None if the model does not support image input.
+        Args:
+            image_b64 (`str`):
+                The base64 encoded image data.
+
+        Returns:
+            `str | None`:
+                The formatted image message, or None if not supported.
         """
 
     @property
     @abstractmethod
     def provider_name(self) -> str:
-        """Get the provider name (e.g., 'dashscope', 'gemini', 'openai')."""
+        """Get the provider name (e.g., 'dashscope', 'gemini', 'openai').
+
+        Returns:
+            `str`:
+                The provider name.
+        """
 
     @property
     def supports_image(self) -> bool:
-        """Check if the model supports image input."""
+        """Check if the model supports image input.
+
+        Returns:
+            `bool`:
+                True if the model supports image input, False otherwise.
+        """
         return False  # Override in subclass if supported
 
     # =========================================================================
@@ -154,7 +230,8 @@ class RealtimeVoiceModelBase(ABC):
         and sends the session configuration.
 
         Args:
-            **kwargs: Additional session configuration parameters.
+            **kwargs:
+                Additional session configuration parameters.
         """
         if self._initialized:
             return
@@ -191,7 +268,11 @@ class RealtimeVoiceModelBase(ABC):
         logger.info("%s model started", self.provider_name)
 
     async def _receive_loop(self) -> None:
-        """Background task to receive and process WebSocket messages."""
+        """Background task to receive and process WebSocket messages.
+
+        This method runs in a loop until the WebSocket connection is closed
+        or an error occurs.
+        """
         if not self._websocket:
             return
 
@@ -230,7 +311,12 @@ class RealtimeVoiceModelBase(ABC):
                 self._emit_event(ModelWebSocketDisconnect())
 
     async def _handle_internal_state(self, event: ModelEvent) -> None:
-        """Handle internal state changes based on event."""
+        """Handle internal state changes based on event.
+
+        Args:
+            event (`ModelEvent`):
+                The event to handle.
+        """
         event_type = event.type
 
         if event_type == ModelEventType.RESPONSE_CREATED:
@@ -247,7 +333,12 @@ class RealtimeVoiceModelBase(ABC):
                 await self.cancel_response()
 
     def _emit_event(self, event: ModelEvent) -> None:
-        """Emit a ModelEvent to the registered callback."""
+        """Emit a ModelEvent to the registered callback.
+
+        Args:
+            event (`ModelEvent`):
+                The event to emit.
+        """
         callback = self.agent_callback
         if callback is not None:
             try:
@@ -269,8 +360,10 @@ class RealtimeVoiceModelBase(ABC):
         This is a non-blocking call that sends audio to the model.
 
         Args:
-            audio_data: PCM audio bytes.
-            sample_rate: Sample rate (for resampling if needed).
+            audio_data (`bytes`):
+                The PCM audio bytes.
+            sample_rate (`int`, optional):
+                The sample rate for resampling if needed. Defaults to None.
         """
         if not self._websocket:
             raise RuntimeError("Model not started")
@@ -294,7 +387,18 @@ class RealtimeVoiceModelBase(ABC):
         audio_data: bytes,
         sample_rate: int | None,  # pylint: disable=unused-argument
     ) -> bytes:
-        """Hook for subclasses to preprocess audio (e.g., resample)."""
+        """Hook for subclasses to preprocess audio (e.g., resample).
+
+        Args:
+            audio_data (`bytes`):
+                The raw audio data.
+            sample_rate (`int`, optional):
+                The sample rate of the audio.
+
+        Returns:
+            `bytes`:
+                The preprocessed audio data.
+        """
         return audio_data
 
     # =========================================================================
@@ -307,7 +411,8 @@ class RealtimeVoiceModelBase(ABC):
         This is a non-blocking call that sends image to the model.
 
         Args:
-            image_data: JPEG image bytes.
+            image_data (`bytes`):
+                The JPEG image bytes.
 
         Note:
             - Image format must be JPEG. Recommended resolution: 480P or 720P,
@@ -346,11 +451,19 @@ class RealtimeVoiceModelBase(ABC):
     # =========================================================================
 
     async def create_response(self) -> None:
-        """Trigger model to generate a response (for non-VAD mode)."""
+        """Trigger model to generate a response (for non-VAD mode).
+
+        This is a no-op by default. Subclasses should override this method
+        to implement response triggering.
+        """
         # Default: no-op, override in subclasses
 
     async def cancel_response(self) -> None:
-        """Cancel the current response."""
+        """Cancel the current response.
+
+        Sets the response_cancelled flag and sends a cancel message
+        to the model if supported.
+        """
         self.response_cancelled = True
         self.is_responding = False
 
@@ -364,7 +477,16 @@ class RealtimeVoiceModelBase(ABC):
         tool_name: str,
         result: str | dict | list,
     ) -> None:
-        """Send tool execution result back to the model."""
+        """Send tool execution result back to the model.
+
+        Args:
+            tool_id (`str`):
+                The tool call ID.
+            tool_name (`str`):
+                The tool name.
+            result (`str | dict | list`):
+                The tool execution result.
+        """
         if not self._websocket:
             raise RuntimeError("Model not started")
 
@@ -390,7 +512,12 @@ class RealtimeVoiceModelBase(ABC):
 
     @property
     def is_connected(self) -> bool:
-        """Check if connected."""
+        """Check if connected.
+
+        Returns:
+            `bool`:
+                True if connected, False otherwise.
+        """
         return (
             self._websocket is not None
             and self._websocket.state.name == "OPEN"
@@ -398,7 +525,11 @@ class RealtimeVoiceModelBase(ABC):
         )
 
     async def close(self) -> None:
-        """Close the model connection."""
+        """Close the model connection.
+
+        This method cancels the receive task and closes the WebSocket
+        connection.
+        """
         if self._receive_task:
             self._receive_task.cancel()
             try:
@@ -416,6 +547,9 @@ class RealtimeVoiceModelBase(ABC):
         logger.info("%s model closed", self.provider_name)
 
     def reset(self) -> None:
-        """Reset state for new response."""
+        """Reset state for new response.
+
+        Clears the is_responding and response_cancelled flags.
+        """
         self.is_responding = False
         self.response_cancelled = False

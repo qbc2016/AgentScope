@@ -101,11 +101,17 @@ class RealtimeVoiceAgent(StateModule):
         """Initialize the callback voice agent.
 
         Args:
-            name: Agent name.
-            model: RealtimeVoiceModelBase instance.
-            sys_prompt: System prompt for the agent.
-            toolkit: Optional toolkit for tool calling.
-            memory: Optional memory for conversation history.
+            name (`str`):
+                The agent name.
+            model (`RealtimeVoiceModelBase`):
+                The realtime voice model instance.
+            sys_prompt (`str`, optional):
+                The system prompt for the agent. Defaults to
+                "You are a helpful assistant.".
+            toolkit (`Toolkit`, optional):
+                The toolkit for tool calling. Defaults to None.
+            memory (`MemoryBase`, optional):
+                The memory for conversation history. Defaults to None.
         """
         super().__init__()
 
@@ -153,7 +159,8 @@ class RealtimeVoiceAgent(StateModule):
         4. Starts the incoming event processing loop
 
         Args:
-            msgstream_queue: The central queue from MsgStream.
+            msgstream_queue (`asyncio.Queue[AgentEvent]`):
+                The central queue from MsgStream.
         """
         if self._initialized:
             return
@@ -186,7 +193,8 @@ class RealtimeVoiceAgent(StateModule):
         Converts ModelEvent to AgentEvent and pushes to MsgStream queue.
 
         Args:
-            model_event: The ModelEvent from model.
+            model_event (`ModelEvent`):
+                The ModelEvent from model.
         """
         logger.debug(
             "Agent %s received ModelEvent: %s",
@@ -214,10 +222,12 @@ class RealtimeVoiceAgent(StateModule):
         """Convert ModelEvent to AgentEvent.
 
         Args:
-            model_event: The ModelEvent to convert.
+            model_event (`ModelEvent`):
+                The ModelEvent to convert.
 
         Returns:
-            Converted AgentEvent, or None if event should be ignored.
+            `AgentEvent | None`:
+                Converted AgentEvent, or None if event should be ignored.
         """
         event_type = model_event.type
 
@@ -429,7 +439,8 @@ class RealtimeVoiceAgent(StateModule):
         """Handle an incoming AgentEvent.
 
         Args:
-            event: The AgentEvent to handle.
+            event (`AgentEvent`):
+                The AgentEvent to handle.
         """
         # Skip events from self
         if event.agent_id == self.id:
@@ -454,11 +465,18 @@ class RealtimeVoiceAgent(StateModule):
                 self.model.send_audio(audio_bytes)
 
     def stop(self) -> None:
-        """Stop the agent."""
+        """Stop the agent.
+
+        Sets the stop event to signal the processing loops to exit.
+        """
         self._stop_event.set()
 
     async def close(self) -> None:
-        """Close the agent and release resources."""
+        """Close the agent and release resources.
+
+        This method stops the agent, cancels the incoming task,
+        clears pending tool calls, and closes the model connection.
+        """
         self.stop()
 
         # Cancel incoming task
@@ -481,7 +499,12 @@ class RealtimeVoiceAgent(StateModule):
 
     @property
     def is_running(self) -> bool:
-        """Check if the agent is running."""
+        """Check if the agent is running.
+
+        Returns:
+            `bool`:
+                True if the agent is running, False otherwise.
+        """
         return self._initialized and not self._stop_event.is_set()
 
     # =========================================================================
@@ -489,7 +512,11 @@ class RealtimeVoiceAgent(StateModule):
     # =========================================================================
 
     async def _save_response_to_memory(self) -> None:
-        """Save the accumulated response text to memory."""
+        """Save the accumulated response text to memory.
+
+        Creates a Msg object with the accumulated response text and
+        adds it to memory, then resets the accumulator.
+        """
         if self._response_text:
             assistant_msg = Msg(
                 name=self.name,
@@ -512,8 +539,10 @@ class RealtimeVoiceAgent(StateModule):
         """Save input transcription to memory.
 
         Args:
-            speaker_name: Name of the speaker (other agent name or "user").
-            text: The transcribed speech.
+            speaker_name (`str`):
+                Name of the speaker (other agent name or "user").
+            text (`str`):
+                The transcribed speech.
         """
         if not text:
             return
@@ -544,9 +573,12 @@ class RealtimeVoiceAgent(StateModule):
         """Execute a tool and send the result back to the model.
 
         Args:
-            tool_id: The tool call ID.
-            tool_name: The name of the tool.
-            arguments_json: The tool arguments as JSON string.
+            tool_id (`str`):
+                The tool call ID.
+            tool_name (`str`):
+                The name of the tool.
+            arguments_json (`str`):
+                The tool arguments as JSON string.
         """
         if not self.toolkit:
             logger.warning(

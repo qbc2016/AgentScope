@@ -16,10 +16,6 @@ from .events import AgentEvent
 from .agent import RealtimeVoiceAgent
 
 
-# Type alias for external event callback
-ExternalEventCallback = Callable[[AgentEvent], None]
-
-
 class EventMsgStream:
     """Event-based message stream for multi-agent voice communication.
 
@@ -66,8 +62,10 @@ class EventMsgStream:
         """Initialize the event message stream.
 
         Args:
-            agents: List of RealtimeVoiceAgent instances to manage.
-            queue_max_size: Maximum size of the central queue.
+            agents (`Sequence[RealtimeVoiceAgent]`):
+                List of RealtimeVoiceAgent instances to manage.
+            queue_max_size (`int`, optional):
+                Maximum size of the central queue. Defaults to 1000.
         """
         self._agents: list[RealtimeVoiceAgent] = list(agents)
         self._queue_max_size = queue_max_size
@@ -83,7 +81,7 @@ class EventMsgStream:
         self._dispatch_task: asyncio.Task | None = None
 
         # External event callback (e.g., for WebSocket forwarding)
-        self.on_event: ExternalEventCallback | None = None
+        self.on_event: Callable[[AgentEvent], None] | None = None
 
     async def start(self) -> None:
         """Start the message stream and all agents.
@@ -146,9 +144,11 @@ class EventMsgStream:
                             )
 
                     # Invoke external callback
-                    if self.on_event:
+                    if self.on_event is not None:
                         try:
-                            self.on_event(event)
+                            self.on_event(
+                                event,
+                            )  # pylint: disable=not-callable
                         except Exception as e:
                             logger.error("External callback error: %s", e)
 
@@ -204,10 +204,12 @@ class EventMsgStream:
         """Wait until the stream is stopped.
 
         Args:
-            timeout: Maximum time to wait in seconds. None for indefinite.
+            timeout (`float`, optional):
+                Maximum time to wait in seconds. None for indefinite.
 
         Raises:
-            asyncio.TimeoutError: If timeout expires.
+            asyncio.TimeoutError:
+                If timeout expires.
         """
         if not self._initialized:
             return
@@ -221,7 +223,8 @@ class EventMsgStream:
         (e.g., user audio from WebSocket).
 
         Args:
-            event: The AgentEvent to push.
+            event (`AgentEvent`):
+                The AgentEvent to push.
         """
         if not self._initialized:
             logger.warning("MsgStream not started, ignoring event")
@@ -256,15 +259,30 @@ class EventMsgStream:
 
     @property
     def agents(self) -> list[RealtimeVoiceAgent]:
-        """Get list of managed agents."""
+        """Get list of managed agents.
+
+        Returns:
+            `list[RealtimeVoiceAgent]`:
+                The list of managed agents.
+        """
         return self._agents
 
     @property
     def is_running(self) -> bool:
-        """Check if the stream is running."""
+        """Check if the stream is running.
+
+        Returns:
+            `bool`:
+                True if running, False otherwise.
+        """
         return self._initialized and not self._stop_event.is_set()
 
     @property
     def queue_size(self) -> int:
-        """Get current queue size."""
+        """Get current queue size.
+
+        Returns:
+            `int`:
+                The current queue size.
+        """
         return self._queue.qsize()
