@@ -443,6 +443,34 @@
             </button>
         </div>
 
+        <!-- Session Config Panel -->
+        <details style="margin: 20px 0;">
+            <summary style="color: #888; cursor: pointer; font-size: 0.9rem;">
+                ⚙️ Session Config
+            </summary>
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; padding: 20px; margin-top: 10px;">
+                <div>
+                    <label style="font-size: 0.8rem; color: #aaa; display: block; margin-bottom: 5px;">Voice</label>
+                    <select id="configVoice" style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #e8e8e8;">
+                        <option value="">-- Keep Current --</option>
+                        <option value="Cherry">Cherry (DashScope)</option>
+                        <option value="Serena">Serena (DashScope)</option>
+                        <option value="Ethan">Ethan (DashScope)</option>
+                        <option value="Chelsie">Chelsie (DashScope)</option>
+                        <option value="Puck">Puck (Gemini)</option>
+                        <option value="Charon">Charon (Gemini)</option>
+                    </select>
+                </div>
+                <div style="margin-top: 15px;">
+                    <label style="font-size: 0.8rem; color: #aaa; display: block; margin-bottom: 5px;">Instructions</label>
+                    <textarea id="configInstructions" rows="2" style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #e8e8e8; resize: vertical;" placeholder="Custom instructions for the assistant..."></textarea>
+                </div>
+                <button onclick="updateSessionConfig()" class="btn btn-primary" style="margin-top: 15px; padding: 12px 25px;" id="updateConfigBtn" disabled>
+                    🔄 Update Config
+                </button>
+            </div>
+        </details>
+
         <footer>
             <p>Powered by AgentScope VoiceAgent</p>
         </footer>
@@ -548,6 +576,7 @@
             document.getElementById('cameraBtn').disabled = true;
             document.getElementById('textInput').disabled = true;
             document.getElementById('sendBtn').disabled = true;
+            document.getElementById('updateConfigBtn').disabled = true;
         }
 
         // Interrupt current response
@@ -589,6 +618,36 @@
             }
         }
 
+        // =====================
+        // Session Config Update
+        // =====================
+
+        function updateSessionConfig() {
+            if (!ws || !isConnected) return;
+
+            const config = {};
+
+            // Get voice (only if selected)
+            const voice = document.getElementById('configVoice').value;
+            if (voice) {
+                config.voice = voice;
+            }
+
+            // Get instructions (only if not empty)
+            const instructions = document.getElementById('configInstructions').value.trim();
+            if (instructions) {
+                config.instructions = instructions;
+            }
+
+            // Send update message
+            if (Object.keys(config).length > 0) {
+                ws.send(JSON.stringify({ type: 'session_update', config: config }));
+                addSystemMessage(`Config update requested: ${Object.keys(config).join(', ')}`);
+            } else {
+                addSystemMessage('No config changes to apply');
+            }
+        }
+
         function handleMessage(data) {
             switch (data.type) {
                 case 'event':
@@ -625,6 +684,7 @@
                     document.getElementById('cameraBtn').disabled = false;
                     document.getElementById('textInput').disabled = false;
                     document.getElementById('sendBtn').disabled = false;
+                    document.getElementById('updateConfigBtn').disabled = false;
                     break;
                 case 'response_end':
                     // Response ended, reset current message (like Java's TURN_COMPLETE)
@@ -633,6 +693,9 @@
                     }
                     currentAssistantMessage = null;
                     currentMessageId = null;
+                    break;
+                case 'session_updated':
+                    addSystemMessage('Session config updated successfully');
                     break;
             }
         }

@@ -263,6 +263,31 @@ class RealtimeVoiceModelBase(ABC):
                 The formatted text message, or None if not supported.
         """
 
+    @abstractmethod
+    def _format_session_update_message(
+        self,
+        config: dict[str, Any],
+    ) -> str | None:
+        """Format session update message as JSON string.
+
+        This is called when the client sends `client.session.update` to
+        dynamically update session configuration (voice, instructions, etc.).
+
+        Args:
+            config (`dict[str, Any]`):
+                The session configuration to update. May include:
+                - voice: Voice style for audio output
+                - instructions: System instructions
+                - input_audio_format: Audio format configuration
+                - turn_detection: VAD configuration
+                - tools: List of tool JSON schemas (for frontend-executed
+                tools)
+
+        Returns:
+            `str | None`:
+                The formatted session update message, or None if not supported.
+        """
+
     @property
     @abstractmethod
     def provider_name(self) -> str:
@@ -548,6 +573,49 @@ class RealtimeVoiceModelBase(ABC):
                 self._websocket.send(wire_msg),
                 self._event_loop,
             )
+
+    # =========================================================================
+    # Session Update
+    # =========================================================================
+
+    async def update_session(self, config: dict[str, Any]) -> None:
+        """Update session configuration dynamically.
+
+        This is called when the client sends `client.session.update` to
+        modify the session configuration at runtime.
+
+        Args:
+            config (`dict[str, Any]`):
+                The session configuration to update. May include:
+                - voice: Voice style for audio output
+                - instructions: System instructions
+                - input_audio_format: Audio format configuration
+                - turn_detection: VAD configuration
+                - tools: List of tool JSON schemas
+
+        Example:
+            .. code-block:: python
+
+                await model.update_session({
+                    "voice": "Cherry",
+                    "instructions": "You are a helpful assistant.",
+                    "turn_detection": {"type": "server_vad"},
+                })
+        """
+        if not self._websocket:
+            raise RuntimeError("Model not started")
+
+        wire_msg = self._format_session_update_message(config)
+
+        if wire_msg is None:
+            logger.warning(
+                "%s model does not support session update",
+                self.provider_name,
+            )
+            return
+
+        await self._websocket.send(wire_msg)
+        logger.info("Session update sent: %s", list(config.keys()))
 
     # =========================================================================
     # Response Control

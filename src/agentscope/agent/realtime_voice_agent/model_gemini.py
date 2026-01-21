@@ -380,6 +380,35 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
             },
         )
 
+    # pylint: disable=useless-return
+    def _format_session_update_message(
+        self,
+        config: dict[str, Any],
+    ) -> str | None:
+        """Format session update message for Gemini.
+
+        Gemini Live API doesn't support dynamic session update after setup.
+        The session must be configured at connection time.
+
+        Args:
+            config (`dict[str, Any]`):
+                The session configuration to update.
+
+        Returns:
+            `str | None`:
+                None, as Gemini doesn't support dynamic session update.
+
+        .. note::
+            Gemini Live API requires session configuration to be sent
+            in the initial `setup` message. Dynamic updates after
+            connection are not supported.
+        """
+        logger.warning(
+            "Gemini Live API does not support dynamic session update. "
+            "Session must be configured at connection time.",
+        )
+        return None
+
     def _format_cancel_message(self) -> str | None:
         """Format cancel/interrupt message for Gemini.
 

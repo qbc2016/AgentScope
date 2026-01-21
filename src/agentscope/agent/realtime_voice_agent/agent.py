@@ -242,7 +242,10 @@ class RealtimeVoiceAgent(StateModule):
             )
 
         elif event_type == ModelEventType.SESSION_UPDATED:
-            assert isinstance(model_event, ModelSessionUpdated)
+            # Some models return generic ModelEvent with SESSION_UPDATED type
+            # as a placeholder for informational events. Skip these.
+            if not isinstance(model_event, ModelSessionUpdated):
+                return None
             return AgentSessionUpdated(
                 agent_id=self.id,
                 agent_name=self.name,

@@ -301,6 +301,44 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         logger.warning("DashScope Realtime API does not support text input")
         return None
 
+    def _format_session_update_message(
+        self,
+        config: dict[str, Any],
+    ) -> str | None:
+        """Format session update message for DashScope.
+
+        Args:
+            config (`dict[str, Any]`):
+                The session configuration to update.
+
+        Returns:
+            `str | None`:
+                The formatted JSON message.
+        """
+        # TODO: Consider passing config directly to API without field mapping.
+        # Currently we filter known fields for safety, but this could be
+        # simplified if the frontend sends API-compatible config directly.
+        # Supported fields: voice, instructions, turn_detection, tools,
+        # input_audio_format, output_audio_format
+
+        # Pass through known fields directly
+        known_fields = [
+            "voice",
+            "instructions",
+        ]
+        session_config = {k: v for k, v in config.items() if k in known_fields}
+
+        if not session_config:
+            logger.warning("No valid config keys found for session update")
+            return None
+
+        return json.dumps(
+            {
+                "type": "session.update",
+                "session": session_config,
+            },
+        )
+
     @property
     def supports_image(self) -> bool:
         """Check if the model supports image input.

@@ -446,6 +446,49 @@ class WebSocketVoiceSessionV2:
                                     self.session_id,
                                 )
 
+                    elif data.get("type") == "session_update":
+                        # Handle session config update
+                        config = data.get("config", {})
+                        if config:
+                            logger.info(
+                                "Session %s: Session update: %s",
+                                self.session_id,
+                                list(config.keys()),
+                            )
+                            # Apply config to model
+                            if hasattr(self.agent.model, "update_session"):
+                                try:
+                                    await self.agent.model.update_session(
+                                        config,
+                                    )
+                                    # Send confirmation
+                                    await self.websocket.send_json(
+                                        {
+                                            "type": "event",
+                                            "event": "session_updated",
+                                            "config": config,
+                                        },
+                                    )
+                                except Exception as e:
+                                    logger.warning(
+                                        "Session %s: Failed to update: %s",
+                                        self.session_id,
+                                        e,
+                                    )
+                                    await self.websocket.send_json(
+                                        {
+                                            "type": "error",
+                                            "message": f"Config update "
+                                            f"failed: {e}",
+                                        },
+                                    )
+                            else:
+                                logger.warning(
+                                    "Session %s: Model does not support "
+                                    "session update",
+                                    self.session_id,
+                                )
+
                     elif data.get("type") == "control":
                         action = data.get("action")
                         logger.info(
