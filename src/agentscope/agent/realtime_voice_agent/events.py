@@ -7,11 +7,12 @@ AgentEvent: Backend to Web events (dispatched to other agents/frontend)
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Union
 
+from typing_extensions import TypeAlias
 
 # =============================================================================
-# Model Events - API 事件（Model 层产出，Agent 消费）
+# Model Events - API events (produced by Model layer, consumed by Agent)
 # =============================================================================
 
 
@@ -269,7 +270,8 @@ class ModelWebSocketDisconnect(ModelEvent):
 
 
 # =============================================================================
-# Agent Events - 后端到 Web 的事件（Agent 产出，分发到其他 Agents/前端）
+# Agent Events - Backend-to-Web events (produced by Agent, dispatched to
+# other Agents/Frontend)
 # =============================================================================
 
 
@@ -324,6 +326,14 @@ class ToolUseBlock:
     input: dict[str, Any]
     type: str = field(default="tool_use", init=False)
 
+    def __getitem__(self, key: str) -> Any:
+        """Support subscript access for Toolkit compatibility."""
+        return getattr(self, key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Support dict-like get() for Toolkit compatibility."""
+        return getattr(self, key, default)
+
 
 @dataclass
 class ToolResultBlock:
@@ -334,9 +344,22 @@ class ToolResultBlock:
     output: str
     type: str = field(default="tool_result", init=False)
 
+    def __getitem__(self, key: str) -> Any:
+        """Support subscript access."""
+        return getattr(self, key)
 
-# Union type for content blocks
-ContentBlock = TextBlock | AudioBlock | ToolUseBlock | ToolResultBlock
+    def get(self, key: str, default: Any = None) -> Any:
+        """Support dict-like get()."""
+        return getattr(self, key, default)
+
+
+# Union type for content blocks in agent events
+ContentBlock: TypeAlias = Union[
+    TextBlock,
+    AudioBlock,
+    ToolUseBlock,
+    ToolResultBlock,
+]
 
 
 @dataclass

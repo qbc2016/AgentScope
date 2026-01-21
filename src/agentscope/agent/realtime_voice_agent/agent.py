@@ -20,7 +20,6 @@ from ..._logging import logger
 from ...memory import MemoryBase, InMemoryMemory
 from ...message import Msg
 from ...message import TextBlock as MsgTextBlock
-from ...message import ToolUseBlock as MsgToolUseBlock
 from ...message import ToolResultBlock as MsgToolResultBlock
 from ...module import StateModule
 from ...tool import Toolkit
@@ -558,65 +557,93 @@ class RealtimeVoiceAgent(StateModule):
 
         logger.info("Executing tool: %s(%s)", tool_name, tool_id)
 
+        # Parse arguments
         try:
-            # Parse arguments
-            try:
-                arguments = json.loads(arguments_json)
-            except json.JSONDecodeError:
-                arguments = {}
+            arguments = json.loads(arguments_json)
+        except json.JSONDecodeError:
+            arguments = {}
 
-            # Create tool use block for toolkit
-            tool_use_block = ToolUseBlock(
-                id=tool_id,
-                name=tool_name,
-                input=arguments,
-            )
+        # Create tool use block (dataclass with dict-like access)
+        tool_use_block = ToolUseBlock(
+            id=tool_id,
+            name=tool_name,
+            input=arguments,
+        )
 
-            # Save tool call to memory
-            tool_call_msg = Msg(
-                name=self.name,
-                content=[
-                    MsgToolUseBlock(
-                        type="tool_use",
-                        id=tool_id,
-                        name=tool_name,
-                        input=arguments,
-                    ),
-                ],
-                role="assistant",
-            )
-            await self.memory.add(tool_call_msg)
+        # Save tool call to memory (using dict format for Msg)
+        tool_call_msg = Msg(
+            name=self.name,
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": tool_id,
+                    "name": tool_name,
+                    "input": arguments,
+                },
+            ],
+            role="assistant",
+        )
+        await self.memory.add(tool_call_msg)
 
-            # Execute tool
-            result = await self.toolkit.call_tool_function(tool_use_block)
+        # Prepare tool result message (following ReactAgent pattern)
+        tool_result_msg = Msg(
+            name="system",
+            content=[
+                MsgToolResultBlock(
+                    type="tool_result",
+                    id=tool_id,
+                    name=tool_name,
+                    output=[],
+                ),
+            ],
+            role="system",
+        )
 
-            # Convert result to string
-            if isinstance(result, (dict, list)):
-                result_str = json.dumps(result, ensure_ascii=False)
-            else:
-                result_str = str(result)
+        try:
+            # Execute the tool call
+            tool_res = await self.toolkit.call_tool_function(tool_use_block)
 
-            # Save tool result to memory
-            tool_result_msg = Msg(
-                name="system",
-                content=[
-                    MsgToolResultBlock(
-                        type="tool_result",
-                        id=tool_id,
-                        name=tool_name,
-                        output=[MsgTextBlock(type="text", text=result_str)],
-                    ),
-                ],
-                role="system",
-            )
-            await self.memory.add(tool_result_msg)
+            # Async generator handling
+            async for chunk in tool_res:
+                # Update tool result message with chunk content
+                tool_result_msg.content[0][  # type: ignore[index]
+                    "output"
+                ] = chunk.content
+
+                # Handle interruption
+                if chunk.is_interrupted:
+                    raise asyncio.CancelledError()
+
+            # Extract result text
+            result_str = ""
+            output = tool_result_msg.content[0].get("output", [])
+            for block in output:
+                if hasattr(block, "text"):
+                    result_str += block.text
+                elif isinstance(block, dict) and "text" in block:
+                    result_str += block["text"]
+
+            if not result_str:
+                result_str = "Tool executed successfully"
 
             # Send result back to model
             await self.model.send_tool_result(tool_id, tool_name, result_str)
             logger.info("Tool %s executed successfully", tool_name)
+
+        except asyncio.CancelledError:
+            logger.info("Tool %s was cancelled", tool_name)
+            await self.model.send_tool_result(
+                tool_id,
+                tool_name,
+                "Tool execution was cancelled",
+            )
 
         except Exception as e:
             logger.error("Tool execution error: %s", e)
             # Send error result back to model
             error_result = json.dumps({"error": str(e)})
             await self.model.send_tool_result(tool_id, tool_name, error_result)
+
+        finally:
+            # Record the tool result message in the memory
+            await self.memory.add(tool_result_msg)

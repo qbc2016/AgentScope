@@ -29,6 +29,7 @@ import base64
 import os
 import dataclasses
 from typing import Optional, Any
+import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -37,6 +38,7 @@ from fastapi.responses import HTMLResponse
 from agentscope.agent.realtime_voice_agent import (
     RealtimeVoiceAgent,
     DashScopeRealtimeModel,
+    GeminiRealtimeModel,
     EventMsgStream,
     AgentEvent,
     AgentEventType,
@@ -52,7 +54,33 @@ from agentscope.agent.realtime_voice_agent import (
     TextBlock,
     AudioBlock,
 )
+from agentscope.tool import Toolkit, ToolResponse
+from agentscope.message import TextBlock as MsgTextBlock
 from agentscope import logger
+
+
+# =============================================================================
+# Example Tools for Testing
+# =============================================================================
+
+
+def get_current_time() -> ToolResponse:
+    """获取当前时间。当用户询问现在几点或当前时间时使用。"""
+    now = datetime.datetime.now()
+    text = f"当前时间是 {now.strftime('%Y年%m月%d日 %H:%M:%S')}"
+    return ToolResponse(content=[MsgTextBlock(text=text)])
+
+
+def get_weather(city: str) -> ToolResponse:
+    """获取指定城市的天气。当用户询问天气时使用。
+
+    Args:
+        city: 城市名称
+    """
+    # Mock weather data
+    text = f"{city}今天天气晴朗，温度22°C，适合外出。"
+    return ToolResponse(content=[MsgTextBlock(text=text)])
+
 
 app = FastAPI(title="VoiceAgent WebSocket Server V2")
 
@@ -86,8 +114,13 @@ def event_to_dict(event: AgentEvent) -> dict[str, Any]:
                 "data": delta.data,
                 "media_type": delta.media_type,
             }
-        else:
+        elif isinstance(delta, dict):
+            # TypedDict (e.g., ToolUseBlock, ToolResultBlock)
+            result["delta"] = delta
+        elif dataclasses.is_dataclass(delta):
             result["delta"] = dataclasses.asdict(delta)
+        else:
+            result["delta"] = {"value": str(delta)}
 
     elif isinstance(event, AgentResponseDone):
         result["response_id"] = event.response_id
@@ -141,28 +174,52 @@ class WebSocketVoiceSessionV2:
 
     async def initialize(self) -> None:
         """Initialize the voice agent and model."""
-        api_key = os.environ.get("DASHSCOPE_API_KEY", "")
-        if not api_key:
-            raise ValueError("DASHSCOPE_API_KEY environment variable not set")
+        # Check which model to use
+        gemini_api_key = os.environ.get("GOOGLE_API_KEY", "")
+        dashscope_api_key = os.environ.get("DASHSCOPE_API_KEY", "")
 
-        # 1. Create WebSocket Model (callback-based)
-        model = DashScopeRealtimeModel(
-            api_key=api_key,
-            model_name="qwen3-omni-flash-realtime",
-            voice="Cherry",
-            instructions="You are a helpful voice assistant. "
-            "Keep responses concise.",
-            vad_enabled=True,
-        )
+        if gemini_api_key:
+            # Use Gemini model
+            # Note: native-audio models only support AUDIO output
+            model = GeminiRealtimeModel(
+                api_key=gemini_api_key,
+                model_name="gemini-2.5-flash-native-audio-preview-12-2025",
+                voice="Puck",
+                instructions="你是一个有帮助的语音助手，请用中文回答。",
+                response_modalities=[
+                    "AUDIO",
+                ],  # native-audio only supports AUDIO
+                vad_enabled=True,
+            )
+        elif dashscope_api_key:
+            # Use DashScope model
+            model = DashScopeRealtimeModel(
+                api_key=dashscope_api_key,
+                model_name="qwen3-omni-flash-realtime",
+                voice="Cherry",
+                instructions="你是一个有帮助的语音助手，请用中文回答。",
+                vad_enabled=True,
+            )
+        else:
+            raise ValueError(
+                "Either GOOGLE_API_KEY or DASHSCOPE_API_KEY "
+                "environment variable must be set",
+            )
 
-        # 2. Create Agent (with incoming_queue)
+        # 2. Create Toolkit with example tools
+        toolkit = Toolkit()
+        toolkit.register_tool_function(get_current_time)
+        toolkit.register_tool_function(get_weather)
+
+        # 3. Create Agent (with toolkit)
         self.agent = RealtimeVoiceAgent(
             name="assistant",
             model=model,
-            sys_prompt="You are a helpful voice assistant.",
+            sys_prompt="你是一个有帮助的语音助手，请用中文回答。你可以使用工具获取时间和天气。",
+            toolkit=toolkit,
         )
 
-        # 3. Create MsgStream (with dispatch_loop)
+        # 4. Create MsgStream (with dispatch_loop)
         self.msg_stream = EventMsgStream(
             agents=[self.agent],
             queue_max_size=1000,

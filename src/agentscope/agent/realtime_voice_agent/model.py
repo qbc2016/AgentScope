@@ -253,7 +253,7 @@ class RealtimeVoiceModelBase(ABC):
             try:
                 callback(event)
             except Exception as e:
-                logger.error("Error in agent callback: %s", e)
+                logger.error("Error in agent callback: %s", e, exc_info=True)
 
     # =========================================================================
     # Audio Operations
