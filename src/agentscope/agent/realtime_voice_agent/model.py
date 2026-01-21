@@ -7,6 +7,7 @@ This module provides a callback-based model architecture where:
 - Agent converts ModelEvents to AgentEvents for dispatch
 """
 
+import json
 import asyncio
 import base64
 from abc import ABC, abstractmethod
@@ -594,8 +595,6 @@ class RealtimeVoiceModelBase(ABC):
 
         # Convert result to string
         if isinstance(result, (dict, list)):
-            import json
-
             result_str = json.dumps(result)
         else:
             result_str = str(result)

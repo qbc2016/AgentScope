@@ -13,7 +13,7 @@ This agent:
 
 import asyncio
 import json
-
+import base64
 import shortuuid
 
 from ..._logging import logger
@@ -459,8 +459,6 @@ class RealtimeVoiceAgent(StateModule):
                 # Track the speaker for input transcription
                 self._current_incoming_speaker = event.agent_name
                 # Decode and send audio to model
-                import base64
-
                 audio_bytes = base64.b64decode(event.delta.data)
                 self.model.send_audio(audio_bytes)
 
