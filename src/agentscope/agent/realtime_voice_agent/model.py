@@ -25,9 +25,6 @@ from .events import (
     ModelWebSocketDisconnect,
 )
 
-# Type alias for event callback
-ModelEventCallback = Callable[[ModelEvent], None]
-
 
 class RealtimeVoiceModelBase(ABC):
     """Base class for WebSocket voice models with callback pattern.
@@ -85,7 +82,7 @@ class RealtimeVoiceModelBase(ABC):
         self._initialized = False
 
         # Callback for ModelEvents (set by Agent)
-        self.agent_callback: ModelEventCallback | None = None
+        self.agent_callback: Callable[[ModelEvent], None] | None = None
 
         # State
         self.is_responding = False

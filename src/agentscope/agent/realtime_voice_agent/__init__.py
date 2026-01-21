@@ -51,7 +51,7 @@ from .events import (
     ContentBlock,
 )
 
-from .model import RealtimeVoiceModelBase, ModelEventCallback
+from .model import RealtimeVoiceModelBase
 from .model_dashscope import DashScopeRealtimeModel
 from .model_gemini import GeminiRealtimeModel
 from .agent import RealtimeVoiceAgent
@@ -62,7 +62,6 @@ __all__ = [
     "RealtimeVoiceModelBase",
     "DashScopeRealtimeModel",
     "GeminiRealtimeModel",
-    "ModelEventCallback",
     # Agent
     "RealtimeVoiceAgent",
     # MsgStream
