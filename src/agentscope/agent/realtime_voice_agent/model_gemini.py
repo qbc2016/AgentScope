@@ -434,13 +434,34 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         """Format cancel/interrupt message for Gemini.
 
         Gemini Live API doesn't have a direct cancel message.
-        Instead, sending new input will interrupt the current response.
+        Sending a clientContent with turnComplete=true will interrupt
+        the current response and signal end of user turn.
 
         Returns:
             `str | None`:
-                None, as Gemini doesn't support direct cancel.
+                The interrupt message JSON.
+
+        .. note::
+            Gemini requires the `turns` field in clientContent, even if empty.
+            Without it, the API will return an "invalid argument" error.
         """
-        return None
+        # Send a turnComplete signal to interrupt current response
+        # This tells Gemini the user has finished their turn
+        # Note: "turns" must be present (empty array) for valid clientContent
+        self._is_in_response = False
+        return json.dumps(
+            {
+                "clientContent": {
+                    "turns": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": ""}],
+                        },
+                    ],
+                    "turnComplete": True,
+                },
+            },
+        )
 
     def _format_tool_result_message(
         self,
@@ -659,12 +680,14 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
 
         # Handle input transcription (user speech to text)
         if "inputTranscription" in content:
-            text = content["inputTranscription"].get("text", "")
-            logger.info("User said: %s", text)
-            return ModelInputTranscriptionDone(
-                transcript=text,
-                item_id=None,
-            )
+            transcription = content["inputTranscription"]
+            if transcription:
+                text = transcription.get("text", "")
+                logger.info("User said: %s", text)
+                return ModelInputTranscriptionDone(
+                    transcript=text,
+                    item_id=None,
+                )
 
         # Handle model turn content FIRST to ensure response_id is set
         if "modelTurn" in content:
@@ -673,15 +696,17 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         # Handle output transcription (model speech to text)
         # Process after modelTurn to ensure _current_response_id is set
         if "outputTranscription" in content:
-            text = content["outputTranscription"].get("text", "")
-            if text:
-                logger.info("Gemini output transcription: %s", text)
-                # Ensure we're in a response before emitting transcript
-                self._ensure_response_started()
-            return ModelResponseAudioTranscriptDelta(
-                response_id=self._current_response_id or "",
-                delta=text,
-            )
+            transcription = content["outputTranscription"]
+            if transcription:
+                text = transcription.get("text", "")
+                if text:
+                    logger.info("Gemini output transcription: %s", text)
+                    # Ensure we're in a response before emitting transcript
+                    self._ensure_response_started()
+                    return ModelResponseAudioTranscriptDelta(
+                        response_id=self._current_response_id or "",
+                        delta=text,
+                    )
 
         return ModelEvent(type=ModelEventType.SESSION_UPDATED)
 
@@ -737,6 +762,10 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
                 list(part.keys()),
                 is_thought,
             )
+
+            # Skip thought parts - they contain internal reasoning
+            if is_thought:
+                continue
 
             # Handle inline audio data
             if "inlineData" in part:

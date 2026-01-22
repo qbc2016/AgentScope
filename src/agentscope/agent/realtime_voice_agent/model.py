@@ -427,7 +427,33 @@ class RealtimeVoiceModelBase(ABC):
         Args:
             event (`ModelEvent`):
                 The event to emit.
+
+        .. note::
+            If the response has been cancelled, response-related events
+            (audio delta, text delta, etc.) will be silently dropped
+            to prevent stale data from reaching the frontend.
         """
+        # Filter out response events after cancellation
+        event_type = event.type
+
+        # RESPONSE_CREATED marks a new response - reset cancellation flag
+        if event_type == ModelEventType.RESPONSE_CREATED:
+            self.response_cancelled = False
+
+        # Drop content events if response was cancelled
+        if self.response_cancelled:
+            # Only drop content events (audio, transcript)
+            # Allow RESPONSE_CREATED and RESPONSE_DONE
+            if event_type in (
+                ModelEventType.RESPONSE_AUDIO_DELTA,
+                ModelEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA,
+            ):
+                logger.debug(
+                    "Dropping %s event after response cancelled",
+                    event_type,
+                )
+                return
+
         callback = self.agent_callback
         if callback is not None:
             try:

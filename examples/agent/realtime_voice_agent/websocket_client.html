@@ -584,6 +584,13 @@
             if (ws && isConnected) {
                 ws.send(JSON.stringify({ type: 'control', action: 'interrupt' }));
                 stopAudioPlayback();
+
+                // Finalize current streaming message to prevent it from being updated
+                if (currentAssistantMessage) {
+                    currentAssistantMessage.classList.remove('streaming');
+                    currentAssistantMessage = null;
+                }
+
                 addSystemMessage('🛑 Current response interrupted');
             }
         }

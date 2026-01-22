@@ -173,6 +173,30 @@ class WebSocketVoiceSessionV2:
         # Track accumulated text for streaming display
         self._accumulated_text: dict[str, str] = {}
 
+    @staticmethod
+    def _is_cjk_char(char: str) -> bool:
+        """Check if a character is CJK (Chinese, Japanese, Korean).
+
+        Args:
+            char: A single character to check.
+
+        Returns:
+            True if the character is CJK.
+        """
+        if not char:
+            return False
+        code = ord(char)
+        # CJK Unified Ideographs and common CJK ranges
+        return (
+            0x4E00 <= code <= 0x9FFF  # CJK Unified Ideographs
+            or 0x3400 <= code <= 0x4DBF  # CJK Extension A
+            or 0x3000 <= code <= 0x303F  # CJK Symbols and Punctuation
+            or 0xFF00 <= code <= 0xFFEF  # Halfwidth and Fullwidth Forms
+            or 0x3040 <= code <= 0x309F  # Hiragana
+            or 0x30A0 <= code <= 0x30FF  # Katakana
+            or 0xAC00 <= code <= 0xD7AF  # Hangul Syllables
+        )
+
     async def initialize(self) -> None:
         """Initialize the voice agent and model."""
         # Check which model to use
@@ -261,7 +285,19 @@ class WebSocketVoiceSessionV2:
                     # Accumulate text for streaming display
                     key = f"{event.agent_id}_{event.response_id}"
                     self._accumulated_text.setdefault(key, "")
-                    self._accumulated_text[key] += delta.text
+
+                    # Strip leading space from delta if previous char is CJK
+                    # (Gemini often adds spaces between CJK characters)
+                    text_delta = delta.text
+                    current_text = self._accumulated_text[key]
+                    if (
+                        current_text
+                        and text_delta.startswith(" ")
+                        and self._is_cjk_char(current_text[-1])
+                    ):
+                        text_delta = text_delta.lstrip(" ")
+
+                    self._accumulated_text[key] += text_delta
 
                     # Send accumulated text (matching old behavior)
                     await self.websocket.send_json(
