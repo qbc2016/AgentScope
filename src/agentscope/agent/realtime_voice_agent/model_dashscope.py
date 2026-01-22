@@ -73,6 +73,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         voice: str = "Cherry",
         instructions: str = "You are a helpful assistant.",
         vad_enabled: bool = True,
+        enable_input_audio_transcription: bool = True,
         input_audio_format: str = "pcm",
         input_sample_rate: int = 16000,
         output_audio_format: str = "pcm",
@@ -93,6 +94,8 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 "You are a helpful assistant.".
             vad_enabled (`bool`, optional):
                 Whether to enable VAD. Defaults to True.
+            enable_input_audio_transcription (`bool`, optional):
+                Whether to transcribe input audio. Defaults to True.
             input_audio_format (`str`, optional):
                 The input audio format. Defaults to "pcm".
             input_sample_rate (`int`, optional):
@@ -111,6 +114,9 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             instructions=instructions,
         )
         self.vad_enabled = vad_enabled
+        self.enable_input_audio_transcription = (
+            enable_input_audio_transcription
+        )
         self.input_audio_format = input_audio_format
         self.input_sample_rate = input_sample_rate
         self.output_audio_format = output_audio_format
@@ -169,11 +175,14 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             "output_audio_format": self.output_audio_format,
             "voice": self.voice,
             "instructions": kwargs.get("instructions", self.instructions),
-            "input_audio_transcription": {
-                "model": "gummy-realtime-v1",
-            },
             **self.generate_kwargs,
         }
+
+        # Input audio transcription
+        if self.enable_input_audio_transcription:
+            session_config["input_audio_transcription"] = {
+                "model": "gummy-realtime-v1",
+            }
 
         if self.vad_enabled:
             session_config["turn_detection"] = {

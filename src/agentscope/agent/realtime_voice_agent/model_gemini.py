@@ -101,6 +101,8 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         session_resumption: bool = False,
         session_resumption_handle: str | None = None,
         vad_enabled: bool = True,
+        enable_input_audio_transcription: bool = True,
+        enable_output_audio_transcription: bool = True,
         base_url: str | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
@@ -131,6 +133,10 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
                 The previous session handle for resumption. Defaults to None.
             vad_enabled (`bool`, optional):
                 Whether VAD is enabled. Defaults to True.
+            enable_input_audio_transcription (`bool`, optional):
+                Whether to transcribe input audio. Defaults to True.
+            enable_output_audio_transcription (`bool`, optional):
+                Whether to transcribe output audio. Defaults to True.
             base_url (`str`, optional):
                 The custom WebSocket URL. Defaults to None.
             generate_kwargs (`dict[str, JSONSerializableObject]`, optional):
@@ -149,12 +155,21 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         self.session_resumption = session_resumption
         self.session_resumption_handle = session_resumption_handle
         self.vad_enabled = vad_enabled
+        self.enable_input_audio_transcription = (
+            enable_input_audio_transcription
+        )
+        self.enable_output_audio_transcription = (
+            enable_output_audio_transcription
+        )
         self.generate_kwargs = generate_kwargs or {}
 
         # Track current response state
         self._current_response_id: str | None = None
         self._session_id: str | None = None
         self._is_in_response = False
+        self._response_counter = (
+            0  # Counter for generating stable response IDs
+        )
 
     @property
     def provider_name(self) -> str:
@@ -214,6 +229,12 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
 
         # Model configuration
         setup["model"] = f"models/{self.model_name}"
+
+        # Audio transcription configuration
+        if self.enable_input_audio_transcription:
+            setup["inputAudioTranscription"] = {}
+        if self.enable_output_audio_transcription:
+            setup["outputAudioTranscription"] = {}
 
         # Generation configuration
         generation_config: dict[str, Any] = {
@@ -645,21 +666,40 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
                 item_id=None,
             )
 
+        # Handle model turn content FIRST to ensure response_id is set
+        if "modelTurn" in content:
+            return self._parse_model_turn(content["modelTurn"])
+
         # Handle output transcription (model speech to text)
+        # Process after modelTurn to ensure _current_response_id is set
         if "outputTranscription" in content:
             text = content["outputTranscription"].get("text", "")
             if text:
                 logger.info("Gemini output transcription: %s", text)
+                # Ensure we're in a response before emitting transcript
+                self._ensure_response_started()
             return ModelResponseAudioTranscriptDelta(
                 response_id=self._current_response_id or "",
                 delta=text,
             )
 
-        # Handle model turn content
-        if "modelTurn" in content:
-            return self._parse_model_turn(content["modelTurn"])
-
         return ModelEvent(type=ModelEventType.SESSION_UPDATED)
+
+    def _ensure_response_started(self) -> None:
+        """Ensure a response is started, creating one if needed.
+
+        This is called before emitting any response-related events to ensure
+        _current_response_id is set and ResponseCreated event is emitted.
+        """
+        if not self._is_in_response:
+            self._is_in_response = True
+            self._response_counter += 1
+            self._current_response_id = f"resp_gemini_{self._response_counter}"
+            self._emit_event(
+                ModelResponseCreated(
+                    response_id=self._current_response_id,
+                ),
+            )
 
     def _parse_model_turn(self, model_turn: dict[str, Any]) -> ModelEvent:
         """Parse modelTurn message.
@@ -684,14 +724,7 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         logger.debug("modelTurn parts count: %d", len(parts))
 
         # Start response if not already
-        if not self._is_in_response:
-            self._is_in_response = True
-            self._current_response_id = f"resp_{id(model_turn)}"
-            self._emit_event(
-                ModelResponseCreated(
-                    response_id=self._current_response_id,
-                ),
-            )
+        self._ensure_response_started()
 
         # Process parts - return audio first, collect text
         audio_event = None
