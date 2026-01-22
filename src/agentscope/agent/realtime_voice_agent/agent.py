@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-return-statements, too-many-branches
+# pylint: disable=too-many-nested-blocks
 """Callback-based Voice Agent with incoming queue.
 
 This agent:
@@ -126,7 +127,9 @@ class RealtimeVoiceAgent(StateModule):
         self.incoming_queue: asyncio.Queue[AgentEvent] = asyncio.Queue()
 
         # Reference to MsgStream's central queue (set by MsgStream.start)
-        self._queue_stream: asyncio.Queue[AgentEvent] | None = None
+        # Note: Queue is typed as Queue[AgentEvent | None] because MsgStream
+        # uses None as a stop signal, but agent only pushes AgentEvent
+        self._queue_stream: asyncio.Queue[AgentEvent | None] | None = None
 
         # State
         self._initialized = False
@@ -148,7 +151,7 @@ class RealtimeVoiceAgent(StateModule):
 
     async def start(
         self,
-        msgstream_queue: asyncio.Queue[AgentEvent],
+        msgstream_queue: asyncio.Queue[AgentEvent | None],
     ) -> None:
         """Start the agent and connect to model.
 
@@ -159,8 +162,10 @@ class RealtimeVoiceAgent(StateModule):
         4. Starts the incoming event processing loop
 
         Args:
-            msgstream_queue (`asyncio.Queue[AgentEvent]`):
-                The central queue from MsgStream.
+            msgstream_queue (`asyncio.Queue[AgentEvent | None]`):
+                The central queue from MsgStream. Note that None is used
+                as a stop signal by MsgStream, but agent only pushes
+                AgentEvent.
         """
         if self._initialized:
             return

@@ -96,9 +96,7 @@ class EventMsgStream:
         self._stop_event.clear()
 
         # Start all agents with our central queue
-        start_tasks = [
-            agent.start(self._queue) for agent in self._agents  # type: ignore
-        ]
+        start_tasks = [agent.start(self._queue) for agent in self._agents]
         await asyncio.gather(*start_tasks)
 
         # Start dispatch loop
