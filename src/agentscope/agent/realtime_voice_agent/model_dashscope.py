@@ -51,17 +51,17 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
     Example:
         .. code-block:: python
 
-        model = DashScopeRealtimeModel(
-            api_key="your-api-key",
-            model_name="qwen3-omni-flash-realtime",
-            voice="Cherry",
-        )
+            model = DashScopeRealtimeModel(
+                api_key="your-api-key",
+                model_name="qwen3-omni-flash-realtime",
+                voice="Cherry",
+            )
 
-        def on_event(event: ModelEvent):
-            print(f"Event: {event.type}")
+            def on_event(event: ModelEvent):
+                print(f"Event: {event.type}")
 
-        model.agent_callback = on_event
-        await model.start()
+            model.agent_callback = on_event
+            await model.start()
     """
 
     WEBSOCKET_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
