@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """The Anthropic token counter class."""
 from typing import Any
+from agentscope.token import TokenCounterBase
 
 
-class AnthropicTokenCounter:
+class AnthropicTokenCounter(TokenCounterBase):
     """The Anthropic token counter class."""
 
     def __init__(self, model_name: str, api_key: str, **kwargs: Any) -> None:
