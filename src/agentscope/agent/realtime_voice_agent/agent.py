@@ -78,14 +78,14 @@ class RealtimeVoiceAgent(StateModule):
     Example:
         .. code-block:: python
 
-        model = DashScopeRealtimeModel(api_key="xxx")
-        agent = RealtimeVoiceAgent(
-            name="assistant",
-            model=model,
-        )
+            model = DashScopeRealtimeModel(api_key="xxx")
+            agent = RealtimeVoiceAgent(
+                name="assistant",
+                model=model,
+            )
 
-        msg_stream = EventMsgStream(agents=[agent])
-        await msg_stream.start()
+            msg_stream = EventMsgStream(agents=[agent])
+            await msg_stream.start()
     """
 
     id: str

@@ -54,6 +54,7 @@ from .events import (
 from .model import RealtimeVoiceModelBase, resample_audio
 from .model_dashscope import DashScopeRealtimeModel
 from .model_gemini import GeminiRealtimeModel
+from .model_openai import OpenAIRealtimeModel
 from .agent import RealtimeVoiceAgent
 from .msg_stream import EventMsgStream
 
@@ -62,6 +63,7 @@ __all__ = [
     "RealtimeVoiceModelBase",
     "DashScopeRealtimeModel",
     "GeminiRealtimeModel",
+    "OpenAIRealtimeModel",
     # Utilities
     "resample_audio",
     # Agent

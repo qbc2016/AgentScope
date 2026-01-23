@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=too-many-return-statements, too-many-branches
-"""DashScope WebSocket-based real-time voice model with callback pattern.
+"""OpenAI Realtime API model with callback pattern.
 
 This implementation uses the callback-based architecture where:
 - API messages are parsed to ModelEvents
 - ModelEvents are emitted via callback to Agent
+
+OpenAI Realtime API:
+- WebSocket endpoint for real-time bidirectional communication
+- Supports audio and text input/output
+- Server-side VAD (Voice Activity Detection)
+- Function calling support
+
+Reference:
+    https://platform.openai.com/docs/api-reference/realtime
 """
 
 import json
@@ -27,6 +36,7 @@ from .events import (
     ModelResponseToolUseDelta,
     ModelResponseToolUseDone,
     ModelResponseDone,
+    ModelInputTranscriptionDelta,
     ModelInputTranscriptionDone,
     ModelInputStarted,
     ModelInputDone,
@@ -34,36 +44,35 @@ from .events import (
 )
 
 
-class DashScopeRealtimeModel(RealtimeVoiceModelBase):
-    """DashScope real-time voice model using callback pattern.
+class OpenAIRealtimeModel(RealtimeVoiceModelBase):
+    """OpenAI Realtime API model using callback pattern.
 
     This model:
-    - Connects to DashScope Realtime API via WebSocket
+    - Connects to OpenAI Realtime API via WebSocket
     - Parses API messages to unified ModelEvents
     - Emits ModelEvents via callback to Agent
 
     Features:
-    - PCM audio input (16kHz mono)
+    - PCM audio input (16kHz recommended, auto-resampled to 24kHz)
     - PCM audio output (24kHz mono)
     - Server-side VAD (Voice Activity Detection)
-    - Input audio transcription
-    - Image input support (JPEG)
+    - Input audio transcription (Whisper)
+    - Function calling support
 
     .. seealso::
-        - `DashScope Realtime API
-          <https://help.aliyun.com/zh/model-studio/developer-reference/qwen-omni-realtime-api-websocket>`_
-        - `Supported models
-          <https://help.aliyun.com/zh/model-studio/developer-reference/qwen-omni-model-list>`_
+        - `OpenAI Realtime API with WebSocket
+          <https://platform.openai.com/docs/guides/realtime-websocket>`_
+        - `Supported models <https://platform.openai.com/docs/models>`_
         - `Supported voices
-          <https://help.aliyun.com/zh/model-studio/developer-reference/cosyvoice-audio-generation-text-to-speech>`_
+          <https://platform.openai.com/docs/api-reference/realtime-client-events/session/update#realtime_client_events-session-update-session-realtime_session_configuration-audio-output-voice>`_
 
     Example:
         .. code-block:: python
 
-            model = DashScopeRealtimeModel(
-                api_key="your-api-key",
-                model_name="qwen3-omni-flash-realtime",
-                voice="Cherry",
+            model = OpenAIRealtimeModel(
+                api_key="your-openai-api-key",
+                model_name="gpt-4o-realtime-preview-2024-12-17",
+                voice="alloy",
             )
 
             def on_event(event: ModelEvent):
@@ -73,53 +82,58 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             await model.start()
     """
 
-    WEBSOCKET_URL = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+    WEBSOCKET_URL = "wss://api.openai.com/v1/realtime"
 
     def __init__(
         self,
         api_key: str,
-        model_name: str = "qwen3-omni-flash-realtime",
-        voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
-        | str = "Cherry",
+        model_name: str = "gpt-4o-realtime-preview-2024-12-17",
+        voice: Literal[
+            "alloy",
+            "ash",
+            "ballad",
+            "coral",
+            "echo",
+            "marin",
+            "cedar",
+        ]
+        | str = "marin",
         instructions: str = "You are a helpful assistant.",
         vad_enabled: bool = True,
         enable_input_audio_transcription: bool = True,
-        input_audio_format: str = "pcm",
-        input_sample_rate: int = 16000,
-        output_audio_format: str = "pcm",
-        output_sample_rate: int = 24000,
+        turn_detection_threshold: float = 0.5,
+        turn_detection_prefix_padding_ms: int = 300,
+        turn_detection_silence_duration_ms: int = 500,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
-        """Initialize the DashScope callback model.
+        """Initialize the OpenAI Realtime model.
 
         Args:
             api_key (`str`):
-                The DashScope API key.
+                The OpenAI API key.
             model_name (`str`, optional):
-                The model name. Defaults to "qwen3-omni-flash-realtime".
-                See the `official document <>`_ for more options.
-            voice (`Literal["Cherry", "Serena", "Ethan", "Chelsie"] | str`, \
-            optional):
-                The voice style. Supported voices: "Cherry", "Serena",
-                "Ethan", "Chelsie". Defaults to "Cherry". See the
-                 `official document
-                 <https://help.aliyun.com/zh/model-studio/realtime>`_
+                The model name. Defaults to
+                "gpt-4o-realtime-preview-2024-12-17".
+            voice (`Literal["alloy", "ash", "ballad", "coral", "echo", \
+            "marin", "cedar"] | str`, optional):
+                The voice style. Supported voices: "alloy", "ash",
+                "ballad", "coral", "echo", "marin", "cedar", etc.
+                Defaults to "marin". See `OpenAI voices
+                <https://platform.openai.com/docs/api-reference/realtime-client-events/session/update#realtime_client_events-session-update-session-realtime_session_configuration-audio-output-voice>`_
                 for more options.
             instructions (`str`, optional):
                 The system instructions. Defaults to
                 "You are a helpful assistant.".
             vad_enabled (`bool`, optional):
-                Whether to enable VAD. Defaults to True.
+                Whether to enable server VAD. Defaults to True.
             enable_input_audio_transcription (`bool`, optional):
                 Whether to transcribe input audio. Defaults to True.
-            input_audio_format (`str`, optional):
-                The input audio format. Defaults to "pcm".
-            input_sample_rate (`int`, optional):
-                The input sample rate in Hz. Defaults to 16000.
-            output_audio_format (`str`, optional):
-                The output audio format. Defaults to "pcm".
-            output_sample_rate (`int`, optional):
-                The output sample rate in Hz. Defaults to 24000.
+            turn_detection_threshold (`float`, optional):
+                VAD threshold (0.0-1.0). Defaults to 0.5.
+            turn_detection_prefix_padding_ms (`int`, optional):
+                Padding before speech in ms. Defaults to 300.
+            turn_detection_silence_duration_ms (`int`, optional):
+                Silence duration to end turn in ms. Defaults to 500.
             generate_kwargs (`dict[str, JSONSerializableObject]`, optional):
                 Additional generation parameters. Defaults to None.
         """
@@ -133,11 +147,17 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         self.enable_input_audio_transcription = (
             enable_input_audio_transcription
         )
-        self.input_audio_format = input_audio_format
-        self.input_sample_rate = input_sample_rate
-        self.output_audio_format = output_audio_format
-        self.output_sample_rate = output_sample_rate
+        self.turn_detection_threshold = turn_detection_threshold
+        self.turn_detection_prefix_padding_ms = (
+            turn_detection_prefix_padding_ms
+        )
+        self.turn_detection_silence_duration_ms = (
+            turn_detection_silence_duration_ms
+        )
         self.generate_kwargs = generate_kwargs or {}
+
+        # OpenAI Realtime API expects 24kHz PCM input
+        self.input_sample_rate = 24000
 
         # Track current response/item IDs
         self._current_response_id: str | None = None
@@ -149,21 +169,31 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
 
         Returns:
             `str`:
-                The provider name "dashscope".
+                The provider name "openai".
         """
-        return "dashscope"
+        return "openai"
+
+    @property
+    def supports_image(self) -> bool:
+        """Check if the model supports image input.
+
+        Returns:
+            `bool`:
+                False, OpenAI Realtime API does not support image input yet.
+        """
+        return False
 
     def _get_websocket_url(self) -> str:
-        """Get DashScope WebSocket URL.
+        """Get OpenAI WebSocket URL.
 
         Returns:
             `str`:
-                The WebSocket URL.
+                The WebSocket URL with model parameter.
         """
         return f"{self.WEBSOCKET_URL}?model={self.model_name}"
 
     def _get_headers(self) -> dict[str, str]:
-        """Get DashScope authentication headers.
+        """Get OpenAI authentication headers.
 
         Returns:
             `dict[str, str]`:
@@ -171,11 +201,11 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         """
         return {
             "Authorization": f"Bearer {self.api_key}",
-            "X-DashScope-DataInspection": "disable",
+            "OpenAI-Beta": "realtime=v1",
         }
 
     def _build_session_config(self, **kwargs: Any) -> str:
-        """Build DashScope session configuration message.
+        """Build OpenAI session configuration message.
 
         Args:
             **kwargs:
@@ -187,25 +217,34 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         """
         session_config: dict[str, Any] = {
             "modalities": ["audio", "text"],
-            "input_audio_format": self.input_audio_format,
-            "output_audio_format": self.output_audio_format,
             "voice": self.voice,
             "instructions": kwargs.get("instructions", self.instructions),
+            "input_audio_format": "pcm16",
+            "output_audio_format": "pcm16",
             **self.generate_kwargs,
         }
 
         # Input audio transcription
         if self.enable_input_audio_transcription:
             session_config["input_audio_transcription"] = {
-                "model": "gummy-realtime-v1",
+                "model": "whisper-1",
             }
 
+        # Turn detection (VAD)
         if self.vad_enabled:
             session_config["turn_detection"] = {
                 "type": "server_vad",
+                "threshold": self.turn_detection_threshold,
+                "prefix_padding_ms": self.turn_detection_prefix_padding_ms,
+                "silence_duration_ms": self.turn_detection_silence_duration_ms,
             }
         else:
             session_config["turn_detection"] = None
+
+        # Tools configuration
+        tools = kwargs.get("tools", [])
+        if tools:
+            session_config["tools"] = tools
 
         return json.dumps(
             {
@@ -215,7 +254,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         )
 
     def _format_audio_message(self, audio_b64: str) -> str:
-        """Format audio data for DashScope.
+        """Format audio data for OpenAI.
 
         Args:
             audio_b64 (`str`):
@@ -232,6 +271,33 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             },
         )
 
+    def _preprocess_audio(
+        self,
+        audio_data: bytes,
+        sample_rate: int | None,
+    ) -> bytes:
+        """Resample audio to 24kHz if needed.
+
+        OpenAI Realtime API expects 24kHz PCM input.
+
+        Args:
+            audio_data (`bytes`):
+                The raw audio data.
+            sample_rate (`int`, optional):
+                The sample rate of the audio.
+
+        Returns:
+            `bytes`:
+                The preprocessed audio data (resampled to 24kHz if needed).
+        """
+        if sample_rate and sample_rate != self.input_sample_rate:
+            return resample_audio(
+                audio_data,
+                sample_rate,
+                self.input_sample_rate,
+            )
+        return audio_data
+
     def _format_cancel_message(self) -> str | None:
         """Format cancel response message.
 
@@ -247,7 +313,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         tool_name: str,
         result: str,
     ) -> str:
-        """Format tool result message for DashScope.
+        """Format tool result message for OpenAI.
 
         Args:
             tool_id (`str`):
@@ -272,48 +338,32 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             },
         )
 
+    # pylint: disable=useless-return
     def _format_image_message(
         self,
         image_b64: str,
         mime_type: str = "image/jpeg",
     ) -> str | None:
-        """Format image data for DashScope.
-
-        DashScope Realtime API supports image input via
-        input_image_buffer.append.
+        """Format image data for OpenAI.
 
         Args:
             image_b64 (`str`):
                 The base64 encoded image data.
             mime_type (`str`):
-                The MIME type of the image. Defaults to "image/jpeg".
+                The MIME type of the image. Not used as OpenAI doesn't
+                support image input.
 
         Returns:
             `str | None`:
-                The formatted JSON message.
-
-        .. note::
-            - Image format: JPEG recommended, 480P or 720P, max 1080P.
-            - Single image should not exceed 500KB.
-            - Recommended frequency: 1 image per second.
-            - Must send audio data before sending images.
+                None, as OpenAI Realtime API does not support image input.
         """
-        # DashScope currently only supports JPEG
-        if mime_type not in ("image/jpeg", "image/jpg"):
-            logger.warning(
-                "DashScope only supports JPEG images, got %s",
-                mime_type,
-            )
-        return json.dumps(
-            {
-                "type": "input_image_buffer.append",
-                "image": image_b64,
-            },
-        )
+        logger.warning("OpenAI Realtime API does not support image input")
+        return None
 
-    # pylint: disable=useless-return
     def _format_text_message(self, text: str) -> str | None:
-        """Format text input for DashScope.
+        """Format text input for OpenAI.
+
+        OpenAI Realtime API supports text input via conversation.item.create.
 
         Args:
             text (`str`):
@@ -321,16 +371,29 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
 
         Returns:
             `str | None`:
-                None, as DashScope Realtime API does not support text input.
+                The formatted JSON message.
         """
-        logger.warning("DashScope Realtime API does not support text input")
-        return None
+        return json.dumps(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": text,
+                        },
+                    ],
+                },
+            },
+        )
 
     def _format_session_update_message(
         self,
         config: dict[str, Any],
     ) -> str | None:
-        """Format session update message for DashScope.
+        """Format session update message for OpenAI.
 
         Args:
             config (`dict[str, Any]`):
@@ -343,8 +406,8 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         # TODO: Consider passing config directly to API without field mapping.
         # Currently we filter known fields for safety, but this could be
         # simplified if the frontend sends API-compatible config directly.
-        # Supported fields: voice, instructions, turn_detection, tools,
-        # input_audio_format, output_audio_format
+        # Supported fields: voice, instructions, turn_detection, modalities,
+        # tools, input_audio_format, output_audio_format
 
         # Pass through known fields directly
         known_fields = [
@@ -364,41 +427,6 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             },
         )
 
-    @property
-    def supports_image(self) -> bool:
-        """Check if the model supports image input.
-
-        Returns:
-            `bool`:
-                True, DashScope Realtime API supports image input.
-        """
-        return True
-
-    def _preprocess_audio(
-        self,
-        audio_data: bytes,
-        sample_rate: int | None,
-    ) -> bytes:
-        """Resample audio if needed.
-
-        Args:
-            audio_data (`bytes`):
-                The raw audio data.
-            sample_rate (`int`, optional):
-                The sample rate of the audio.
-
-        Returns:
-            `bytes`:
-                The preprocessed audio data.
-        """
-        if sample_rate and sample_rate != self.input_sample_rate:
-            return resample_audio(
-                audio_data,
-                sample_rate,
-                self.input_sample_rate,
-            )
-        return audio_data
-
     async def create_response(self) -> None:
         """Trigger model to generate a response.
 
@@ -413,7 +441,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         await self._websocket.send(response_create)
 
     def _parse_server_message(self, message: str) -> ModelEvent:
-        """Parse DashScope server message to ModelEvent.
+        """Parse OpenAI server message to ModelEvent.
 
         Args:
             message (`str`):
@@ -426,7 +454,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         try:
             msg = json.loads(message)
         except json.JSONDecodeError as e:
-            logger.warning("Failed to parse DashScope message: %s", e)
+            logger.warning("Failed to parse OpenAI message: %s", e)
             return ModelError(
                 error_type="parse_error",
                 code="JSON_PARSE_ERROR",
@@ -480,7 +508,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 output_index=msg.get("output_index"),
             )
 
-        # Transcript delta
+        # Transcript delta (model output)
         elif event_type == "response.audio_transcript.delta":
             text = msg.get("delta", "")
             return ModelResponseAudioTranscriptDelta(
@@ -499,38 +527,27 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 output_index=msg.get("output_index"),
             )
 
-        # Tool use events (function calling)
-        elif event_type == "response.function_call_arguments.delta":
-            return ModelResponseToolUseDelta(
-                response_id=self._current_response_id or "",
-                call_id=msg.get("call_id", ""),
-                delta=msg.get("delta", ""),
-                item_id=msg.get("item_id"),
-                output_index=msg.get("output_index"),
-                name=msg.get("name"),
-            )
-
-        elif event_type == "response.function_call_arguments.done":
-            return ModelResponseToolUseDone(
-                response_id=self._current_response_id or "",
-                call_id=msg.get("call_id", ""),
-                item_id=msg.get("item_id"),
-                output_index=msg.get("output_index"),
-            )
-
         # Input transcription
         elif (
             event_type
             == "conversation.item.input_audio_transcription.completed"
         ):
             text = msg.get("transcript", "")
-            logger.info("User said: %s", text)
+            item_id = msg.get("item_id", "")
             return ModelInputTranscriptionDone(
                 transcript=text,
-                item_id=msg.get("item_id"),
+                item_id=item_id,
             )
 
-        # VAD events
+        elif event_type == "conversation.item.input_audio_transcription.delta":
+            text = msg.get("delta", "")
+            return ModelInputTranscriptionDelta(
+                delta=text,
+                item_id=msg.get("item_id"),
+                content_index=msg.get("content_index"),
+            )
+
+        # Input detection (VAD)
         elif event_type == "input_audio_buffer.speech_started":
             return ModelInputStarted(
                 item_id=msg.get("item_id", ""),
@@ -543,6 +560,21 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 audio_end_ms=msg.get("audio_end_ms", 0),
             )
 
+        # Tool use events
+        elif event_type == "response.function_call_arguments.delta":
+            return ModelResponseToolUseDelta(
+                response_id=self._current_response_id or "",
+                call_id=msg.get("call_id", ""),
+                delta=msg.get("delta", ""),
+                name=msg.get("name"),
+            )
+
+        elif event_type == "response.function_call_arguments.done":
+            return ModelResponseToolUseDone(
+                response_id=self._current_response_id or "",
+                call_id=msg.get("call_id", ""),
+            )
+
         # Error events
         elif event_type == "error":
             error = msg.get("error", {})
@@ -552,8 +584,30 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 message=error.get("message", "Unknown error"),
             )
 
-        # Unknown event - return generic event
-        else:
-            logger.debug("Unknown DashScope event type: %s", event_type)
-            # Return a generic session event for unknown types
+        # Rate limit info (not an error, just informational)
+        elif event_type == "rate_limits.updated":
+            logger.debug("Rate limits updated: %s", msg.get("rate_limits"))
             return ModelEvent(type=ModelEventType.SESSION_UPDATED)
+
+        # Informational events - state notifications without actual data
+        # These events notify about structural changes but don't contain
+        # audio/text content. The actual data comes in events like
+        # response.audio.delta and response.audio_transcript.delta.
+        # We return a generic ModelEvent to acknowledge receipt without
+        # triggering any special handling in the Agent layer.
+        elif event_type in [
+            "conversation.item.created",  # New item added to conversation
+            "conversation.item.deleted",  # Item removed from conversation
+            "response.output_item.added",  # Output item structure created
+            "response.output_item.done",  # Output item completed
+            "response.content_part.added",  # Content part structure created
+            "response.content_part.done",  # Content part completed
+            "input_audio_buffer.committed",  # Audio buffer submitted
+            "input_audio_buffer.cleared",  # Audio buffer cleared
+        ]:
+            logger.debug("Informational event: %s", event_type)
+            return ModelEvent(type=ModelEventType.SESSION_UPDATED)
+
+        # Unknown event type
+        logger.debug("Unknown OpenAI event: %s", event_type)
+        return ModelEvent(type=ModelEventType.SESSION_UPDATED)

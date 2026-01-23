@@ -20,7 +20,7 @@ Reference:
 """
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from ..._logging import logger
 from ...types import JSONSerializableObject
@@ -58,6 +58,10 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
     - Session resumption
     - Thinking/reasoning support
 
+    .. seealso::
+        - `Gemini WebSockets API reference
+          <https://ai.google.dev/api/live>`_
+
     Example:
         .. code-block:: python
 
@@ -93,7 +97,7 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         self,
         api_key: str,
         model_name: str = "gemini-2.5-flash-native-audio-preview-12-2025",
-        voice: str = "Puck",
+        voice: Literal["Puck", "Charon", "Kore", "Fenrir", "å"] | str = "Puck",
         instructions: str = "You are a helpful assistant.",
         response_modalities: list[str] | None = None,
         enable_thinking: bool = False,
@@ -114,9 +118,12 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
             model_name (`str`, optional):
                 The model name. Defaults to
                 "gemini-2.5-flash-native-audio-preview-12-2025".
-            voice (`str`, optional):
-                The voice style. Options: Puck, Charon, Kore, Fenrir, Aoede.
-                Defaults to "Puck".
+            voice (`Literal["Puck", "Charon", "Kore", "Fenrir", "Aoede"] | \
+            str`, optional):
+                The voice style. Supported voices: "Puck", "Charon",
+                "Kore", "Fenrir", "Aoede". See `Gemini voices
+                <https://ai.google.dev/gemini-api/docs/speech-generation#voices>`_
+                for more options. Defaults to "Puck".
             instructions (`str`, optional):
                 The system instructions. Defaults to
                 "You are a helpful assistant.".
