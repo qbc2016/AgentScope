@@ -104,6 +104,7 @@ class OpenAIRealtimeModel(RealtimeVoiceModelBase):
         turn_detection_threshold: float = 0.5,
         turn_detection_prefix_padding_ms: int = 300,
         turn_detection_silence_duration_ms: int = 500,
+        base_url: str | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the OpenAI Realtime model.
@@ -134,6 +135,9 @@ class OpenAIRealtimeModel(RealtimeVoiceModelBase):
                 Padding before speech in ms. Defaults to 300.
             turn_detection_silence_duration_ms (`int`, optional):
                 Silence duration to end turn in ms. Defaults to 500.
+            base_url (`str`, optional):
+                Custom WebSocket URL. Defaults to None (uses official
+                OpenAI endpoint).
             generate_kwargs (`dict[str, JSONSerializableObject]`, optional):
                 Additional generation parameters. Defaults to None.
         """
@@ -154,6 +158,7 @@ class OpenAIRealtimeModel(RealtimeVoiceModelBase):
         self.turn_detection_silence_duration_ms = (
             turn_detection_silence_duration_ms
         )
+        self.base_url = base_url or self.WEBSOCKET_URL
         self.generate_kwargs = generate_kwargs or {}
 
         # OpenAI Realtime API expects 24kHz PCM input
@@ -190,7 +195,7 @@ class OpenAIRealtimeModel(RealtimeVoiceModelBase):
             `str`:
                 The WebSocket URL with model parameter.
         """
-        return f"{self.WEBSOCKET_URL}?model={self.model_name}"
+        return f"{self.base_url}?model={self.model_name}"
 
     def _get_headers(self) -> dict[str, str]:
         """Get OpenAI authentication headers.

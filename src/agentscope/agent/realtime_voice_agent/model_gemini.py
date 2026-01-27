@@ -97,7 +97,8 @@ class GeminiRealtimeModel(RealtimeVoiceModelBase):
         self,
         api_key: str,
         model_name: str = "gemini-2.5-flash-native-audio-preview-12-2025",
-        voice: Literal["Puck", "Charon", "Kore", "Fenrir", "å"] | str = "Puck",
+        voice: Literal["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
+        | str = "Puck",
         instructions: str = "You are a helpful assistant.",
         response_modalities: list[str] | None = None,
         enable_thinking: bool = False,

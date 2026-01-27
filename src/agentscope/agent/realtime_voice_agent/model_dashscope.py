@@ -88,6 +88,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         input_sample_rate: int = 16000,
         output_audio_format: str = "pcm",
         output_sample_rate: int = 24000,
+        base_url: str | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the DashScope callback model.
@@ -120,6 +121,9 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 The output audio format. Defaults to "pcm".
             output_sample_rate (`int`, optional):
                 The output sample rate in Hz. Defaults to 24000.
+            base_url (`str`, optional):
+                Custom WebSocket URL. Defaults to None (uses official
+                DashScope endpoint).
             generate_kwargs (`dict[str, JSONSerializableObject]`, optional):
                 Additional generation parameters. Defaults to None.
         """
@@ -137,6 +141,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         self.input_sample_rate = input_sample_rate
         self.output_audio_format = output_audio_format
         self.output_sample_rate = output_sample_rate
+        self.base_url = base_url or self.WEBSOCKET_URL
         self.generate_kwargs = generate_kwargs or {}
 
         # Track current response/item IDs
@@ -160,7 +165,7 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             `str`:
                 The WebSocket URL.
         """
-        return f"{self.WEBSOCKET_URL}?model={self.model_name}"
+        return f"{self.base_url}?model={self.model_name}"
 
     def _get_headers(self) -> dict[str, str]:
         """Get DashScope authentication headers.
