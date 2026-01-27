@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """The Anthropic token counter class."""
 from typing import Any
-from agentscope.token import TokenCounterBase
+from ._token_base import TokenCounterBase
 
 
 class AnthropicTokenCounter(TokenCounterBase):
