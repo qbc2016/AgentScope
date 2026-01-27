@@ -13,7 +13,6 @@ import base64
 from abc import ABC, abstractmethod
 from typing import Any, Callable
 
-import numpy as np
 import websockets
 from websockets.asyncio.client import ClientConnection
 
@@ -56,6 +55,8 @@ def resample_audio(
             # Resample 44.1kHz audio to 16kHz
             resampled = resample_audio(audio_data, 44100, 16000)
     """
+    import numpy as np
+
     if from_rate == to_rate:
         return audio_data
 

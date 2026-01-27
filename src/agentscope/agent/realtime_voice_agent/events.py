@@ -7,9 +7,7 @@ AgentEvent: Backend to Web events (dispatched to other agents/frontend)
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union
-
-from typing_extensions import TypeAlias
+from typing import Any, Union, TypeAlias
 
 # =============================================================================
 # Model Events - API events (produced by Model layer, consumed by Agent)
