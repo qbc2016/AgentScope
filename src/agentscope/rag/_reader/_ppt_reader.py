@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-branches
 """The PowerPoint reader to read and chunk PowerPoint presentations."""
 import base64
 import hashlib
@@ -299,70 +298,126 @@ class PowerPointReader(ReaderBase):
         last_type = None
 
         # Generate slide header from prefix if provided
-        if self.slide_prefix is not None:
-            slide_header = self.slide_prefix.format(index=slide_idx + 1)
-        else:
-            slide_header = ""
+        slide_header = self._get_slide_header(slide_idx)
 
         for shape in slide.shapes:
-            # Try to extract image, table, or text in order
-            shape_type, extracted_data = self._extract_shape_content(
+            last_type = self._process_shape(
                 shape,
                 slide_idx,
+                blocks,
+                last_type,
+                slide_header,
             )
 
-            if shape_type == "image" and extracted_data:
-                # Type narrowing: when shape_type is "image",
-                # extracted_data is list[ImageBlock]
-                if isinstance(extracted_data, list):
-                    blocks.extend(extracted_data)
-                    last_type = "image"
-            elif shape_type == "table" and extracted_data:
-                # Type narrowing: when shape_type is "table",
-                # extracted_data is str
-                if isinstance(extracted_data, str):
-                    last_type = self._add_table_block(
-                        blocks,
-                        extracted_data,
-                        last_type,
-                        slide_header,
-                    )
-            elif shape_type == "text" and extracted_data:
-                # Type narrowing: when shape_type is "text", extracted_data
-                # is str
-                if isinstance(extracted_data, str):
-                    last_type = self._add_text_block(
-                        blocks,
-                        extracted_data,
-                        last_type,
-                        slide_header,
-                    )
-
         # Add slide suffix to the last text block if provided
-        # Note: suffix can only be appended to text blocks since ImageBlock
-        # doesn't have a text field.
-        if self.slide_suffix is not None and blocks:
-            # Find the last text block and append suffix
-            for i in range(len(blocks) - 1, -1, -1):
-                if blocks[i].get("type") == "text":
-                    blocks[i]["text"] += "\n" + self.slide_suffix
-                    break
-            else:
-                # No text block found (slide contains only images),
-                # create a new text block for the suffix
-                if slide_header:
-                    blocks.append(
-                        TextBlock(
-                            type="text",
-                            text=slide_header + "\n" + self.slide_suffix,
-                        ),
-                    )
-                else:
-                    blocks.append(
-                        TextBlock(type="text", text=self.slide_suffix),
-                    )
+        self._add_slide_suffix(blocks, slide_header)
 
         return blocks
+
+    def _get_slide_header(self, slide_idx: int) -> str:
+        """Generate slide header from prefix if provided.
+
+        Args:
+            slide_idx (`int`):
+                The index of the slide.
+
+        Returns:
+            `str`:
+                The slide header string, or empty string if no prefix.
+        """
+        if self.slide_prefix is not None:
+            return self.slide_prefix.format(index=slide_idx + 1)
+        return ""
+
+    def _process_shape(
+        self,
+        shape: Any,
+        slide_idx: int,
+        blocks: list[TextBlock | ImageBlock],
+        last_type: str | None,
+        slide_header: str,
+    ) -> str | None:
+        """Process a single shape and add its content to blocks.
+
+        Args:
+            shape (`Any`):
+                The shape object from python-pptx.
+            slide_idx (`int`):
+                The index of the slide.
+            blocks (`list[TextBlock | ImageBlock]`):
+                The list of blocks to add to.
+            last_type (`str | None`):
+                The type of the last block.
+            slide_header (`str`):
+                The slide header to prepend if this is the first block.
+
+        Returns:
+            `str | None`:
+                The updated last_type.
+        """
+        shape_type, extracted_data = self._extract_shape_content(
+            shape,
+            slide_idx,
+        )
+
+        if not extracted_data:
+            return last_type
+
+        if shape_type == "image" and isinstance(extracted_data, list):
+            blocks.extend(extracted_data)
+            return "image"
+
+        if shape_type == "table" and isinstance(extracted_data, str):
+            return self._add_table_block(
+                blocks,
+                extracted_data,
+                last_type,
+                slide_header,
+            )
+
+        if shape_type == "text" and isinstance(extracted_data, str):
+            return self._add_text_block(
+                blocks,
+                extracted_data,
+                last_type,
+                slide_header,
+            )
+
+        return last_type
+
+    def _add_slide_suffix(
+        self,
+        blocks: list[TextBlock | ImageBlock],
+        slide_header: str,
+    ) -> None:
+        """Add slide suffix to the last text block if provided.
+
+        Note: suffix can only be appended to text blocks since ImageBlock
+        doesn't have a text field.
+
+        Args:
+            blocks (`list[TextBlock | ImageBlock]`):
+                The list of blocks to modify.
+            slide_header (`str`):
+                The slide header to use if creating a new text block.
+        """
+        if self.slide_suffix is None or not blocks:
+            return
+
+        # Find the last text block and append suffix
+        for i in range(len(blocks) - 1, -1, -1):
+            if blocks[i].get("type") == "text":
+                blocks[i]["text"] += "\n" + self.slide_suffix
+                return
+
+        # No text block found (slide contains only images),
+        # create a new text block for the suffix
+        suffix_text = (
+            slide_header + "\n" + self.slide_suffix
+            if slide_header
+            else self.slide_suffix
+        )
+        blocks.append(TextBlock(type="text", text=suffix_text))
 
     def _extract_shape_content(
         self,
@@ -530,12 +585,18 @@ class PowerPointReader(ReaderBase):
         for block in blocks:
             if block["type"] == "text":
                 # Process text blocks through TextReader for chunking
-                text_docs = await self._text_reader(block["text"])
-                for doc in text_docs:
-                    # Update doc_id but keep other metadata
-                    doc.metadata.doc_id = doc_id
-                    doc.id = doc_id
-                    documents.append(doc)
+                for _ in await self._text_reader(block["text"]):
+                    documents.append(
+                        Document(
+                            metadata=DocMetadata(
+                                content=_.metadata.content,
+                                doc_id=doc_id,
+                                # The chunk_id and total_chunks will be reset
+                                chunk_id=0,
+                                total_chunks=0,
+                            ),
+                        ),
+                    )
             elif block["type"] == "image":
                 # Images are independent documents
                 documents.append(
