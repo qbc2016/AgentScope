@@ -83,6 +83,8 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         | str = "Cherry",
         instructions: str = "You are a helpful assistant.",
         vad_enabled: bool = True,
+        vad_threshold: float = 0.5,
+        vad_silence_duration_ms: int = 800,
         enable_input_audio_transcription: bool = True,
         input_audio_format: str = "pcm",
         input_sample_rate: int = 16000,
@@ -111,6 +113,13 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
                 "You are a helpful assistant.".
             vad_enabled (`bool`, optional):
                 Whether to enable VAD. Defaults to True.
+            vad_threshold (`float`, optional):
+                VAD sensitivity. Lower values make VAD more sensitive.
+                Range: [-1.0, 1.0]. Defaults to 0.5.
+            vad_silence_duration_ms (`int`, optional):
+                Minimum silence duration after speech to trigger model
+                response. Higher values wait longer before responding.
+                Range: [200, 6000]. Defaults to 800.
             enable_input_audio_transcription (`bool`, optional):
                 Whether to transcribe input audio. Defaults to True.
             input_audio_format (`str`, optional):
@@ -134,6 +143,8 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
             instructions=instructions,
         )
         self.vad_enabled = vad_enabled
+        self.vad_threshold = vad_threshold
+        self.vad_silence_duration_ms = vad_silence_duration_ms
         self.enable_input_audio_transcription = (
             enable_input_audio_transcription
         )
@@ -208,6 +219,8 @@ class DashScopeRealtimeModel(RealtimeVoiceModelBase):
         if self.vad_enabled:
             session_config["turn_detection"] = {
                 "type": "server_vad",
+                "threshold": self.vad_threshold,
+                "silence_duration_ms": self.vad_silence_duration_ms,
             }
         else:
             session_config["turn_detection"] = None
