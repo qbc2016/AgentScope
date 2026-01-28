@@ -508,6 +508,7 @@ class AnthropicChatModel(ChatModelBase):
                         id=tool_call["id"],
                         name=tool_call["name"],
                         input=input_obj,
+                        raw_input=input_str,
                     ),
                 )
                 if structured_model:

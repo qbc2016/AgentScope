@@ -465,14 +465,16 @@ class OpenAIChatModel(ChatModelBase):
             contents = []
 
             for tool_call in tool_calls.values():
+                input_str = tool_call["input"]
+                input_obj = _json_loads_with_repair(input_str or "{}")
+
                 contents.append(
                     ToolUseBlock(
                         type=tool_call["type"],
                         id=tool_call["id"],
                         name=tool_call["name"],
-                        input=_json_loads_with_repair(
-                            tool_call["input"] or "{}",
-                        ),
+                        input=input_obj,
+                        raw_input=input_str,
                     ),
                 )
 

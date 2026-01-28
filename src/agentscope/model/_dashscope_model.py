@@ -399,9 +399,7 @@ class DashScopeChatModel(ChatModelBase):
             # Add complete tool use blocks
             for tool_call in acc_tool_calls.values():
                 raw_input = tool_call.get("arguments", "{}")
-                repaired_input = _json_loads_with_repair(
-                    raw_input or "{}",
-                )
+                repaired_input = _json_loads_with_repair(raw_input or "{}")
 
                 if not isinstance(repaired_input, dict):
                     repaired_input = {}
