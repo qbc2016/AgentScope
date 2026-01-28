@@ -133,7 +133,14 @@ class TestDashScopeRealtimeModelConfig(unittest.TestCase):
         session = config["session"]
         self.assertEqual(session["voice"], "Cherry")
         self.assertEqual(session["instructions"], "Test instructions")
-        self.assertEqual(session["turn_detection"], {"type": "server_vad"})
+        self.assertEqual(
+            session["turn_detection"],
+            {
+                "type": "server_vad",
+                "threshold": 0.5,
+                "silence_duration_ms": 800,
+            },
+        )
         self.assertIn("audio", session["modalities"])
         self.assertIn("text", session["modalities"])
         self.assertIn("input_audio_transcription", session)
