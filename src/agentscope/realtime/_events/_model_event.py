@@ -213,13 +213,19 @@ class ModelEvent:
         ] = ModelEventType.RESPONSE_TOOL_USE_DONE
         """The event type."""
 
+    @dataclass
     class InputTranscriptionDeltaEvent:
         """Input transcription delta event."""
+
+        item_id: str
+        """The conversation item ID."""
 
         delta: str
         """The transcription delta."""
 
-        type: Literal[ModelEventType.INPUT_TRANSCRIPTION_DELTA]
+        type: Literal[
+            ModelEventType.INPUT_TRANSCRIPTION_DELTA
+        ] = ModelEventType.INPUT_TRANSCRIPTION_DELTA
         """The event type."""
 
     @dataclass

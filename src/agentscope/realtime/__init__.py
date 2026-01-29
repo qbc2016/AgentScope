@@ -11,6 +11,8 @@ from ._events import (
 )
 from ._base import RealtimeModelBase
 from ._dashscope_realtime_model import DashScopeRealtimeModel
+from ._openai_realtime_model import OpenAIRealtimeModel
+from ._gemini_realtime_model import GeminiRealtimeModel
 
 __all__ = [
     "ModelEventType",
@@ -21,4 +23,6 @@ __all__ = [
     "ClientEvent",
     "RealtimeModelBase",
     "DashScopeRealtimeModel",
+    "OpenAIRealtimeModel",
+    "GeminiRealtimeModel",
 ]

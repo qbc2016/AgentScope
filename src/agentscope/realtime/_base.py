@@ -53,7 +53,7 @@ class RealtimeModelBase:
         self._websocket: ClientConnection | None = None
 
     @abstractmethod
-    def send(self, data: AudioBlock | TextBlock | ImageBlock) -> None:
+    async def send(self, data: AudioBlock | TextBlock | ImageBlock) -> None:
         """Send data to the realtime model for processing.
 
         Args:
