@@ -7,7 +7,7 @@ from asyncio import Queue
 import websockets
 from websockets import ClientConnection
 
-from agentscope.realtime._events._model_event import ModelEvent
+from ._events import ModelEvent
 from ..message import AudioBlock, TextBlock, ImageBlock
 
 

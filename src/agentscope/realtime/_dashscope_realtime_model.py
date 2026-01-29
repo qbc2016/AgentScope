@@ -137,7 +137,6 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         except json.decoder.JSONDecodeError:
             return None
 
-        # TODO: @qbc, what should we do here?
         if not isinstance(data, dict):
             return None
 
