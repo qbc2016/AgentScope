@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """The OpenAI realtime model class."""
 import json
-from typing import Literal
+from typing import Literal, Any
 
 from websockets import State
 
-from ._events import ModelEvent
+from ._events import ModelEvents
 from ._base import RealtimeModelBase
 from .. import logger
 from .._utils._common import _get_bytes_from_web_url
@@ -15,8 +15,11 @@ from ..message import AudioBlock, TextBlock, ToolResultBlock
 class OpenAIRealtimeModel(RealtimeModelBase):
     """The OpenAI realtime model class."""
 
-    support_input_modalities: list[str] = ["audio", "text", "tool_result"]
+    support_input_modalities: list[str] = ["audio", "text"]
     """The supported input modalities of the OpenAI realtime model."""
+
+    support_tools: bool = True
+    """The OpenAI realtime model supports tools API."""
 
     websocket_url: str = "wss://api.openai.com/v1/realtime?model={model_name}"
     """The websocket URL of the OpenAI realtime model API."""
@@ -37,7 +40,6 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         self,
         model_name: str,
         api_key: str,
-        instructions: str,
         voice: Literal["alloy", "echo", "marin", "cedar"] | str = "alloy",
     ) -> None:
         """Initialize the OpenAIRealtimeModel class.
@@ -47,8 +49,6 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 The model name, e.g. "gpt-4o-realtime-preview".
             api_key (`str`):
                 The API key for authentication.
-            instructions (`str`):
-                The system instructions for the model.
             voice (`Literal["alloy", "echo", "marin", "cedar"] | str`, \
             defaults to `"alloy"`):
                 The voice to be used for text-to-speech.
@@ -56,7 +56,6 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         super().__init__(model_name)
 
         self.voice = voice
-        self.instructions = instructions
 
         # The OpenAI realtime API uses 24kHz for both input and output.
         self.input_sample_rate = 24000
@@ -71,7 +70,47 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         ].format(api_key=api_key)
 
         # Record the response ID for the current session.
-        self._response_id = None
+        self._response_id = ""
+
+    def _build_session_config(
+        self,
+        instructions: str,
+        tools: list[dict],
+        **kwargs: Any,
+    ) -> dict:
+        """Build the session configuration for the OpenAI realtime model."""
+
+        session_config: dict[str, Any] = {
+            "type": "realtime",
+            "output_modalities": ["audio"],
+            "audio": {
+                "input": {
+                    # TODO: @qbc
+                    "turn_detection": {},
+                },
+                "output": {
+                    "voice": self.voice,
+                },
+            },
+            "instructions": instructions,
+            **kwargs,
+        }
+
+        # Input audio transcription
+        # TODO: @qbc 怎么开启输入的转录，对应OpenAIAPI
+        if self.enable_input_audio_transcription:
+            session_config["input_audio_transcription"] = {
+                "model": "whisper-1",
+            }
+
+        # Tools configuration
+        if tools:
+            session_config["tools"] = tools
+
+        return {
+            "type": "session.update",
+            "session": session_config,
+        }
 
     async def send(
         self,
@@ -108,20 +147,40 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
         # Process the data based on its type
         if data_type == "audio":
-            to_send_message = await self._parse_audio_data(data)
+            to_send_message = await self._parse_audio_data(
+                AudioBlock(
+                    type="audio",
+                    source=data.get("source"),
+                ),
+            )
 
         elif data_type == "text":
-            to_send_message = await self._parse_text_data(data)
+            to_send_message = await self._parse_text_data(
+                TextBlock(
+                    type="text",
+                    text=data.get("text"),
+                ),
+            )
 
         elif data_type == "tool_result":
-            to_send_message = await self._parse_tool_result_data(data)
+            to_send_message = await self._parse_tool_result_data(
+                ToolResultBlock(
+                    type="tool_result",
+                    id=data.get("id"),
+                    output=data.get("output"),
+                    name=data.get("name"),
+                ),
+            )
 
         else:
             raise RuntimeError(f"Unsupported data type {data_type}")
 
         await self._websocket.send(to_send_message)
 
-    async def parse_api_message(self, message: str) -> ModelEvent | None:
+    async def parse_api_message(
+        self,
+        message: str,
+    ) -> ModelEvents.EventBase | None:
         """Parse the message received from the OpenAI realtime model API.
 
         Args:
@@ -129,7 +188,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 The message received from the OpenAI realtime model API.
 
         Returns:
-            `ModelEvent | None`:
+            `ModelEvents.EventBase | None`:
                 The unified model event in agentscope format.
         """
         try:
@@ -144,7 +203,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         match data.get("type", ""):
             # ================ Session related events ================
             case "session.created":
-                model_event = ModelEvent.SessionCreatedEvent(
+                model_event = ModelEvents.SessionCreatedEvent(
                     session_id=data.get("session", {}).get("id", ""),
                 )
 
@@ -154,28 +213,29 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
             # ================ Response related events ================
             case "response.created":
+                # TODO: @qbc we create one shortuuid here?
                 self._response_id = data.get("response", {}).get("id", "")
-                model_event = ModelEvent.ResponseCreatedEvent(
+                model_event = ModelEvents.ResponseCreatedEvent(
                     response_id=self._response_id,
                 )
 
             case "response.done":
                 response = data.get("response", {})
-                response_id = response.get("id", "") or self._response_id
+                response_id = response.get("id", self._response_id)
                 usage = response.get("usage", {})
-                model_event = ModelEvent.ResponseDoneEvent(
+                model_event = ModelEvents.ResponseDoneEvent(
                     response_id=response_id,
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
                 )
                 # clear the response id
-                self._response_id = None
+                self._response_id = ""
 
             case "response.output_audio.delta":
                 audio_data = data.get("delta", "")
                 if audio_data:
-                    model_event = ModelEvent.ResponseAudioDeltaEvent(
-                        response_id=self._response_id or "",
+                    model_event = ModelEvents.ResponseAudioDeltaEvent(
+                        response_id=self._response_id,
                         item_id=data.get("item_id", ""),
                         delta=audio_data,
                         format={
@@ -185,8 +245,8 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                     )
 
             case "response.output_audio.done":
-                model_event = ModelEvent.ResponseAudioDoneEvent(
-                    response_id=self._response_id or "",
+                model_event = ModelEvents.ResponseAudioDoneEvent(
+                    response_id=self._response_id,
                     item_id=data.get("item_id", ""),
                 )
 
@@ -194,23 +254,25 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             case "response.output_audio_transcript.delta":
                 transcript_data = data.get("delta", "")
                 if transcript_data:
-                    model_event = ModelEvent.ResponseAudioTranscriptDeltaEvent(
-                        response_id=self._response_id or "",
-                        delta=transcript_data,
-                        item_id=data.get("item_id", ""),
+                    model_event = (
+                        ModelEvents.ResponseAudioTranscriptDeltaEvent(
+                            response_id=self._response_id,
+                            delta=transcript_data,
+                            item_id=data.get("item_id", ""),
+                        )
                     )
 
             case "response.output_audio_transcript.done":
-                model_event = ModelEvent.ResponseAudioTranscriptDoneEvent(
-                    response_id=self._response_id or "",
+                model_event = ModelEvents.ResponseAudioTranscriptDoneEvent(
+                    response_id=self._response_id,
                     item_id=data.get("item_id", ""),
                 )
 
             case "response.function_call_arguments.delta":
                 arguments_delta = data.get("delta")
                 if arguments_delta:
-                    model_event = ModelEvent.ResponseToolUseDeltaEvent(
-                        response_id=self._response_id or "",
+                    model_event = ModelEvents.ResponseToolUseDeltaEvent(
+                        response_id=self._response_id,
                         item_id=data.get("item_id", ""),
                         call_id=data.get("call_id", ""),
                         name=data.get("name", ""),
@@ -218,8 +280,8 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                     )
 
             case "response.function_call_arguments.done":
-                model_event = ModelEvent.ResponseToolUseDoneEvent(
-                    response_id=self._response_id or "",
+                model_event = ModelEvents.ResponseToolUseDoneEvent(
+                    response_id=self._response_id,
                     call_id=data.get("call_id", ""),
                     item_id=data.get("item_id", ""),
                 )
@@ -227,7 +289,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             case "conversation.item.input_audio_transcription.delta":
                 delta = data.get("delta", "")
                 if delta:
-                    model_event = ModelEvent.InputTranscriptionDeltaEvent(
+                    model_event = ModelEvents.InputTranscriptionDeltaEvent(
                         item_id=data.get("item_id", ""),
                         delta=delta,
                     )
@@ -235,20 +297,20 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             case "conversation.item.input_audio_transcription.completed":
                 transcript_data = data.get("transcript", "")
                 if transcript_data:
-                    model_event = ModelEvent.InputTranscriptionDoneEvent(
+                    model_event = ModelEvents.InputTranscriptionDoneEvent(
                         transcript=transcript_data,
                         item_id=data.get("item_id", ""),
                     )
 
             # ================= VAD related events =================
             case "input_audio_buffer.speech_started":
-                model_event = ModelEvent.InputStartedEvent(
+                model_event = ModelEvents.InputStartedEvent(
                     item_id=data.get("item_id", ""),
                     audio_start_ms=data.get("audio_start_ms", 0),
                 )
 
             case "input_audio_buffer.speech_stopped":
-                model_event = ModelEvent.InputDoneEvent(
+                model_event = ModelEvents.InputDoneEvent(
                     item_id=data.get("item_id", ""),
                     audio_end_ms=data.get("audio_end_ms", 0),
                 )
@@ -256,7 +318,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             # ================= Error events =================
             case "error":
                 error = data.get("error", {})
-                model_event = ModelEvent.ErrorEvent(
+                model_event = ModelEvents.ErrorEvent(
                     error_type=error.get("type", "unknown"),
                     code=error.get("code", "unknown"),
                     message=error.get("message", "An unknown error occurred."),

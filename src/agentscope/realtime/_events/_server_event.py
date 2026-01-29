@@ -73,7 +73,7 @@ class ServerEventType(str, Enum):
     ERROR = "error"
 
 
-class ServerEvent:
+class ServerEvents:
     """Realtime server events."""
 
     class SessionCreatedEvent:

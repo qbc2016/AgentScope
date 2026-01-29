@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """The Gemini realtime model class."""
 import json
-from typing import Literal
+from typing import Literal, Any
 
 import shortuuid
 from websockets import State
 
-from ._events import ModelEvent
+from ._events import ModelEvents
 from ._base import RealtimeModelBase
 from .. import logger
 from .._utils._common import _get_bytes_from_web_url
@@ -46,7 +46,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
         self,
         model_name: str,
         api_key: str,
-        instructions: str,
         voice: Literal["Puck", "Charon", "Kore", "Fenrir"] | str = "Puck",
     ) -> None:
         """Initialize the GeminiRealtimeModel class.
@@ -56,8 +55,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The model name, e.g. "gemini-2.0-flash-exp".
             api_key (`str`):
                 The API key for authentication.
-            instructions (`str`):
-                The system instructions for the model.
             voice (`Literal["Puck", "Charon", "Kore", "Fenrir"] str`,
             defaults to `"Puck"`):
                 The voice to be used for text-to-speech.
@@ -65,7 +62,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
         super().__init__(model_name)
 
         self.voice = voice
-        self.instructions = instructions
 
         # The Gemini realtime API uses 16kHz input and 24kHz output.
         self.input_sample_rate = 16000
@@ -79,6 +75,96 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # events, Gemini does not. We generate response IDs ourselves using
         # short UUID to ensure uniqueness.
         self._response_id: str | None = None
+
+    def _build_session_config(
+        self,
+        instructions: str,
+        tools: list[dict],
+        **kwargs: Any,
+    ) -> dict:
+        """Build Gemini setup message.
+
+        Gemini Live API requires a "setup" message as the first message
+        to configure the session.
+
+        Args:
+            instructions (`str`):
+                The system instructions for the model.
+            tools (`list[dict]`):
+                The list of tool JSON schemas.
+            **kwargs:
+                Additional configuration parameters.
+
+        Returns:
+            `dict`:
+                The session configuration dict.
+        """
+
+        # TODO: @qbc, check the session config here.
+        # Model configuration
+        session_config: dict = {
+            "model": f"models/{self.model_name}",
+        }
+
+        # Audio transcription configuration
+        if self.enable_input_audio_transcription:
+            session_config["inputAudioTranscription"] = {}
+        if self.enable_output_audio_transcription:
+            session_config["outputAudioTranscription"] = {}
+
+        # Generation configuration
+        generation_config: dict = {
+            "responseModalities": self.response_modalities,
+            **self.generate_kwargs,
+        }
+
+        # Voice configuration
+        if self.voice:
+            generation_config["speechConfig"] = {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": self.voice},
+                },
+            }
+
+        # Thinking configuration (only if enabled)
+        if self.enable_thinking:
+            thinking_config: dict[str, Any] = {"includeThoughts": True}
+            if self.thinking_budget:
+                thinking_config["thinkingBudget"] = self.thinking_budget
+            generation_config["thinkingConfig"] = thinking_config
+        # Don't set thinkingConfig if not enabled - some models don't
+        # support it
+
+        session_config["generationConfig"] = generation_config
+
+        # System instruction
+        instructions = kwargs.get("instructions") or self.instructions
+        if instructions:
+            session_config["systemInstruction"] = {
+                "parts": [{"text": instructions}],
+            }
+
+        # Session resumption (only if enabled with a valid handle)
+        if self.session_resumption and self.session_resumption_handle:
+            session_config["sessionResumption"] = {
+                "handle": self.session_resumption_handle,
+            }
+
+        # VAD configuration - use realtimeInputConfig
+        # automaticActivityDetection is enabled by default, only set if
+        # disabling
+        if not self.vad_enabled:
+            session_config["realtimeInputConfig"] = {
+                "automaticActivityDetection": {"disabled": True},
+            }
+
+        # Tools configuration
+        tools = kwargs.get("tools", [])
+        if tools:
+            session_config["tools"] = self._format_toolkit_schema(tools)
+
+        setup_msg = {"setup": session_config}
+        return setup_msg
 
     async def send(
         self,
@@ -133,7 +219,10 @@ class GeminiRealtimeModel(RealtimeModelBase):
         if to_send_message:
             await self._websocket.send(to_send_message)
 
-    async def parse_api_message(self, message: str) -> ModelEvent | None:
+    async def parse_api_message(
+        self,
+        message: str,
+    ) -> ModelEvents.EventBase | None:
         """Parse the message received from the Gemini realtime model API.
 
         Args:
@@ -141,7 +230,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The message received from the Gemini realtime model API.
 
         Returns:
-            `ModelEvent | None`:
+            `ModelEvents.EventBase | None`:
                 The unified model event in agentscope format.
         """
         try:
@@ -156,7 +245,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # ================ Setup related events ================
         if "setupComplete" in data:
-            model_event = ModelEvent.SessionCreatedEvent(
+            model_event = ModelEvents.SessionCreatedEvent(
                 session_id="gemini_session",
             )
 
@@ -180,7 +269,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             )
             response_id = self._response_id or ""
             self._response_id = None  # Clear response ID
-            model_event = ModelEvent.ResponseDoneEvent(
+            model_event = ModelEvents.ResponseDoneEvent(
                 response_id=response_id,
                 input_tokens=0,
                 output_tokens=0,
@@ -189,7 +278,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # ================ Error events ================
         elif "error" in data:
             error = data["error"]
-            model_event = ModelEvent.ErrorEvent(
+            model_event = ModelEvents.ErrorEvent(
                 error_type=error.get("status", "unknown"),
                 code=str(error.get("code", "unknown")),
                 message=error.get("message", "An unknown error occurred."),
@@ -218,7 +307,10 @@ class GeminiRealtimeModel(RealtimeModelBase):
         assert self._response_id is not None
         return self._response_id
 
-    def _parse_model_turn(self, model_turn: dict) -> ModelEvent | None:
+    def _parse_model_turn(
+        self,
+        model_turn: dict,
+    ) -> ModelEvents.EventBase | None:
         """Parse the modelTurn content from Gemini API.
 
         Args:
@@ -226,7 +318,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The modelTurn dictionary containing parts with audio/text.
 
         Returns:
-            `ModelEvent | None`:
+            `ModelEvents.EventBase | None`:
                 The parsed model event, or None if no valid content found.
         """
         parts = model_turn.get("parts", [])
@@ -243,7 +335,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 text_data = part["text"]
                 if text_data:
                     response_id = self._ensure_response_id()
-                    return ModelEvent.ResponseAudioTranscriptDeltaEvent(
+                    return ModelEvents.ResponseAudioTranscriptDeltaEvent(
                         response_id=response_id,
                         delta=text_data,
                         item_id="",
@@ -251,7 +343,10 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         return None
 
-    def _parse_inline_data(self, inline_data: dict) -> ModelEvent | None:
+    def _parse_inline_data(
+        self,
+        inline_data: dict,
+    ) -> ModelEvents.EventBase | None:
         """Parse inline data (audio) from a model turn part.
 
         Args:
@@ -259,7 +354,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The inlineData dictionary containing mimeType and data.
 
         Returns:
-            `ModelEvent | None`:
+            `ModelEvents | None`:
                 Audio delta event if valid audio data, None otherwise.
         """
         mime_type = inline_data.get("mimeType", "")
@@ -271,7 +366,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             return None
 
         response_id = self._ensure_response_id()
-        return ModelEvent.ResponseAudioDeltaEvent(
+        return ModelEvents.ResponseAudioDeltaEvent(
             response_id=response_id,
             item_id="",
             delta=audio_data,
@@ -284,7 +379,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
     async def _parse_server_content(
         self,
         server_content: dict,
-    ) -> ModelEvent | None:
+    ) -> ModelEvents.EventBase | None:
         """Parse the serverContent message from Gemini API.
 
         Args:
@@ -292,7 +387,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The serverContent dictionary from the API response.
 
         Returns:
-            `ModelEvent | None`:
+            `ModelEvents.EventBase | None`:
                 The unified model event in agentscope format.
         """
         model_event = None
@@ -305,7 +400,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         elif "outputTranscription" in server_content:
             text = server_content["outputTranscription"].get("text", "")
             if text:
-                model_event = ModelEvent.ResponseAudioTranscriptDeltaEvent(
+                model_event = ModelEvents.ResponseAudioTranscriptDeltaEvent(
                     response_id=self._response_id or "",
                     delta=text,
                     item_id="",
@@ -315,7 +410,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         elif "inputTranscription" in server_content:
             text = server_content["inputTranscription"].get("text", "")
             if text:
-                model_event = ModelEvent.InputTranscriptionDoneEvent(
+                model_event = ModelEvents.InputTranscriptionDoneEvent(
                     transcript=text,
                     item_id="",
                 )
@@ -324,7 +419,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         elif "generationComplete" in server_content:
             response_id = self._response_id or ""
             self._response_id = None
-            model_event = ModelEvent.ResponseDoneEvent(
+            model_event = ModelEvents.ResponseDoneEvent(
                 response_id=response_id,
                 input_tokens=0,
                 output_tokens=0,
@@ -337,7 +432,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             if self._response_id:
                 response_id = self._response_id
                 self._response_id = None
-                model_event = ModelEvent.ResponseDoneEvent(
+                model_event = ModelEvents.ResponseDoneEvent(
                     response_id=response_id,
                     input_tokens=0,
                     output_tokens=0,
@@ -349,7 +444,10 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         return model_event
 
-    async def _parse_tool_call(self, tool_call: dict) -> ModelEvent | None:
+    async def _parse_tool_call(
+        self,
+        tool_call: dict,
+    ) -> ModelEvents.EventBase | None:
         """Parse the tool call message from Gemini API.
 
         Args:
@@ -357,7 +455,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The toolCall dictionary from the API response.
 
         Returns:
-            `ModelEvent | None`:
+            `ModelEvents.EventBase | None`:
                 The unified model event in agentscope format.
         """
         model_event = None
@@ -368,7 +466,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             call_id = func_call.get("id", "")
             args = func_call.get("args", {})
 
-            model_event = ModelEvent.ResponseToolUseDeltaEvent(
+            model_event = ModelEvents.ResponseToolUseDeltaEvent(
                 response_id=self._response_id or "",
                 item_id="",
                 call_id=call_id,
@@ -399,7 +497,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         if source_type == "base64":
             image_data = source.get("data", "")
         elif source_type == "url":
-            image_data = _get_bytes_from_web_url(source.get("url", ""))
+            image_data = _get_bytes_from_web_url(str(source.get("url", "")))
         else:
             raise ValueError(f"Unsupported image source type: {source_type}")
 
@@ -432,7 +530,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         if source_type == "base64":
             audio_data = source.get("data", "")
         elif source_type == "url":
-            audio_data = _get_bytes_from_web_url(source.get("url", ""))
+            audio_data = _get_bytes_from_web_url(str(source.get("url", "")))
         else:
             raise ValueError(f"Unsupported audio source type: {source_type}")
 

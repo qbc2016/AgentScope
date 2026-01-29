@@ -2,11 +2,11 @@
 """The realtime module in AgentScope, providing realtime models and events."""
 
 from ._events import (
-    ModelEvent,
+    ModelEvents,
     ModelEventType,
-    ServerEvent,
+    ServerEvents,
     ServerEventType,
-    ClientEvent,
+    ClientEvents,
     ClientEventType,
 )
 from ._base import RealtimeModelBase
@@ -16,11 +16,11 @@ from ._gemini_realtime_model import GeminiRealtimeModel
 
 __all__ = [
     "ModelEventType",
-    "ModelEvent",
+    "ModelEvents",
     "ServerEventType",
-    "ServerEvent",
+    "ServerEvents",
     "ClientEventType",
-    "ClientEvent",
+    "ClientEvents",
     "RealtimeModelBase",
     "DashScopeRealtimeModel",
     "OpenAIRealtimeModel",

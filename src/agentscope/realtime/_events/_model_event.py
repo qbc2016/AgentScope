@@ -41,11 +41,14 @@ class ModelEventType(str, Enum):
     WEBSOCKET_DISCONNECT = "model.websocket_disconnect"
 
 
-class ModelEvent:
-    """The realtime model event that will be consumed by the realtime agents"""
+class ModelEvents:
+    """The realtime model events that will be consumed by the realtime agents"""
+
+    class EventBase:
+        """The base class for all model events, used to unify the type hinting."""
 
     @dataclass
-    class SessionCreatedEvent:
+    class SessionCreatedEvent(EventBase):
         """Session created event."""
 
         session_id: str
@@ -57,7 +60,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class SessionEndedEvent:
+    class SessionEndedEvent(EventBase):
         """Session ended event."""
 
         session_id: str
@@ -70,7 +73,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseCreatedEvent:
+    class ResponseCreatedEvent(EventBase):
         """The realtime model begins generating a response."""
 
         response_id: str
@@ -82,7 +85,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseDoneEvent:
+    class ResponseDoneEvent(EventBase):
         """Model response done event."""
 
         response_id: str
@@ -103,7 +106,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseAudioDeltaEvent:
+    class ResponseAudioDeltaEvent(EventBase):
         """Model response audio delta event."""
 
         response_id: str
@@ -124,7 +127,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseAudioDoneEvent:
+    class ResponseAudioDoneEvent(EventBase):
         """Model response audio done event."""
 
         response_id: str
@@ -139,7 +142,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseAudioTranscriptDeltaEvent:
+    class ResponseAudioTranscriptDeltaEvent(EventBase):
         """Model response audio transcript delta event."""
 
         response_id: str
@@ -157,7 +160,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseAudioTranscriptDoneEvent:
+    class ResponseAudioTranscriptDoneEvent(EventBase):
         """Model response audio transcript done event."""
 
         response_id: str
@@ -172,7 +175,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseToolUseDeltaEvent:
+    class ResponseToolUseDeltaEvent(EventBase):
         """Model response tool use delta event."""
 
         response_id: str
@@ -196,7 +199,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ResponseToolUseDoneEvent:
+    class ResponseToolUseDoneEvent(EventBase):
         """Model response tool use done event."""
 
         response_id: str
@@ -214,7 +217,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class InputTranscriptionDeltaEvent:
+    class InputTranscriptionDeltaEvent(EventBase):
         """Input transcription delta event."""
 
         item_id: str
@@ -229,7 +232,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class InputTranscriptionDoneEvent:
+    class InputTranscriptionDoneEvent(EventBase):
         """Input transcription done event."""
 
         item_id: str
@@ -250,7 +253,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class InputStartedEvent:
+    class InputStartedEvent(EventBase):
         """Input started event."""
 
         item_id: str
@@ -265,7 +268,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class InputDoneEvent:
+    class InputDoneEvent(EventBase):
         """Input done event."""
 
         item_id: str
@@ -278,7 +281,7 @@ class ModelEvent:
         """The event type."""
 
     @dataclass
-    class ErrorEvent:
+    class ErrorEvent(EventBase):
         """Error event."""
 
         error_type: str
@@ -293,13 +296,13 @@ class ModelEvent:
         type: Literal[ModelEventType.ERROR] = ModelEventType.ERROR
         """The event type."""
 
-    class WebsocketConnectEvent:
+    class WebsocketConnectEvent(EventBase):
         """WebSocket connect event."""
 
         type: Literal[ModelEventType.WEBSOCKET_CONNECT]
         """The event type."""
 
-    class WebsocketDisconnectEvent:
+    class WebsocketDisconnectEvent(EventBase):
         """WebSocket disconnect event."""
 
         type: Literal[ModelEventType.WEBSOCKET_DISCONNECT]

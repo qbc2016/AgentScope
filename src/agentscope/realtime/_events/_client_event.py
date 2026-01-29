@@ -36,5 +36,5 @@ class ClientEventType(str, Enum):
     """The tool result executed in the frontend is sent back to the backend."""
 
 
-class ClientEvent:
+class ClientEvents:
     """Realtime client events."""

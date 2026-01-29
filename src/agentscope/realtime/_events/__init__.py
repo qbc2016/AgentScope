@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """The events in the realtime module."""
 
-from ._model_event import ModelEvent, ModelEventType
-from ._client_event import ClientEvent, ClientEventType
-from ._server_event import ServerEvent, ServerEventType
+from ._model_event import ModelEvents, ModelEventType
+from ._client_event import ClientEvents, ClientEventType
+from ._server_event import ServerEvents, ServerEventType
 
 __all__ = [
     "ModelEventType",
-    "ModelEvent",
+    "ModelEvents",
     "ClientEventType",
-    "ClientEvent",
+    "ClientEvents",
     "ServerEventType",
-    "ServerEvent",
+    "ServerEvents",
 ]

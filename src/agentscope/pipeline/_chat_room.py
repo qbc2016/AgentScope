@@ -4,10 +4,12 @@ import asyncio
 from asyncio import Queue
 
 from ..agent import RealtimeAgentBase
-from ..realtime import ClientEvent
+from ..realtime import ClientEvents
 
 
 class ChatRoom:
+    """The chat room class to manage multiple agents in a chat room."""
+
     def __init__(self, agents: list[RealtimeAgentBase]) -> None:
         """Initialize the ChatRoom class.
 
@@ -68,7 +70,7 @@ class ChatRoom:
         if not self._task.done():
             self._task.cancel()
 
-    async def handle_input(self, event: ClientEvent) -> None:
+    async def handle_input(self, event: ClientEvents) -> None:
         """Handle input message from the frontend and distribute it to all
         agents in the chat room."""
         await self._queue.put(event)

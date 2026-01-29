@@ -7,7 +7,12 @@ import shortuuid
 
 from .. import logger
 from ..module import StateModule
-from ..realtime import ModelEvent, RealtimeModelBase, ServerEvent, ClientEvent
+from ..realtime import (
+    ModelEvents,
+    RealtimeModelBase,
+    ServerEvents,
+    ClientEvents,
+)
 
 
 class RealtimeAgentBase(StateModule):
@@ -81,7 +86,7 @@ class RealtimeAgentBase(StateModule):
                 # TODO: handle both the server and client events, and send
                 #  them to the realtime model as needed by the send method.
                 # Only handle the events that we need
-                case ServerEvent.AgentResponseAudioDeltaEvent() as event:
+                case ServerEvents.AgentResponseAudioDeltaEvent() as event:
                     pass
 
     async def _model_response_loop(self, outgoing_queue: Queue) -> None:
@@ -101,23 +106,23 @@ class RealtimeAgentBase(StateModule):
 
             agent_event = None
             match model_event:
-                case ModelEvent.SessionCreatedEvent():
+                case ModelEvents.SessionCreatedEvent():
                     # Send the agent ready event to the outside.
-                    agent_event = ServerEvent.AgentReadyEvent(**agent_kwargs)
+                    agent_event = ServerEvents.AgentReadyEvent(**agent_kwargs)
 
-                case ModelEvent.SessionEndedEvent():
+                case ModelEvents.SessionEndedEvent():
                     # Send the agent session ended event to the outside.
-                    agent_event = ServerEvent.AgentEndedEvent(**agent_kwargs)
+                    agent_event = ServerEvents.AgentEndedEvent(**agent_kwargs)
 
-                case ModelEvent.ResponseCreatedEvent() as event:
+                case ModelEvents.ResponseCreatedEvent() as event:
                     # The agent begins generating a response.
-                    agent_event = ServerEvent.AgentResponseCreatedEvent(
+                    agent_event = ServerEvents.AgentResponseCreatedEvent(
                         response_id=event.response_id,
                         **agent_kwargs,
                     )
 
-                case ModelEvent.ResponseDoneEvent() as event:
-                    agent_event = ServerEvent.AgentResponseDoneEvent(
+                case ModelEvents.ResponseDoneEvent() as event:
+                    agent_event = ServerEvents.AgentResponseDoneEvent(
                         response_id=event.response_id,
                         input_tokens=event.input_tokens,
                         output_tokens=event.output_tokens,
@@ -125,8 +130,8 @@ class RealtimeAgentBase(StateModule):
                         **agent_kwargs,
                     )
 
-                case ModelEvent.ResponseAudioDeltaEvent() as event:
-                    agent_event = ServerEvent.AgentResponseAudioDeltaEvent(
+                case ModelEvents.ResponseAudioDeltaEvent() as event:
+                    agent_event = ServerEvents.AgentResponseAudioDeltaEvent(
                         response_id=event.response_id,
                         item_id=event.item_id,
                         delta=event.delta,
@@ -134,16 +139,16 @@ class RealtimeAgentBase(StateModule):
                         **agent_kwargs,
                     )
 
-                case ModelEvent.ResponseAudioDoneEvent() as event:
-                    agent_event = ServerEvent.AgentResponseAudioDoneEvent(
+                case ModelEvents.ResponseAudioDoneEvent() as event:
+                    agent_event = ServerEvents.AgentResponseAudioDoneEvent(
                         response_id=event.response_id,
                         item_id=event.item_id,
                         **agent_kwargs,
                     )
 
-                case ModelEvent.ResponseAudioTranscriptDeltaEvent() as event:
+                case ModelEvents.ResponseAudioTranscriptDeltaEvent() as event:
                     agent_event = (
-                        ServerEvent.AgentResponseAudioTranscriptDeltaEvent(
+                        ServerEvents.AgentResponseAudioTranscriptDeltaEvent(
                             response_id=event.response_id,
                             item_id=event.item_id,
                             delta=event.delta,
@@ -151,17 +156,17 @@ class RealtimeAgentBase(StateModule):
                         )
                     )
 
-                case ModelEvent.ResponseAudioTranscriptDoneEvent() as event:
+                case ModelEvents.ResponseAudioTranscriptDoneEvent() as event:
                     agent_event = (
-                        ServerEvent.AgentResponseAudioTranscriptDoneEvent(
+                        ServerEvents.AgentResponseAudioTranscriptDoneEvent(
                             response_id=event.response_id,
                             item_id=event.item_id,
                             **agent_kwargs,
                         )
                     )
 
-                case ModelEvent.ResponseToolUseDeltaEvent() as event:
-                    agent_event = ServerEvent.AgentResponseToolUseDeltaEvent(
+                case ModelEvents.ResponseToolUseDeltaEvent() as event:
+                    agent_event = ServerEvents.AgentResponseToolUseDeltaEvent(
                         response_id=event.response_id,
                         item_id=event.item_id,
                         name=event.name,
@@ -170,22 +175,22 @@ class RealtimeAgentBase(StateModule):
                         **agent_kwargs,
                     )
 
-                case ModelEvent.ResponseToolUseDoneEvent() as event:
+                case ModelEvents.ResponseToolUseDoneEvent() as event:
                     pass
 
-                case ModelEvent.InputTranscriptionDeltaEvent() as event:
+                case ModelEvents.InputTranscriptionDeltaEvent() as event:
                     pass
 
-                case ModelEvent.InputTranscriptionDoneEvent() as event:
+                case ModelEvents.InputTranscriptionDoneEvent() as event:
                     pass
 
-                case ModelEvent.InputStartedEvent() as event:
+                case ModelEvents.InputStartedEvent() as event:
                     pass
 
-                case ModelEvent.InputDoneEvent() as event:
+                case ModelEvents.InputDoneEvent() as event:
                     pass
 
-                case ModelEvent.ErrorEvent() as event:
+                case ModelEvents.ErrorEvent() as event:
                     pass
 
                 case _:
@@ -198,6 +203,6 @@ class RealtimeAgentBase(StateModule):
                 # Put the processed response to the outgoing queue.
                 await outgoing_queue.put(agent_event)
 
-    async def handle_input(self, event: ClientEvent | ServerEvent) -> None:
+    async def handle_input(self, event: ClientEvents | ServerEvents) -> None:
         """Handle the input message from the frontend or the other agents."""
         await self._incoming_queue.put(event)

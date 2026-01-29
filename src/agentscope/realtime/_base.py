@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """The realtime model base class."""
 import asyncio
+import json
 from abc import abstractmethod
 from asyncio import Queue
+from typing import Any
 
 import websockets
 from websockets import ClientConnection
 
-from ._events import ModelEvent
+from ._events import ModelEvents
 from ..message import AudioBlock, TextBlock, ImageBlock
 
 
@@ -17,8 +19,8 @@ class RealtimeModelBase:
     model_name: str
     """The model name"""
 
-    support_image: bool
-    """Whether this model class supports image input."""
+    support_input_modalities: list[str]
+    """The supported input modalities of the DashScope realtime model."""
 
     websocket_url: str
     """The websocket URL of the realtime model API."""
@@ -61,12 +63,21 @@ class RealtimeModelBase:
                 The data to be sent to the realtime model.
         """
 
-    async def connect(self, outgoing_queue: Queue) -> None:
+    async def connect(
+        self,
+        outgoing_queue: Queue,
+        instructions: str,
+        tools: list[dict] | None = None,
+    ) -> None:
         """Establish a connection to the realtime model.
 
         Args:
             outgoing_queue (`Queue`):
                 The queue to push the model responses to the outside.
+            instructions (`str`):
+                The instructions to guide the realtime model's behavior.
+            tools (`list[dict]`, *optional*):
+                The list of tools JSON schemas.
         """
 
         self._websocket = await websockets.connect(
@@ -77,6 +88,35 @@ class RealtimeModelBase:
         self._incoming_task = asyncio.create_task(
             self._receive_model_event_loop(outgoing_queue),
         )
+
+        # Updating the session with instructions and other configurations
+        session_config = self._build_session_config(instructions, tools)
+        await self._websocket.send(
+            json.dumps(session_config, ensure_ascii=False),
+        )
+
+    @abstractmethod
+    def _build_session_config(
+        self,
+        instructions: str,
+        tools: list[dict],
+        **kwargs: Any,
+    ) -> dict:
+        """Build the session configuration message to initialize or update
+        the realtime model session.
+
+        Args:
+            instructions (`str`):
+                The instructions to guide the realtime model's behavior.
+            tools (`list[dict]`):
+                The list of tools available to the realtime model.
+            **kwargs (`Any`):
+                Additional keyword arguments for session configuration.
+
+        Returns:
+            `dict`:
+                The session configuration message.
+        """
 
     async def disconnect(self) -> None:
         """Close the connection to the realtime model."""
@@ -108,7 +148,10 @@ class RealtimeModelBase:
                 await outgoing_queue.put(event)
 
     @abstractmethod
-    async def parse_api_message(self, message: str) -> ModelEvent | None:
+    async def parse_api_message(
+        self,
+        message: str,
+    ) -> ModelEvents.EventBase | None:
         """Parse the message received from the realtime model API.
 
         Args:
@@ -116,6 +159,6 @@ class RealtimeModelBase:
                 The message received from the realtime model API.
 
         Returns:
-            `ModelEvent | None`:
+            `ModelEvents.EventBase | None`:
                 The unified model event in agentscope format.
         """
