@@ -3,6 +3,7 @@
 import json
 from typing import Literal
 
+import shortuuid
 from websockets import State
 
 from ._events import ModelEvent
@@ -76,10 +77,8 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # Response tracking state.
         # Note: Unlike DashScope/OpenAI which send explicit `response.created`
         # events, Gemini does not. We generate response IDs ourselves using
-        # a counter to ensure uniqueness (e.g., "resp_gemini_1",
-        # "resp_gemini_2").
+        # short UUID to ensure uniqueness.
         self._response_id: str | None = None
-        self._response_counter = 0
 
     async def send(
         self,
@@ -208,14 +207,13 @@ class GeminiRealtimeModel(RealtimeModelBase):
         """Ensure a response ID exists, creating one if necessary.
 
         Gemini doesn't send explicit response.created events, so we generate
-        the response ID on first audio/text chunk.
+        the response ID on first audio/text chunk using short UUID.
 
         Returns:
             `str`: The current response ID.
         """
         if not self._response_id:
-            self._response_counter += 1
-            self._response_id = f"resp_gemini_{self._response_counter}"
+            self._response_id = f"resp_{shortuuid.uuid()}"
         # After the check above, _response_id is guaranteed to be non-None
         assert self._response_id is not None
         return self._response_id
