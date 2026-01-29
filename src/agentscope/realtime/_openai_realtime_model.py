@@ -7,7 +7,7 @@ from websockets import State
 
 from ._events import ModelEvents
 from ._base import RealtimeModelBase
-from .. import logger
+from .._logging import logger
 from .._utils._common import _get_bytes_from_web_url
 from ..message import AudioBlock, TextBlock, ToolResultBlock
 
@@ -41,6 +41,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         model_name: str,
         api_key: str,
         voice: Literal["alloy", "echo", "marin", "cedar"] | str = "alloy",
+        enable_input_audio_transcription: bool = True,
     ) -> None:
         """Initialize the OpenAIRealtimeModel class.
 
@@ -52,10 +53,15 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             voice (`Literal["alloy", "echo", "marin", "cedar"] | str`, \
             defaults to `"alloy"`):
                 The voice to be used for text-to-speech.
+            enable_input_audio_transcription (`bool`, defaults to `True`):
+                Whether to enable input audio transcription.
         """
         super().__init__(model_name)
 
         self.voice = voice
+        self.enable_input_audio_transcription = (
+            enable_input_audio_transcription
+        )
 
         # The OpenAI realtime API uses 24kHz for both input and output.
         self.input_sample_rate = 24000
@@ -75,7 +81,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
     def _build_session_config(
         self,
         instructions: str,
-        tools: list[dict],
+        tools: list[dict] | None,
         **kwargs: Any,
     ) -> dict:
         """Build the session configuration for the OpenAI realtime model."""
@@ -85,8 +91,10 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             "output_modalities": ["audio"],
             "audio": {
                 "input": {
-                    # TODO: @qbc
-                    "turn_detection": {},
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "create_response": True,
+                    },
                 },
                 "output": {
                     "voice": self.voice,
@@ -97,9 +105,8 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         }
 
         # Input audio transcription
-        # TODO: @qbc 怎么开启输入的转录，对应OpenAIAPI
         if self.enable_input_audio_transcription:
-            session_config["input_audio_transcription"] = {
+            session_config["audio"]["input"]["transcription"] = {
                 "model": "whisper-1",
             }
 
@@ -119,7 +126,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         """Send the data to the OpenAI realtime model for processing.
 
         Args:
-            data (`AudioBlock` | `TextBlock` | `ToolResultBlock`):
+            data (`AudioBlock | TextBlock | ToolResultBlock`):
                 The data to be sent to the OpenAI realtime model.
         """
         if not self._websocket or self._websocket.state != State.OPEN:

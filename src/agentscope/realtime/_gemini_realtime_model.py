@@ -8,7 +8,7 @@ from websockets import State
 
 from ._events import ModelEvents
 from ._base import RealtimeModelBase
-from .. import logger
+from .._logging import logger
 from .._utils._common import _get_bytes_from_web_url
 from ..message import AudioBlock, ImageBlock, TextBlock, ToolResultBlock
 
@@ -47,6 +47,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         model_name: str,
         api_key: str,
         voice: Literal["Puck", "Charon", "Kore", "Fenrir"] | str = "Puck",
+        enable_input_audio_transcription: bool = True,
     ) -> None:
         """Initialize the GeminiRealtimeModel class.
 
@@ -58,10 +59,15 @@ class GeminiRealtimeModel(RealtimeModelBase):
             voice (`Literal["Puck", "Charon", "Kore", "Fenrir"] str`,
             defaults to `"Puck"`):
                 The voice to be used for text-to-speech.
+            enable_input_audio_transcription (`bool`, defaults to `True`):
+                Whether to enable input audio transcription.
         """
         super().__init__(model_name)
 
         self.voice = voice
+        self.enable_input_audio_transcription = (
+            enable_input_audio_transcription
+        )
 
         # The Gemini realtime API uses 16kHz input and 24kHz output.
         self.input_sample_rate = 16000
@@ -79,7 +85,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
     def _build_session_config(
         self,
         instructions: str,
-        tools: list[dict],
+        tools: list[dict] | None,
         **kwargs: Any,
     ) -> dict:
         """Build Gemini setup message.
@@ -104,18 +110,20 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # Model configuration
         session_config: dict = {
             "model": f"models/{self.model_name}",
+            "systemInstruction": {
+                "parts": [{"text": instructions}],
+            },
+            "outputAudioTranscription": {},
         }
 
         # Audio transcription configuration
         if self.enable_input_audio_transcription:
             session_config["inputAudioTranscription"] = {}
-        if self.enable_output_audio_transcription:
-            session_config["outputAudioTranscription"] = {}
 
         # Generation configuration
         generation_config: dict = {
-            "responseModalities": self.response_modalities,
-            **self.generate_kwargs,
+            "responseModalities": ["AUDIO"],
+            **kwargs,
         }
 
         # Voice configuration
@@ -126,42 +134,18 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 },
             }
 
-        # Thinking configuration (only if enabled)
-        if self.enable_thinking:
-            thinking_config: dict[str, Any] = {"includeThoughts": True}
-            if self.thinking_budget:
-                thinking_config["thinkingBudget"] = self.thinking_budget
-            generation_config["thinkingConfig"] = thinking_config
-        # Don't set thinkingConfig if not enabled - some models don't
-        # support it
-
         session_config["generationConfig"] = generation_config
 
-        # System instruction
-        instructions = kwargs.get("instructions") or self.instructions
-        if instructions:
-            session_config["systemInstruction"] = {
-                "parts": [{"text": instructions}],
-            }
-
+        # TODO: resumption
         # Session resumption (only if enabled with a valid handle)
-        if self.session_resumption and self.session_resumption_handle:
-            session_config["sessionResumption"] = {
-                "handle": self.session_resumption_handle,
-            }
-
-        # VAD configuration - use realtimeInputConfig
-        # automaticActivityDetection is enabled by default, only set if
-        # disabling
-        if not self.vad_enabled:
-            session_config["realtimeInputConfig"] = {
-                "automaticActivityDetection": {"disabled": True},
-            }
+        # if self.session_resumption and self.session_resumption_handle:
+        #     session_config["sessionResumption"] = {
+        #         "handle": self.session_resumption_handle,
+        #     }
 
         # Tools configuration
-        tools = kwargs.get("tools", [])
         if tools:
-            session_config["tools"] = self._format_toolkit_schema(tools)
+            session_config["tools"] = tools
 
         setup_msg = {"setup": session_config}
         return setup_msg
@@ -173,8 +157,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         """Send the data to the Gemini realtime model for processing.
 
         Args:
-            data (`AudioBlock` | `TextBlock` | `ImageBlock` | \
-            `ToolResultBlock`):
+            data (`AudioBlock | TextBlock | ImageBlock | ToolResultBlock`):
                 The data to be sent to the Gemini realtime model.
         """
         if not self._websocket or self._websocket.state != State.OPEN:
@@ -202,16 +185,38 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # Process the data based on its type
         if data_type == "image":
-            to_send_message = await self._parse_image_data(data)
+            to_send_message = await self._parse_image_data(
+                ImageBlock(
+                    type="image",
+                    source=data.get("source"),
+                ),
+            )
 
         elif data_type == "audio":
-            to_send_message = await self._parse_audio_data(data)
+            to_send_message = await self._parse_audio_data(
+                AudioBlock(
+                    type="audio",
+                    source=data.get("source"),
+                ),
+            )
 
         elif data_type == "text":
-            to_send_message = await self._parse_text_data(data)
+            to_send_message = await self._parse_text_data(
+                TextBlock(
+                    type="text",
+                    text=data.get("text"),
+                ),
+            )
 
         elif data_type == "tool_result":
-            to_send_message = await self._parse_tool_result_data(data)
+            to_send_message = await self._parse_tool_result_data(
+                ToolResultBlock(
+                    type="tool_result",
+                    name=data.get("name"),
+                    output=data.get("output"),
+                    id=data.get("id"),
+                ),
+            )
 
         else:
             raise RuntimeError(f"Unsupported data type {data_type}")

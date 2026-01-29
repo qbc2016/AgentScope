@@ -42,10 +42,12 @@ class ModelEventType(str, Enum):
 
 
 class ModelEvents:
-    """The realtime model events that will be consumed by the realtime agents"""
+    """The realtime model events that will be consumed by the realtime
+    agents"""
 
     class EventBase:
-        """The base class for all model events, used to unify the type hinting."""
+        """The base class for all model events, used to unify the type
+        hinting."""
 
     @dataclass
     class SessionCreatedEvent(EventBase):

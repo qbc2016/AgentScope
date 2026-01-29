@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """A test server"""
 import asyncio
+import os
 import queue
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
 from agentscope.agent import RealtimeAgentBase
+from agentscope.realtime import DashScopeRealtimeModel
 
 # 简单的 HTML 测试页面
 html = """
@@ -15,11 +17,14 @@ html = """
 <head>
     <title>WebSocket Demo</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; }
-        #messages { border: 1px solid #ccc; height: 300px; overflow-y: scroll; padding: 10px; margin: 20px 0; }
+        body { font-family: Arial, sans-serif; max-width: 800px; margin:
+        50px auto; }
+        #messages { border: 1px solid #ccc; height: 300px; overflow-y:
+        scroll; padding: 10px; margin: 20px 0; }
         input { width: 70%; padding: 10px; }
         button { padding: 10px 20px; }
-        .message { margin: 5px 0; padding: 5px; background: #f0f0f0; border-radius: 3px; }
+        .message { margin: 5px 0; padding: 5px; background: #f0f0f0;
+        border-radius: 3px; }
     </style>
 </head>
 <body>
@@ -63,7 +68,8 @@ html = """
         function sendMessage() {
             const input = document.getElementById("messageText");
             if (ws && input.value) {
-                ws.send(JSON.stringify({type: "delta", data: [{type: "text", text: input.value}]}));
+                ws.send(JSON.stringify({type: "delta", data: [{type:
+                "text", text: input.value}]}));
                 input.value = '';
             }
         }
@@ -84,7 +90,8 @@ html = """
         }
 
         // 回车发送消息
-        document.getElementById("messageText").addEventListener("keypress", function(event) {
+        document.getElementById("messageText").addEventListener(
+        "keypress", function(event) {
             if (event.key === "Enter") {
                 sendMessage();
             }
@@ -126,7 +133,17 @@ async def single_agent_endpoint(
 
     asyncio.create_task(frontend_receive())
 
-    agent = RealtimeAgentBase(...)
+    model = DashScopeRealtimeModel(
+        model_name="qwen3-omni-flash-realtime",
+        api_key=os.getenv("DASHSCOPE_API_KEY"),
+    )
+
+    agent = RealtimeAgentBase(
+        name="Friday",
+        sys_prompt="You are a helpful assistant.",
+        model=model,
+    )
+
     # or
     # chatroom = ChatRoom(agents=[agent, ...])
 

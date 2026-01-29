@@ -5,7 +5,7 @@ from asyncio import Queue
 
 import shortuuid
 
-from .. import logger
+from .._logging import logger
 from ..module import StateModule
 from ..realtime import (
     ModelEvents,
@@ -21,12 +21,19 @@ class RealtimeAgentBase(StateModule):
     realtime chat, voice assistants, etc.
     """
 
-    def __init__(self, name: str, model: RealtimeModelBase) -> None:
+    def __init__(
+        self,
+        name: str,
+        sys_prompt: str,
+        model: RealtimeModelBase,
+    ) -> None:
         """Initialize the RealtimeAgentBase class.
 
         Args:
             name (`str`):
                 The name of the agent.
+            sys_prompt (`str`):
+                The system prompt of the agent.
             model (`RealtimeModelBase`):
                 The realtime model used by the agent.
         """
@@ -34,6 +41,7 @@ class RealtimeAgentBase(StateModule):
 
         self.id = shortuuid.uuid()
         self.name = name
+        self.sys_prompt = sys_prompt
         self.model = model
 
         # A queue to handle the incoming events from other agents or the
@@ -53,7 +61,10 @@ class RealtimeAgentBase(StateModule):
                 The queue to push messages to the frontend and other agents.
         """
         # Start the realtime model connection.
-        await self.model.connect(self._model_response_queue)
+        await self.model.connect(
+            self._model_response_queue,
+            instructions=self.sys_prompt,
+        )
 
         # Start the forwarding loop.
         self._external_event_handling_task = asyncio.create_task(

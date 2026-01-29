@@ -10,7 +10,7 @@ import websockets
 from websockets import ClientConnection
 
 from ._events import ModelEvents
-from ..message import AudioBlock, TextBlock, ImageBlock
+from ..message import AudioBlock
 
 
 class RealtimeModelBase:
@@ -55,11 +55,14 @@ class RealtimeModelBase:
         self._websocket: ClientConnection | None = None
 
     @abstractmethod
-    async def send(self, data: AudioBlock | TextBlock | ImageBlock) -> None:
+    async def send(
+        self,
+        data: AudioBlock,
+    ) -> None:
         """Send data to the realtime model for processing.
 
         Args:
-            data (`AudioBlock` | `TextBlock` | `ImageBlock`):
+            data (`AudioBlock`):
                 The data to be sent to the realtime model.
         """
 
@@ -99,7 +102,7 @@ class RealtimeModelBase:
     def _build_session_config(
         self,
         instructions: str,
-        tools: list[dict],
+        tools: list[dict] | None,
         **kwargs: Any,
     ) -> dict:
         """Build the session configuration message to initialize or update
@@ -108,7 +111,7 @@ class RealtimeModelBase:
         Args:
             instructions (`str`):
                 The instructions to guide the realtime model's behavior.
-            tools (`list[dict]`):
+            tools (`list[dict]`, optional):
                 The list of tools available to the realtime model.
             **kwargs (`Any`):
                 Additional keyword arguments for session configuration.

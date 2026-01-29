@@ -7,7 +7,7 @@ from websockets import State
 
 from ._events import ModelEvents
 from ._base import RealtimeModelBase
-from .. import logger
+from .._logging import logger
 from .._utils._common import _get_bytes_from_web_url
 from ..message import AudioBlock, ImageBlock
 
@@ -93,7 +93,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
     def _build_session_config(
         self,
         instructions: str,
-        tools: list[dict] | None = None,
+        tools: list[dict] | None,
         **kwargs: Any,
     ) -> dict:
         """Build the session configuration."""
@@ -165,10 +165,20 @@ class DashScopeRealtimeModel(RealtimeModelBase):
 
         # Process the data based on its type
         if data_type == "image":
-            to_send_message = await self._parse_image_data(data)
+            to_send_message = await self._parse_image_data(
+                ImageBlock(
+                    type="image",
+                    source=data.get("source"),
+                ),
+            )
 
         elif data_type == "audio":
-            to_send_message = await self._parse_audio_data(data)
+            to_send_message = await self._parse_audio_data(
+                AudioBlock(
+                    type="audio",
+                    source=data.get("source"),
+                ),
+            )
 
         else:
             raise RuntimeError(f"Unsupported data type {data_type}")
@@ -244,7 +254,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             case "response.audio.done":
                 model_event = ModelEvents.ResponseAudioDoneEvent(
                     response_id=self._response_id,
-                    item_id=data.get("item_id"),
+                    item_id=data.get("item_id", ""),
                 )
 
             # ================ Transcription related events ================
@@ -256,14 +266,14 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                         ModelEvents.ResponseAudioTranscriptDeltaEvent(
                             response_id=self._response_id,
                             delta=transcript_data,
-                            item_id=data.get("item_id"),
+                            item_id=data.get("item_id", ""),
                         )
                     )
 
             case "response.audio_transcript.done":
                 model_event = ModelEvents.ResponseAudioTranscriptDoneEvent(
                     response_id=self._response_id,
-                    item_id=data.get("item_id"),
+                    item_id=data.get("item_id", ""),
                 )
 
             case "conversation.item.input_audio_transcription.completed":
@@ -271,19 +281,19 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 if transcript_data:
                     model_event = ModelEvents.InputTranscriptionDoneEvent(
                         transcript=transcript_data,
-                        item_id=data.get("item_id"),
+                        item_id=data.get("item_id", ""),
                     )
 
             # ================= VAD related events =================
             case "input_audio_buffer.speech_started":
                 model_event = ModelEvents.InputStartedEvent(
-                    item_id=data.get("item_id"),
+                    item_id=data.get("item_id", ""),
                     audio_start_ms=data.get("audio_start_ms", 0),
                 )
 
             case "input_audio_buffer.speech_stopped":
                 model_event = ModelEvents.InputDoneEvent(
-                    item_id=data.get("item_id"),
+                    item_id=data.get("item_id", ""),
                     audio_end_ms=data.get("audio_end_ms", 0),
                 )
 
