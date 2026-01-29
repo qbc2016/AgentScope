@@ -144,7 +144,7 @@ class RealtimeModelBase:
                 message = message.decode("utf-8")
 
             # Parse the message into ModelEvent instance
-            event = self.parse_api_message(message)
+            event = await self.parse_api_message(message)
 
             if event is not None:
                 # Send the event to the outgoing queue

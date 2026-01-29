@@ -27,7 +27,9 @@ class DashScopeRealtimeModel(RealtimeModelBase):
     """The DashScope Realtime API doesn't support tools yet (last updated in
     20260129)."""
 
-    websocket_url: str = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+    websocket_url: str = (
+        "wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model={model_name}"
+    )
     """The websocket URL of the DashScope realtime model API."""
 
     websocket_headers: dict[str, str] = {
@@ -81,6 +83,9 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             self.output_sample_rate = 24000
         else:
             self.output_sample_rate = 16000
+
+        # Set the model name in the websocket URL.
+        self.websocket_url = self.websocket_url.format(model_name=model_name)
 
         # Set the API key in the websocket headers.
         self.websocket_headers["Authorization"] = self.websocket_headers[

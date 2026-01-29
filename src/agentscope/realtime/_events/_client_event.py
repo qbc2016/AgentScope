@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """The client events for web-to-backend communication."""
 from enum import Enum
+from typing import List
+
+from ...message import TextBlock, AudioBlock, ImageBlock, VideoBlock
 
 
 class ClientEventType(str, Enum):
@@ -38,3 +41,93 @@ class ClientEventType(str, Enum):
 
 class ClientEvents:
     """Realtime client events."""
+
+    class ClientSessionCreateEvent:
+        """Session create event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_SESSION_CREATE
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientSessionEndEvent:
+        """Session end event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_SESSION_END
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientResponseCreateEvent:
+        """Response create event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_RESPONSE_CREATE
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientResponseCancelEvent:
+        """Response cancel event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_RESPONSE_CANCEL
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientImageAppendEvent:
+        """Image append event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_IMAGE_APPEND
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientTextAppendEvent:
+        """Text append event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_TEXT_APPEND
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientAudioAppendEvent:
+        """Audio append event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_AUDIO_APPEND
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientAudioCommitEvent:
+        """Audio commit event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_AUDIO_COMMIT
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+    class ClientToolResultEvent:
+        """Tool result event in the frontend"""
+
+        type: ClientEventType = ClientEventType.CLIENT_TOOL_RESULT
+        """The event type."""
+
+        session_id: str
+        """The session ID."""
+
+        id: str
+        """The tool call ID."""
+
+        name: str
+        """The tool name."""
+
+        output: str | List[TextBlock | ImageBlock | AudioBlock | VideoBlock]
+        """The tool result."""
