@@ -176,6 +176,7 @@ class RealtimeAgentBase(StateModule):
                     )
 
                 case ModelEvents.ResponseToolUseDoneEvent() as event:
+                    # TODO: @qbc
                     pass
 
                 case ModelEvents.InputTranscriptionDeltaEvent() as event:

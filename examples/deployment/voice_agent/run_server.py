@@ -6,7 +6,7 @@ import queue
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
-from agentscope.agent._realtime_agent import RealtimeAgentBase
+from agentscope.agent import RealtimeAgentBase
 
 # 简单的 HTML 测试页面
 html = """
