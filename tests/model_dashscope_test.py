@@ -305,7 +305,6 @@ class TestDashScopeChatModel(IsolatedAsyncioTestCase):
                         "index": 0,
                         "id": "call_123",
                         "function": {
-                            "name": "greet",
                             "arguments": '"user"}',
                         },
                     },
