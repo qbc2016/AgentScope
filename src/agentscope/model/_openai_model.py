@@ -493,7 +493,7 @@ class OpenAIChatModel(ChatModelBase):
             for block in last_contents:
                 if block.get("type") == "tool_use":
                     block["input"] = input_obj = _json_loads_with_repair(
-                        str(block.get("raw_input")) or "{}",
+                        str(block.get("raw_input") or "{}"),
                     )
 
                     if structured_model:
