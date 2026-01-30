@@ -220,7 +220,7 @@ class OllamaChatModel(ChatModelBase):
                     "id": tool_id,
                     "name": function.name,
                     "input": function.arguments,
-                    "input_raw": json.dumps(function.arguments),
+                    "raw_input": json.dumps(function.arguments),
                 }
             # Calculate usage statistics
             current_time = (datetime.now() - start_datetime).total_seconds()
