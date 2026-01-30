@@ -52,11 +52,19 @@ def _json_loads_with_repair(
         result = json.loads(repaired)
         if isinstance(result, dict):
             return result
+
     except Exception:
+        if len(json_str) > 100:
+            log_str = json_str[:100] + "..."
+        else:
+            log_str = json_str
+
         logger.warning(
-            "Failed to parse JSON string `%s`. Returning empty dict.",
-            json_str,
+            "Failed to load JSON dict from string: %s. Returning empty dict "
+            "instead.",
+            log_str,
         )
+
     return {}
 
 

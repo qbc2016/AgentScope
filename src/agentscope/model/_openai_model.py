@@ -2,6 +2,7 @@
 # pylint: disable=too-many-branches
 """OpenAI Chat model class."""
 import copy
+import json
 import warnings
 from datetime import datetime
 from typing import (
@@ -74,7 +75,7 @@ class OpenAIChatModel(ChatModelBase):
         stream: bool = True,
         reasoning_effort: Literal["low", "medium", "high"] | None = None,
         organization: str = None,
-        intermediate_tool_parsing: bool = True,
+        stream_tool_parsing: bool = True,
         client_type: Literal["openai", "azure"] = "openai",
         client_kwargs: dict[str, JSONSerializableObject] | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
@@ -99,9 +100,9 @@ class OpenAIChatModel(ChatModelBase):
             organization (`str`, default `None`):
                 The organization ID for OpenAI API. If not specified, it will
                 be read from the environment variable `OPENAI_ORGANIZATION`.
-            intermediate_tool_parsing (`bool`, default to `True`):
+            stream_tool_parsing (`bool`, default to `True`):
                 Whether to parse incomplete tool use JSON during streaming
-                with auto-repair. If True, partial JSON (e.g., '{"a": "x')
+                with auto-repair. If True, partial JSON (e.g., `'{"a": "x'`)
                 is repaired to valid dicts ({"a": "x"}) in real-time for
                 immediate tool function input. Otherwise, the input field
                 remains {} until the final chunk arrives.
@@ -164,7 +165,7 @@ class OpenAIChatModel(ChatModelBase):
             )
 
         self.reasoning_effort = reasoning_effort
-        self.intermediate_tool_parsing = intermediate_tool_parsing
+        self.stream_tool_parsing = stream_tool_parsing
         self.generate_kwargs = generate_kwargs or {}
 
     @trace_llm
@@ -442,27 +443,33 @@ class OpenAIChatModel(ChatModelBase):
 
                 for tool_call in tool_calls.values():
                     input_str = tool_call["input"]
-                    # Only add intermediate tool use blocks if
-                    # intermediate_tool_parsing is True
-                    if self.intermediate_tool_parsing:
-                        input_obj = _json_loads_with_repair(input_str)
-                        # If the new input_obj is shorter than the last one,
-                        # use the last one to avoid regression
-                        tool_id = tool_call["id"]
-                        if tool_id in last_input_objs:
-                            last_input_obj = last_input_objs[tool_id]
-                            if len(str(input_obj)) < len(str(last_input_obj)):
-                                input_obj = last_input_obj
-                        last_input_objs[tool_id] = input_obj
+                    tool_id = tool_call["id"]
+
+                    # If parsing the tool input in streaming mode
+                    if self.stream_tool_parsing:
+                        repaired_input = _json_loads_with_repair(
+                            input_str or "{}",
+                        )
+                        # If the new repaired input is shorter than one in the
+                        # last chunk, use the last one to avoid regression
+                        last_input = last_input_objs.get(tool_id, {})
+                        if len(json.dumps(last_input)) > len(
+                            json.dumps(repaired_input),
+                        ):
+                            repaired_input = last_input
+                        last_input_objs[tool_id] = repaired_input
+
                     else:
-                        input_obj = {}
+                        # Otherwise, keep input as empty dict until the final
+                        # chunk
+                        repaired_input = {}
 
                     contents.append(
                         ToolUseBlock(
                             type=tool_call["type"],
-                            id=tool_call["id"],
+                            id=tool_id,
                             name=tool_call["name"],
-                            input=input_obj,
+                            input=repaired_input,
                             raw_input=input_str,
                         ),
                     )
@@ -476,28 +483,24 @@ class OpenAIChatModel(ChatModelBase):
                     yield res
                     last_contents = copy.deepcopy(contents)
 
-        # If intermediate_tool_parsing is False, yield last contents
-        if not self.intermediate_tool_parsing and tool_calls and last_contents:
+        # If stream_tool_parsing is False, yield last contents
+        if not self.stream_tool_parsing and tool_calls and last_contents:
             metadata = None
-
             # Update tool use blocks in last_contents inplace
             for block in last_contents:
                 if block.get("type") == "tool_use":
-                    input_str = block.get("raw_input", "")
-                    input_obj = _json_loads_with_repair(input_str or "{}")
-
-                    # Update the block inplace
-                    block["input"] = input_obj
+                    block["input"] = input_obj = _json_loads_with_repair(
+                        str(block.get("raw_input")) or "{}",
+                    )
 
                     if structured_model:
                         metadata = input_obj
 
-            res = ChatResponse(
+            yield ChatResponse(
                 content=last_contents,
                 usage=usage,
                 metadata=metadata,
             )
-            yield res
 
     def _parse_openai_completion_response(
         self,

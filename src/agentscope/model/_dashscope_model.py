@@ -2,6 +2,7 @@
 """The dashscope API model classes."""
 import copy
 import collections
+import json
 import warnings
 from datetime import datetime
 from http import HTTPStatus
@@ -57,7 +58,7 @@ class DashScopeChatModel(ChatModelBase):
         enable_thinking: bool | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         base_http_api_url: str | None = None,
-        intermediate_tool_parsing: bool = True,
+        stream_tool_parsing: bool = True,
         **_kwargs: Any,
     ) -> None:
         """Initialize the DashScope chat model.
@@ -81,10 +82,10 @@ class DashScopeChatModel(ChatModelBase):
             base_http_api_url (`str | None`, optional):
                 The base URL for DashScope API requests. If not provided,
                 the default base URL from the DashScope SDK will be used.
-            intermediate_tool_parsing (`bool`, default to `True`):
-                Whether to parse incomplete tool use JSON during streaming
-                with auto-repair. If True, partial JSON (e.g., '{"a": "x')
-                is repaired to valid dicts ({"a": "x"}) in real-time for
+            stream_tool_parsing (`bool`, default to `True`):
+                Whether to parse incomplete tool use JSON in streaming mode
+                with auto-repair. If True, partial JSON (e.g., `'{"a": "x'`)
+                is repaired to valid dicts (`{"a": "x"}`) in real-time for
                 immediate tool function input. Otherwise, the input field
                 remains {} until the final chunk arrives.
             **_kwargs (`Any`):
@@ -102,7 +103,7 @@ class DashScopeChatModel(ChatModelBase):
         self.api_key = api_key
         self.enable_thinking = enable_thinking
         self.generate_kwargs = generate_kwargs or {}
-        self.intermediate_tool_parsing = intermediate_tool_parsing
+        self.stream_tool_parsing = stream_tool_parsing
 
         if base_http_api_url is not None:
             import dashscope
@@ -288,7 +289,7 @@ class DashScopeChatModel(ChatModelBase):
         acc_tool_calls = collections.defaultdict(dict)
         last_input_objs = {}  # Store last input_obj for each tool_call
         metadata = None
-        last_contents = None
+        last_content = None
         usage = None
 
         async for chunk in giter(response):
@@ -324,10 +325,10 @@ class DashScopeChatModel(ChatModelBase):
 
                 if "function" in tool_call:
                     func = tool_call["function"]
-                    if "name" in func:
+                    current_name = acc_tool_calls[index].get("name", "")
+                    if "name" in func and not current_name:
                         acc_tool_calls[index]["name"] = (
-                            acc_tool_calls[index].get("name", "")
-                            + func["name"]
+                            current_name + func["name"]
                         )
 
                     if "arguments" in func:
@@ -357,27 +358,32 @@ class DashScopeChatModel(ChatModelBase):
 
             for tool_call in acc_tool_calls.values():
                 # Only add intermediate tool use blocks if
-                # intermediate_tool_parsing is True
+                # stream_tool_parsing is True
+                tool_id = tool_call.get("id", "")
                 input_str = tool_call.get("arguments")
-                if self.intermediate_tool_parsing:
+
+                # If parsing the tool input in streaming mode
+                if self.stream_tool_parsing:
                     repaired_input = _json_loads_with_repair(
                         input_str or "{}",
                     )
-                    # If the new repaired_input is shorter than the last one,
-                    # use the last one to avoid regression
-                    tool_id = tool_call.get("id", "")
-                    if tool_id in last_input_objs:
-                        last_input_obj = last_input_objs[tool_id]
-                        if len(str(repaired_input)) < len(str(last_input_obj)):
-                            repaired_input = last_input_obj
+                    # If the new repaired input is shorter than one in the last
+                    # chunk, use the last one to avoid regression
+                    last_input = last_input_objs.get(tool_id, {})
+                    if len(json.dumps(last_input)) > len(
+                        json.dumps(repaired_input),
+                    ):
+                        repaired_input = last_input
                     last_input_objs[tool_id] = repaired_input
+
                 else:
+                    # Otherwise, keep input as empty dict until the final chunk
                     repaired_input = {}
 
                 content_blocks.append(
                     ToolUseBlock(
                         type="tool_use",
-                        id=tool_call.get("id", ""),
+                        id=tool_id,
                         name=tool_call.get("name", ""),
                         input=repaired_input,
                         raw_input=input_str,
@@ -401,34 +407,27 @@ class DashScopeChatModel(ChatModelBase):
                     metadata=metadata,
                 )
                 yield parsed_chunk
-                last_contents = copy.deepcopy(content_blocks)
+                last_content = copy.deepcopy(content_blocks)
 
-        # If intermediate_tool_parsing is False, yield last contents
-        if (
-            not self.intermediate_tool_parsing
-            and last_contents
-            and acc_tool_calls
-        ):
+        # If stream_tool_parsing is False, we need to parse the final tool
+        # use inputs here
+        if not self.stream_tool_parsing and last_content and acc_tool_calls:
             metadata = None
-
             # Update tool use blocks in last_contents inplace
-            for block in last_contents:
+            for block in last_content:
                 if block.get("type") == "tool_use":
-                    input_str = block.get("raw_input", "")
-                    input_obj = _json_loads_with_repair(input_str or "{}")
-
-                    # Update the block inplace
-                    block["input"] = input_obj
+                    block["input"] = input_obj = _json_loads_with_repair(
+                        str(block.get("raw_input")) or "{}",
+                    )
 
                     if structured_model:
                         metadata = input_obj
 
-            parsed_chunk = ChatResponse(
-                content=last_contents,
+            yield ChatResponse(
+                content=last_content,
                 usage=usage,
                 metadata=metadata,
             )
-            yield parsed_chunk
 
     async def _parse_dashscope_generation_response(
         self,
