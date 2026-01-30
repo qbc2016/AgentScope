@@ -359,6 +359,7 @@ class OpenAIChatModel(ChatModelBase):
                         input_tokens=chunk.usage.prompt_tokens,
                         output_tokens=chunk.usage.completion_tokens,
                         time=(datetime.now() - start_datetime).total_seconds(),
+                        metadata=chunk.usage,
                     )
 
                 if not chunk.choices:
@@ -389,7 +390,9 @@ class OpenAIChatModel(ChatModelBase):
                 ):
                     text += choice.delta.audio["transcript"]
 
-                for tool_call in choice.delta.tool_calls or []:
+                for tool_call in (
+                    getattr(choice.delta, "tool_calls", None) or []
+                ):
                     if tool_call.index in tool_calls:
                         if tool_call.function.arguments is not None:
                             tool_calls[tool_call.index][
@@ -598,6 +601,7 @@ class OpenAIChatModel(ChatModelBase):
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
                 time=(datetime.now() - start_datetime).total_seconds(),
+                metadata=response.usage,
             )
 
         parsed_response = ChatResponse(
