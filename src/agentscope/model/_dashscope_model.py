@@ -336,10 +336,10 @@ class DashScopeChatModel(ChatModelBase):
 
                 if "function" in tool_call:
                     func = tool_call["function"]
-                    current_name = acc_tool_calls[index].get("name", "")
-                    if "name" in func and not current_name:
+                    if "name" in func:
                         acc_tool_calls[index]["name"] = (
-                            current_name + func["name"]
+                            acc_tool_calls[index].get("name", "")
+                            + func["name"]
                         )
 
                     if "arguments" in func:
