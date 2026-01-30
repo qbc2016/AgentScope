@@ -9,7 +9,7 @@ from ._events import ModelEvents
 from ._base import RealtimeModelBase
 from .._logging import logger
 from .._utils._common import _get_bytes_from_web_url
-from ..message import AudioBlock, ImageBlock
+from ..message import AudioBlock, TextBlock, ImageBlock, ToolResultBlock
 
 
 class DashScopeRealtimeModel(RealtimeModelBase):
@@ -134,7 +134,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
 
     async def send(
         self,
-        data: AudioBlock | ImageBlock,
+        data: AudioBlock | TextBlock | ImageBlock | ToolResultBlock,
     ) -> None:
         """Send the data to the DashScope realtime model for processing.
 
@@ -142,7 +142,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         image data input.
 
         Args:
-            data (`AudioBlock | ImageBlock`):
+            data (`AudioBlock | TextBlock | ImageBlock | ToolResultBlock`):
                 The data to be sent to the DashScope realtime model.
         """
         if not self._websocket or self._websocket.state != State.OPEN:
@@ -365,15 +365,17 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             `str`: The parsed message to be sent to the DashScope realtime
             model API.
         """
-        if block["source"]["type"] == "base64":
+        source_type = block["source"]["type"]
+
+        if source_type == "base64":
             audio_data = block["source"]["data"]
 
-        elif block["source"]["type"] == "url":
+        elif source_type == "url":
             audio_data = _get_bytes_from_web_url(block["source"]["url"])
 
         else:
             raise ValueError(
-                f"Unsupported audio source type: {block['source']['type']}",
+                f"Unsupported audio source type: {source_type}",
             )
 
         return json.dumps(

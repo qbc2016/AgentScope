@@ -9,7 +9,7 @@ from ._events import ModelEvents
 from ._base import RealtimeModelBase
 from .._logging import logger
 from .._utils._common import _get_bytes_from_web_url
-from ..message import AudioBlock, TextBlock, ToolResultBlock
+from ..message import AudioBlock, TextBlock, ImageBlock, ToolResultBlock
 
 
 class OpenAIRealtimeModel(RealtimeModelBase):
@@ -112,6 +112,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
         # Tools configuration
         if tools:
+            # TODO: format the tools
             session_config["tools"] = tools
 
         return {
@@ -121,12 +122,12 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
     async def send(
         self,
-        data: AudioBlock | TextBlock | ToolResultBlock,
+        data: AudioBlock | TextBlock | ImageBlock | ToolResultBlock,
     ) -> None:
         """Send the data to the OpenAI realtime model for processing.
 
         Args:
-            data (`AudioBlock | TextBlock | ToolResultBlock`):
+            data (`AudioBlock | TextBlock | ImageBlock | ToolResultBlock`):
                 The data to be sent to the OpenAI realtime model.
         """
         if not self._websocket or self._websocket.state != State.OPEN:

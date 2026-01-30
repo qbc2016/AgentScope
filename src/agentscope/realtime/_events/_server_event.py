@@ -53,6 +53,9 @@ class ServerEventType(str, Enum):
     RESPONSE_TOOL_USE_DONE = "response_tool_use_done"
     """The agent's response tool use data is complete."""
 
+    RESPONSE_TOOL_RESULT = "response_tool_result"
+    """The tool execution result."""
+
     # ============== INPUT AUDIO TRANSCRIPTION EVENTS =================
 
     INPUT_TRANSCRIPTION_DELTA = "input_transcription_delta"
@@ -76,32 +79,41 @@ class ServerEventType(str, Enum):
 class ServerEvents:
     """Realtime server events."""
 
+    @dataclass
     class SessionCreatedEvent:
         """Session created event in the backend"""
 
-        type: ServerEventType = ServerEventType.SESSION_CREATED
-        """The event type."""
-
         session_id: str
         """The session ID."""
 
+        type: Literal[
+            ServerEventType.SESSION_CREATED
+        ] = ServerEventType.SESSION_CREATED
+        """The event type."""
+
+    @dataclass
     class SessionUpdatedEvent:
         """Session updated event in the backend"""
 
-        type: ServerEventType = ServerEventType.SESSION_UPDATED
-        """The event type."""
-
         session_id: str
         """The session ID."""
 
+        type: Literal[
+            ServerEventType.SESSION_UPDATED
+        ] = ServerEventType.SESSION_UPDATED
+        """The event type."""
+
+    @dataclass
     class SessionEndedEvent:
         """Session ended event in the backend"""
 
-        type: ServerEventType = ServerEventType.SESSION_ENDED
-        """The event type."""
-
         session_id: str
         """The session ID."""
+
+        type: Literal[
+            ServerEventType.SESSION_ENDED
+        ] = ServerEventType.SESSION_ENDED
+        """The event type."""
 
     @dataclass
     class AgentReadyEvent:
@@ -113,7 +125,9 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-        type: ServerEventType = ServerEventType.AGENT_READY
+        type: Literal[
+            ServerEventType.AGENT_READY
+        ] = ServerEventType.AGENT_READY
         """The event type."""
 
     @dataclass
@@ -126,7 +140,9 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-        type: ServerEventType = ServerEventType.AGENT_ENDED
+        type: Literal[
+            ServerEventType.AGENT_ENDED
+        ] = ServerEventType.AGENT_ENDED
         """The event type."""
 
     @dataclass
@@ -142,7 +158,9 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-        type: ServerEventType = ServerEventType.RESPONSE_CREATED
+        type: Literal[
+            ServerEventType.RESPONSE_CREATED
+        ] = ServerEventType.RESPONSE_CREATED
         """The event type."""
 
     @dataclass
@@ -294,11 +312,9 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_TOOL_USE_DELTA
         """The event type."""
 
+    @dataclass
     class AgentResponseToolUseDoneEvent:
         """Response tool use done event in the backend"""
-
-        type: ServerEventType = ServerEventType.RESPONSE_TOOL_USE_DONE
-        """The event type."""
 
         response_id: str
         """The response ID."""
@@ -315,11 +331,38 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-    class InputTranscriptionDeltaEvent:
-        """Input transcription delta event in the backend"""
-
-        type: ServerEventType = ServerEventType.INPUT_TRANSCRIPTION_DELTA
+        type: Literal[
+            ServerEventType.RESPONSE_TOOL_USE_DONE
+        ] = ServerEventType.RESPONSE_TOOL_USE_DONE
         """The event type."""
+
+    @dataclass
+    class AgentResponseToolResultEvent:
+        """Response tool result event"""
+
+        call_id: str
+        """The tool call ID."""
+
+        name: str
+        """The tool name."""
+
+        output: str | dict
+        """The tool output."""
+
+        agent_id: str
+        """The agent ID."""
+
+        agent_name: str
+        """The agent name."""
+
+        type: Literal[
+            ServerEventType.RESPONSE_TOOL_RESULT
+        ] = ServerEventType.RESPONSE_TOOL_RESULT
+        """The event type."""
+
+    @dataclass
+    class AgentInputTranscriptionDeltaEvent:
+        """Input transcription delta event in the backend"""
 
         delta: str
         """The transcription chunk data."""
@@ -330,11 +373,14 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-    class InputTranscriptionDoneEvent:
-        """Input transcription done event in the backend"""
-
-        type: ServerEventType = ServerEventType.INPUT_TRANSCRIPTION_DONE
+        type: Literal[
+            ServerEventType.INPUT_TRANSCRIPTION_DELTA
+        ] = ServerEventType.INPUT_TRANSCRIPTION_DELTA
         """The event type."""
+
+    @dataclass
+    class AgentInputTranscriptionDoneEvent:
+        """Input transcription done event in the backend"""
 
         transcript: str
         """The complete transcription text."""
@@ -351,35 +397,42 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-    class InputStartedEvent:
+        type: Literal[
+            ServerEventType.INPUT_TRANSCRIPTION_DONE
+        ] = ServerEventType.INPUT_TRANSCRIPTION_DONE
+        """The event type."""
+
+    @dataclass
+    class AgentInputStartedEvent:
         """Input started event in the backend"""
 
-        type: ServerEventType = ServerEventType.INPUT_STARTED
-        """The event type."""
-
         agent_id: str
         """The agent ID."""
 
         agent_name: str
         """The agent name."""
 
-    class InputDoneEvent:
+        type: Literal[
+            ServerEventType.INPUT_STARTED
+        ] = ServerEventType.INPUT_STARTED
+        """The event type."""
+
+    @dataclass
+    class AgentInputDoneEvent:
         """Input done event in the backend"""
 
-        type: ServerEventType = ServerEventType.INPUT_DONE
-        """The event type."""
-
         agent_id: str
         """The agent ID."""
 
         agent_name: str
         """The agent name."""
 
-    class ErrorEvent:
-        """Error event in the backend"""
-
-        type: ServerEventType = ServerEventType.ERROR
+        type: Literal[ServerEventType.INPUT_DONE] = ServerEventType.INPUT_DONE
         """The event type."""
+
+    @dataclass
+    class AgentErrorEvent:
+        """Error event in the backend"""
 
         error_type: str
         """The error type."""
@@ -389,3 +442,12 @@ class ServerEvents:
 
         message: str
         """The error message."""
+
+        agent_id: str
+        """The agent ID."""
+
+        agent_name: str
+        """The agent name."""
+
+        type: Literal[ServerEventType.ERROR] = ServerEventType.ERROR
+        """The event type."""

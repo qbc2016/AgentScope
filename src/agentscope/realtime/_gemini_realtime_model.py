@@ -145,10 +145,33 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # Tools configuration
         if tools:
-            session_config["tools"] = tools
+            session_config["tools"] = self._format_toolkit_schema(tools)
 
         setup_msg = {"setup": session_config}
         return setup_msg
+
+    def _format_toolkit_schema(
+        self,
+        schemas: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Format the tools JSON schema into Gemini format.
+
+        Args:
+            schemas (`list[dict[str, Any]]`):
+                The tool schemas.
+
+        Returns:
+            `list[dict[str, Any]]`:
+                The formatted tools for Gemini.
+        """
+        function_declarations = []
+        for schema in schemas:
+            if "function" not in schema:
+                continue
+            func = schema["function"].copy()
+            function_declarations.append(func)
+
+        return [{"function_declarations": function_declarations}]
 
     async def send(
         self,

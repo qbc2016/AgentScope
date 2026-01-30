@@ -10,7 +10,7 @@ import websockets
 from websockets import ClientConnection
 
 from ._events import ModelEvents
-from ..message import AudioBlock
+from ..message import AudioBlock, TextBlock, ImageBlock, ToolResultBlock
 
 
 class RealtimeModelBase:
@@ -57,12 +57,12 @@ class RealtimeModelBase:
     @abstractmethod
     async def send(
         self,
-        data: AudioBlock,
+        data: AudioBlock | TextBlock | ImageBlock | ToolResultBlock,
     ) -> None:
         """Send data to the realtime model for processing.
 
         Args:
-            data (`AudioBlock`):
+            data (`AudioBlock | TextBlock | ImageBlock | ToolResultBlock`):
                 The data to be sent to the realtime model.
         """
 

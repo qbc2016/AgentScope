@@ -54,11 +54,12 @@ class ChatRoom:
             #  created, updated or the other non-message events.
 
             # Broadcast the message to all agents except the sender.
-            await asyncio.gather(
-                agent.handle_input(msg)
-                for agent in self.agents
-                if agent.id != msg.id
-            )
+            # Use create_task instead of gather to avoid blocking
+            sender_id = getattr(msg, "agent_id", None)
+            if sender_id:
+                for agent in self.agents:
+                    if agent.id != sender_id:
+                        asyncio.create_task(agent.handle_input(msg))
 
     async def stop(self) -> None:
         """Close connections for all agents in the chat room."""

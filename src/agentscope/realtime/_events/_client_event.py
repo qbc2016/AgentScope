@@ -48,8 +48,8 @@ class ClientEvents:
         type: ClientEventType = ClientEventType.CLIENT_SESSION_CREATE
         """The event type."""
 
-        session_id: str
-        """The session ID."""
+        config: dict
+        """The session config."""
 
     class ClientSessionEndEvent:
         """Session end event in the frontend"""
@@ -87,6 +87,12 @@ class ClientEvents:
         session_id: str
         """The session ID."""
 
+        data: str
+        """The image data, encoded as base64 string."""
+
+        format: dict
+        """The image format information."""
+
     class ClientTextAppendEvent:
         """Text append event in the frontend"""
 
@@ -96,6 +102,9 @@ class ClientEvents:
         session_id: str
         """The session ID."""
 
+        text: str
+        """The text data."""
+
     class ClientAudioAppendEvent:
         """Audio append event in the frontend"""
 
@@ -104,6 +113,12 @@ class ClientEvents:
 
         session_id: str
         """The session ID."""
+
+        audio: str
+        """The audio data, encoded as base64 string."""
+
+        format: dict
+        """The audio format information."""
 
     class ClientAudioCommitEvent:
         """Audio commit event in the frontend"""

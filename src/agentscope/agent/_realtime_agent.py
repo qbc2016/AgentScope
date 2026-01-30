@@ -6,6 +6,7 @@ from asyncio import Queue
 import shortuuid
 
 from .._logging import logger
+from ..message import AudioBlock, Base64Source, TextBlock, ImageBlock
 from ..module import StateModule
 from ..realtime import (
     ModelEvents,
@@ -13,6 +14,7 @@ from ..realtime import (
     ServerEvents,
     ClientEvents,
 )
+from ..tool import Toolkit
 
 
 class RealtimeAgentBase(StateModule):
@@ -26,6 +28,7 @@ class RealtimeAgentBase(StateModule):
         name: str,
         sys_prompt: str,
         model: RealtimeModelBase,
+        toolkit: Toolkit | None = None,
     ) -> None:
         """Initialize the RealtimeAgentBase class.
 
@@ -36,6 +39,9 @@ class RealtimeAgentBase(StateModule):
                 The system prompt of the agent.
             model (`RealtimeModelBase`):
                 The realtime model used by the agent.
+            toolkit (`Toolkit | None`, optional):
+                A `Toolkit` object that contains the tool functions. If not
+                provided, a default empty `Toolkit` will be created.
         """
         super().__init__()
 
@@ -43,6 +49,7 @@ class RealtimeAgentBase(StateModule):
         self.name = name
         self.sys_prompt = sys_prompt
         self.model = model
+        self.toolkit = toolkit
 
         # A queue to handle the incoming events from other agents or the
         # frontend.
@@ -64,6 +71,7 @@ class RealtimeAgentBase(StateModule):
         await self.model.connect(
             self._model_response_queue,
             instructions=self.sys_prompt,
+            tools=self.toolkit.get_json_schemas() if self.toolkit else None,
         )
 
         # Start the forwarding loop.
@@ -98,7 +106,46 @@ class RealtimeAgentBase(StateModule):
                 #  them to the realtime model as needed by the send method.
                 # Only handle the events that we need
                 case ServerEvents.AgentResponseAudioDeltaEvent() as event:
-                    pass
+                    await self.model.send(
+                        AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                media_type=event.format["type"],
+                                data=event.delta,
+                            ),
+                        ),
+                    )
+                case ClientEvents.ClientAudioAppendEvent() as event:
+                    await self.model.send(
+                        AudioBlock(
+                            type="audio",
+                            source=Base64Source(
+                                type="base64",
+                                media_type=event.format["type"],
+                                data=event.audio,
+                            ),
+                        ),
+                    )
+
+                case ClientEvents.ClientTextAppendEvent() as event:
+                    await self.model.send(
+                        TextBlock(
+                            type="text",
+                            text=event.text,
+                        ),
+                    )
+                case ClientEvents.ClientImageAppendEvent() as event:
+                    await self.model.send(
+                        ImageBlock(
+                            type="image",
+                            source=Base64Source(
+                                type="base64",
+                                media_type=event.format["type"],
+                                data=event.image,
+                            ),
+                        ),
+                    )
 
     async def _model_response_loop(self, outgoing_queue: Queue) -> None:
         """The loop to handle model responses and forward them to the
@@ -185,25 +232,53 @@ class RealtimeAgentBase(StateModule):
                         delta=event.delta,
                         **agent_kwargs,
                     )
+                    # TODO: process later
 
                 case ModelEvents.ResponseToolUseDoneEvent() as event:
-                    # TODO: @qbc
-                    pass
+                    agent_event = ServerEvents.AgentResponseToolUseDoneEvent(
+                        response_id=event.response_id,
+                        item_id=event.item_id,
+                        call_id=event.call_id,
+                        **agent_kwargs,
+                    )
+
+                    # TODO: Add tool execution and tool result event
 
                 case ModelEvents.InputTranscriptionDeltaEvent() as event:
-                    pass
+                    agent_event = (
+                        ServerEvents.AgentInputTranscriptionDeltaEvent(
+                            delta=event.delta,
+                            **agent_kwargs,
+                        )
+                    )
 
                 case ModelEvents.InputTranscriptionDoneEvent() as event:
-                    pass
+                    agent_event = (
+                        ServerEvents.AgentInputTranscriptionDoneEvent(
+                            transcript=event.transcript,
+                            input_tokens=event.input_tokens or 0,
+                            output_tokens=event.output_tokens or 0,
+                            **agent_kwargs,
+                        )
+                    )
 
-                case ModelEvents.InputStartedEvent() as event:
-                    pass
+                case ModelEvents.InputStartedEvent():
+                    agent_event = ServerEvents.AgentInputStartedEvent(
+                        **agent_kwargs,
+                    )
 
-                case ModelEvents.InputDoneEvent() as event:
-                    pass
+                case ModelEvents.InputDoneEvent():
+                    agent_event = ServerEvents.AgentInputDoneEvent(
+                        **agent_kwargs,
+                    )
 
                 case ModelEvents.ErrorEvent() as event:
-                    pass
+                    agent_event = ServerEvents.AgentErrorEvent(
+                        error_type=event.error_type,
+                        code=event.code,
+                        message=event.message,
+                        **agent_kwargs,
+                    )
 
                 case _:
                     logger.debug(
