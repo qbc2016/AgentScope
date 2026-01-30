@@ -48,28 +48,15 @@ def _json_loads_with_repair(
             Returns an empty dict if all repair attempts fail.
     """
     try:
-        repaired = repair_json(json_str)
+        repaired = repair_json(json_str, stream_stable=True)
         result = json.loads(repaired)
         if isinstance(result, dict):
             return result
     except Exception:
-        pass
-
-    for i in range(len(json_str) - 1, 0, -1):
-        try:
-            repaired = repair_json(json_str[:i])
-            result = json.loads(repaired)
-            if isinstance(result, dict):
-                return result
-        except Exception:
-            continue
-
-    logger.warning(
-        "Failed to parse JSON string `%s`. "
-        "All repair attempts (original + truncation) failed. "
-        "Returning empty dict.",
-        json_str,
-    )
+        logger.warning(
+            "Failed to parse JSON string `%s`. Returning empty dict.",
+            json_str,
+        )
     return {}
 
 
