@@ -108,6 +108,10 @@ html = """
         let audioPlaybackQueue = [];  // 存储解码后的 Float32Array
         let audioPlaybackIndex = 0;
 
+        // 用于累积转录文本
+        let currentTranscript = "";
+        let currentTranscriptElement = null;
+
         async function connect() {
             const userId = document.getElementById("userId").value;
             ws = new WebSocket(`ws://localhost:8000/ws/${userId}/session1`);
@@ -126,7 +130,11 @@ html = """
                         // 接收音频数据，加入播放队列
                         queueAudioChunk(data.audio);
                     } else if (data.type === "text") {
-                        addMessage("AI", data.text || JSON.stringify(data));
+                        // 累积转录文本而不是创建新消息
+                        appendTranscript("AI", data.text || "");
+                    } else if (data.type === "transcript_done") {
+                        // 完成当前转录消息
+                        finishTranscript();
                     } else {
                         addMessage("系统", JSON.stringify(data));
                     }
@@ -412,6 +420,40 @@ html = """
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
+        function appendTranscript(sender, text) {
+            const messagesDiv = document.getElementById("messages");
+
+            // 如果还没有当前消息元素，创建一个新的
+            if (!currentTranscriptElement) {
+                currentTranscript = "";
+                currentTranscriptElement = document.createElement("div");
+                currentTranscriptElement.className = "message";
+                const time = new Date().toLocaleTimeString();
+                currentTranscriptElement.innerHTML = `<strong>[${time}] ${
+                sender}:</strong> <span class="transcript-content"></span>`;
+                messagesDiv.appendChild(currentTranscriptElement);
+            }
+
+            // 累积文本
+            currentTranscript += text;
+
+            // 更新显示的内容
+            const contentSpan = currentTranscriptElement.querySelector(
+            '.transcript-content');
+            if (contentSpan) {
+                contentSpan.textContent = currentTranscript;
+            }
+
+            // 滚动到底部
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function finishTranscript() {
+            // 完成当前转录消息，准备下一条
+            currentTranscript = "";
+            currentTranscriptElement = null;
+        }
+
         // 回车发送消息
         document.getElementById("messageText").addEventListener("keypress",
          function(event) {
@@ -473,12 +515,19 @@ async def single_agent_endpoint(
                             },
                         )
                     elif msg_type == "response_audio_transcript_delta":
-                        # 发送转录文本
+                        # 发送转录文本增量
                         text = msg_dict.get("delta", "")
                         await websocket.send_json(
                             {
                                 "type": "text",
                                 "text": text,
+                            },
+                        )
+                    elif msg_type == "response_audio_transcript_done":
+                        # 转录完成，通知前端可以开始新的消息
+                        await websocket.send_json(
+                            {
+                                "type": "transcript_done",
                             },
                         )
                     elif msg_type == "input_transcription_done":
