@@ -192,8 +192,8 @@ class ModelEvents:
         call_id: str
         """The tool call ID."""
 
-        delta: str  # argument JSON string delta
-        """The tool use delta data."""
+        input: str  # accumulated tool arguments JSON string
+        """The accumulated tool arguments as JSON string."""
 
         type: Literal[
             ModelEventType.RESPONSE_TOOL_USE_DELTA

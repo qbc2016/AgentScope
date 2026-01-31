@@ -78,6 +78,9 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         # Record the response ID for the current session.
         self._response_id = ""
 
+        # Tool arguments accumulator for tracking tool call parameters
+        self._tool_args_accumulator: dict[str, str] = {}
+
     def _build_session_config(
         self,
         instructions: str,
@@ -278,21 +281,36 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
             case "response.function_call_arguments.delta":
                 arguments_delta = data.get("delta")
+                call_id = data.get("call_id", "")
                 if arguments_delta:
+                    # Accumulate arguments
+                    if call_id not in self._tool_args_accumulator:
+                        self._tool_args_accumulator[call_id] = ""
+                    self._tool_args_accumulator[call_id] += arguments_delta
+
+                    # Return the accumulated arguments instead of just the
+                    # delta
                     model_event = ModelEvents.ResponseToolUseDeltaEvent(
                         response_id=self._response_id,
                         item_id=data.get("item_id", ""),
-                        call_id=data.get("call_id", ""),
+                        call_id=call_id,
                         name=data.get("name", ""),
-                        delta=arguments_delta,
+                        input=self._tool_args_accumulator[call_id],
                     )
+                    # TODO: This handles only one tool call at a time. For
+                    #  parallel tool calls, we might need to reconsider the
+                    #  event handling mechanism.
 
             case "response.function_call_arguments.done":
+                call_id = data.get("call_id", "")
                 model_event = ModelEvents.ResponseToolUseDoneEvent(
                     response_id=self._response_id,
-                    call_id=data.get("call_id", ""),
+                    call_id=call_id,
                     item_id=data.get("item_id", ""),
                 )
+                # Clear the accumulator for this call_id when done
+                if call_id in self._tool_args_accumulator:
+                    del self._tool_args_accumulator[call_id]
 
             case "conversation.item.input_audio_transcription.delta":
                 delta = data.get("delta", "")

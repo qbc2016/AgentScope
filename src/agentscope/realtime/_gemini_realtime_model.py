@@ -82,6 +82,9 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # short UUID to ensure uniqueness.
         self._response_id: str | None = None
 
+        # Tool arguments accumulator for tracking tool call parameters
+        self._tool_args_accumulator: dict[str, str] = {}
+
     def _build_session_config(
         self,
         instructions: str,
@@ -489,21 +492,34 @@ class GeminiRealtimeModel(RealtimeModelBase):
         model_event = None
         function_calls = tool_call.get("functionCalls", [])
 
+        events = []
         for func_call in function_calls:
             name = func_call.get("name", "")
             call_id = func_call.get("id", "")
             args = func_call.get("args", {})
 
+            # Accumulate arguments
+            args_str = json.dumps(args, ensure_ascii=False)
+            if call_id not in self._tool_args_accumulator:
+                self._tool_args_accumulator[call_id] = ""
+            self._tool_args_accumulator[call_id] += args_str
+
+            # Return the accumulated arguments instead of just the delta
             model_event = ModelEvents.ResponseToolUseDeltaEvent(
                 response_id=self._response_id or "",
                 item_id="",
                 call_id=call_id,
                 name=name,
-                delta=json.dumps(args),
+                input=self._tool_args_accumulator[call_id],
             )
-            break
+            events.append(model_event)
 
-        return model_event
+        # TODO: Current implementation only returns the last event,
+        #  which may lose information when there are multiple parallel tool
+        #  calls. Consider refactoring to support multiple event returns or
+        #  direct event emission within the loop.
+        #  Return the last event (or None if no function calls)
+        return events[-1] if events else None
 
     async def _parse_image_data(self, block: ImageBlock) -> str | None:
         """Parse the image data block to the format required by the Gemini

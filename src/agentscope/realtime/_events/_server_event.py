@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
+from agentscope.message import TextBlock, ImageBlock, AudioBlock, VideoBlock
+
 
 class ServerEventType(str, Enum):
     """Types of agent events for backend-to-web communication."""
@@ -298,8 +300,8 @@ class ServerEvents:
         call_id: str
         """The tool call ID."""
 
-        delta: str  # argument JSON string delta
-        """The tool use delta data."""
+        input: str  # accumulated tool arguments JSON string
+        """The accumulated tool arguments as JSON string."""
 
         agent_id: str
         """The agent ID."""
@@ -346,7 +348,7 @@ class ServerEvents:
         name: str
         """The tool name."""
 
-        output: str | dict
+        output: str | list[TextBlock | ImageBlock | AudioBlock | VideoBlock]
         """The tool output."""
 
         agent_id: str
