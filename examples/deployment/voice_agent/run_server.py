@@ -6,14 +6,16 @@ import traceback
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse
 
+from agentscope import logger
 from agentscope.agent import RealtimeAgentBase
 from agentscope.realtime import (
     DashScopeRealtimeModel,
     ClientEvents,
     ServerEvents,
+    ClientEventType,
 )
 
 app = FastAPI()
@@ -43,7 +45,6 @@ async def frontend_receive(
         traceback.print_exc()
 
 
-# pylint: disable=too-many-statements, too-many-branches, unused-argument
 @app.websocket("/ws/{user_id}/{session_id}")
 async def single_agent_endpoint(
     websocket: WebSocket,
@@ -54,6 +55,12 @@ async def single_agent_endpoint(
     try:
         await websocket.accept()
 
+        logger.info(
+            "Connected to WebSocket: user_id=%s, session_id=%s",
+            user_id,
+            session_id,
+        )
+
         # Create the queue to forward messages to the frontend
         frontend_queue = asyncio.Queue()
         asyncio.create_task(
@@ -61,59 +68,58 @@ async def single_agent_endpoint(
         )
 
         # Create the realtime agent
-        agent = RealtimeAgentBase(
-            name="Friday",
-            sys_prompt="You are a helpful assistant.",
-            model=DashScopeRealtimeModel(
-                model_name="qwen3-omni-flash-realtime",
-                api_key=os.getenv("DASHSCOPE_API_KEY"),
-            ),
-        )
+        agent = None
 
-        try:
-            await agent.start(frontend_queue)
+        while True:
+            # Handle the incoming messages from the frontend
+            # i.e. ClientEvents
+            data = await websocket.receive_json()
 
-        except Exception as e:
-            print(f"[ERROR] Failed to start agent: {e}")
-            traceback.print_exc()
-            raise
+            client_event = ClientEvents.from_json(data)
 
-        try:
-            while True:
-                # Handle the incoming messages from the frontend
-                # i.e. ClientEvents
-                data = await websocket.receive_json()
+            if isinstance(
+                client_event,
+                ClientEvents.ClientSessionCreateEvent,
+            ):
+                # Create the agent by the given session arguments
+                instructions = client_event.config.get("instructions", "You're a helpful assistant.")
+                user_name = client_event.config.get("user_name", "User")
 
-                try:
-                    client_event = ClientEvents.from_json(data)
+                sys_prompt = (
+                    f"{instructions}\n"
+                    f"You're talking to the user named {user_name}."
+                )
 
-                    if (
-                        client_event.type
-                        == ClientEvents.ClientSessionCreateEvent
-                    ):
-                        print("收到 ClientSessionCreateEvent")
+                # Create the agent
+                agent = RealtimeAgentBase(
+                    name="Friday",
+                    sys_prompt=sys_prompt,
+                    model=DashScopeRealtimeModel(
+                        model_name="qwen3-omni-flash-realtime",
+                        api_key=os.getenv("DASHSCOPE_API_KEY"),
+                    ),
+                )
 
-                    elif (
-                        client_event.type == ClientEvents.ClientSessionEndEvent
-                    ):
-                        pass
-                    else:
-                        await agent.handle_input(client_event)
+                await agent.start(frontend_queue)
 
-                except Exception as e:
-                    print(
-                        f"[ERROR] Failed to parse client event: {e}",
-                    )
+                # Send session_created event to frontend
+                await websocket.send_json(
+                    ServerEvents.SessionCreatedEvent(
+                        session_id=session_id,
+                    ).model_dump(),
+                )
+                print(
+                    f"Session created successfully: {session_id}",
+                )
 
-        except WebSocketDisconnect:
-            pass
+            elif client_event.type == ClientEventType.CLIENT_SESSION_END:
+                # End the session with the agent
+                if agent:
+                    await agent.stop()
+                    agent = None
 
-        finally:
-            # Clear the resources
-            try:
-                await agent.stop()
-            except Exception as e:
-                print(f"[ERROR] Error stopping agent: {e}")
+            else:
+                await agent.handle_input(client_event)
 
     except Exception as e:
         print(f"[ERROR] WebSocket endpoint error: {e}")

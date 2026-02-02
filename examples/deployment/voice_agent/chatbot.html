@@ -4,79 +4,256 @@
     <title>Realtime Chatbot with AgentScope</title>
     <meta charset="UTF-8">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 50px auto;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            background: hsl(0, 0%, 98%);
+            color: hsl(222.2, 84%, 4.9%);
+            line-height: 1.5;
         }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: hsl(222.2, 84%, 4.9%);
+            letter-spacing: -0.025em;
+        }
+
         #messages {
-            border: 1px solid #ccc;
-            height: 300px;
-            overflow-y: scroll;
-            padding: 10px;
-            margin: 20px 0;
-            background: #f9f9f9;
+            border: 1px solid hsl(214.3, 31.8%, 91.4%);
+            height: 400px;
+            overflow-y: auto;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            background: hsl(0, 0%, 100%);
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
         }
+
+        #messages::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #messages::-webkit-scrollbar-track {
+            background: hsl(210, 40%, 96.1%);
+            border-radius: 4px;
+        }
+
+        #messages::-webkit-scrollbar-thumb {
+            background: hsl(215.4, 16.3%, 56.9%);
+            border-radius: 4px;
+        }
+
+        #messages::-webkit-scrollbar-thumb:hover {
+            background: hsl(215.4, 16.3%, 46.9%);
+        }
+
         input[type="text"] {
-            width: 70%;
-            padding: 10px;
-            margin: 5px;
+            width: 100%;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.875rem;
+            border: 1px solid hsl(214.3, 31.8%, 91.4%);
+            border-radius: 0.375rem;
+            background: hsl(0, 0%, 100%);
+            color: hsl(222.2, 84%, 4.9%);
+            transition: all 0.15s ease;
+            outline: none;
         }
+
+        input[type="text"]:focus {
+            border-color: hsl(221.2, 83.2%, 53.3%);
+            box-shadow: 0 0 0 3px hsl(221.2, 83.2%, 53.3%, 0.1);
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 0.625rem 0.875rem;
+            font-size: 0.875rem;
+            border: 1px solid hsl(214.3, 31.8%, 91.4%);
+            border-radius: 0.375rem;
+            background: hsl(0, 0%, 100%);
+            color: hsl(222.2, 84%, 4.9%);
+            transition: all 0.15s ease;
+            outline: none;
+            resize: vertical;
+            font-family: inherit;
+            line-height: 1.5;
+        }
+
+        textarea:focus {
+            border-color: hsl(221.2, 83.2%, 53.3%);
+            box-shadow: 0 0 0 3px hsl(221.2, 83.2%, 53.3%, 0.1);
+        }
+
         button {
-            padding: 10px 20px;
-            margin: 5px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.625rem 1rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: none;
+            border-radius: 0.375rem;
             cursor: pointer;
+            transition: all 0.15s ease;
+            background: hsl(222.2, 47.4%, 11.2%);
+            color: hsl(210, 40%, 98%);
+            box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
         }
+
+        button:hover {
+            background: hsl(222.2, 47.4%, 15%);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button:focus-visible {
+            outline: 2px solid hsl(221.2, 83.2%, 53.3%);
+            outline-offset: 2px;
+        }
+
         .message {
-            margin: 5px 0;
-            padding: 5px;
-            background: #fff;
-            border-radius: 3px;
-            border-left: 3px solid #4CAF50;
+            margin: 0.75rem 0;
+            padding: 0.75rem 1rem;
+            background: hsl(210, 40%, 98%);
+            border-radius: 0.5rem;
+            border: 1px solid hsl(214.3, 31.8%, 91.4%);
+            font-size: 0.875rem;
         }
+
+        .message strong {
+            color: hsl(222.2, 47.4%, 11.2%);
+            font-weight: 600;
+        }
+
         .recording {
-            background-color: #ff4444 !important;
-            animation: pulse 1s infinite;
+            background: hsl(0, 84.2%, 60.2%) !important;
+            color: hsl(0, 0%, 100%) !important;
+            animation: pulse 1.5s ease-in-out infinite;
         }
+
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            0%, 100% {
+                opacity: 1;
+                box-shadow: 0 0 0 0 hsl(0, 84.2%, 60.2%, 0.7);
+            }
+            50% {
+                opacity: 0.9;
+                box-shadow: 0 0 0 8px hsl(0, 84.2%, 60.2%, 0);
+            }
         }
+
         .controls {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            margin: 20px 0;
+            gap: 0.75rem;
+            margin: 1.5rem 0;
         }
-        .status {
-            padding: 10px;
-            background: #e3f2fd;
-            border-radius: 5px;
-            margin: 10px 0;
+
+        .configuration-container {
+            background: hsl(0, 0%, 100%);
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin: 1.5rem 0;
+            border: 1px solid hsl(214.3, 31.8%, 91.4%);
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+        }
+
+        .configuration-container h3 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: hsl(222.2, 84%, 4.9%);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .config-field {
+            margin-bottom: 1.25rem;
+        }
+
+        .config-field:last-child {
+            margin-bottom: 0;
+        }
+
+        .config-field label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: hsl(222.2, 47.4%, 11.2%);
+            font-size: 0.875rem;
+        }
+
+        .error-message {
+            padding: 0.875rem 1rem;
+            background: hsl(0, 84.2%, 95%);
+            border: 1px solid hsl(0, 84.2%, 85%);
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+            display: none;
+            color: hsl(0, 84.2%, 30%);
+            font-size: 0.875rem;
+            font-weight: 500;
+            box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        }
+
+        .text-input-container {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            margin: 1.5rem 0;
+        }
+
+        .text-input-container input {
+            flex: 1;
+        }
+
+        .text-input-container button {
+            white-space: nowrap;
         }
     </style>
 </head>
 <body>
     <h1>Realtime Chatbot</h1>
 
-    <div class="status">
-        <strong>Status:</strong><span id="status">Not Connected</span>
+    <div class="configuration-container">
+        <h3>⚙️ Configuration</h3>
+
+        <div class="config-field">
+            <label for="instructions">Instructions</label>
+            <textarea id="instructions" placeholder="Enter agent instructions...">You're a helpful assistant named Friday.</textarea>
+        </div>
+
+        <div class="config-field">
+            <label for="userId">User Name</label>
+            <input type="text" id="userId" placeholder="Enter your name" value="User1" />
+        </div>
     </div>
 
-    <div>
-        <input type="text" id="userId" placeholder="Input your name" value="User1" />
-    </div>
+    <div id="errorMessage" class="error-message"></div>
 
     <div class="controls">
-        <button id="voiceBtn" onclick="toggleVoice()">🎤 Start to record</button>
-        <button onclick="stopVoice()">⏹️ Stop Voice</button>
+        <button id="voiceBtn" onclick="toggleVoice()">🎤 Start Recording</button>
+        <button onclick="stopVoice()">⏹️ Stop Recording</button>
         <button onclick="disconnect()">❌ Disconnect</button>
     </div>
 
-    <div>
-        <input type="text" id="messageText" placeholder="Or type text message..." />
-        <button onclick="sendTextMessage()">📤 Send Text</button>
+    <div class="text-input-container">
+        <input type="text" id="messageText" placeholder="Type a message..." />
+        <button onclick="sendTextMessage()">📤 Send</button>
     </div>
 
     <div id="messages"></div>
@@ -94,6 +271,7 @@
         let audioPlaybackQueue = [];  // Store decoded Float32Array
         let audioPlaybackIndex = 0;
         let sessionId = "session1";  // Session ID
+        let sessionCreated = false;  // Track if session has been created
 
         // Used to accumulate transcript text
         let currentTranscript = "";
@@ -101,12 +279,20 @@
         let currentResponseTranscript = "";
         let currentResponseTranscriptElement = null;
 
+        function showError(message) {
+            const errorDiv = document.getElementById("errorMessage");
+            errorDiv.innerText = message;
+            errorDiv.style.display = "block";
+            setTimeout(() => {
+                errorDiv.style.display = "none";
+            }, 5000);
+        }
+
         async function connect() {
             const userId = document.getElementById("userId").value;
             ws = new WebSocket(`ws://localhost:8000/ws/${userId}/${sessionId}`);
 
             ws.onopen = function(event) {
-                updateStatus("Connected");
                 addMessage("System", "✅ Connected to server, you can start voice conversation");
             };
 
@@ -118,6 +304,7 @@
                     // Handle ServerEvents
                     switch (data.type) {
                         case "session_created":
+                            sessionCreated = true;
                             addMessage("System", `✅ Session created: ${data.session_id}`);
                             break;
 
@@ -202,13 +389,12 @@
             };
 
             ws.onclose = function(event) {
-                updateStatus("Disconnected");
                 addMessage("System", "❌ Disconnected");
                 stopVoice();
+                sessionCreated = false;  // Reset session state
             };
 
             ws.onerror = function(error) {
-                updateStatus("Connection Error");
                 addMessage("System", "⚠️ Connection error");
             };
         }
@@ -223,6 +409,48 @@
 
         async function startVoice() {
             try {
+                // Validate instructions
+                const instructions = document.getElementById("instructions").value.trim();
+                if (!instructions) {
+                    showError("⚠️ Instructions cannot be empty! Please enter instructions before recording.");
+                    return;
+                }
+
+                // Check if WebSocket is connected
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    showError("⚠️ WebSocket is not connected! Please wait for connection.");
+                    return;
+                }
+
+                // Send session create event if not already created
+                if (!sessionCreated) {
+                    const userName = document.getElementById("userId").value.trim();
+                    addMessage("System", "📝 Creating session with instructions...");
+                    ws.send(JSON.stringify({
+                        type: "client_session_create",
+                        config: {
+                            instructions: instructions,
+                            user_name: userName
+                        }
+                    }));
+
+                    // Wait for session_created event before proceeding
+                    // We'll set a timeout to wait for session creation
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject(new Error("Session creation timeout"));
+                        }, 5000);
+
+                        const checkSession = setInterval(() => {
+                            if (sessionCreated) {
+                                clearTimeout(timeout);
+                                clearInterval(checkSession);
+                                resolve();
+                            }
+                        }, 100);
+                    });
+                }
+
                 if (!audioContext) {
                     audioContext = new (
                     window.AudioContext || window.webkitAudioContext)({
@@ -280,12 +508,17 @@
                 isRecording = true;
                 document.getElementById("voiceBtn").classList.add("recording");
                 document.getElementById("voiceBtn").innerText = "🔴 Recording...";
-                updateStatus("Recording");
                 addMessage("System", "🎤 Started recording...");
 
             } catch (err) {
                 console.error("Failed to start recording:", err);
-                addMessage("System", "⚠️ Unable to access microphone: " + err.message);
+                if (err.message === "Session creation timeout") {
+                    showError("⚠️ Session creation timeout. Please try again.");
+                    addMessage("System", "⚠️ Session creation timeout");
+                } else {
+                    showError("⚠️ Unable to access microphone: " + err.message);
+                    addMessage("System", "⚠️ Unable to access microphone: " + err.message);
+                }
             }
         }
 
@@ -306,8 +539,7 @@
             }
 
             document.getElementById("voiceBtn").classList.remove("recording");
-            document.getElementById("voiceBtn").innerText = "🎤 Start to record";
-            updateStatus("Connected");
+            document.getElementById("voiceBtn").innerText = "🎤 Start Recording";
             addMessage("System", "⏹️ Stopped recording");
         }
 
@@ -470,11 +702,9 @@
             if (ws) {
                 ws.close();
             }
+            sessionCreated = false;  // Reset session state
         }
 
-        function updateStatus(text) {
-            document.getElementById("status").innerText = text;
-        }
 
         function addMessage(sender, message) {
             const messagesDiv = document.getElementById("messages");
