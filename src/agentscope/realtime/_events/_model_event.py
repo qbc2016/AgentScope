@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """The unified event from realtime model APIs in AgentScope, which will be
 consumed by the realtime agents."""
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
+
+from pydantic import BaseModel
 
 
 class ModelEventType(str, Enum):
@@ -45,11 +46,10 @@ class ModelEvents:
     """The realtime model events that will be consumed by the realtime
     agents"""
 
-    class EventBase:
+    class EventBase(BaseModel):
         """The base class for all model events, used to unify the type
         hinting."""
 
-    @dataclass
     class SessionCreatedEvent(EventBase):
         """Session created event."""
 
@@ -61,7 +61,6 @@ class ModelEvents:
         ] = ModelEventType.SESSION_CREATED
         """The event type."""
 
-    @dataclass
     class SessionEndedEvent(EventBase):
         """Session ended event."""
 
@@ -74,7 +73,6 @@ class ModelEvents:
         type: Literal[ModelEventType.SESSION_ENDED]
         """The event type."""
 
-    @dataclass
     class ResponseCreatedEvent(EventBase):
         """The realtime model begins generating a response."""
 
@@ -86,7 +84,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_CREATED
         """The event type."""
 
-    @dataclass
     class ResponseDoneEvent(EventBase):
         """Model response done event."""
 
@@ -99,7 +96,7 @@ class ModelEvents:
         output_tokens: int
         """The number of output tokens."""
 
-        metadata: dict[str, str] = field(default_factory=dict)
+        metadata: dict[str, str] = {}
         """Additional metadata."""
 
         type: Literal[
@@ -107,7 +104,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_DONE
         """The event type."""
 
-    @dataclass
     class ResponseAudioDeltaEvent(EventBase):
         """Model response audio delta event."""
 
@@ -128,7 +124,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_AUDIO_DELTA
         """The event type."""
 
-    @dataclass
     class ResponseAudioDoneEvent(EventBase):
         """Model response audio done event."""
 
@@ -143,7 +138,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_AUDIO_DONE
         """The event type."""
 
-    @dataclass
     class ResponseAudioTranscriptDeltaEvent(EventBase):
         """Model response audio transcript delta event."""
 
@@ -161,7 +155,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA
         """The event type."""
 
-    @dataclass
     class ResponseAudioTranscriptDoneEvent(EventBase):
         """Model response audio transcript done event."""
 
@@ -176,7 +169,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE
         """The event type."""
 
-    @dataclass
     class ResponseToolUseDeltaEvent(EventBase):
         """Model response tool use delta event."""
 
@@ -200,7 +192,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_TOOL_USE_DELTA
         """The event type."""
 
-    @dataclass
     class ResponseToolUseDoneEvent(EventBase):
         """Model response tool use done event."""
 
@@ -218,7 +209,6 @@ class ModelEvents:
         ] = ModelEventType.RESPONSE_TOOL_USE_DONE
         """The event type."""
 
-    @dataclass
     class InputTranscriptionDeltaEvent(EventBase):
         """Input transcription delta event."""
 
@@ -233,7 +223,6 @@ class ModelEvents:
         ] = ModelEventType.INPUT_TRANSCRIPTION_DELTA
         """The event type."""
 
-    @dataclass
     class InputTranscriptionDoneEvent(EventBase):
         """Input transcription done event."""
 
@@ -254,7 +243,6 @@ class ModelEvents:
         ] = ModelEventType.INPUT_TRANSCRIPTION_DONE
         """The event type."""
 
-    @dataclass
     class InputStartedEvent(EventBase):
         """Input started event."""
 
@@ -269,7 +257,6 @@ class ModelEvents:
         ] = ModelEventType.INPUT_STARTED
         """The event type."""
 
-    @dataclass
     class InputDoneEvent(EventBase):
         """Input done event."""
 
@@ -282,7 +269,6 @@ class ModelEvents:
         type: Literal[ModelEventType.INPUT_DONE] = ModelEventType.INPUT_DONE
         """The event type."""
 
-    @dataclass
     class ErrorEvent(EventBase):
         """Error event."""
 

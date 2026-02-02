@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Realtime Chatbot with AgentScope</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        #messages {
+            border: 1px solid #ccc;
+            height: 300px;
+            overflow-y: scroll;
+            padding: 10px;
+            margin: 20px 0;
+            background: #f9f9f9;
+        }
+        input[type="text"] {
+            width: 70%;
+            padding: 10px;
+            margin: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            background: #fff;
+            border-radius: 3px;
+            border-left: 3px solid #4CAF50;
+        }
+        .recording {
+            background-color: #ff4444 !important;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .status {
+            padding: 10px;
+            background: #e3f2fd;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Realtime Chatbot</h1>
+
+    <div class="status">
+        <strong>Status:</strong><span id="status">Not Connected</span>
+    </div>
+
+    <div>
+        <input type="text" id="userId" placeholder="Input your name" value="User1" />
+    </div>
+
+    <div class="controls">
+        <button id="voiceBtn" onclick="toggleVoice()">🎤 Start to record</button>
+        <button onclick="stopVoice()">⏹️ Stop Voice</button>
+        <button onclick="disconnect()">❌ Disconnect</button>
+    </div>
+
+    <div>
+        <input type="text" id="messageText" placeholder="Or type text message..." />
+        <button onclick="sendTextMessage()">📤 Send Text</button>
+    </div>
+
+    <div id="messages"></div>
+
+    <script>
+        let ws = null;
+        let audioContext = null;  // For recording, 16kHz
+        let playbackAudioContext = null;  // For playback, 24kHz
+        let mediaStream = null;
+        let audioWorkletNode = null;
+        let isRecording = false;
+        let audioQueue = [];
+        let isPlaying = false;
+        let audioPlaybackNode = null;
+        let audioPlaybackQueue = [];  // Store decoded Float32Array
+        let audioPlaybackIndex = 0;
+        let sessionId = "session1";  // Session ID
+
+        // Used to accumulate transcript text
+        let currentTranscript = "";
+        let currentTranscriptElement = null;
+        let currentResponseTranscript = "";
+        let currentResponseTranscriptElement = null;
+
+        async function connect() {
+            const userId = document.getElementById("userId").value;
+            ws = new WebSocket(`ws://localhost:8000/ws/${userId}/${sessionId}`);
+
+            ws.onopen = function(event) {
+                updateStatus("Connected");
+                addMessage("System", "✅ Connected to server, you can start voice conversation");
+            };
+
+            ws.onmessage = async function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log("Received message:", data);
+
+                    // Handle ServerEvents
+                    switch (data.type) {
+                        case "session_created":
+                            addMessage("System", `✅ Session created: ${data.session_id}`);
+                            break;
+
+                        case "agent_ready":
+                            addMessage("System", `🤖 Agent ${data.agent_name} is ready`);
+                            break;
+
+                        case "response_created":
+                            addMessage("System", `💬 Agent ${data.agent_name} started generating response...`);
+                            break;
+
+                        case "response_audio_delta":
+                            // Receive audio data and add to playback queue
+                            queueAudioChunk(data.delta);
+                            break;
+
+                        case "response_audio_done":
+                            addMessage("System", "🔊 Audio response completed");
+                            break;
+
+                        case "response_audio_transcript_delta":
+                            // Agent response transcript text
+                            appendResponseTranscript(data.agent_name, data.delta || "");
+                            break;
+
+                        case "response_audio_transcript_done":
+                            // Complete Agent response transcript message
+                            finishResponseTranscript();
+                            break;
+
+                        case "input_transcription_delta":
+                            // User input transcript text
+                            appendTranscript("You", data.delta || "");
+                            break;
+
+                        case "input_transcription_done":
+                            appendTranscript("You", data.transcript || "");
+                            // Complete user input transcript message
+                            finishTranscript();
+                            addMessage("System", `📝 User input recognition completed`);
+                            break;
+
+                        case "input_started":
+                            addMessage("System", "🎤 Voice input started");
+                            break;
+
+                        case "input_done":
+                            addMessage("System", "⏹️ Voice input ended");
+                            break;
+
+                        case "response_done":
+                            addMessage("System", `✅ Response completed (input tokens: ${data.input_tokens}, output tokens: ${data.output_tokens})`);
+                            break;
+
+                        case "response_tool_use_delta":
+                            addMessage("System", `🔧 Tool call: ${data.name}`);
+                            break;
+
+                        case "response_tool_result":
+                            addMessage("System", `✅ Tool ${data.name} execution completed`);
+                            break;
+
+                        case "error":
+                            addMessage("Error", `❌ ${data.error_type}: ${data.message}`);
+                            break;
+
+                        case "agent_ended":
+                            addMessage("System", `👋 Agent ${data.agent_name} has ended`);
+                            break;
+
+                        case "session_ended":
+                            addMessage("System", `🔚 Session ${data.session_id} has ended`);
+                            break;
+
+                        default:
+                            console.log("Unhandled event type:", data.type);
+                            break;
+                    }
+                } catch (e) {
+                    console.error("Error processing message:", e);
+                }
+            };
+
+            ws.onclose = function(event) {
+                updateStatus("Disconnected");
+                addMessage("System", "❌ Disconnected");
+                stopVoice();
+            };
+
+            ws.onerror = function(error) {
+                updateStatus("Connection Error");
+                addMessage("System", "⚠️ Connection error");
+            };
+        }
+
+        async function toggleVoice() {
+            if (!isRecording) {
+                await startVoice();
+            } else {
+                stopVoice();
+            }
+        }
+
+        async function startVoice() {
+            try {
+                if (!audioContext) {
+                    audioContext = new (
+                    window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 16000  // DashScope requires 16kHz
+                    });
+                }
+
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 16000
+                    }
+                });
+
+                const source = audioContext.createMediaStreamSource(
+                mediaStream);
+
+                // Use ScriptProcessorNode to process audio
+                const processor = audioContext.createScriptProcessor(4096,
+                1, 1);
+
+                let audioChunkCount = 0;
+                processor.onaudioprocess = function(e) {
+                    if (!isRecording) return;
+
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const pcmData = convertToPCM16(inputData);
+                    const base64Audio = arrayBufferToBase64(pcmData);
+
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        audioChunkCount++;
+                        if (audioChunkCount % 10 === 0) {
+                            console.log(`Sending audio chunk ${audioChunkCount}`);
+                        }
+                        // Send ClientAudioAppendEvent
+                        ws.send(JSON.stringify({
+                            type: "client_audio_append",
+                            session_id: sessionId,
+                            audio: base64Audio,
+                            format: {
+                                sample_rate: 16000,
+                                encoding: "pcm16"
+                            }
+                        }));
+                    }
+                };
+
+                source.connect(processor);
+                const dummyGain = audioContext.createGain();
+                dummyGain.gain.value = 0;  // Mute to avoid feedback
+                processor.connect(dummyGain);
+                dummyGain.connect(audioContext.destination);
+
+                isRecording = true;
+                document.getElementById("voiceBtn").classList.add("recording");
+                document.getElementById("voiceBtn").innerText = "🔴 Recording...";
+                updateStatus("Recording");
+                addMessage("System", "🎤 Started recording...");
+
+            } catch (err) {
+                console.error("Failed to start recording:", err);
+                addMessage("System", "⚠️ Unable to access microphone: " + err.message);
+            }
+        }
+
+        function stopVoice() {
+            isRecording = false;
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+
+            // Notify server that recording has stopped - send ClientAudioCommitEvent
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "client_audio_commit",
+                    session_id: sessionId
+                }));
+            }
+
+            document.getElementById("voiceBtn").classList.remove("recording");
+            document.getElementById("voiceBtn").innerText = "🎤 Start to record";
+            updateStatus("Connected");
+            addMessage("System", "⏹️ Stopped recording");
+        }
+
+        function convertToPCM16(float32Array) {
+            const int16Array = new Int16Array(float32Array.length);
+            for (let i = 0; i < float32Array.length; i++) {
+                const s = Math.max(-1, Math.min(1, float32Array[i]));
+                int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            return int16Array.buffer;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+
+        function queueAudioChunk(base64Audio) {
+            try {
+                // Decode base64 audio data and convert to Float32Array
+                const binaryString = atob(base64Audio);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+
+                // Convert to Int16Array (PCM16), then to Float32Array
+                const int16Array = new Int16Array(bytes.buffer);
+                const float32Array = new Float32Array(int16Array.length);
+
+                for (let i = 0; i < int16Array.length; i++) {
+                    float32Array[i] = int16Array[i] / 32768.0;
+                }
+
+                // Add decoded audio data to queue
+                audioPlaybackQueue.push(float32Array);
+
+                // If not playing yet, start player
+                if (!isPlaying) {
+                    startAudioPlayback();
+                }
+            } catch (err) {
+                console.error("Failed to decode audio chunk:", err);
+            }
+        }
+
+        function startAudioPlayback() {
+            if (isPlaying) return;
+
+            try {
+                // Create separate AudioContext for playback, using 24kHz sample rate
+                if (!playbackAudioContext) {
+                    playbackAudioContext = new (window.AudioContext ||
+                    window.webkitAudioContext)({
+                        sampleRate: 24000  // DashScope outputs 24kHz
+                    });
+                }
+
+                // If AudioContext is suspended (browser policy), resume it
+                if (playbackAudioContext.state === 'suspended') {
+                    playbackAudioContext.resume();
+                }
+
+                isPlaying = true;
+                audioPlaybackIndex = 0;
+
+                // Use ScriptProcessorNode for streaming playback
+                const bufferSize = 4096;
+                const processor =
+                playbackAudioContext.createScriptProcessor(bufferSize, 0, 1);
+
+                processor.onaudioprocess = function(e) {
+                    const output = e.outputBuffer.getChannelData(0);
+                    const samplesNeeded = output.length;
+                    let samplesWritten = 0;
+
+                    // Get audio data from queue and fill output buffer
+                    while (samplesWritten < samplesNeeded &&
+                    audioPlaybackQueue.length > 0) {
+                        const chunk = audioPlaybackQueue[0];
+
+                        // Calculate number of samples to read from current chunk
+                        const samplesToRead = Math.min(
+                            samplesNeeded - samplesWritten,
+                            chunk.length - audioPlaybackIndex
+                        );
+
+                        // Directly copy Float32 data to output
+                        for (let i = 0; i < samplesToRead; i++) {
+                            output[samplesWritten + i] = chunk[
+                            audioPlaybackIndex + i];
+                        }
+
+                        samplesWritten += samplesToRead;
+                        audioPlaybackIndex += samplesToRead;
+
+                        // If current chunk is finished, remove it and reset index
+                        if (audioPlaybackIndex >= chunk.length) {
+                            audioPlaybackQueue.shift();
+                            audioPlaybackIndex = 0;
+                        }
+                    }
+
+                    // If queue is empty and no more data, fill with silence
+                    if (samplesWritten < samplesNeeded) {
+                        for (let i = samplesWritten; i < samplesNeeded; i++) {
+                            output[i] = 0;
+                        }
+
+                        // If queue continues to be empty for a while, stop playback
+                        if (audioPlaybackQueue.length === 0) {
+                            setTimeout(() => {
+                                if (audioPlaybackQueue.length === 0) {
+                                    stopAudioPlayback();
+                                }
+                            }, 100);
+                        }
+                    }
+                };
+
+                processor.connect(playbackAudioContext.destination);
+                audioPlaybackNode = processor;
+
+            } catch (err) {
+                console.error("Failed to start audio playback:", err);
+                isPlaying = false;
+            }
+        }
+
+        function stopAudioPlayback() {
+            if (audioPlaybackNode) {
+                audioPlaybackNode.disconnect();
+                audioPlaybackNode = null;
+            }
+            isPlaying = false;
+            audioPlaybackQueue = [];
+            audioPlaybackIndex = 0;
+        }
+
+        function sendTextMessage() {
+            const input = document.getElementById("messageText");
+            if (ws && input.value) {
+                ws.send(JSON.stringify({
+                    type: "client_text_append",
+                    session_id: sessionId,
+                    text: input.value
+                }));
+                addMessage("You", input.value);
+                input.value = '';
+            }
+        }
+
+        function disconnect() {
+            stopVoice();
+            stopAudioPlayback();
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function updateStatus(text) {
+            document.getElementById("status").innerText = text;
+        }
+
+        function addMessage(sender, message) {
+            const messagesDiv = document.getElementById("messages");
+            const messageDiv = document.createElement("div");
+            messageDiv.className = "message";
+            const time = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `<strong>[${time}] ${sender}:</strong>
+            ${message}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function appendTranscript(sender, text) {
+            const messagesDiv = document.getElementById("messages");
+
+            // If there's no current message element yet, create a new one
+            if (!currentTranscriptElement) {
+                currentTranscript = "";
+                currentTranscriptElement = document.createElement("div");
+                currentTranscriptElement.className = "message";
+                const time = new Date().toLocaleTimeString();
+                currentTranscriptElement.innerHTML = `<strong>[${time}] ${
+                sender}:</strong> <span class="transcript-content"></span>`;
+                messagesDiv.appendChild(currentTranscriptElement);
+            }
+
+            // Accumulate text
+            currentTranscript += text;
+
+            // Update displayed content
+            const contentSpan = currentTranscriptElement.querySelector(
+            '.transcript-content');
+            if (contentSpan) {
+                contentSpan.textContent = currentTranscript;
+            }
+
+            // Scroll to bottom
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function finishTranscript() {
+            // Complete current transcript message, prepare for next one
+            currentTranscript = "";
+            currentTranscriptElement = null;
+        }
+
+        function appendResponseTranscript(sender, text) {
+            const messagesDiv = document.getElementById("messages");
+
+            // If there's no current response message element yet, create a new one
+            if (!currentResponseTranscriptElement) {
+                currentResponseTranscript = "";
+                currentResponseTranscriptElement = document.createElement("div");
+                currentResponseTranscriptElement.className = "message";
+                const time = new Date().toLocaleTimeString();
+                currentResponseTranscriptElement.innerHTML = `<strong>[${time}] ${sender}:</strong> <span class="response-transcript-content"></span>`;
+                messagesDiv.appendChild(currentResponseTranscriptElement);
+            }
+
+            // Accumulate text
+            currentResponseTranscript += text;
+
+            // Update displayed content
+            const contentSpan = currentResponseTranscriptElement.querySelector('.response-transcript-content');
+            if (contentSpan) {
+                contentSpan.textContent = currentResponseTranscript;
+            }
+
+            // Scroll to bottom
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function finishResponseTranscript() {
+            // Complete current response transcript message, prepare for next one
+            currentResponseTranscript = "";
+            currentResponseTranscriptElement = null;
+        }
+
+        // Send message with Enter key
+        document.getElementById("messageText").addEventListener("keypress",
+         function(event) {
+            if (event.key === "Enter") {
+                sendTextMessage();
+            }
+        });
+
+        // Auto-connect when page loads
+        window.onload = connect;
+    </script>
+</body>
+</html>

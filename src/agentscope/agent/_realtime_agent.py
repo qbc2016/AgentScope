@@ -113,6 +113,11 @@ class RealtimeAgentBase(StateModule):
 
         outside ==> agent ==> realtime model
         """
+        logger.info(
+            "Agent '%s' begins the loops to receive external events",
+            self.name,
+        )
+
         while True:
             event = await self._incoming_queue.get()
 
@@ -126,18 +131,32 @@ class RealtimeAgentBase(StateModule):
                             type="audio",
                             source=Base64Source(
                                 type="base64",
-                                media_type=event.format["type"],
+                                media_type=event.format.get(
+                                    "type",
+                                    "audio/pcm",
+                                ),
                                 data=event.delta,
                             ),
                         ),
                     )
+
                 case ClientEvents.ClientAudioAppendEvent() as event:
+                    # Construct media_type from format info
+                    # format contains: {"sample_rate": 16000, "encoding":
+                    # "pcm16"}
+                    encoding = event.format.get("encoding", "pcm16")
+                    media_type = (
+                        f"audio/{encoding.replace('16', '')}"
+                        if "pcm" in encoding
+                        else "audio/pcm"
+                    )
+
                     await self.model.send(
                         AudioBlock(
                             type="audio",
                             source=Base64Source(
                                 type="base64",
-                                media_type=event.format["type"],
+                                media_type=media_type,
                                 data=event.audio,
                             ),
                         ),
@@ -151,18 +170,20 @@ class RealtimeAgentBase(StateModule):
                         ),
                     )
                 case ClientEvents.ClientImageAppendEvent() as event:
+                    # Construct media_type from format info
+                    media_type = event.format.get("type", "image/jpeg")
+
                     await self.model.send(
                         ImageBlock(
                             type="image",
                             source=Base64Source(
                                 type="base64",
-                                media_type=event.format["type"],
+                                media_type=media_type,
                                 data=event.image,
                             ),
                         ),
                     )
 
-    # pylint: disable=too-many-statements
     async def _model_response_loop(self, outgoing_queue: Queue) -> None:
         """The loop to handle model responses and forward them to the
         frontend and other agents.
@@ -180,6 +201,8 @@ class RealtimeAgentBase(StateModule):
 
             agent_event = None
             match model_event:
+                # TODO: map all the model events to agent/server events
+                #  automatically
                 case ModelEvents.SessionCreatedEvent():
                     # Send the agent ready event to the outside.
                     agent_event = ServerEvents.AgentReadyEvent(**agent_kwargs)
@@ -422,6 +445,14 @@ class RealtimeAgentBase(StateModule):
                 # Put the processed response to the outgoing queue.
                 await outgoing_queue.put(agent_event)
 
-    async def handle_input(self, event: ClientEvents | ServerEvents) -> None:
-        """Handle the input message from the frontend or the other agents."""
+    async def handle_input(
+        self,
+        event: ClientEvents.EventBase | ServerEvents.EventBase,
+    ) -> None:
+        """Handle the input message from the frontend or the other agents.
+
+        Args:
+            event (`ClientEvents.EventBase | ServerEvents.EventBase`):
+                The input event from the frontend or other agents.
+        """
         await self._incoming_queue.put(event)

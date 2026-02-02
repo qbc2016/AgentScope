@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """The websocket events generated from the realtime agent and backend."""
-from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from agentscope.message import TextBlock, ImageBlock, AudioBlock, VideoBlock
+from pydantic import BaseModel
+
+from ...message import (
+    TextBlock,
+    ImageBlock,
+    AudioBlock,
+    VideoBlock,
+)
 
 
 class ServerEventType(str, Enum):
@@ -12,8 +18,13 @@ class ServerEventType(str, Enum):
 
     # Session lifecycle
     SESSION_CREATED = "session_created"
+    """The session between the web frontend and backend is created."""
+
     SESSION_UPDATED = "session_updated"
+    """The session between the web frontend and backend is updated."""
+
     SESSION_ENDED = "session_ended"
+    """The session between the web frontend and backend is ended."""
 
     # ============== AGENT LIFECYCLE EVENTS ================
 
@@ -81,8 +92,11 @@ class ServerEventType(str, Enum):
 class ServerEvents:
     """Realtime server events."""
 
-    @dataclass
-    class SessionCreatedEvent:
+    class EventBase(BaseModel):
+        """The base class for all server events, used to unify the type
+        hinting."""
+
+    class SessionCreatedEvent(EventBase):
         """Session created event in the backend"""
 
         session_id: str
@@ -93,8 +107,7 @@ class ServerEvents:
         ] = ServerEventType.SESSION_CREATED
         """The event type."""
 
-    @dataclass
-    class SessionUpdatedEvent:
+    class SessionUpdatedEvent(EventBase):
         """Session updated event in the backend"""
 
         session_id: str
@@ -105,8 +118,7 @@ class ServerEvents:
         ] = ServerEventType.SESSION_UPDATED
         """The event type."""
 
-    @dataclass
-    class SessionEndedEvent:
+    class SessionEndedEvent(EventBase):
         """Session ended event in the backend"""
 
         session_id: str
@@ -117,8 +129,7 @@ class ServerEvents:
         ] = ServerEventType.SESSION_ENDED
         """The event type."""
 
-    @dataclass
-    class AgentReadyEvent:
+    class AgentReadyEvent(EventBase):
         """Agent ready event in the backend"""
 
         agent_id: str
@@ -132,8 +143,7 @@ class ServerEvents:
         ] = ServerEventType.AGENT_READY
         """The event type."""
 
-    @dataclass
-    class AgentEndedEvent:
+    class AgentEndedEvent(EventBase):
         """Agent ended event in the backend"""
 
         agent_id: str
@@ -147,8 +157,7 @@ class ServerEvents:
         ] = ServerEventType.AGENT_ENDED
         """The event type."""
 
-    @dataclass
-    class AgentResponseCreatedEvent:
+    class AgentResponseCreatedEvent(EventBase):
         """Response created event in the backend"""
 
         response_id: str
@@ -165,8 +174,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_CREATED
         """The event type."""
 
-    @dataclass
-    class AgentResponseDoneEvent:
+    class AgentResponseDoneEvent(EventBase):
         """Response done event in the backend"""
 
         response_id: str
@@ -192,8 +200,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_DONE
         """The event type."""
 
-    @dataclass
-    class AgentResponseAudioDeltaEvent:
+    class AgentResponseAudioDeltaEvent(EventBase):
         """Response audio delta event in the backend"""
 
         response_id: str
@@ -219,8 +226,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_AUDIO_DELTA
         """The event type."""
 
-    @dataclass
-    class AgentResponseAudioDoneEvent:
+    class AgentResponseAudioDoneEvent(EventBase):
         """Response audio done event in the backend"""
 
         response_id: str
@@ -239,8 +245,7 @@ class ServerEvents:
             ServerEventType.RESPONSE_AUDIO_DONE
         ] = ServerEventType.RESPONSE_AUDIO_DONE
 
-    @dataclass
-    class AgentResponseAudioTranscriptDeltaEvent:
+    class AgentResponseAudioTranscriptDeltaEvent(EventBase):
         """Response audio transcript delta event in the backend"""
 
         response_id: str
@@ -263,8 +268,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA
         """The event type."""
 
-    @dataclass
-    class AgentResponseAudioTranscriptDoneEvent:
+    class AgentResponseAudioTranscriptDoneEvent(EventBase):
         """Response audio transcript done event in the backend"""
 
         response_id: str
@@ -284,8 +288,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE
         """The event type."""
 
-    @dataclass
-    class AgentResponseToolUseDeltaEvent:
+    class AgentResponseToolUseDeltaEvent(EventBase):
         """Response tool use delta event in the backend"""
 
         response_id: str
@@ -314,8 +317,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_TOOL_USE_DELTA
         """The event type."""
 
-    @dataclass
-    class AgentResponseToolUseDoneEvent:
+    class AgentResponseToolUseDoneEvent(EventBase):
         """Response tool use done event in the backend"""
 
         response_id: str
@@ -338,8 +340,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_TOOL_USE_DONE
         """The event type."""
 
-    @dataclass
-    class AgentResponseToolResultEvent:
+    class AgentResponseToolResultEvent(EventBase):
         """Response tool result event"""
 
         call_id: str
@@ -362,8 +363,7 @@ class ServerEvents:
         ] = ServerEventType.RESPONSE_TOOL_RESULT
         """The event type."""
 
-    @dataclass
-    class AgentInputTranscriptionDeltaEvent:
+    class AgentInputTranscriptionDeltaEvent(EventBase):
         """Input transcription delta event in the backend"""
 
         delta: str
@@ -380,8 +380,7 @@ class ServerEvents:
         ] = ServerEventType.INPUT_TRANSCRIPTION_DELTA
         """The event type."""
 
-    @dataclass
-    class AgentInputTranscriptionDoneEvent:
+    class AgentInputTranscriptionDoneEvent(EventBase):
         """Input transcription done event in the backend"""
 
         transcript: str
@@ -404,8 +403,7 @@ class ServerEvents:
         ] = ServerEventType.INPUT_TRANSCRIPTION_DONE
         """The event type."""
 
-    @dataclass
-    class AgentInputStartedEvent:
+    class AgentInputStartedEvent(EventBase):
         """Input started event in the backend"""
 
         agent_id: str
@@ -419,8 +417,7 @@ class ServerEvents:
         ] = ServerEventType.INPUT_STARTED
         """The event type."""
 
-    @dataclass
-    class AgentInputDoneEvent:
+    class AgentInputDoneEvent(EventBase):
         """Input done event in the backend"""
 
         agent_id: str
@@ -432,8 +429,7 @@ class ServerEvents:
         type: Literal[ServerEventType.INPUT_DONE] = ServerEventType.INPUT_DONE
         """The event type."""
 
-    @dataclass
-    class AgentErrorEvent:
+    class AgentErrorEvent(EventBase):
         """Error event in the backend"""
 
         error_type: str

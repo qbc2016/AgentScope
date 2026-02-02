@@ -71,7 +71,12 @@ class ChatRoom:
         if not self._task.done():
             self._task.cancel()
 
-    async def handle_input(self, event: ClientEvents) -> None:
+    async def handle_input(self, event: ClientEvents.EventBase) -> None:
         """Handle input message from the frontend and distribute it to all
-        agents in the chat room."""
+        agents in the chat room.
+
+        Args:
+            event (`ClientEvents.EventBase`):
+                The event from the frontend.
+        """
         await self._queue.put(event)
