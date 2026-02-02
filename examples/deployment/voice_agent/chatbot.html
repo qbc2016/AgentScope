@@ -290,7 +290,16 @@
 
         async function connect() {
             const userId = document.getElementById("userId").value;
-            ws = new WebSocket(`ws://localhost:8000/ws/${userId}/${sessionId}`);
+
+            // Dynamically construct WebSocket URL based on current page location
+            // This supports SSH port forwarding and different deployment scenarios
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.hostname;
+            const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+            const wsUrl = `${protocol}//${host}:${port}/ws/${userId}/${sessionId}`;
+
+            console.log(`Connecting to WebSocket: ${wsUrl}`);
+            ws = new WebSocket(wsUrl);
 
             ws.onopen = function(event) {
                 addMessage("System", "✅ Connected to server, you can start voice conversation");
