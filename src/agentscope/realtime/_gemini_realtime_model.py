@@ -85,6 +85,9 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # Tool arguments accumulator for tracking tool call parameters
         self._tool_args_accumulator: dict[str, str] = {}
 
+        # Track which tool calls have been marked as done
+        self._tool_call_done: set[str] = set()
+
     def _build_session_config(
         self,
         instructions: str,
@@ -478,7 +481,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
     async def _parse_tool_call(
         self,
         tool_call: dict,
-    ) -> ModelEvents.EventBase | None:
+    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
         """Parse the tool call message from Gemini API.
 
         Args:
@@ -486,11 +489,13 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The toolCall dictionary from the API response.
 
         Returns:
-            `ModelEvents.EventBase | None`:
-                The unified model event in agentscope format.
+            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
+                The unified model event(s) in agentscope format.
+                Can return a single event or a list of events.
         """
-        model_event = None
         function_calls = tool_call.get("functionCalls", [])
+        if not function_calls:
+            return None
 
         events = []
         for func_call in function_calls:
@@ -513,13 +518,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 input=self._tool_args_accumulator[call_id],
             )
             events.append(model_event)
-
-        # TODO: Current implementation only returns the last event,
-        #  which may lose information when there are multiple parallel tool
-        #  calls. Consider refactoring to support multiple event returns or
-        #  direct event emission within the loop.
-        #  Return the last event (or None if no function calls)
-        return events[-1] if events else None
+        return events if events else None
 
     async def _parse_image_data(self, block: ImageBlock) -> str | None:
         """Parse the image data block to the format required by the Gemini
@@ -634,13 +633,28 @@ class GeminiRealtimeModel(RealtimeModelBase):
         tool_name = block.get("name", "")
         output = block.get("output", "")
 
-        # Parse output if it's a JSON string
-        try:
-            result_obj = (
-                json.loads(output) if isinstance(output, str) else output
+        # Extract text from list of blocks (most common case)
+        if isinstance(output, list):
+            text = "".join(
+                item.get("text", "")
+                if isinstance(item, dict) and item.get("type") == "text"
+                else str(item)
+                for item in output
             )
-        except json.JSONDecodeError:
-            result_obj = {"result": output}
+            result_obj = {"result": text}
+        elif isinstance(output, str):
+            try:
+                result_obj = json.loads(output)
+            except json.JSONDecodeError:
+                result_obj = {"result": output}
+        else:
+            result_obj = (
+                output if isinstance(output, dict) else {"result": str(output)}
+            )
+
+        # Clean up tool call tracking
+        self._tool_call_done.discard(tool_id)
+        self._tool_args_accumulator.pop(tool_id, None)
 
         return json.dumps(
             {

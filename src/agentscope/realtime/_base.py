@@ -143,10 +143,15 @@ class RealtimeModelBase:
             if isinstance(message, bytes):
                 message = message.decode("utf-8")
 
-            # Parse the message into ModelEvent instance
-            event = await self.parse_api_message(message)
+            # Parse the message into ModelEvent instance(s)
+            events = await self.parse_api_message(message)
 
-            if event is not None:
+            if events is None:
+                continue
+
+            if isinstance(events, ModelEvents.EventBase):
+                events = [events]
+            for event in events:
                 # Send the event to the outgoing queue
                 await outgoing_queue.put(event)
 
@@ -154,7 +159,7 @@ class RealtimeModelBase:
     async def parse_api_message(
         self,
         message: str,
-    ) -> ModelEvents.EventBase | None:
+    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
         """Parse the message received from the realtime model API.
 
         Args:
@@ -162,6 +167,6 @@ class RealtimeModelBase:
                 The message received from the realtime model API.
 
         Returns:
-            `ModelEvents.EventBase | None`:
+            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
                 The unified model event in agentscope format.
         """
