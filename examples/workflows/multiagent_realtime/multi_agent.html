@@ -348,41 +348,6 @@
             font-size: 0.875rem;
         }
 
-        .radio-group {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-        }
-
-        .radio-option {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 0.75rem;
-            background: hsl(0, 0%, 100%);
-            border: 1px solid hsl(214.3, 31.8%, 91.4%);
-            border-radius: 0.375rem;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .radio-option:hover {
-            border-color: hsl(221.2, 83.2%, 53.3%);
-            background: hsl(210, 40%, 98%);
-        }
-
-        .radio-option input[type="radio"] {
-            margin: 0;
-            cursor: pointer;
-        }
-
-        .radio-option label {
-            margin: 0;
-            cursor: pointer;
-            font-size: 0.875rem;
-            color: hsl(222.2, 84%, 4.9%);
-        }
-
         .preset-group {
             display: flex;
             gap: 1rem;
@@ -433,19 +398,6 @@
     <div class="configuration-container">
         <h3>⚙️ Agent Configuration</h3>
 
-        <div class="audio-mode-selector">
-            <label>🔊 Audio Playback Mode</label>
-            <div class="radio-group">
-                <div class="radio-option">
-                    <input type="radio" id="modeSequential" name="audioMode" value="sequential" checked>
-                    <label for="modeSequential">Sequential (one at a time)</label>
-                </div>
-                <div class="radio-option">
-                    <input type="radio" id="modeParallel" name="audioMode" value="parallel">
-                    <label for="modeParallel">Parallel (may overlap)</label>
-                </div>
-            </div>
-        </div>
 
         <div class="audio-mode-selector">
             <label>🎭 Debate Preset</label>
@@ -508,13 +460,10 @@
         let ws = null;
         let playbackAudioContext = null;  // For playback, 24kHz
 
-        // Audio queue management: global queue for sequential playback
+        // Audio queue management: sequential playback
         let globalAudioQueue = [];  // Array of { agentId, agentName, chunks, messageElement }
         let currentlyPlaying = null;  // Currently playing agent info
         let isPlayingGlobal = false;
-
-        // Per-agent audio state for parallel mode
-        let agentAudioState = {};
 
         let sessionId = "session1";  // Session ID
         let sessionCreated = false;  // Track if session has been created
@@ -523,8 +472,6 @@
         // Used to accumulate transcript text
         let currentResponseTranscripts = {};  // Store by agent_id
 
-        // Audio playback mode: 'sequential' or 'parallel'
-        let audioPlaybackMode = 'sequential';
 
         // Silent audio monitoring for continuous audio stream
         let lastAudioReceivedTime = null;
@@ -643,10 +590,6 @@
             return btoa(binary);
         }
 
-        function getAudioMode() {
-            const selectedMode = document.querySelector('input[name="audioMode"]:checked');
-            return selectedMode ? selectedMode.value : 'sequential';
-        }
 
         function startSilentAudioMonitoring() {
             // Initialize timestamp
@@ -676,12 +619,7 @@
             }
 
             // Check if any audio is playing
-            const hasAudioPlaying = isPlayingGlobal ||
-                (audioPlaybackMode === 'parallel' && Object.keys(agentAudioState).some(
-                    id => agentAudioState[id].isPlaying
-                ));
-
-            if (hasAudioPlaying) {
+            if (isPlayingGlobal) {
                 // If audio is playing, update timestamp (playing also counts as audio activity)
                 lastAudioReceivedTime = Date.now();
                 return;
@@ -800,18 +738,13 @@
                             // Receive audio data
                             console.log(`Received audio delta from agent: ${data.agent_name} (${data.agent_id})`);
                             if (data.agent_id) {
-                                audioPlaybackMode = getAudioMode();
-                                if (audioPlaybackMode === 'sequential') {
-                                    queueAudioChunkSequential(data.agent_id, data.agent_name, data.delta);
-                                } else {
-                                    queueAudioChunkParallel(data.agent_id, data.delta);
-                                }
+                                queueAudioChunk(data.agent_id, data.agent_name, data.delta);
                             }
                             break;
 
                         case "agent_response_audio_done":
                             // Mark audio complete (no message display)
-                            if (data.agent_id && audioPlaybackMode === 'sequential') {
+                            if (data.agent_id) {
                                 markAudioComplete(data.agent_id);
                             }
                             break;
@@ -968,7 +901,7 @@
             }
         }
 
-        // ==================== Sequential Audio Queue Management ====================
+        // ==================== Audio Queue Management ====================
 
         function initializeAudioBuffer(agentId, agentName) {
             // Find if this agent already has an entry in the queue
@@ -988,7 +921,7 @@
             }
         }
 
-        function queueAudioChunkSequential(agentId, agentName, base64Audio) {
+        function queueAudioChunk(agentId, agentName, base64Audio) {
             try {
                 // Decode audio chunk
                 const float32Array = decodeAudioChunk(base64Audio);
@@ -1058,10 +991,10 @@
 
             updatePlaybackStatus(`Playing ${nextEntry.agentName}`, true, globalAudioQueue.filter(e => e.chunks.length > 0 && e !== nextEntry).length);
 
-            startSequentialPlayback(nextEntry);
+            startPlayback(nextEntry);
         }
 
-        function startSequentialPlayback(queueEntry) {
+        function startPlayback(queueEntry) {
             try {
                 if (!playbackAudioContext) {
                     playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({
@@ -1120,7 +1053,7 @@
                 queueEntry.node = processor;
 
             } catch (err) {
-                console.error("Failed to start sequential playback:", err);
+                console.error("Failed to start playback:", err);
                 finishCurrentPlayback();
             }
         }
@@ -1154,115 +1087,6 @@
             setTimeout(() => playNextInQueue(), 100);
         }
 
-        // ==================== Parallel Audio Queue Management ====================
-
-        function queueAudioChunkParallel(agentId, base64Audio) {
-            try {
-                // Initialize audio state for this agent if not exists
-                if (!agentAudioState[agentId]) {
-                    console.log(`Initializing audio state for agent: ${agentId}`);
-                    agentAudioState[agentId] = {
-                        queue: [],
-                        index: 0,
-                        isPlaying: false,
-                        node: null
-                    };
-                }
-
-                const float32Array = decodeAudioChunk(base64Audio);
-                agentAudioState[agentId].queue.push(float32Array);
-                console.log(`Queued audio chunk for agent ${agentId}, queue length: ${agentAudioState[agentId].queue.length}`);
-
-                // If this agent is not playing yet, start playing
-                if (!agentAudioState[agentId].isPlaying) {
-                    console.log(`Starting audio playback for agent: ${agentId}`);
-                    startParallelPlayback(agentId);
-                }
-            } catch (err) {
-                console.error("Failed to decode audio chunk:", err);
-            }
-        }
-
-        function startParallelPlayback(agentId) {
-            const agentState = agentAudioState[agentId];
-            if (!agentState || agentState.isPlaying) return;
-
-            try {
-                if (!playbackAudioContext) {
-                    playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({
-                        sampleRate: 24000
-                    });
-                }
-
-                if (playbackAudioContext.state === 'suspended') {
-                    playbackAudioContext.resume();
-                }
-
-                agentState.isPlaying = true;
-                agentState.index = 0;
-
-                const bufferSize = 4096;
-                const processor = playbackAudioContext.createScriptProcessor(bufferSize, 0, 1);
-
-                processor.onaudioprocess = function(e) {
-                    const output = e.outputBuffer.getChannelData(0);
-                    const samplesNeeded = output.length;
-                    let samplesWritten = 0;
-
-                    while (samplesWritten < samplesNeeded && agentState.queue.length > 0) {
-                        const chunk = agentState.queue[0];
-                        const samplesToRead = Math.min(
-                            samplesNeeded - samplesWritten,
-                            chunk.length - agentState.index
-                        );
-
-                        for (let i = 0; i < samplesToRead; i++) {
-                            output[samplesWritten + i] = chunk[agentState.index + i];
-                        }
-
-                        samplesWritten += samplesToRead;
-                        agentState.index += samplesToRead;
-
-                        if (agentState.index >= chunk.length) {
-                            agentState.queue.shift();
-                            agentState.index = 0;
-                        }
-                    }
-
-                    for (let i = samplesWritten; i < samplesNeeded; i++) {
-                        output[i] = 0;
-                    }
-
-                    if (agentState.queue.length === 0) {
-                        setTimeout(() => {
-                            if (agentState.queue.length === 0) {
-                                stopParallelPlayback(agentId);
-                            }
-                        }, 100);
-                    }
-                };
-
-                processor.connect(playbackAudioContext.destination);
-                agentState.node = processor;
-
-            } catch (err) {
-                console.error("Failed to start audio playback:", err);
-                agentState.isPlaying = false;
-            }
-        }
-
-        function stopParallelPlayback(agentId) {
-            if (agentId && agentAudioState[agentId]) {
-                const agentState = agentAudioState[agentId];
-                if (agentState.node) {
-                    agentState.node.disconnect();
-                    agentState.node = null;
-                }
-                agentState.isPlaying = false;
-                agentState.queue = [];
-                agentState.index = 0;
-            }
-        }
 
         // ==================== Common Audio Functions ====================
 
@@ -1296,11 +1120,6 @@
             isPlayingGlobal = false;
             globalAudioQueue = [];
 
-            // Stop parallel playback
-            for (const id in agentAudioState) {
-                stopParallelPlayback(id);
-            }
-            agentAudioState = {};
 
             updatePlaybackStatus('', false, 0);
         }
