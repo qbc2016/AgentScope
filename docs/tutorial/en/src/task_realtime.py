@@ -47,17 +47,17 @@ from agentscope.realtime import (
 #    * - DashScope
 #      - ``DashScopeRealtimeModel``
 #      - ``qwen3-omni-flash-realtime``
-#      - Audio, Image
+#      - Text, Audio, Image
 #      - No
 #    * - OpenAI
 #      - ``OpenAIRealtimeModel``
 #      - ``gpt-4o-realtime-preview``
-#      - Audio, Text
+#      - Text, Audio
 #      - Yes
 #    * - Gemini
 #      - ``GeminiRealtimeModel``
 #      - ``gemini-2.5-flash-native-audio-preview-09-2025``
-#      - Audio, Text, Image
+#      - Text, Audio, Image
 #      - Yes
 #
 #

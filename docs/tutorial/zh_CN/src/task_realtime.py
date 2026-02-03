@@ -44,17 +44,17 @@ from agentscope.realtime import (
 #    * - DashScope
 #      - ``DashScopeRealtimeModel``
 #      - ``qwen3-omni-flash-realtime``
-#      - 音频、图像
+#      - 文本、音频、图像
 #      - 否
 #    * - OpenAI
 #      - ``OpenAIRealtimeModel``
 #      - ``gpt-4o-realtime-preview``
-#      - 音频、文本
+#      - 文本、音频
 #      - 是
 #    * - Gemini
 #      - ``GeminiRealtimeModel``
 #      - ``gemini-2.5-flash-native-audio-preview-09-2025``
-#      - 音频、文本、图像
+#      - 文本、音频、图像
 #      - 是
 #
 #
@@ -120,35 +120,35 @@ gemini_model = GeminiRealtimeModel(
 #
 #    * - 事件
 #      - 描述
-#    * - ``ModelEvents.SessionCreatedEvent``
+#    * - ``ModelEvents.ModelSessionCreatedEvent``
 #      - 会话创建成功
-#    * - ``ModelEvents.SessionEndedEvent``
+#    * - ``ModelEvents.ModelSessionEndedEvent``
 #      - 会话已结束
-#    * - ``ModelEvents.ResponseCreatedEvent``
+#    * - ``ModelEvents.ModelResponseCreatedEvent``
 #      - 模型开始生成响应
-#    * - ``ModelEvents.ResponseDoneEvent``
+#    * - ``ModelEvents.ModelResponseDoneEvent``
 #      - 模型完成响应生成
-#    * - ``ModelEvents.ResponseAudioDeltaEvent``
+#    * - ``ModelEvents.ModelResponseAudioDeltaEvent``
 #      - 流式音频数据块
-#    * - ``ModelEvents.ResponseAudioDoneEvent``
+#    * - ``ModelEvents.ModelResponseAudioDoneEvent``
 #      - 音频响应完成
-#    * - ``ModelEvents.ResponseAudioTranscriptDeltaEvent``
+#    * - ``ModelEvents.ModelResponseAudioTranscriptDeltaEvent``
 #      - 流式音频转录文本块
-#    * - ``ModelEvents.ResponseAudioTranscriptDoneEvent``
+#    * - ``ModelEvents.ModelResponseAudioTranscriptDoneEvent``
 #      - 音频转录完成
-#    * - ``ModelEvents.ResponseToolUseDeltaEvent``
+#    * - ``ModelEvents.ModelResponseToolUseDeltaEvent``
 #      - 流式工具调用参数
-#    * - ``ModelEvents.ResponseToolUseDoneEvent``
+#    * - ``ModelEvents.ModelResponseToolUseDoneEvent``
 #      - 工具调用参数完成
-#    * - ``ModelEvents.InputTranscriptionDeltaEvent``
+#    * - ``ModelEvents.ModelInputTranscriptionDeltaEvent``
 #      - 流式用户输入转录文本块
-#    * - ``ModelEvents.InputTranscriptionDoneEvent``
+#    * - ``ModelEvents.ModelInputTranscriptionDoneEvent``
 #      - 用户输入转录完成
-#    * - ``ModelEvents.InputStartedEvent``
+#    * - ``ModelEvents.ModelInputStartedEvent``
 #      - 检测到用户音频输入开始（VAD）
-#    * - ``ModelEvents.InputDoneEvent``
+#    * - ``ModelEvents.ModelInputDoneEvent``
 #      - 检测到用户音频输入结束（VAD）
-#    * - ``ModelEvents.ErrorEvent``
+#    * - ``ModelEvents.ModelErrorEvent``
 #      - 发生错误
 #
 #
@@ -176,9 +176,11 @@ gemini_model = GeminiRealtimeModel(
 #
 #    * - 事件
 #      - 描述
-#    * - ``ServerEvents.SessionCreatedEvent``
+#    * - ``ServerEvents.ServerSessionCreatedEvent``
 #      - 后端创建会话
-#    * - ``ServerEvents.SessionEndedEvent``
+#    * - ``ServerEvents.ServerSessionUpdatedEvent``
+#      - 后端更新会话
+#    * - ``ServerEvents.ServerSessionEndedEvent``
 #      - 后端结束会话
 #    * - ``ServerEvents.AgentReadyEvent``
 #      - 智能体准备接收输入
@@ -198,17 +200,19 @@ gemini_model = GeminiRealtimeModel(
 #      - 转录完成
 #    * - ``ServerEvents.AgentResponseToolUseDeltaEvent``
 #      - 流式工具调用数据
+#    * - ``ServerEvents.AgentResponseToolUseDoneEvent``
+#      - 工具调用完成
 #    * - ``ServerEvents.AgentResponseToolResultEvent``
 #      - 工具执行结果
-#    * - ``ServerEvents.InputTranscriptionDeltaEvent``
+#    * - ``ServerEvents.AgentInputTranscriptionDeltaEvent``
 #      - 用户输入的流式转录
-#    * - ``ServerEvents.InputTranscriptionDoneEvent``
+#    * - ``ServerEvents.AgentInputTranscriptionDoneEvent``
 #      - 输入转录完成
-#    * - ``ServerEvents.InputStartedEvent``
+#    * - ``ServerEvents.AgentInputStartedEvent``
 #      - 用户音频输入开始
-#    * - ``ServerEvents.InputDoneEvent``
+#    * - ``ServerEvents.AgentInputDoneEvent``
 #      - 用户音频输入结束
-#    * - ``ServerEvents.ErrorEvent``
+#    * - ``ServerEvents.AgentErrorEvent``
 #      - 发生错误
 #
 # **ClientEvents**（前端 → 后端）：

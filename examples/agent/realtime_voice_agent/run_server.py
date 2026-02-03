@@ -13,9 +13,17 @@ from agentscope import logger
 from agentscope.agent import RealtimeAgent
 from agentscope.realtime import (
     DashScopeRealtimeModel,
+    GeminiRealtimeModel,
+    OpenAIRealtimeModel,
     ClientEvents,
     ServerEvents,
     ClientEventType,
+)
+from agentscope.tool import (
+    Toolkit,
+    execute_python_code,
+    execute_shell_command,
+    view_text_file,
 )
 
 app = FastAPI()
@@ -26,6 +34,16 @@ async def get() -> FileResponse:
     """Serve the HTML test page."""
     html_path = Path(__file__).parent / "chatbot.html"
     return FileResponse(html_path)
+
+
+@app.get("/api/check-models")
+async def check_models() -> dict:
+    """Check which model API keys are available in environment variables."""
+    return {
+        "dashscope": bool(os.getenv("DASHSCOPE_API_KEY")),
+        "gemini": bool(os.getenv("GEMINI_API_KEY")),
+        "openai": bool(os.getenv("OPENAI_API_KEY")),
+    }
 
 
 async def frontend_receive(
@@ -86,21 +104,49 @@ async def single_agent_endpoint(
                     "instructions",
                     "You're a helpful assistant.",
                 )
-                user_name = client_event.config.get("user_name", "User")
-
-                sys_prompt = (
-                    f"{instructions}\n"
-                    f"You're talking to the user named {user_name}."
+                agent_name = client_event.config.get("agent_name", "Friday")
+                model_provider = client_event.config.get(
+                    "model_provider",
+                    "dashscope",
                 )
+
+                sys_prompt = instructions
+
+                # Create toolkit with tools for models that support them
+                toolkit = None
+                if model_provider in ["gemini", "openai"]:
+                    toolkit = Toolkit()
+                    toolkit.register_tool_function(execute_python_code)
+                    toolkit.register_tool_function(execute_shell_command)
+                    toolkit.register_tool_function(view_text_file)
+
+                # Create the appropriate model based on provider
+                if model_provider == "dashscope":
+                    model = DashScopeRealtimeModel(
+                        model_name="qwen3-omni-flash-realtime",
+                        api_key=os.getenv("DASHSCOPE_API_KEY"),
+                    )
+                elif model_provider == "gemini":
+                    model = GeminiRealtimeModel(
+                        model_name="gemini-2.5-flash-native-audio-preview-09-2025",
+                        api_key=os.getenv("GEMINI_API_KEY"),
+                    )
+                elif model_provider == "openai":
+                    model = OpenAIRealtimeModel(
+                        model_name="gpt-4o-realtime-preview",
+                        api_key=os.getenv("OPENAI_API_KEY"),
+                    )
+                else:
+                    raise ValueError(
+                        f"Unsupported model provider: {model_provider}",
+                    )
 
                 # Create the agent
                 agent = RealtimeAgent(
-                    name="Friday",
+                    name=agent_name,
                     sys_prompt=sys_prompt,
-                    model=DashScopeRealtimeModel(
-                        model_name="qwen3-omni-flash-realtime",
-                        api_key=os.getenv("DASHSCOPE_API_KEY"),
-                    ),
+                    model=model,
+                    toolkit=toolkit,
                 )
 
                 await agent.start(frontend_queue)
