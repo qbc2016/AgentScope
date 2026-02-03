@@ -432,32 +432,7 @@ def _parse_tool_function(
     return func_json_schema
 
 
-def _generate_silence(duration_ms: int, sample_rate: int = 16000) -> str:
-    """Generate a silence segment of the given duration and sample rate,
-
-    Args:
-        duration_ms (`int`):
-            The duration of the silence segment in milliseconds.
-        sample_rate (`int`, defaults to `16000`):
-            The sample rate of the silence segment.
-
-    Returns:
-        `str`:
-            The base64 encoded silence audio data.
-    """
-    # The number of samples
-    num_samples = int(sample_rate * duration_ms / 1000)
-
-    # Generate silence samples (all zeros)
-    silence = np.zeros(num_samples, dtype=np.int16)
-
-    # Convert to base64
-    silence_base64 = base64.b64encode(silence.tobytes()).decode("utf-8")
-
-    return silence_base64
-
-
-def resample_pcm_delta_fast(
+def _resample_pcm_delta(
     pcm_base64: str,
     sample_rate: int,
     target_rate: int,

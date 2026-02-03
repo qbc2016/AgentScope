@@ -128,7 +128,9 @@ async def single_agent_endpoint(
                     )
                 elif model_provider == "gemini":
                     model = GeminiRealtimeModel(
-                        model_name="gemini-2.5-flash-native-audio-preview-09-2025",
+                        model_name=(
+                            "gemini-2.5-flash-native-audio-preview-09-2025"
+                        ),
                         api_key=os.getenv("GEMINI_API_KEY"),
                     )
                 elif model_provider == "openai":

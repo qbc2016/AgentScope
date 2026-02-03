@@ -6,7 +6,7 @@ from asyncio import Queue
 import shortuuid
 
 from .._logging import logger
-from .._utils._common import resample_pcm_delta_fast
+from .._utils._common import _resample_pcm_delta
 from ..message import (
     AudioBlock,
     Base64Source,
@@ -152,7 +152,7 @@ class RealtimeAgent(StateModule):
                     # model
                     receive_rate = event.format.get("rate", 16000)
                     if self.model.input_sample_rate != receive_rate:
-                        delta = resample_pcm_delta_fast(
+                        delta = _resample_pcm_delta(
                             event.delta,
                             receive_rate,
                             self.model.input_sample_rate,

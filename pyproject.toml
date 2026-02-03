@@ -51,6 +51,8 @@ a2a = [
     "nacos-sdk-python>=3.0.0",
 ]
 
+# ------------ Realtime -------------
+realtime = ["websockets>=14.0"]
 
 # ------------ Model APIs ------------
 gemini = ["google-genai"]
@@ -58,16 +60,6 @@ ollama = ["ollama>=0.5.4"]
 models = [
     "agentscope[ollama]",
     "agentscope[gemini]",
-]
-
-# ------------ Voice Agent ------------
-voice = [
-    "websockets>=14.0",
-]
-voice_server = [
-    "agentscope[voice]",
-    "fastapi",
-    "uvicorn",
 ]
 
 # ------------ Tokenizers ------------
@@ -146,7 +138,7 @@ full = [
     "agentscope[memory]",
     "agentscope[rag]",
     "agentscope[evaluate]",
-    "agentscope[voice]",
+    "agentscope[realtime]",
 ]
 
 # ------------ Development ------------
