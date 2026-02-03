@@ -336,6 +336,7 @@ asyncio.run(multi_agent_conversation())
 - [Browser-use Agent](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/browser_agent)
 - [Meta Planner Agent](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/meta_planner_agent)
 - [A2A Agent](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/a2a_agent)
+- [Realtime Voice Agent](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/realtime_voice_agent)
 
 ### Game
 
@@ -346,6 +347,7 @@ asyncio.run(multi_agent_conversation())
 - [Multi-agent Debate](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_debate)
 - [Multi-agent Conversation](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_conversation)
 - [Multi-agent Concurrent](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_concurrent)
+- [Multi-agent Realtime Conversation](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_realtime)
 
 ### Evaluation
 

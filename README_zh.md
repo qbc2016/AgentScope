@@ -333,6 +333,7 @@ asyncio.run(multi_agent_conversation())
 - [Browser-use 智能体](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/browser_agent)
 - [Meta Planner 智能体](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/meta_planner_agent)
 - [A2A 智能体](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/a2a_agent)
+- [实时语音交互智能体](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/realtime_voice_agent)
 
 ### 游戏
 
@@ -343,6 +344,7 @@ asyncio.run(multi_agent_conversation())
 - [多智能体辩论](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_debate)
 - [多智能体对话](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_conversation)
 - [多智能体并发](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_concurrent)
+- [多智能体实时语音交互](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_realtime)
 
 ### 评估
 
