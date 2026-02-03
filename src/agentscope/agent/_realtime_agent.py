@@ -150,7 +150,7 @@ class RealtimeAgent(StateModule):
                 case ServerEvents.AgentResponseAudioDeltaEvent() as event:
                     # Convert the sample rate to the required format by the
                     # model
-                    receive_rate = event.format.get("rate", 16000)
+                    receive_rate = event.format.rate
                     if self.model.input_sample_rate != receive_rate:
                         delta = _resample_pcm_delta(
                             event.delta,
@@ -166,7 +166,7 @@ class RealtimeAgent(StateModule):
                             type="audio",
                             source=Base64Source(
                                 type="base64",
-                                media_type="audio/pcm",
+                                media_type=event.format.type,
                                 data=delta,
                             ),
                         ),
@@ -180,19 +180,19 @@ class RealtimeAgent(StateModule):
                     # Construct media_type from format info
                     # format contains: {"sample_rate": 16000, "encoding":
                     # "pcm16"}
-                    encoding = event.format.get("encoding", "pcm16")
-                    media_type = (
-                        f"audio/{encoding.replace('16', '')}"
-                        if "pcm" in encoding
-                        else "audio/pcm"
-                    )
+                    # encoding = event.format.get("encoding", "pcm16")
+                    # media_type = (
+                    #     f"audio/{encoding.replace('16', '')}"
+                    #     if "pcm" in encoding
+                    #     else "audio/pcm"
+                    # )
 
                     await self.model.send(
                         AudioBlock(
                             type="audio",
                             source=Base64Source(
                                 type="base64",
-                                media_type=media_type,
+                                media_type=event.format.type,
                                 data=event.audio,
                             ),
                         ),

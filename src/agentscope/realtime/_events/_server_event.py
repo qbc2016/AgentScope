@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from ._utils import AudioFormat
 from ._model_event import ModelEvents
 from ...message import ToolUseBlock, ToolResultBlock
 
@@ -210,7 +211,7 @@ class ServerEvents:
         delta: str
         """The audio chunk data, encoded as base64 string."""
 
-        format: dict
+        format: AudioFormat
         """The audio format information."""
 
         agent_id: str

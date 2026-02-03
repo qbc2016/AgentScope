@@ -5,6 +5,7 @@ from typing import List
 
 from pydantic import BaseModel
 
+from ._utils import AudioFormat
 from ...message import TextBlock, AudioBlock, ImageBlock, VideoBlock
 
 
@@ -123,7 +124,7 @@ class ClientEvents:
         audio: str
         """The audio data, encoded as base64 string."""
 
-        format: dict
+        format: AudioFormat
         """The audio format information."""
 
     class ClientAudioCommitEvent(EventBase):
