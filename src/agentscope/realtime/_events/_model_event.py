@@ -6,40 +6,78 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from ...message import ToolUseBlock
+
 
 class ModelEventType(str, Enum):
     """Types of model events from the API."""
 
-    # Session lifecycle
-    SESSION_CREATED = "model.session.created"
-    SESSION_ENDED = "model.session.ended"
+    # API session lifecycle
+    MODEL_SESSION_CREATED = "model_session_created"
+    """The realtime API session has been created."""
 
-    # Response events
-    RESPONSE_CREATED = "model.response.created"
-    RESPONSE_CANCELLED = "model.response.cancelled"
+    MODEL_SESSION_ENDED = "model_session_ended"
+    """The realtime API session has ended."""
 
-    RESPONSE_AUDIO_DELTA = "model.response.audio.delta"
-    RESPONSE_AUDIO_DONE = "model.response.audio.done"
-    RESPONSE_AUDIO_TRANSCRIPT_DELTA = "model.response.audio_transcript.delta"
-    RESPONSE_AUDIO_TRANSCRIPT_DONE = "model.response_audio.transcript.done"
-    RESPONSE_TOOL_USE_DELTA = "model.response.tool_use.delta"
-    RESPONSE_TOOL_USE_DONE = "model.response.tool_use.done"
-    RESPONSE_DONE = "model.response.done"
+    # ============= MODEL GENERATED EVENTS =============
+
+    MODEL_RESPONSE_CREATED = "model_response_created"
+    """The realtime model begins generating a response."""
+
+    MODEL_RESPONSE_DONE = "model_response_done"
+    """The realtime model has finished generating a response."""
+
+    # ============= MODEL RESPONSE CONTENT EVENTS =============
+
+    MODEL_RESPONSE_AUDIO_DELTA = "model_response_audio_delta"
+    """The realtime model response audio delta event."""
+
+    MODEL_RESPONSE_AUDIO_DONE = "model_response_audio_done"
+    """The realtime model response audio done event."""
+
+    MODEL_RESPONSE_AUDIO_TRANSCRIPT_DELTA = (
+        "model_response_audio_transcript_delta"
+    )
+    """The realtime model response audio transcript delta event."""
+
+    MODEL_RESPONSE_AUDIO_TRANSCRIPT_DONE = (
+        "model_response_audio_transcript_done"
+    )
+    """The realtime model response audio transcript done event."""
+
+    MODEL_RESPONSE_TOOL_USE_DELTA = "model_response_tool_use_delta"
+    """The realtime model response tool use delta event."""
+
+    MODEL_RESPONSE_TOOL_USE_DONE = "model_response_tool_use_done"
+    """The realtime model response tool use done event."""
 
     # Input transcription
-    INPUT_TRANSCRIPTION_DELTA = "model.input_transcription.delta"
-    INPUT_TRANSCRIPTION_DONE = "model.input_transcription.done"
+    MODEL_INPUT_TRANSCRIPTION_DELTA = "model_input_transcription_delta"
+    """The input transcription delta event."""
+
+    MODEL_INPUT_TRANSCRIPTION_DONE = "model_input_transcription_done"
+    """The input transcription done event."""
 
     # Input detection (VAD)
-    INPUT_STARTED = "model.input.started"
-    INPUT_DONE = "model.input.done"
+    MODEL_INPUT_STARTED = "model_input_started"
+    """The input has started event."""
 
-    # Error
-    ERROR = "model.error"
+    MODEL_INPUT_DONE = "model_input_done"
+    """The input has done event."""
+
+    # ============= ERROR EVENTS =============
+
+    MODEL_ERROR = "model_error"
+    """An error event from the realtime model API."""
+
+    # ============ WebSocket Events ============
 
     # WebSocket events (if used)
-    WEBSOCKET_CONNECT = "model.websocket_connect"
-    WEBSOCKET_DISCONNECT = "model.websocket_disconnect"
+    MODEL_WEBSOCKET_CONNECT = "model_websocket_connect"
+    """The model WebSocket has connected."""
+
+    MODEL_WEBSOCKET_DISCONNECT = "model_websocket_disconnect"
+    """The model WebSocket has disconnected."""
 
 
 class ModelEvents:
@@ -50,19 +88,27 @@ class ModelEvents:
         """The base class for all model events, used to unify the type
         hinting."""
 
-    class SessionCreatedEvent(EventBase):
-        """Session created event."""
+    class ModelSessionCreatedEvent(EventBase):
+        """Realtime model session created event.
+
+        .. note:: This session is the connection between the realtime API and
+              the client, not the conversation session.
+        """
 
         session_id: str
         """The session ID."""
 
         type: Literal[
-            ModelEventType.SESSION_CREATED
-        ] = ModelEventType.SESSION_CREATED
+            ModelEventType.MODEL_SESSION_CREATED
+        ] = ModelEventType.MODEL_SESSION_CREATED
         """The event type."""
 
-    class SessionEndedEvent(EventBase):
-        """Session ended event."""
+    class ModelSessionEndedEvent(EventBase):
+        """Session ended event.
+
+        .. note:: This session is the connection between the realtime API and
+              the client, not the conversation session.
+        """
 
         session_id: str
         """The session ID."""
@@ -70,21 +116,23 @@ class ModelEvents:
         reason: str
         """The reason for session end."""
 
-        type: Literal[ModelEventType.SESSION_ENDED]
+        type: Literal[
+            ModelEventType.MODEL_SESSION_ENDED
+        ] = ModelEventType.MODEL_SESSION_ENDED
         """The event type."""
 
-    class ResponseCreatedEvent(EventBase):
+    class ModelResponseCreatedEvent(EventBase):
         """The realtime model begins generating a response."""
 
         response_id: str
         """The response ID."""
 
         type: Literal[
-            ModelEventType.RESPONSE_CREATED
-        ] = ModelEventType.RESPONSE_CREATED
+            ModelEventType.MODEL_RESPONSE_CREATED
+        ] = ModelEventType.MODEL_RESPONSE_CREATED
         """The event type."""
 
-    class ResponseDoneEvent(EventBase):
+    class ModelResponseDoneEvent(EventBase):
         """Model response done event."""
 
         response_id: str
@@ -100,11 +148,11 @@ class ModelEvents:
         """Additional metadata."""
 
         type: Literal[
-            ModelEventType.RESPONSE_DONE
-        ] = ModelEventType.RESPONSE_DONE
+            ModelEventType.MODEL_RESPONSE_DONE
+        ] = ModelEventType.MODEL_RESPONSE_DONE
         """The event type."""
 
-    class ResponseAudioDeltaEvent(EventBase):
+    class ModelResponseAudioDeltaEvent(EventBase):
         """Model response audio delta event."""
 
         response_id: str
@@ -120,11 +168,11 @@ class ModelEvents:
         """The audio format information."""
 
         type: Literal[
-            ModelEventType.RESPONSE_AUDIO_DELTA
-        ] = ModelEventType.RESPONSE_AUDIO_DELTA
+            ModelEventType.MODEL_RESPONSE_AUDIO_DELTA
+        ] = ModelEventType.MODEL_RESPONSE_AUDIO_DELTA
         """The event type."""
 
-    class ResponseAudioDoneEvent(EventBase):
+    class ModelResponseAudioDoneEvent(EventBase):
         """Model response audio done event."""
 
         response_id: str
@@ -134,11 +182,11 @@ class ModelEvents:
         """The conversation item ID."""
 
         type: Literal[
-            ModelEventType.RESPONSE_AUDIO_DONE
-        ] = ModelEventType.RESPONSE_AUDIO_DONE
+            ModelEventType.MODEL_RESPONSE_AUDIO_DONE
+        ] = ModelEventType.MODEL_RESPONSE_AUDIO_DONE
         """The event type."""
 
-    class ResponseAudioTranscriptDeltaEvent(EventBase):
+    class ModelResponseAudioTranscriptDeltaEvent(EventBase):
         """Model response audio transcript delta event."""
 
         response_id: str
@@ -151,11 +199,11 @@ class ModelEvents:
         """The transcript chunk data."""
 
         type: Literal[
-            ModelEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA
-        ] = ModelEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA
+            ModelEventType.MODEL_RESPONSE_AUDIO_TRANSCRIPT_DELTA
+        ] = ModelEventType.MODEL_RESPONSE_AUDIO_TRANSCRIPT_DELTA
         """The event type."""
 
-    class ResponseAudioTranscriptDoneEvent(EventBase):
+    class ModelResponseAudioTranscriptDoneEvent(EventBase):
         """Model response audio transcript done event."""
 
         response_id: str
@@ -165,11 +213,11 @@ class ModelEvents:
         """The conversation item ID."""
 
         type: Literal[
-            ModelEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE
-        ] = ModelEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE
+            ModelEventType.MODEL_RESPONSE_AUDIO_TRANSCRIPT_DONE
+        ] = ModelEventType.MODEL_RESPONSE_AUDIO_TRANSCRIPT_DONE
         """The event type."""
 
-    class ResponseToolUseDeltaEvent(EventBase):
+    class ModelResponseToolUseDeltaEvent(EventBase):
         """Model response tool use delta event."""
 
         response_id: str
@@ -178,21 +226,16 @@ class ModelEvents:
         item_id: str
         """The response item ID."""
 
-        name: str
-        """The tool name."""
-
-        call_id: str
-        """The tool call ID."""
-
-        input: str  # accumulated tool arguments JSON string
-        """The accumulated tool arguments as JSON string."""
+        tool_use: ToolUseBlock
+        """The tool use block delta, the arguments are accumulated in the
+        `raw_input` field."""
 
         type: Literal[
-            ModelEventType.RESPONSE_TOOL_USE_DELTA
-        ] = ModelEventType.RESPONSE_TOOL_USE_DELTA
+            ModelEventType.MODEL_RESPONSE_TOOL_USE_DELTA
+        ] = ModelEventType.MODEL_RESPONSE_TOOL_USE_DELTA
         """The event type."""
 
-    class ResponseToolUseDoneEvent(EventBase):
+    class ModelResponseToolUseDoneEvent(EventBase):
         """Model response tool use done event."""
 
         response_id: str
@@ -201,15 +244,15 @@ class ModelEvents:
         item_id: str
         """The response item ID."""
 
-        call_id: str
-        """The tool call ID."""
+        tool_use: ToolUseBlock
+        """The complete tool use block."""
 
         type: Literal[
-            ModelEventType.RESPONSE_TOOL_USE_DONE
-        ] = ModelEventType.RESPONSE_TOOL_USE_DONE
+            ModelEventType.MODEL_RESPONSE_TOOL_USE_DONE
+        ] = ModelEventType.MODEL_RESPONSE_TOOL_USE_DONE
         """The event type."""
 
-    class InputTranscriptionDeltaEvent(EventBase):
+    class ModelInputTranscriptionDeltaEvent(EventBase):
         """Input transcription delta event."""
 
         item_id: str
@@ -219,18 +262,18 @@ class ModelEvents:
         """The transcription delta."""
 
         type: Literal[
-            ModelEventType.INPUT_TRANSCRIPTION_DELTA
-        ] = ModelEventType.INPUT_TRANSCRIPTION_DELTA
+            ModelEventType.MODEL_INPUT_TRANSCRIPTION_DELTA
+        ] = ModelEventType.MODEL_INPUT_TRANSCRIPTION_DELTA
         """The event type."""
 
-    class InputTranscriptionDoneEvent(EventBase):
+    class ModelInputTranscriptionDoneEvent(EventBase):
         """Input transcription done event."""
-
-        item_id: str
-        """The conversation item ID."""
 
         transcript: str
         """The complete transcription."""
+
+        item_id: str
+        """The conversation item ID."""
 
         input_tokens: int | None = None
         """The number of input tokens."""
@@ -239,11 +282,11 @@ class ModelEvents:
         """The number of output tokens."""
 
         type: Literal[
-            ModelEventType.INPUT_TRANSCRIPTION_DONE
-        ] = ModelEventType.INPUT_TRANSCRIPTION_DONE
+            ModelEventType.MODEL_INPUT_TRANSCRIPTION_DONE
+        ] = ModelEventType.MODEL_INPUT_TRANSCRIPTION_DONE
         """The event type."""
 
-    class InputStartedEvent(EventBase):
+    class ModelInputStartedEvent(EventBase):
         """Input started event."""
 
         item_id: str
@@ -253,11 +296,11 @@ class ModelEvents:
         """The audio start time in milliseconds."""
 
         type: Literal[
-            ModelEventType.INPUT_STARTED
-        ] = ModelEventType.INPUT_STARTED
+            ModelEventType.MODEL_INPUT_STARTED
+        ] = ModelEventType.MODEL_INPUT_STARTED
         """The event type."""
 
-    class InputDoneEvent(EventBase):
+    class ModelInputDoneEvent(EventBase):
         """Input done event."""
 
         item_id: str
@@ -266,10 +309,12 @@ class ModelEvents:
         audio_end_ms: int
         """The audio end time in milliseconds."""
 
-        type: Literal[ModelEventType.INPUT_DONE] = ModelEventType.INPUT_DONE
+        type: Literal[
+            ModelEventType.MODEL_INPUT_DONE
+        ] = ModelEventType.MODEL_INPUT_DONE
         """The event type."""
 
-    class ErrorEvent(EventBase):
+    class ModelErrorEvent(EventBase):
         """Error event."""
 
         error_type: str
@@ -281,17 +326,17 @@ class ModelEvents:
         message: str
         """The error message."""
 
-        type: Literal[ModelEventType.ERROR] = ModelEventType.ERROR
+        type: Literal[ModelEventType.MODEL_ERROR] = ModelEventType.MODEL_ERROR
         """The event type."""
 
     class WebsocketConnectEvent(EventBase):
         """WebSocket connect event."""
 
-        type: Literal[ModelEventType.WEBSOCKET_CONNECT]
+        type: Literal[ModelEventType.MODEL_WEBSOCKET_CONNECT]
         """The event type."""
 
     class WebsocketDisconnectEvent(EventBase):
         """WebSocket disconnect event."""
 
-        type: Literal[ModelEventType.WEBSOCKET_DISCONNECT]
+        type: Literal[ModelEventType.MODEL_WEBSOCKET_DISCONNECT]
         """The event type."""

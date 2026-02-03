@@ -214,7 +214,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         match data.get("type", ""):
             # ================ Session related events ================
             case "session.created":
-                model_event = ModelEvents.SessionCreatedEvent(
+                model_event = ModelEvents.ModelSessionCreatedEvent(
                     session_id=data.get("session", {}).get("id", ""),
                 )
 
@@ -226,7 +226,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             case "response.created":
                 # TODO: @qbc we create one shortuuid here?
                 self._response_id = data.get("response", {}).get("id", "")
-                model_event = ModelEvents.ResponseCreatedEvent(
+                model_event = ModelEvents.ModelResponseCreatedEvent(
                     response_id=self._response_id,
                 )
 
@@ -234,7 +234,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 response = data.get("response", {})
                 response_id = response.get("id", self._response_id)
                 usage = response.get("usage", {})
-                model_event = ModelEvents.ResponseDoneEvent(
+                model_event = ModelEvents.ModelResponseDoneEvent(
                     response_id=response_id,
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
@@ -245,7 +245,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             case "response.output_audio.delta":
                 audio_data = data.get("delta", "")
                 if audio_data:
-                    model_event = ModelEvents.ResponseAudioDeltaEvent(
+                    model_event = ModelEvents.ModelResponseAudioDeltaEvent(
                         response_id=self._response_id,
                         item_id=data.get("item_id", ""),
                         delta=audio_data,
@@ -256,7 +256,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                     )
 
             case "response.output_audio.done":
-                model_event = ModelEvents.ResponseAudioDoneEvent(
+                model_event = ModelEvents.ModelResponseAudioDoneEvent(
                     response_id=self._response_id,
                     item_id=data.get("item_id", ""),
                 )
@@ -266,7 +266,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 transcript_data = data.get("delta", "")
                 if transcript_data:
                     model_event = (
-                        ModelEvents.ResponseAudioTranscriptDeltaEvent(
+                        ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
                             response_id=self._response_id,
                             delta=transcript_data,
                             item_id=data.get("item_id", ""),
@@ -274,9 +274,11 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                     )
 
             case "response.output_audio_transcript.done":
-                model_event = ModelEvents.ResponseAudioTranscriptDoneEvent(
-                    response_id=self._response_id,
-                    item_id=data.get("item_id", ""),
+                model_event = (
+                    ModelEvents.ModelResponseAudioTranscriptDoneEvent(
+                        response_id=self._response_id,
+                        item_id=data.get("item_id", ""),
+                    )
                 )
 
             case "response.function_call_arguments.delta":
@@ -290,7 +292,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
                     # Return the accumulated arguments instead of just the
                     # delta
-                    model_event = ModelEvents.ResponseToolUseDeltaEvent(
+                    model_event = ModelEvents.ModelResponseToolUseDeltaEvent(
                         response_id=self._response_id,
                         item_id=data.get("item_id", ""),
                         call_id=call_id,
@@ -303,7 +305,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
             case "response.function_call_arguments.done":
                 call_id = data.get("call_id", "")
-                model_event = ModelEvents.ResponseToolUseDoneEvent(
+                model_event = ModelEvents.ModelResponseToolUseDoneEvent(
                     response_id=self._response_id,
                     call_id=call_id,
                     item_id=data.get("item_id", ""),
@@ -315,28 +317,30 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             case "conversation.item.input_audio_transcription.delta":
                 delta = data.get("delta", "")
                 if delta:
-                    model_event = ModelEvents.InputTranscriptionDeltaEvent(
-                        item_id=data.get("item_id", ""),
-                        delta=delta,
+                    model_event = (
+                        ModelEvents.ModelInputTranscriptionDeltaEvent(
+                            item_id=data.get("item_id", ""),
+                            delta=delta,
+                        )
                     )
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript_data = data.get("transcript", "")
                 if transcript_data:
-                    model_event = ModelEvents.InputTranscriptionDoneEvent(
+                    model_event = ModelEvents.ModelInputTranscriptionDoneEvent(
                         transcript=transcript_data,
                         item_id=data.get("item_id", ""),
                     )
 
             # ================= VAD related events =================
             case "input_audio_buffer.speech_started":
-                model_event = ModelEvents.InputStartedEvent(
+                model_event = ModelEvents.ModelInputStartedEvent(
                     item_id=data.get("item_id", ""),
                     audio_start_ms=data.get("audio_start_ms", 0),
                 )
 
             case "input_audio_buffer.speech_stopped":
-                model_event = ModelEvents.InputDoneEvent(
+                model_event = ModelEvents.ModelInputDoneEvent(
                     item_id=data.get("item_id", ""),
                     audio_end_ms=data.get("audio_end_ms", 0),
                 )
@@ -344,7 +348,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             # ================= Error events =================
             case "error":
                 error = data.get("error", {})
-                model_event = ModelEvents.ErrorEvent(
+                model_event = ModelEvents.ModelErrorEvent(
                     error_type=error.get("type", "unknown"),
                     code=error.get("code", "unknown"),
                     message=error.get("message", "An unknown error occurred."),

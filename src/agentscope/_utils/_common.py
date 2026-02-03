@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Type, Dict
 
+import numpy as np
 import requests
 from docstring_parser import parse
 from json_repair import repair_json
@@ -429,3 +430,75 @@ def _parse_tool_function(
         func_json_schema["function"]["description"] = func_description
 
     return func_json_schema
+
+
+def _generate_silence(duration_ms: int, sample_rate: int = 16000) -> str:
+    """Generate a silence segment of the given duration and sample rate,
+
+    Args:
+        duration_ms (`int`):
+            The duration of the silence segment in milliseconds.
+        sample_rate (`int`, defaults to `16000`):
+            The sample rate of the silence segment.
+
+    Returns:
+        `str`:
+            The base64 encoded silence audio data.
+    """
+    # The number of samples
+    num_samples = int(sample_rate * duration_ms / 1000)
+
+    # Generate silence samples (all zeros)
+    silence = np.zeros(num_samples, dtype=np.int16)
+
+    # Convert to base64
+    silence_base64 = base64.b64encode(silence.tobytes()).decode("utf-8")
+
+    return silence_base64
+
+
+def resample_pcm_delta_fast(
+    pcm_base64: str,
+    sample_rate: int,
+    target_rate: int,
+) -> str:
+    """Resampling the input pcm base64 data into the target rate.
+
+    Args:
+        pcm_base64 (`str`):
+            The input base64 audio data in pcm format.
+        sample_rate (`int`):
+            The sampling rate of the input data.
+        target_rate (`int`):
+            The target rate of the input data.
+
+    Returns:
+        `str`:
+            The resampling base64 audio data in the required sampling
+            rate.
+    """
+    pcm_data = base64.b64decode(pcm_base64)
+
+    # Into numpy array first
+    audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+
+    # return directly if the same
+    if sample_rate == target_rate:
+        return pcm_base64
+
+    # compute the number of samples
+    num_samples = int(len(audio_array) * target_rate / sample_rate)
+
+    from scipy import signal
+
+    # Use scipy to resample
+    resampled_audio = signal.resample(audio_array, num_samples)
+
+    # Turn it back into bytes
+    resampled_audio = np.clip(resampled_audio, -32768, 32767).astype(np.int16)
+
+    # into base64
+    resampled_bytes = resampled_audio.tobytes()
+    resampled_base64 = base64.b64encode(resampled_bytes).decode("utf-8")
+
+    return resampled_base64

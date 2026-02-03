@@ -3,18 +3,20 @@
 import asyncio
 from asyncio import Queue
 
-from ..agent import RealtimeAgentBase
-from ..realtime import ClientEvents
+from ..agent import RealtimeAgent
+from ..realtime import ClientEvents, ServerEvents
 
 
 class ChatRoom:
-    """The chat room class to manage multiple agents in a chat room."""
+    """The chat room abstraction to broadcast messages among multiple realtime
+    agents, and handle the messages from the frontend.
+    """
 
-    def __init__(self, agents: list[RealtimeAgentBase]) -> None:
+    def __init__(self, agents: list[RealtimeAgent]) -> None:
         """Initialize the ChatRoom class.
 
         Args:
-            agents (`list[RealtimeAgentBase]`):
+            agents (`list[RealtimeAgent]`):
                 The list of agents participating in the chat room.
         """
         self.agents = agents
@@ -25,11 +27,11 @@ class ChatRoom:
 
         self._task = None
 
-    async def start(self, queue: Queue) -> None:
+    async def start(self, outgoing_queue: Queue) -> None:
         """Establish connections for all agents in the chat room.
 
         Args:
-            queue (`Queue`):
+            outgoing_queue (`Queue`):
                 The queue to push messages to the frontend, which will be used
                 by all agents to push their messages.
         """
@@ -38,28 +40,41 @@ class ChatRoom:
             await agent.start(self._queue)
 
         # Start the forwarding loop.
-        self._task = asyncio.create_task(self._forward_loop(queue))
+        self._task = asyncio.create_task(self._forward_loop(outgoing_queue))
 
-    async def _forward_loop(self, queue: Queue) -> None:
+    async def _forward_loop(self, outgoing_queue: Queue) -> None:
         """The loop to forward messages from all agents to the frontend and
-        the other agents."""
+        the other agents.
+
+        Args:
+            outgoing_queue (`Queue`):
+                The queue to push messages to the frontend.
+        """
 
         while True:
-            msg = await self._queue.get()
+            # Obtain the message from the client frontend
+            event = await self._queue.get()
 
-            # Push the message to the frontend queue.
-            await queue.put(msg)
-
-            # TODO: maybe we should filter the events here, e.g. agent session
-            #  created, updated or the other non-message events.
-
-            # Broadcast the message to all agents except the sender.
-            # Use create_task instead of gather to avoid blocking
-            sender_id = getattr(msg, "agent_id", None)
-            if sender_id:
+            # Only push ServerEvents to the frontend, not ClientEvents
+            # to avoid echoing client messages back
+            if isinstance(event, ClientEvents.EventBase):
+                # Push the message to the frontend queue.
                 for agent in self.agents:
-                    if agent.id != sender_id:
-                        asyncio.create_task(agent.handle_input(msg))
+                    await agent.handle_input(event)
+
+            elif isinstance(event, ServerEvents.EventBase):
+                # Broadcast the message to all agents except the sender.
+                # Use create_task instead of gather to avoid blocking
+
+                # Forward the agent/server events to the frontend
+                await outgoing_queue.put(event)
+
+                # Broadcast to other agents
+                sender_id = getattr(event, "agent_id", None)
+                if sender_id:
+                    for agent in self.agents:
+                        if agent.id != sender_id:
+                            await agent.handle_input(event)
 
     async def stop(self) -> None:
         """Close connections for all agents in the chat room."""

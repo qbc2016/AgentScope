@@ -214,6 +214,12 @@ asyncio.run(main())
 https://github.com/user-attachments/assets/559af387-fd6f-4f0c-b882-cd4778214801
 
 
+### 实时语音智能体
+
+使用 AgentScope 轻松构建实时交互的智能体应用，提供统一的事件接口和工具调用支持。
+
+
+
 ### 人机协作
 
 在 ReActAgent 中支持实时打断：可以通过取消操作实时中断对话，并通过强大的记忆保留机制无缝恢复。

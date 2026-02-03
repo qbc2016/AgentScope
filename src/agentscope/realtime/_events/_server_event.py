@@ -5,25 +5,21 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from ...message import (
-    TextBlock,
-    ImageBlock,
-    AudioBlock,
-    VideoBlock,
-)
+from ._model_event import ModelEvents
+from ...message import ToolUseBlock, ToolResultBlock
 
 
 class ServerEventType(str, Enum):
     """Types of agent events for backend-to-web communication."""
 
     # Session lifecycle
-    SESSION_CREATED = "session_created"
+    SERVER_SESSION_CREATED = "server_session_created"
     """The session between the web frontend and backend is created."""
 
-    SESSION_UPDATED = "session_updated"
+    SERVER_SESSION_UPDATED = "server_session_updated"
     """The session between the web frontend and backend is updated."""
 
-    SESSION_ENDED = "session_ended"
+    SERVER_SESSION_ENDED = "server_session_ended"
     """The session between the web frontend and backend is ended."""
 
     # ============== AGENT LIFECYCLE EVENTS ================
@@ -37,56 +33,58 @@ class ServerEventType(str, Enum):
     # ============== AGENT RESPONSE EVENTS =================
 
     # Response events
-    RESPONSE_CREATED = "response_created"
+    AGENT_RESPONSE_CREATED = "agent_response_created"
     """The agent starts generating a response."""
 
-    RESPONSE_CANCELLED = "response_cancelled"
-    """The agent's response generation is interrupted/cancelled."""
-
-    RESPONSE_DONE = "response_done"
+    AGENT_RESPONSE_DONE = "agent_response_done"
     """The agent finished generating a response."""
 
     # ============== Response content events =================
 
-    RESPONSE_AUDIO_DELTA = "response_audio_delta"
+    AGENT_RESPONSE_AUDIO_DELTA = "agent_response_audio_delta"
     """The agent's response audio data delta."""
 
-    RESPONSE_AUDIO_DONE = "response_audio_done"
+    AGENT_RESPONSE_AUDIO_DONE = "agent_response_audio_done"
     """The agent's response audio data is complete."""
 
-    RESPONSE_AUDIO_TRANSCRIPT_DELTA = "response_audio_transcript_delta"
+    AGENT_RESPONSE_AUDIO_TRANSCRIPT_DELTA = (
+        "agent_response_audio_transcript_delta"
+    )
     """The agent's response audio transcription delta."""
 
-    RESPONSE_AUDIO_TRANSCRIPT_DONE = "response_audio_transcript_done"
+    AGENT_RESPONSE_AUDIO_TRANSCRIPT_DONE = (
+        "agent_response_audio_transcript_done"
+    )
     """The agent's response audio transcription is complete."""
 
-    RESPONSE_TOOL_USE_DELTA = "response_tool_use_delta"
+    AGENT_RESPONSE_TOOL_USE_DELTA = "agent_response_tool_use_delta"
     """The agent's response tool use data delta."""
 
-    RESPONSE_TOOL_USE_DONE = "response_tool_use_done"
+    AGENT_RESPONSE_TOOL_USE_DONE = "agent_response_tool_use_done"
     """The agent's response tool use data is complete."""
 
-    RESPONSE_TOOL_RESULT = "response_tool_result"
+    AGENT_RESPONSE_TOOL_RESULT = "agent_response_tool_result"
     """The tool execution result."""
 
     # ============== INPUT AUDIO TRANSCRIPTION EVENTS =================
 
-    INPUT_TRANSCRIPTION_DELTA = "input_transcription_delta"
+    AGENT_INPUT_TRANSCRIPTION_DELTA = "agent_input_transcription_delta"
     """The input audio transcription delta."""
 
-    INPUT_TRANSCRIPTION_DONE = "input_transcription_done"
+    AGENT_INPUT_TRANSCRIPTION_DONE = "agent_input_transcription_done"
     """The input audio transcription is complete."""
 
     # Input detection
-    INPUT_STARTED = "input_started"
+    AGENT_INPUT_STARTED = "agent_input_started"
     """Detected the start of user input audio."""
 
-    INPUT_DONE = "input_done"
+    AGENT_INPUT_DONE = "agent_input_done"
     """Detected the end of user input audio."""
 
     # ============== ERROR EVENTS =================
 
-    ERROR = "error"
+    AGENT_ERROR = "agent_error"
+    """An error occurred in the backend or agent."""
 
 
 class ServerEvents:
@@ -96,37 +94,37 @@ class ServerEvents:
         """The base class for all server events, used to unify the type
         hinting."""
 
-    class SessionCreatedEvent(EventBase):
-        """Session created event in the backend"""
+    class ServerSessionCreatedEvent(EventBase):
+        """Server session created event in the backend"""
 
         session_id: str
         """The session ID."""
 
         type: Literal[
-            ServerEventType.SESSION_CREATED
-        ] = ServerEventType.SESSION_CREATED
+            ServerEventType.SERVER_SESSION_CREATED
+        ] = ServerEventType.SERVER_SESSION_CREATED
         """The event type."""
 
-    class SessionUpdatedEvent(EventBase):
-        """Session updated event in the backend"""
+    class ServerSessionUpdatedEvent(EventBase):
+        """Server session updated event in the backend"""
 
         session_id: str
         """The session ID."""
 
         type: Literal[
-            ServerEventType.SESSION_UPDATED
-        ] = ServerEventType.SESSION_UPDATED
+            ServerEventType.SERVER_SESSION_UPDATED
+        ] = ServerEventType.SERVER_SESSION_UPDATED
         """The event type."""
 
-    class SessionEndedEvent(EventBase):
-        """Session ended event in the backend"""
+    class ServerSessionEndedEvent(EventBase):
+        """Server Session ended event in the backend"""
 
         session_id: str
         """The session ID."""
 
         type: Literal[
-            ServerEventType.SESSION_ENDED
-        ] = ServerEventType.SESSION_ENDED
+            ServerEventType.SERVER_SESSION_ENDED
+        ] = ServerEventType.SERVER_SESSION_ENDED
         """The event type."""
 
     class AgentReadyEvent(EventBase):
@@ -170,8 +168,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_CREATED
-        ] = ServerEventType.RESPONSE_CREATED
+            ServerEventType.AGENT_RESPONSE_CREATED
+        ] = ServerEventType.AGENT_RESPONSE_CREATED
         """The event type."""
 
     class AgentResponseDoneEvent(EventBase):
@@ -186,7 +184,7 @@ class ServerEvents:
         output_tokens: int
         """The number of output tokens used."""
 
-        metadata: dict[str, str]
+        metadata: dict[str, str] = {}
         """Additional metadata about the response."""
 
         agent_id: str
@@ -196,8 +194,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_DONE
-        ] = ServerEventType.RESPONSE_DONE
+            ServerEventType.AGENT_RESPONSE_DONE
+        ] = ServerEventType.AGENT_RESPONSE_DONE
         """The event type."""
 
     class AgentResponseAudioDeltaEvent(EventBase):
@@ -222,8 +220,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_AUDIO_DELTA
-        ] = ServerEventType.RESPONSE_AUDIO_DELTA
+            ServerEventType.AGENT_RESPONSE_AUDIO_DELTA
+        ] = ServerEventType.AGENT_RESPONSE_AUDIO_DELTA
         """The event type."""
 
     class AgentResponseAudioDoneEvent(EventBase):
@@ -242,8 +240,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_AUDIO_DONE
-        ] = ServerEventType.RESPONSE_AUDIO_DONE
+            ServerEventType.AGENT_RESPONSE_AUDIO_DONE
+        ] = ServerEventType.AGENT_RESPONSE_AUDIO_DONE
 
     class AgentResponseAudioTranscriptDeltaEvent(EventBase):
         """Response audio transcript delta event in the backend"""
@@ -264,8 +262,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA
-        ] = ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DELTA
+            ServerEventType.AGENT_RESPONSE_AUDIO_TRANSCRIPT_DELTA
+        ] = ServerEventType.AGENT_RESPONSE_AUDIO_TRANSCRIPT_DELTA
         """The event type."""
 
     class AgentResponseAudioTranscriptDoneEvent(EventBase):
@@ -284,8 +282,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE
-        ] = ServerEventType.RESPONSE_AUDIO_TRANSCRIPT_DONE
+            ServerEventType.AGENT_RESPONSE_AUDIO_TRANSCRIPT_DONE
+        ] = ServerEventType.AGENT_RESPONSE_AUDIO_TRANSCRIPT_DONE
         """The event type."""
 
     class AgentResponseToolUseDeltaEvent(EventBase):
@@ -297,14 +295,9 @@ class ServerEvents:
         item_id: str
         """The response item ID."""
 
-        name: str
-        """The tool name."""
-
-        call_id: str
-        """The tool call ID."""
-
-        input: str  # accumulated tool arguments JSON string
-        """The accumulated tool arguments as JSON string."""
+        tool_use: ToolUseBlock
+        """The tool use block delta, the arguments are accumulated in the
+        `raw_input` field."""
 
         agent_id: str
         """The agent ID."""
@@ -313,8 +306,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_TOOL_USE_DELTA
-        ] = ServerEventType.RESPONSE_TOOL_USE_DELTA
+            ServerEventType.AGENT_RESPONSE_TOOL_USE_DELTA
+        ] = ServerEventType.AGENT_RESPONSE_TOOL_USE_DELTA
         """The event type."""
 
     class AgentResponseToolUseDoneEvent(EventBase):
@@ -326,8 +319,8 @@ class ServerEvents:
         item_id: str
         """The response item ID."""
 
-        call_id: str
-        """The tool call ID."""
+        tool_use: ToolUseBlock
+        """The complete tool use block."""
 
         agent_id: str
         """The agent ID."""
@@ -336,21 +329,15 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_TOOL_USE_DONE
-        ] = ServerEventType.RESPONSE_TOOL_USE_DONE
+            ServerEventType.AGENT_RESPONSE_TOOL_USE_DONE
+        ] = ServerEventType.AGENT_RESPONSE_TOOL_USE_DONE
         """The event type."""
 
     class AgentResponseToolResultEvent(EventBase):
         """Response tool result event"""
 
-        call_id: str
-        """The tool call ID."""
-
-        name: str
-        """The tool name."""
-
-        output: str | list[TextBlock | ImageBlock | AudioBlock | VideoBlock]
-        """The tool output."""
+        tool_result: ToolResultBlock
+        """The tool result block."""
 
         agent_id: str
         """The agent ID."""
@@ -359,12 +346,15 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.RESPONSE_TOOL_RESULT
-        ] = ServerEventType.RESPONSE_TOOL_RESULT
+            ServerEventType.AGENT_RESPONSE_TOOL_RESULT
+        ] = ServerEventType.AGENT_RESPONSE_TOOL_RESULT
         """The event type."""
 
     class AgentInputTranscriptionDeltaEvent(EventBase):
         """Input transcription delta event in the backend"""
+
+        item_id: str
+        """The conversation item ID."""
 
         delta: str
         """The transcription chunk data."""
@@ -376,8 +366,8 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.INPUT_TRANSCRIPTION_DELTA
-        ] = ServerEventType.INPUT_TRANSCRIPTION_DELTA
+            ServerEventType.AGENT_INPUT_TRANSCRIPTION_DELTA
+        ] = ServerEventType.AGENT_INPUT_TRANSCRIPTION_DELTA
         """The event type."""
 
     class AgentInputTranscriptionDoneEvent(EventBase):
@@ -386,10 +376,13 @@ class ServerEvents:
         transcript: str
         """The complete transcription text."""
 
-        input_tokens: int
+        item_id: str
+        """The conversation item ID."""
+
+        input_tokens: int | None = None
         """The number of input tokens."""
 
-        output_tokens: int
+        output_tokens: int | None = None
         """The number of output tokens."""
 
         agent_id: str
@@ -399,12 +392,18 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.INPUT_TRANSCRIPTION_DONE
-        ] = ServerEventType.INPUT_TRANSCRIPTION_DONE
+            ServerEventType.AGENT_INPUT_TRANSCRIPTION_DONE
+        ] = ServerEventType.AGENT_INPUT_TRANSCRIPTION_DONE
         """The event type."""
 
     class AgentInputStartedEvent(EventBase):
         """Input started event in the backend"""
+
+        item_id: str
+        """The conversation item ID."""
+
+        audio_start_ms: int
+        """The audio start time in milliseconds."""
 
         agent_id: str
         """The agent ID."""
@@ -413,12 +412,18 @@ class ServerEvents:
         """The agent name."""
 
         type: Literal[
-            ServerEventType.INPUT_STARTED
-        ] = ServerEventType.INPUT_STARTED
+            ServerEventType.AGENT_INPUT_STARTED
+        ] = ServerEventType.AGENT_INPUT_STARTED
         """The event type."""
 
     class AgentInputDoneEvent(EventBase):
         """Input done event in the backend"""
+
+        item_id: str
+        """The conversation item ID."""
+
+        audio_end_ms: int
+        """The audio end time in milliseconds."""
 
         agent_id: str
         """The agent ID."""
@@ -426,7 +431,9 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-        type: Literal[ServerEventType.INPUT_DONE] = ServerEventType.INPUT_DONE
+        type: Literal[
+            ServerEventType.AGENT_INPUT_DONE
+        ] = ServerEventType.AGENT_INPUT_DONE
         """The event type."""
 
     class AgentErrorEvent(EventBase):
@@ -447,5 +454,70 @@ class ServerEvents:
         agent_name: str
         """The agent name."""
 
-        type: Literal[ServerEventType.ERROR] = ServerEventType.ERROR
+        type: Literal[
+            ServerEventType.AGENT_ERROR
+        ] = ServerEventType.AGENT_ERROR
         """The event type."""
+
+    @classmethod
+    def from_model_event(
+        cls,
+        model_event: ModelEvents.ModelResponseCreatedEvent
+        | ModelEvents.ModelResponseDoneEvent
+        | ModelEvents.ModelResponseAudioDeltaEvent
+        | ModelEvents.ModelResponseAudioDoneEvent
+        | ModelEvents.ModelResponseAudioTranscriptDeltaEvent
+        | ModelEvents.ModelResponseAudioTranscriptDoneEvent
+        | ModelEvents.ModelResponseToolUseDeltaEvent
+        | ModelEvents.ModelResponseToolUseDoneEvent
+        | ModelEvents.ModelInputTranscriptionDeltaEvent
+        | ModelEvents.ModelInputTranscriptionDoneEvent
+        | ModelEvents.ModelInputStartedEvent
+        | ModelEvents.ModelInputDoneEvent
+        | ModelEvents.ModelErrorEvent,
+        agent_id: str,
+        agent_name: str,
+    ) -> EventBase:
+        """Convert a model event to a server event quickly with
+        1) replace the "model_" prefix with "agent_" in the type field; 2) add
+        agent_id and agent_name fields
+
+        Args:
+            model_event (`ModelEvents.EventBase`):
+                The model event to convert.
+            agent_id (`str`):
+                The agent ID.
+            agent_name (`str`):
+                The agent name.
+
+        Returns:
+            `ServerEvents.EventBase`:
+                The converted server event.
+        """
+        # Obtain the corresponding agent event class
+        cls_name = model_event.__class__.__name__.replace("Model", "Agent")
+        agent_event_cls = getattr(cls, cls_name)
+
+        # The data dict of the model event
+        model_event_dict = model_event.model_dump()
+
+        # 1) Replace the "model_" prefix with "agent_" in the type field
+        if "type" in model_event_dict:
+            model_event_dict["type"] = model_event_dict["type"].replace(
+                "model_",
+                "agent_",
+            )
+
+        try:
+            # 2) Add agent_id and agent_name fields
+            model_event_dict["agent_id"] = agent_id
+            model_event_dict["agent_name"] = agent_name
+            agent_event = agent_event_cls.model_validate(model_event_dict)
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to convert model event {model_event} to agent "
+                f"event {agent_event_cls}: {e}",
+            ) from e
+
+        return agent_event

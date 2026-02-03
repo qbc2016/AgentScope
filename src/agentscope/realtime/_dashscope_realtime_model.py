@@ -3,6 +3,7 @@
 import json
 from typing import Literal, Any
 
+import shortuuid
 from websockets import State
 
 from ._events import ModelEvents
@@ -16,11 +17,11 @@ class DashScopeRealtimeModel(RealtimeModelBase):
     """The DashScope realtime model class.
 
     TODO:
-    - Support non-VAD mode
-    - Support update session config during the session
+     - Support non-VAD mode
+     - Support update session config during the session
     """
 
-    support_input_modalities: list[str] = ["audio", "image"]
+    support_input_modalities: list[str] = ["text", "audio", "image"]
     """The supported input modalities of the DashScope realtime model."""
 
     support_tools: bool = False
@@ -48,8 +49,8 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         self,
         model_name: str,
         api_key: str,
-        voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
-        | str = "Cherry",
+        voice: str
+        | Literal["Cherry", "Serena", "Ethan", "Chelsie"] = "Cherry",
         enable_input_audio_transcription: bool = True,
     ) -> None:
         """Initialize the DashScopeRealtimeModel class.
@@ -59,7 +60,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 The model name, e.g. "qwen3-omni-flash-realtime".
             api_key (`str`):
                 The API key for authentication.
-            voice (`Literal["Cherry", "Serena", "Ethan", "Chelsie"] | str`, \
+            voice (`str | Literal["Cherry", "Serena", "Ethan", "Chelsie"]`, \
             defaults to `"Cherry"`):
                 The voice to be used for text-to-speech.
             enable_input_audio_transcription (`bool`, defaults to `True`):
@@ -185,8 +186,22 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 ),
             )
 
+        elif data_type == "text":
+            to_send_message = json.dumps(
+                {
+                    "event_id": shortuuid.uuid(),
+                    "type": "response.create",
+                    "response": {
+                        "instructions": data.get("text", ""),
+                    },
+                },
+                ensure_ascii=False,
+            )
+
         else:
-            raise RuntimeError(f"Unsupported data type {data_type}")
+            raise ValueError(
+                f"Unsupported data type: {data_type}",
+            )
 
         await self._websocket.send(to_send_message)
 
@@ -216,7 +231,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         match data.get("type", ""):
             # ================ Session related events ================
             case "session.created":
-                model_event = ModelEvents.SessionCreatedEvent(
+                model_event = ModelEvents.ModelSessionCreatedEvent(
                     session_id=data.get("session", {}).get("id", ""),
                 )
 
@@ -227,7 +242,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             # ================ Response related events ================
             case "response.created":
                 self._response_id = data.get("response", {}).get("id", "")
-                model_event = ModelEvents.ResponseCreatedEvent(
+                model_event = ModelEvents.ModelResponseCreatedEvent(
                     response_id=self._response_id,
                 )
 
@@ -235,7 +250,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 response = data.get("response", {})
                 response_id = response.get("id", "") or self._response_id
                 usage = response.get("usage", {})
-                model_event = ModelEvents.ResponseDoneEvent(
+                model_event = ModelEvents.ModelResponseDoneEvent(
                     response_id=response_id,
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
@@ -246,7 +261,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             case "response.audio.delta":
                 audio_data = data.get("delta", "")
                 if audio_data:
-                    model_event = ModelEvents.ResponseAudioDeltaEvent(
+                    model_event = ModelEvents.ModelResponseAudioDeltaEvent(
                         response_id=self._response_id,
                         item_id=data.get("item_id", ""),
                         delta=audio_data,
@@ -257,7 +272,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                     )
 
             case "response.audio.done":
-                model_event = ModelEvents.ResponseAudioDoneEvent(
+                model_event = ModelEvents.ModelResponseAudioDoneEvent(
                     response_id=self._response_id,
                     item_id=data.get("item_id", ""),
                 )
@@ -268,7 +283,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 transcript_data = data.get("delta", "")
                 if transcript_data:
                     model_event = (
-                        ModelEvents.ResponseAudioTranscriptDeltaEvent(
+                        ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
                             response_id=self._response_id,
                             delta=transcript_data,
                             item_id=data.get("item_id", ""),
@@ -276,28 +291,30 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                     )
 
             case "response.audio_transcript.done":
-                model_event = ModelEvents.ResponseAudioTranscriptDoneEvent(
-                    response_id=self._response_id,
-                    item_id=data.get("item_id", ""),
+                model_event = (
+                    ModelEvents.ModelResponseAudioTranscriptDoneEvent(
+                        response_id=self._response_id,
+                        item_id=data.get("item_id", ""),
+                    )
                 )
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript_data = data.get("transcript", "")
                 if transcript_data:
-                    model_event = ModelEvents.InputTranscriptionDoneEvent(
+                    model_event = ModelEvents.ModelInputTranscriptionDoneEvent(
                         transcript=transcript_data,
                         item_id=data.get("item_id", ""),
                     )
 
             # ================= VAD related events =================
             case "input_audio_buffer.speech_started":
-                model_event = ModelEvents.InputStartedEvent(
+                model_event = ModelEvents.ModelInputStartedEvent(
                     item_id=data.get("item_id", ""),
                     audio_start_ms=data.get("audio_start_ms", 0),
                 )
 
             case "input_audio_buffer.speech_stopped":
-                model_event = ModelEvents.InputDoneEvent(
+                model_event = ModelEvents.ModelInputDoneEvent(
                     item_id=data.get("item_id", ""),
                     audio_end_ms=data.get("audio_end_ms", 0),
                 )
@@ -305,7 +322,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             # ================= Error events =================
             case "error":
                 error = data.get("error", {})
-                model_event = ModelEvents.ErrorEvent(
+                model_event = ModelEvents.ModelErrorEvent(
                     error_type=error.get("type", "unknown"),
                     code=error.get("code", "unknown"),
                     message=error.get("message", "An unknown error occurred."),

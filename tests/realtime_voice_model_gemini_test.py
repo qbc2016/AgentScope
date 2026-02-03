@@ -398,7 +398,7 @@ class TestGeminiRealtimeModelParseServerMessage(unittest.TestCase):
         event = self.model._parse_server_message(msg)
 
         # Return value is SESSION_UPDATED when no audio
-        self.assertEqual(event.type, ModelEventType.SESSION_UPDATED)
+        self.assertEqual(event.type, ModelEventType.SERVER_SESSION_UPDATED)
         # Text is emitted via callback
         self.assertEqual(len(emitted_events), 1)
         self.assertIsInstance(
@@ -511,7 +511,7 @@ class TestGeminiRealtimeModelParseServerMessage(unittest.TestCase):
         )
         event = self.model._parse_server_message(msg)
 
-        self.assertEqual(event.type, ModelEventType.SESSION_UPDATED)
+        self.assertEqual(event.type, ModelEventType.SERVER_SESSION_UPDATED)
 
     def test_parse_filters_thought_parts(self) -> None:
         """Test that thought parts are filtered out."""
@@ -555,7 +555,7 @@ class TestGeminiRealtimeModelParseServerMessage(unittest.TestCase):
         )
         # Should not raise an error
         event = self.model._parse_server_message(msg)
-        self.assertEqual(event.type, ModelEventType.SESSION_UPDATED)
+        self.assertEqual(event.type, ModelEventType.SERVER_SESSION_UPDATED)
 
 
 class TestGeminiRealtimeModelResponseIdGeneration(unittest.TestCase):

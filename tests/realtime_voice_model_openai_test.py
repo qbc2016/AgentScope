@@ -536,7 +536,7 @@ class TestOpenAIRealtimeModelParseServerMessage(unittest.TestCase):
         )
         event = self.model._parse_server_message(msg)
 
-        self.assertEqual(event.type, ModelEventType.SESSION_UPDATED)
+        self.assertEqual(event.type, ModelEventType.SERVER_SESSION_UPDATED)
 
     def test_parse_rate_limits_updated(self) -> None:
         """Test parsing rate_limits.updated event."""
@@ -548,7 +548,7 @@ class TestOpenAIRealtimeModelParseServerMessage(unittest.TestCase):
         )
         event = self.model._parse_server_message(msg)
 
-        self.assertEqual(event.type, ModelEventType.SESSION_UPDATED)
+        self.assertEqual(event.type, ModelEventType.SERVER_SESSION_UPDATED)
 
 
 class TestOpenAIRealtimeModelPreprocessAudio(unittest.TestCase):

@@ -536,7 +536,7 @@ class TestDashScopeRealtimeModelParseServerMessage(unittest.TestCase):
         event = self.model._parse_server_message(msg)
 
         # Should return generic event
-        self.assertEqual(event.type, ModelEventType.SESSION_UPDATED)
+        self.assertEqual(event.type, ModelEventType.SERVER_SESSION_UPDATED)
 
 
 class TestDashScopeRealtimeModelPreprocessAudio(unittest.TestCase):

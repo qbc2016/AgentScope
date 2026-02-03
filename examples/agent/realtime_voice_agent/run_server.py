@@ -10,7 +10,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse
 
 from agentscope import logger
-from agentscope.agent import RealtimeAgentBase
+from agentscope.agent import RealtimeAgent
 from agentscope.realtime import (
     DashScopeRealtimeModel,
     ClientEvents,
@@ -82,7 +82,10 @@ async def single_agent_endpoint(
                 ClientEvents.ClientSessionCreateEvent,
             ):
                 # Create the agent by the given session arguments
-                instructions = client_event.config.get("instructions", "You're a helpful assistant.")
+                instructions = client_event.config.get(
+                    "instructions",
+                    "You're a helpful assistant.",
+                )
                 user_name = client_event.config.get("user_name", "User")
 
                 sys_prompt = (
@@ -91,7 +94,7 @@ async def single_agent_endpoint(
                 )
 
                 # Create the agent
-                agent = RealtimeAgentBase(
+                agent = RealtimeAgent(
                     name="Friday",
                     sys_prompt=sys_prompt,
                     model=DashScopeRealtimeModel(
@@ -104,7 +107,7 @@ async def single_agent_endpoint(
 
                 # Send session_created event to frontend
                 await websocket.send_json(
-                    ServerEvents.SessionCreatedEvent(
+                    ServerEvents.ServerSessionCreatedEvent(
                         session_id=session_id,
                     ).model_dump(),
                 )

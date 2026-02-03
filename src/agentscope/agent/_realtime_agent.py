@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """The realtime agent class."""
 import asyncio
-import json
 from asyncio import Queue
 
 import shortuuid
 
 from .._logging import logger
+from .._utils._common import resample_pcm_delta_fast
 from ..message import (
     AudioBlock,
     Base64Source,
@@ -25,10 +25,41 @@ from ..realtime import (
 from ..tool import Toolkit
 
 
-class RealtimeAgentBase(StateModule):
-    """The realtime agent base class. Different from the `AgentBase` class,
+class RealtimeAgent(StateModule):
+    """The realtime agent class. Different from the `AgentBase` class,
     this class is designed for real-time interaction scenarios, such as
     realtime chat, voice assistants, etc.
+
+    Example:
+        This realtime agent requires a queue to handle outgoing messages to
+        the frontend and other agents, and its lifecycle is managed by the
+        `start` and `stop` methods.
+
+        .. code-block:: python
+            :caption: An example of using the RealtimeAgent class.
+
+            from agentscope.agent import RealtimeAgent
+            from agentscope.realtime import DashScopeRealtimeModel
+            import asyncio
+
+            agent = RealtimeAgent(
+                name="Friday",
+                sys_prompt="You are a helpful assistant.",
+                model=DashScopeRealtimeModel(
+                    model_name="qwen3-omni-flash-realtime",
+                    api_key=os.getenv("DASHSCOPE_API_KEY"),
+                )
+            )
+
+            queue = asyncio.Queue()
+            await agent.start(queue)
+
+            # handle the outgoing messages from the agent in another asyncio
+            # task
+            ...
+
+            await agent.stop()
+
     """
 
     def __init__(
@@ -58,13 +89,6 @@ class RealtimeAgentBase(StateModule):
         self.sys_prompt = sys_prompt
         self.model = model
         self.toolkit = toolkit
-
-        # Tool arguments accumulator for tracking tool call parameters
-        self._tool_args_accumulator: dict[str, str] = {}
-
-        # Tool name cache for storing tool names (since
-        # ResponseToolUseDoneEvent doesn't have name)
-        self._tool_name_cache: dict[str, str] = {}
 
         # A queue to handle the incoming events from other agents or the
         # frontend.
@@ -122,23 +146,35 @@ class RealtimeAgentBase(StateModule):
             event = await self._incoming_queue.get()
 
             match event:
-                # TODO: handle both the server and client events, and send
-                #  them to the realtime model as needed by the send method.
                 # Only handle the events that we need
                 case ServerEvents.AgentResponseAudioDeltaEvent() as event:
+                    # Convert the sample rate to the required format by the
+                    # model
+                    receive_rate = event.format.get("rate", 16000)
+                    if self.model.input_sample_rate != receive_rate:
+                        delta = resample_pcm_delta_fast(
+                            event.delta,
+                            receive_rate,
+                            self.model.input_sample_rate,
+                        )
+
+                    else:
+                        delta = event.delta
+
                     await self.model.send(
                         AudioBlock(
                             type="audio",
                             source=Base64Source(
                                 type="base64",
-                                media_type=event.format.get(
-                                    "type",
-                                    "audio/pcm",
-                                ),
-                                data=event.delta,
+                                media_type="audio/pcm",
+                                data=delta,
                             ),
                         ),
                     )
+
+                case ServerEvents.AgentResponseAudioDoneEvent():
+                    # Send a silence audio block to indicate the end of audio
+                    pass
 
                 case ClientEvents.ClientAudioAppendEvent() as event:
                     # Construct media_type from format info
@@ -201,239 +237,62 @@ class RealtimeAgentBase(StateModule):
 
             agent_event = None
             match model_event:
-                # TODO: map all the model events to agent/server events
-                #  automatically
-                case ModelEvents.SessionCreatedEvent():
+                # The events that can be converted from model events to agent
+                #  events directly
+                case (
+                    ModelEvents.ModelResponseCreatedEvent()
+                    | ModelEvents.ModelResponseDoneEvent()
+                    | ModelEvents.ModelResponseAudioDeltaEvent()
+                    | ModelEvents.ModelResponseAudioDoneEvent()
+                    | ModelEvents.ModelResponseAudioTranscriptDeltaEvent()
+                    | ModelEvents.ModelResponseAudioTranscriptDoneEvent()
+                    | ModelEvents.ModelResponseToolUseDoneEvent()
+                    | ModelEvents.ModelInputTranscriptionDeltaEvent()
+                    | ModelEvents.ModelInputTranscriptionDoneEvent()
+                    | ModelEvents.ModelInputStartedEvent()
+                    | ModelEvents.ModelInputDoneEvent()
+                    | ModelEvents.ModelErrorEvent()
+                ) as event:
+                    # Directly map the model event to agent event
+                    agent_event = ServerEvents.from_model_event(
+                        event,
+                        **agent_kwargs,
+                    )
+
+                # The events that need special handling
+                case ModelEvents.ModelSessionCreatedEvent():
                     # Send the agent ready event to the outside.
                     agent_event = ServerEvents.AgentReadyEvent(**agent_kwargs)
 
-                case ModelEvents.SessionEndedEvent():
+                case ModelEvents.ModelSessionEndedEvent():
                     # Send the agent session ended event to the outside.
                     agent_event = ServerEvents.AgentEndedEvent(**agent_kwargs)
 
-                case ModelEvents.ResponseCreatedEvent() as event:
-                    # The agent begins generating a response.
-                    agent_event = ServerEvents.AgentResponseCreatedEvent(
-                        response_id=event.response_id,
-                        **agent_kwargs,
-                    )
-
-                case ModelEvents.ResponseDoneEvent() as event:
-                    agent_event = ServerEvents.AgentResponseDoneEvent(
-                        response_id=event.response_id,
-                        input_tokens=event.input_tokens,
-                        output_tokens=event.output_tokens,
-                        metadata=event.metadata,
-                        **agent_kwargs,
-                    )
-
-                case ModelEvents.ResponseAudioDeltaEvent() as event:
-                    agent_event = ServerEvents.AgentResponseAudioDeltaEvent(
-                        response_id=event.response_id,
-                        item_id=event.item_id,
-                        delta=event.delta,
-                        format=event.format,
-                        **agent_kwargs,
-                    )
-
-                case ModelEvents.ResponseAudioDoneEvent() as event:
-                    agent_event = ServerEvents.AgentResponseAudioDoneEvent(
-                        response_id=event.response_id,
-                        item_id=event.item_id,
-                        **agent_kwargs,
-                    )
-
-                case ModelEvents.ResponseAudioTranscriptDeltaEvent() as event:
-                    agent_event = (
-                        ServerEvents.AgentResponseAudioTranscriptDeltaEvent(
-                            response_id=event.response_id,
-                            item_id=event.item_id,
-                            delta=event.delta,
-                            **agent_kwargs,
-                        )
-                    )
-
-                case ModelEvents.ResponseAudioTranscriptDoneEvent() as event:
-                    agent_event = (
-                        ServerEvents.AgentResponseAudioTranscriptDoneEvent(
-                            response_id=event.response_id,
-                            item_id=event.item_id,
-                            **agent_kwargs,
-                        )
-                    )
-
-                case ModelEvents.ResponseToolUseDeltaEvent() as event:
-                    agent_event = ServerEvents.AgentResponseToolUseDeltaEvent(
-                        response_id=event.response_id,
-                        item_id=event.item_id,
-                        name=event.name,
-                        call_id=event.call_id,
-                        input=event.input,
-                        **agent_kwargs,
-                    )
-                    # Store the accumulated arguments from model layer
-                    # Note: The model layer already accumulates the arguments,
-                    # so we just store the current accumulated value
-                    self._tool_args_accumulator[event.call_id] = event.input
-                    # Also cache the tool name since
-                    # ResponseToolUseDoneEvent doesn't have it
-                    self._tool_name_cache[event.call_id] = event.name
-
-                case ModelEvents.ResponseToolUseDoneEvent() as event:
+                # The tool use done that requires executing the tool
+                # Such event may generate multiple outgoing events:
+                # 1. Tool use done event
+                # 2. Tool result event
+                case ModelEvents.ModelResponseToolUseDoneEvent() as event:
                     # Send the tool use done event immediately
                     done_event = ServerEvents.AgentResponseToolUseDoneEvent(
                         response_id=event.response_id,
                         item_id=event.item_id,
-                        call_id=event.call_id,
+                        tool_use=event.tool_use,
                         **agent_kwargs,
                     )
+
+                    # Directly put the done event to the outgoing queue
                     await outgoing_queue.put(done_event)
 
                     # Then execute the tool call using accumulated arguments
-                    if (
-                        self.toolkit
-                        and event.call_id in self._tool_args_accumulator
-                    ):
-                        try:
-                            # Get the accumulated arguments and tool name
-                            # from cache
-                            accumulated_args = self._tool_args_accumulator[
-                                event.call_id
-                            ]
-                            tool_name = self._tool_name_cache.get(
-                                event.call_id,
-                                "unknown",
-                            )
-
-                            # Create ToolUseBlock from the accumulated data
-                            tool_use_block = ToolUseBlock(
-                                type="tool_use",
-                                id=event.call_id,
-                                name=tool_name,
-                                input=json.loads(accumulated_args)
-                                if accumulated_args
-                                else {},
-                            )
-
-                            # Execute the tool
-                            tool_result = (
-                                await self.toolkit.call_tool_function(
-                                    tool_use_block,
-                                )
-                            )
-
-                            # Process the tool result
-                            final_output = None
-                            async for chunk in tool_result:
-                                if chunk.is_last:
-                                    final_output = chunk.content
-                                    break
-
-                            # Send tool result back to model and to frontend
-                            if final_output:
-                                # Create ToolResultBlock to send back to
-                                # the model
-                                tool_result_block = ToolResultBlock(
-                                    type="tool_result",
-                                    id=event.call_id,
-                                    name=tool_name,
-                                    output=final_output,
-                                )
-
-                                # Send the tool result back to the model
-                                await self.model.send(tool_result_block)
-
-                                # Also send event to frontend/other agents
-                                result_event = (
-                                    ServerEvents.AgentResponseToolResultEvent(
-                                        call_id=event.call_id,
-                                        name=tool_name,
-                                        output=final_output,
-                                        **agent_kwargs,
-                                    )
-                                )
-                                await outgoing_queue.put(result_event)
-
-                            # Clear the accumulator and name cache for this
-                            # call_id
-                            del self._tool_args_accumulator[event.call_id]
-                            if event.call_id in self._tool_name_cache:
-                                del self._tool_name_cache[event.call_id]
-
-                        except Exception as e:
-                            logger.error("Error executing tool: %s", e)
-                            # Get tool name from cache for error reporting
-                            tool_name = self._tool_name_cache.get(
-                                event.call_id,
-                                "unknown",
-                            )
-
-                            # Send error result back to model
-                            error_output = f"Error: {str(e)}"
-                            error_tool_result_block = ToolResultBlock(
-                                type="tool_result",
-                                name=tool_name,
-                                id=event.call_id,
-                                output=error_output,
-                            )
-                            await self.model.send(error_tool_result_block)
-
-                            # Also send error event to frontend/other agents
-                            error_event = (
-                                ServerEvents.AgentResponseToolResultEvent(
-                                    call_id=event.call_id,
-                                    name=tool_name,
-                                    output=error_output,
-                                    **agent_kwargs,
-                                )
-                            )
-                            await outgoing_queue.put(error_event)
-
-                            # Clear the accumulator and name cache even on
-                            # error
-                            if event.call_id in self._tool_args_accumulator:
-                                del self._tool_args_accumulator[event.call_id]
-                            if event.call_id in self._tool_name_cache:
-                                del self._tool_name_cache[event.call_id]
-
-                    # Don't assign to agent_event to avoid duplicate processing
-                    agent_event = None
-
-                case ModelEvents.InputTranscriptionDeltaEvent() as event:
-                    agent_event = (
-                        ServerEvents.AgentInputTranscriptionDeltaEvent(
-                            delta=event.delta,
-                            **agent_kwargs,
+                    if self.toolkit:
+                        # Execute the tool call asynchronously
+                        asyncio.create_task(
+                            self._acting(
+                                tool_use=event.tool_use,
+                                outgoing_queue=outgoing_queue,
+                            ),
                         )
-                    )
-
-                case ModelEvents.InputTranscriptionDoneEvent() as event:
-                    agent_event = (
-                        ServerEvents.AgentInputTranscriptionDoneEvent(
-                            transcript=event.transcript,
-                            input_tokens=event.input_tokens or 0,
-                            output_tokens=event.output_tokens or 0,
-                            **agent_kwargs,
-                        )
-                    )
-
-                case ModelEvents.InputStartedEvent():
-                    agent_event = ServerEvents.AgentInputStartedEvent(
-                        **agent_kwargs,
-                    )
-
-                case ModelEvents.InputDoneEvent():
-                    agent_event = ServerEvents.AgentInputDoneEvent(
-                        **agent_kwargs,
-                    )
-
-                case ModelEvents.ErrorEvent() as event:
-                    agent_event = ServerEvents.AgentErrorEvent(
-                        error_type=event.error_type,
-                        code=event.code,
-                        message=event.message,
-                        **agent_kwargs,
-                    )
 
                 case _:
                     logger.debug(
@@ -456,3 +315,46 @@ class RealtimeAgentBase(StateModule):
                 The input event from the frontend or other agents.
         """
         await self._incoming_queue.put(event)
+
+    async def _acting(
+        self,
+        tool_use: ToolUseBlock,
+        outgoing_queue: Queue,
+    ) -> None:
+        """Execute the tool call and send the result back to the outside (
+        frontend or other agents).
+
+        Args:
+            tool_use (`ToolUseBlock`):
+                The tool use block containing the tool call information.
+            outgoing_queue (`Queue`):
+                The queue to push messages to the frontend and other agents.
+        """
+        if not self.toolkit:
+            return
+
+        res = self.toolkit.call_tool_function(tool_use)
+
+        last_chunk = None
+        async for chunk in res:
+            last_chunk = chunk
+
+        if last_chunk:
+            tool_result_block = ToolResultBlock(
+                type="tool_result",
+                id=tool_use.get("id"),
+                name=tool_use.get("name"),
+                output=last_chunk.content,
+            )
+
+            # Send the tool result back to the model
+            await self.model.send(tool_result_block)
+
+            # Also send event to frontend/other agents
+            outgoing_event = ServerEvents.AgentResponseToolResultEvent(
+                tool_result=tool_result_block,
+                agent_id=self.id,
+                agent_name=self.name,
+            )
+
+            await outgoing_queue.put(outgoing_event)

@@ -312,7 +312,7 @@
 
                     // Handle ServerEvents
                     switch (data.type) {
-                        case "session_created":
+                        case "server_session_created":
                             sessionCreated = true;
                             addMessage("System", `✅ Session created: ${data.session_id}`);
                             break;
@@ -321,62 +321,62 @@
                             addMessage("System", `🤖 Agent ${data.agent_name} is ready`);
                             break;
 
-                        case "response_created":
+                        case "agent_response_created":
                             addMessage("System", `💬 Agent ${data.agent_name} started generating response...`);
                             break;
 
-                        case "response_audio_delta":
+                        case "agent_response_audio_delta":
                             // Receive audio data and add to playback queue
                             queueAudioChunk(data.delta);
                             break;
 
-                        case "response_audio_done":
+                        case "agent_response_audio_done":
                             addMessage("System", "🔊 Audio response completed");
                             break;
 
-                        case "response_audio_transcript_delta":
+                        case "agent_response_audio_transcript_delta":
                             // Agent response transcript text
                             appendResponseTranscript(data.agent_name, data.delta || "");
                             break;
 
-                        case "response_audio_transcript_done":
+                        case "agent_response_audio_transcript_done":
                             // Complete Agent response transcript message
                             finishResponseTranscript();
                             break;
 
-                        case "input_transcription_delta":
+                        case "agent_input_transcription_delta":
                             // User input transcript text
                             appendTranscript("You", data.delta || "");
                             break;
 
-                        case "input_transcription_done":
+                        case "agent_input_transcription_done":
                             appendTranscript("You", data.transcript || "");
                             // Complete user input transcript message
                             finishTranscript();
                             addMessage("System", `📝 User input recognition completed`);
                             break;
 
-                        case "input_started":
+                        case "agent_input_started":
                             addMessage("System", "🎤 Voice input started");
                             break;
 
-                        case "input_done":
+                        case "agent_input_done":
                             addMessage("System", "⏹️ Voice input ended");
                             break;
 
-                        case "response_done":
+                        case "agent_response_done":
                             addMessage("System", `✅ Response completed (input tokens: ${data.input_tokens}, output tokens: ${data.output_tokens})`);
                             break;
 
-                        case "response_tool_use_delta":
+                        case "agent_response_tool_use_delta":
                             addMessage("System", `🔧 Tool call: ${data.name}`);
                             break;
 
-                        case "response_tool_result":
+                        case "agent_response_tool_result":
                             addMessage("System", `✅ Tool ${data.name} execution completed`);
                             break;
 
-                        case "error":
+                        case "agent_error":
                             addMessage("Error", `❌ ${data.error_type}: ${data.message}`);
                             break;
 
@@ -384,7 +384,7 @@
                             addMessage("System", `👋 Agent ${data.agent_name} has ended`);
                             break;
 
-                        case "session_ended":
+                        case "server_session_ended":
                             addMessage("System", `🔚 Session ${data.session_id} has ended`);
                             break;
 

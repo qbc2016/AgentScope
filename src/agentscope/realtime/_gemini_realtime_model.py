@@ -10,7 +10,13 @@ from ._events import ModelEvents
 from ._base import RealtimeModelBase
 from .._logging import logger
 from .._utils._common import _get_bytes_from_web_url
-from ..message import AudioBlock, ImageBlock, TextBlock, ToolResultBlock
+from ..message import (
+    AudioBlock,
+    ImageBlock,
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 
 
 class GeminiRealtimeModel(RealtimeModelBase):
@@ -53,9 +59,12 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         Args:
             model_name (`str`):
-                The model name, e.g. "gemini-2.0-flash-exp".
+                The model name, e.g. "gemini-2.5-flash-native-audio-preview
+                -09-2025". Refers to `official documentation
+                <https://ai.google.dev/gemini-api/docs/live?hl=zh-cn&example=mic-stream>`_
+                for more details.
             api_key (`str`):
-                The API key for authentication.
+                The Gemini API key for authentication.
             voice (`Literal["Puck", "Charon", "Kore", "Fenrir"] str`,
             defaults to `"Puck"`):
                 The voice to be used for text-to-speech.
@@ -111,8 +120,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
             `dict`:
                 The session configuration dict.
         """
-
-        # TODO: @qbc, check the session config here.
         # Model configuration
         session_config: dict = {
             "model": f"models/{self.model_name}",
@@ -141,13 +148,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
             }
 
         session_config["generationConfig"] = generation_config
-
-        # TODO: resumption
-        # Session resumption (only if enabled with a valid handle)
-        # if self.session_resumption and self.session_resumption_handle:
-        #     session_config["sessionResumption"] = {
-        #         "handle": self.session_resumption_handle,
-        #     }
 
         # Tools configuration
         if tools:
@@ -279,7 +279,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # ================ Setup related events ================
         if "setupComplete" in data:
-            model_event = ModelEvents.SessionCreatedEvent(
+            model_event = ModelEvents.ModelSessionCreatedEvent(
                 session_id="gemini_session",
             )
 
@@ -303,7 +303,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             )
             response_id = self._response_id or ""
             self._response_id = None  # Clear response ID
-            model_event = ModelEvents.ResponseDoneEvent(
+            model_event = ModelEvents.ModelResponseDoneEvent(
                 response_id=response_id,
                 input_tokens=0,
                 output_tokens=0,
@@ -312,7 +312,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # ================ Error events ================
         elif "error" in data:
             error = data["error"]
-            model_event = ModelEvents.ErrorEvent(
+            model_event = ModelEvents.ModelErrorEvent(
                 error_type=error.get("status", "unknown"),
                 code=str(error.get("code", "unknown")),
                 message=error.get("message", "An unknown error occurred."),
@@ -369,7 +369,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 text_data = part["text"]
                 if text_data:
                     response_id = self._ensure_response_id()
-                    return ModelEvents.ResponseAudioTranscriptDeltaEvent(
+                    return ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
                         response_id=response_id,
                         delta=text_data,
                         item_id="",
@@ -400,7 +400,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             return None
 
         response_id = self._ensure_response_id()
-        return ModelEvents.ResponseAudioDeltaEvent(
+        return ModelEvents.ModelResponseAudioDeltaEvent(
             response_id=response_id,
             item_id="",
             delta=audio_data,
@@ -434,17 +434,19 @@ class GeminiRealtimeModel(RealtimeModelBase):
         elif "outputTranscription" in server_content:
             text = server_content["outputTranscription"].get("text", "")
             if text:
-                model_event = ModelEvents.ResponseAudioTranscriptDeltaEvent(
-                    response_id=self._response_id or "",
-                    delta=text,
-                    item_id="",
+                model_event = (
+                    ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
+                        response_id=self._response_id or "",
+                        delta=text,
+                        item_id="",
+                    )
                 )
 
         # Handle input transcription
         elif "inputTranscription" in server_content:
             text = server_content["inputTranscription"].get("text", "")
             if text:
-                model_event = ModelEvents.InputTranscriptionDoneEvent(
+                model_event = ModelEvents.ModelInputTranscriptionDoneEvent(
                     transcript=text,
                     item_id="",
                 )
@@ -453,7 +455,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         elif "generationComplete" in server_content:
             response_id = self._response_id or ""
             self._response_id = None
-            model_event = ModelEvents.ResponseDoneEvent(
+            model_event = ModelEvents.ModelResponseDoneEvent(
                 response_id=response_id,
                 input_tokens=0,
                 output_tokens=0,
@@ -466,7 +468,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             if self._response_id:
                 response_id = self._response_id
                 self._response_id = None
-                model_event = ModelEvents.ResponseDoneEvent(
+                model_event = ModelEvents.ModelResponseDoneEvent(
                     response_id=response_id,
                     input_tokens=0,
                     output_tokens=0,
@@ -507,15 +509,20 @@ class GeminiRealtimeModel(RealtimeModelBase):
             args_str = json.dumps(args, ensure_ascii=False)
             if call_id not in self._tool_args_accumulator:
                 self._tool_args_accumulator[call_id] = ""
+
             self._tool_args_accumulator[call_id] += args_str
 
             # Return the accumulated arguments instead of just the delta
-            model_event = ModelEvents.ResponseToolUseDeltaEvent(
+            model_event = ModelEvents.ModelResponseToolUseDeltaEvent(
                 response_id=self._response_id or "",
                 item_id="",
-                call_id=call_id,
-                name=name,
-                input=self._tool_args_accumulator[call_id],
+                tool_use=ToolUseBlock(
+                    type="tool_use",
+                    id=call_id,
+                    name=name,
+                    input=args,
+                    raw_input=self._tool_args_accumulator[call_id],
+                ),
             )
             events.append(model_event)
         return events if events else None
@@ -636,7 +643,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # Extract text from list of blocks (most common case)
         if isinstance(output, list):
             text = "".join(
-                item.get("text", "")
+                str(item.get("text", ""))
                 if isinstance(item, dict) and item.get("type") == "text"
                 else str(item)
                 for item in output

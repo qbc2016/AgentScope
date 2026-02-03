@@ -217,6 +217,11 @@ Create a voice-enabled ReAct agent that can understand and respond with speech, 
 https://github.com/user-attachments/assets/c5f05254-aff6-4375-90df-85e8da95d5da
 
 
+### Realtime Voice Agent
+
+Build a realtime voice agent with web interface that can interact with users via voice input and output.
+
+
 ### Human-in-the-loop
 
 Support realtime interruption in ReActAgent: conversation can be interrupted via cancellation in realtime and resumed
