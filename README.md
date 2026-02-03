@@ -79,6 +79,7 @@ The AgentScope Ecosystem
 
 ## News
 <!-- BEGIN NEWS -->
+- **[2026-02] `FEAT`:** Realtime Voice Agent support. [Example](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/realtime_voice_agent) | [Multi-Agent Realtime Example](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_realtime) | [Tutorial](https://doc.agentscope.io/tutorial/task_realtime.html)
 - **[2026-01] `COMM`:** Biweekly Meetings launched to share ecosystem updates and development plans - join us! [Details & Schedule](https://github.com/agentscope-ai/agentscope/discussions/1126)
 - **[2026-01] `FEAT`:** Database support & memory compression in memory module. [Example](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/short_term_memory/memory_compression) | [Tutorial](https://doc.agentscope.io/tutorial/task_memory.html)
 - **[2025-12] `INTG`:** A2A (Agent-to-Agent) protocol support. [Example](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/a2a_agent) | [Tutorial](https://doc.agentscope.io/tutorial/task_a2a.html)
@@ -88,7 +89,6 @@ The AgentScope Ecosystem
 - **[2025-11] `INTG`:** Agentic RL via Trinity-RFT library. [Example](https://github.com/agentscope-ai/agentscope/tree/main/examples/tuner/react_agent) | [Trinity-RFT](https://github.com/agentscope-ai/Trinity-RFT)
 - **[2025-11] `INTG`:** ReMe for enhanced long-term memory. [Example](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/long_term_memory/reme)
 - **[2025-11] `RELS`:** agentscope-samples repository launched and agentscope-runtime upgraded with Docker/K8s deployment and VNC-powered GUI sandboxes. [Samples](https://github.com/agentscope-ai/agentscope-samples) | [Runtime](https://github.com/agentscope-ai/agentscope-runtime)
-- **[2025-11] `DOCS`:** Contributing Guide is online - welcome to contribute! [Guide](./CONTRIBUTING.md)
 <!-- END NEWS -->
 
 [More news →](./docs/NEWS.md)

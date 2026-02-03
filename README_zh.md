@@ -77,6 +77,7 @@ AgentScope 生态
 
 ## 📢 新闻
 <!-- BEGIN NEWS -->
+- **[2026-02] `功能`:** 支持实时语音交互。[样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/realtime_voice_agent) | [多智能体实时交互](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_realtime) | [文档](https://doc.agentscope.io/tutorial/task_realtime.html)
 - **[2026-01] `社区`:** AgentScope 双周会议启动，分享生态更新和开发计划 - 欢迎加入！[详情与安排](https://github.com/agentscope-ai/agentscope/discussions/1126)
 - **[2026-01] `功能`:** 记忆模块新增数据库支持和记忆压缩。[样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/short_term_memory/memory_compression) | [教程](https://doc.agentscope.io/tutorial/task_memory.html)
 - **[2025-12] `集成`:** A2A（智能体间通信）协议支持。[样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/a2a_agent) | [教程](https://doc.agentscope.io/zh_CN/tutorial/task_a2a.html)
@@ -86,7 +87,6 @@ AgentScope 生态
 - **[2025-11] `集成`:** 通过 Trinity-RFT 库实现智能体强化学习。[样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/tuner/react_agent) | [Trinity-RFT](https://github.com/agentscope-ai/Trinity-RFT)
 - **[2025-11] `集成`:** ReMe 增强长期记忆。[样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/functionality/long_term_memory/reme)
 - **[2025-11] `发布`:** agentscope-samples 样例库上线，agentscope-runtime 升级支持 Docker/K8s 部署和 VNC 图形沙盒。[样例库](https://github.com/agentscope-ai/agentscope-samples) | [Runtime](https://github.com/agentscope-ai/agentscope-runtime)
-- **[2025-11] `文档`:** 贡献指南上线 - 欢迎参与贡献！[指南](./CONTRIBUTING_zh.md)
 <!-- END NEWS -->
 
 [更多新闻 →](./docs/NEWS_zh.md)
