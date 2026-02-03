@@ -1061,8 +1061,8 @@
             messageDiv.className = "message";
             const time = new Date().toLocaleTimeString();
             messageDiv.innerHTML = `<strong>[${time}] ${sender}:</strong> ${message}`;
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            messagesDiv.insertBefore(messageDiv, messagesDiv.firstChild);
+            messagesDiv.scrollTop = 0;
         }
 
         function appendTranscript(sender, text) {
@@ -1075,7 +1075,7 @@
                 currentTranscriptElement.className = "message";
                 const time = new Date().toLocaleTimeString();
                 currentTranscriptElement.innerHTML = `<strong>[${time}] ${sender}:</strong> <span class="transcript-content"></span>`;
-                messagesDiv.appendChild(currentTranscriptElement);
+                messagesDiv.insertBefore(currentTranscriptElement, messagesDiv.firstChild);
             }
 
             // Accumulate text
@@ -1087,8 +1087,8 @@
                 contentSpan.textContent = currentTranscript;
             }
 
-            // Scroll to bottom
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            // Scroll to top
+            messagesDiv.scrollTop = 0;
         }
 
         function finishTranscript() {
@@ -1107,7 +1107,7 @@
                 currentResponseTranscriptElement.className = "message";
                 const time = new Date().toLocaleTimeString();
                 currentResponseTranscriptElement.innerHTML = `<strong>[${time}] ${sender}:</strong> <span class="response-transcript-content"></span>`;
-                messagesDiv.appendChild(currentResponseTranscriptElement);
+                messagesDiv.insertBefore(currentResponseTranscriptElement, messagesDiv.firstChild);
             }
 
             // Accumulate text
@@ -1119,8 +1119,8 @@
                 contentSpan.textContent = currentResponseTranscript;
             }
 
-            // Scroll to bottom
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            // Scroll to top
+            messagesDiv.scrollTop = 0;
         }
 
         function finishResponseTranscript() {
