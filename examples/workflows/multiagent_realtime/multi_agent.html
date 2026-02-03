@@ -265,76 +265,7 @@
             }
         }
 
-        /* Audio playback status styles */
-        .playback-status {
-            background: hsl(0, 0%, 100%);
-            padding: 1rem 1.5rem;
-            border-radius: 0.5rem;
-            margin: 1.5rem 0;
-            border: 1px solid hsl(214.3, 31.8%, 91.4%);
-            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-        }
 
-        .playback-status h3 {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
-            color: hsl(222.2, 84%, 4.9%);
-        }
-
-        .status-info {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            font-size: 0.875rem;
-            color: hsl(215.4, 16.3%, 46.9%);
-        }
-
-        .status-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 0.75rem;
-            background: hsl(210, 40%, 98%);
-            border-radius: 0.375rem;
-            font-weight: 500;
-        }
-
-        .status-indicator.playing {
-            background: hsl(142.1, 76.2%, 95%);
-            color: hsl(142.1, 76.2%, 36.3%);
-            border: 1px solid hsl(142.1, 76.2%, 80%);
-        }
-
-        .status-indicator.queued {
-            background: hsl(47.9, 95.8%, 95%);
-            color: hsl(47.9, 95.8%, 25%);
-            border: 1px solid hsl(47.9, 95.8%, 80%);
-        }
-
-        .pulse-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: currentColor;
-            animation: pulse-dot 1.5s ease-in-out infinite;
-        }
-
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(0.8); }
-        }
-
-        .message.playing-audio {
-            background: hsl(142.1, 76.2%, 98%);
-            border-color: hsl(142.1, 76.2%, 80%);
-            animation: highlight-pulse 2s ease-in-out infinite;
-        }
-
-        @keyframes highlight-pulse {
-            0%, 100% { box-shadow: 0 0 0 0 hsl(142.1, 76.2%, 36.3%, 0.4); }
-            50% { box-shadow: 0 0 0 4px hsl(142.1, 76.2%, 36.3%, 0); }
-        }
 
         .audio-mode-selector {
             margin-bottom: 1rem;
@@ -443,15 +374,6 @@
     <div class="controls">
         <button id="startBtn" class="primary" onclick="startConversation()">▶️ Start Conversation</button>
         <button id="stopBtn" class="destructive" onclick="stopConversation()" disabled>⏹️ Stop Conversation</button>
-    </div>
-
-    <div id="playbackStatus" class="playback-status" style="display: none;">
-        <h3>🔊 Audio Playback Status</h3>
-        <div class="status-info" id="statusInfo">
-            <span class="status-indicator">
-                <span>No audio playing</span>
-            </span>
-        </div>
     </div>
 
     <div id="messages"></div>
@@ -664,36 +586,6 @@
             console.log(`Sent ${actualDuration}ms silent audio to backend`);
         }
 
-        function updatePlaybackStatus(message, isPlaying = false, queueLength = 0) {
-            const statusDiv = document.getElementById("playbackStatus");
-            const statusInfo = document.getElementById("statusInfo");
-
-            if (isPlaying || queueLength > 0) {
-                statusDiv.style.display = "block";
-                let statusHTML = '';
-
-                if (isPlaying) {
-                    statusHTML += `
-                        <span class="status-indicator playing">
-                            <span class="pulse-dot"></span>
-                            <span>▶️ ${message}</span>
-                        </span>
-                    `;
-                }
-
-                if (queueLength > 0) {
-                    statusHTML += `
-                        <span class="status-indicator queued">
-                            <span>⏳ ${queueLength} in queue</span>
-                        </span>
-                    `;
-                }
-
-                statusInfo.innerHTML = statusHTML;
-            } else {
-                statusDiv.style.display = "none";
-            }
-        }
 
         async function connect() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -944,12 +836,6 @@
                 queueEntry.chunks.push(float32Array);
                 console.log(`Queued audio chunk for ${agentName}, total chunks: ${queueEntry.chunks.length}`);
 
-                // Update status
-                updatePlaybackStatus(
-                    currentlyPlaying ? `Playing ${currentlyPlaying.agentName}` : '',
-                    isPlayingGlobal,
-                    globalAudioQueue.filter(e => !e.isComplete).length
-                );
 
                 // If not currently playing, start playback
                 if (!isPlayingGlobal) {
@@ -976,7 +862,6 @@
 
             if (!nextEntry) {
                 console.log("No audio in queue to play");
-                updatePlaybackStatus('', false, 0);
                 return;
             }
 
@@ -989,7 +874,6 @@
                 nextEntry.messageElement.classList.add('playing-audio');
             }
 
-            updatePlaybackStatus(`Playing ${nextEntry.agentName}`, true, globalAudioQueue.filter(e => e.chunks.length > 0 && e !== nextEntry).length);
 
             startPlayback(nextEntry);
         }
@@ -1119,9 +1003,6 @@
             currentlyPlaying = null;
             isPlayingGlobal = false;
             globalAudioQueue = [];
-
-
-            updatePlaybackStatus('', false, 0);
         }
 
         function addMessage(sender, message) {
