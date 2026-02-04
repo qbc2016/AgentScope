@@ -69,7 +69,7 @@ class RealtimeAgent(StateModule):
         model: RealtimeModelBase,
         toolkit: Toolkit | None = None,
     ) -> None:
-        """Initialize the RealtimeAgentBase class.
+        """Initialize the RealtimeAgent class.
 
         Args:
             name (`str`):
