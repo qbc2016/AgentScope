@@ -197,7 +197,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
     async def parse_api_message(
         self,
         message: str,
-    ) -> ModelEvents.EventBase | None:
+    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
         """Parse the message received from the OpenAI realtime model API.
 
         Args:
@@ -205,8 +205,8 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 The message received from the OpenAI realtime model API.
 
         Returns:
-            `ModelEvents.EventBase | None`:
-                The unified model event in agentscope format.
+            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
+                The unified model event(s) in agentscope format.
         """
         try:
             data = json.loads(message)
@@ -302,14 +302,12 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                         response_id=self._response_id,
                         item_id=data.get("item_id", ""),
                         tool_use=ToolUseBlock(
+                            type="tool_use",
                             id=call_id,
                             name=data.get("name", ""),
                             input={},
                             raw_input=self._tool_args_accumulator[call_id],
                         ),
-                        call_id=call_id,
-                        name=data.get("name", ""),
-                        input=self._tool_args_accumulator[call_id],
                     )
                     # TODO: This handles only one tool call at a time. For
                     #  parallel tool calls, we might need to reconsider the
@@ -322,6 +320,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                     response_id=self._response_id,
                     item_id=data.get("item_id", ""),
                     tool_use=ToolUseBlock(
+                        type="tool_use",
                         id=call_id,
                         name=data.get("name", ""),
                         input=_json_loads_with_repair(current_input),

@@ -211,7 +211,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
     async def parse_api_message(
         self,
         message: str,
-    ) -> ModelEvents.EventBase | None:
+    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
         """Parse the message received from the DashScope realtime model API.
 
         Args:
@@ -219,8 +219,8 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 The message received from the DashScope realtime model API.
 
         Returns:
-            `ModelEvents.EventBase | None`:
-                The unified model event in agentscope format.
+            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
+                The unified model event(s) in agentscope format.
         """
         try:
             data = json.loads(message)

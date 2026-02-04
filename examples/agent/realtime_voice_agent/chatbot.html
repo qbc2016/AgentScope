@@ -789,8 +789,16 @@
                             addMessage("System", `🔧 Tool call: ${data.name}`);
                             break;
 
+                        case "agent_response_tool_use_done":
+                            // Display tool use with complete information
+                            const toolUseInfo = JSON.stringify(data.tool_use, null, 2);
+                            addMessage(data.agent_name, `🔧 Tool Use:\n${toolUseInfo}`);
+                            break;
+
                         case "agent_response_tool_result":
-                            addMessage("System", `✅ Tool ${data.name} execution completed`);
+                            // Display tool result with complete information
+                            const toolResultInfo = JSON.stringify(data.tool_result, null, 2);
+                            addMessage(data.agent_name, `✅ Tool Result:\n${toolResultInfo}`);
                             break;
 
                         case "agent_error":
@@ -1133,7 +1141,14 @@
             const messageDiv = document.createElement("div");
             messageDiv.className = "message";
             const time = new Date().toLocaleTimeString();
-            messageDiv.innerHTML = `<strong>[${time}] ${sender}:</strong> ${message}`;
+
+            // Check if message contains newlines (like JSON), use <pre> for formatting
+            if (message.includes('\n')) {
+                messageDiv.innerHTML = `<strong>[${time}] ${sender}:</strong><pre style="margin: 0.5rem 0; padding: 0.5rem; background: hsl(210, 40%, 96.1%); border-radius: 0.25rem; overflow-x: auto; font-size: 0.75rem;">${message}</pre>`;
+            } else {
+                messageDiv.innerHTML = `<strong>[${time}] ${sender}:</strong> ${message}`;
+            }
+
             messagesDiv.insertBefore(messageDiv, messagesDiv.firstChild);
             messagesDiv.scrollTop = 0;
         }

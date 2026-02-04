@@ -90,12 +90,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
         # short UUID to ensure uniqueness.
         self._response_id: str | None = None
 
-        # Tool arguments accumulator for tracking tool call parameters
-        self._tool_args_accumulator: dict[str, str] = {}
-
-        # Track which tool calls have been marked as done
-        self._tool_call_done: set[str] = set()
-
     def _build_session_config(
         self,
         instructions: str,
@@ -257,7 +251,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
     async def parse_api_message(
         self,
         message: str,
-    ) -> ModelEvents.EventBase | None:
+    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
         """Parse the message received from the Gemini realtime model API.
 
         Args:
@@ -265,8 +259,8 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The message received from the Gemini realtime model API.
 
         Returns:
-            `ModelEvents.EventBase | None`:
-                The unified model event in agentscope format.
+            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
+                The unified model event(s) in agentscope format.
         """
         try:
             data = json.loads(message)
@@ -484,7 +478,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
     async def _parse_tool_call(
         self,
         tool_call: dict,
-    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
+    ) -> list[ModelEvents.EventBase] | None:
         """Parse the tool call message from Gemini API.
 
         Args:
@@ -492,9 +486,8 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 The toolCall dictionary from the API response.
 
         Returns:
-            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
+            `list[ModelEvents.EventBase] | None`:
                 The unified model event(s) in agentscope format.
-                Can return a single event or a list of events.
         """
         function_calls = tool_call.get("functionCalls", [])
         if not function_calls:
@@ -506,15 +499,8 @@ class GeminiRealtimeModel(RealtimeModelBase):
             call_id = func_call.get("id", "")
             args = func_call.get("args", {})
 
-            # Accumulate arguments
-            args_str = json.dumps(args, ensure_ascii=False)
-            if call_id not in self._tool_args_accumulator:
-                self._tool_args_accumulator[call_id] = ""
-
-            self._tool_args_accumulator[call_id] += args_str
-
             # Return the accumulated arguments instead of just the delta
-            model_event = ModelEvents.ModelResponseToolUseDeltaEvent(
+            model_event = ModelEvents.ModelResponseToolUseDoneEvent(
                 response_id=self._response_id or "",
                 item_id="",
                 tool_use=ToolUseBlock(
@@ -522,10 +508,11 @@ class GeminiRealtimeModel(RealtimeModelBase):
                     id=call_id,
                     name=name,
                     input=args,
-                    raw_input=self._tool_args_accumulator[call_id],
+                    raw_input=json.dumps(args, ensure_ascii=False),
                 ),
             )
             events.append(model_event)
+
         return events if events else None
 
     async def _parse_image_data(self, block: ImageBlock) -> str | None:
@@ -659,10 +646,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
             result_obj = (
                 output if isinstance(output, dict) else {"result": str(output)}
             )
-
-        # Clean up tool call tracking
-        self._tool_call_done.discard(tool_id)
-        self._tool_args_accumulator.pop(tool_id, None)
 
         return json.dumps(
             {

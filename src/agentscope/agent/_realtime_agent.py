@@ -246,7 +246,7 @@ class RealtimeAgent(StateModule):
                     | ModelEvents.ModelResponseAudioDoneEvent()
                     | ModelEvents.ModelResponseAudioTranscriptDeltaEvent()
                     | ModelEvents.ModelResponseAudioTranscriptDoneEvent()
-                    | ModelEvents.ModelResponseToolUseDoneEvent()
+                    | ModelEvents.ModelResponseToolUseDeltaEvent()
                     | ModelEvents.ModelInputTranscriptionDeltaEvent()
                     | ModelEvents.ModelInputTranscriptionDoneEvent()
                     | ModelEvents.ModelInputStartedEvent()
@@ -333,7 +333,7 @@ class RealtimeAgent(StateModule):
         if not self.toolkit:
             return
 
-        res = self.toolkit.call_tool_function(tool_use)
+        res = await self.toolkit.call_tool_function(tool_use)
 
         last_chunk = None
         async for chunk in res:

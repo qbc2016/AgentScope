@@ -151,6 +151,7 @@ class RealtimeModelBase:
 
             if isinstance(events, ModelEvents.EventBase):
                 events = [events]
+
             for event in events:
                 # Send the event to the outgoing queue
                 await outgoing_queue.put(event)
@@ -168,5 +169,5 @@ class RealtimeModelBase:
 
         Returns:
             `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
-                The unified model event in agentscope format.
+                The unified model event(s) in agentscope format.
         """
