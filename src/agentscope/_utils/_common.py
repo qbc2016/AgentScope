@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Type, Dict
 
+import numpy as np
 import requests
 from docstring_parser import parse
 from json_repair import repair_json
@@ -424,3 +425,50 @@ def _parse_tool_function(
         func_json_schema["function"]["description"] = func_description
 
     return func_json_schema
+
+
+def _resample_pcm_delta(
+    pcm_base64: str,
+    sample_rate: int,
+    target_rate: int,
+) -> str:
+    """Resampling the input pcm base64 data into the target rate.
+
+    Args:
+        pcm_base64 (`str`):
+            The input base64 audio data in pcm format.
+        sample_rate (`int`):
+            The sampling rate of the input data.
+        target_rate (`int`):
+            The target rate of the input data.
+
+    Returns:
+        `str`:
+            The resampling base64 audio data in the required sampling
+            rate.
+    """
+    pcm_data = base64.b64decode(pcm_base64)
+
+    # Into numpy array first
+    audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+
+    # return directly if the same
+    if sample_rate == target_rate:
+        return pcm_base64
+
+    # compute the number of samples
+    num_samples = int(len(audio_array) * target_rate / sample_rate)
+
+    from scipy import signal
+
+    # Use scipy to resample
+    resampled_audio = signal.resample(audio_array, num_samples)
+
+    # Turn it back into bytes
+    resampled_audio = np.clip(resampled_audio, -32768, 32767).astype(np.int16)
+
+    # into base64
+    resampled_bytes = resampled_audio.tobytes()
+    resampled_base64 = base64.b64encode(resampled_bytes).decode("utf-8")
+
+    return resampled_base64

@@ -51,6 +51,8 @@ a2a = [
     "nacos-sdk-python>=3.0.0",
 ]
 
+# ------------ Realtime -------------
+realtime = ["websockets>=14.0", "scipy"]
 
 # ------------ Model APIs ------------
 gemini = ["google-genai"]
@@ -143,6 +145,7 @@ full = [
     "agentscope[memory]",
     "agentscope[rag]",
     "agentscope[evaluate]",
+    "agentscope[realtime]",
 ]
 
 # ------------ Development ------------
