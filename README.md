@@ -221,6 +221,11 @@ https://github.com/user-attachments/assets/c5f05254-aff6-4375-90df-85e8da95d5da
 
 Build a realtime voice agent with web interface that can interact with users via voice input and output.
 
+[Realtime chatbot](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/realtime_voice_agent) | [Realtime Multi-Agent Example](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_realtime)
+
+https://github.com/user-attachments/assets/1b7b114b-e995-4586-9b3f-d3bb9fcd2558
+
+
 
 ### Human-in-the-loop
 
