@@ -21,7 +21,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
      - Support update session config during the session
     """
 
-    support_input_modalities: list[str] = ["text", "audio", "image"]
+    support_input_modalities: list[str] = ["audio", "image"]
     """The supported input modalities of the DashScope realtime model."""
 
     support_tools: bool = False
@@ -187,6 +187,8 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             )
 
         elif data_type == "text":
+            # TODO: The following code doesn't work and cannot support text
+            #  input yet.
             to_send_message = json.dumps(
                 {
                     "event_id": shortuuid.uuid(),

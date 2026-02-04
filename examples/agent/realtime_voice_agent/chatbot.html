@@ -203,6 +203,22 @@
             flex-shrink: 0;
         }
 
+        .text-input-container {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .text-input-container input[type="text"] {
+            flex: 1;
+        }
+
+        .text-input-container button {
+            width: 100px;
+            flex-shrink: 0;
+        }
+
         .configuration-container {
             background: hsl(0, 0%, 100%);
             padding: 1.5rem;
@@ -440,7 +456,6 @@
                                 <span class="model-unavailable-reason" style="display: none;"></span>
                             </div>
                             <div class="model-tags">
-                                <span class="model-tag text">Text</span>
                                 <span class="model-tag audio">Audio</span>
                                 <span class="model-tag image">Image</span>
                             </div>
@@ -503,6 +518,11 @@
         <button class="btn-secondary" onclick="disconnect()">❌ Disconnect</button>
     </div>
 
+    <div class="text-input-container">
+        <input type="text" id="textInput" placeholder="Type your message here..." />
+        <button id="sendBtn" class="btn-primary" onclick="sendTextMessage()" disabled>📤 Send</button>
+    </div>
+
 
     <div id="messages"></div>
 
@@ -518,6 +538,55 @@
         let audioPlaybackIndex = 0;
         let sessionId = "session1";  // Session ID
         let sessionCreated = false;  // Track if session has been created
+
+        // Update send button state based on input and recording status
+        function updateSendButtonState() {
+            const textInput = document.getElementById("textInput");
+            const sendBtn = document.getElementById("sendBtn");
+            const hasText = textInput.value.trim().length > 0;
+            sendBtn.disabled = !(hasText && isRecording);
+        }
+
+        // Send text message to backend
+        function sendTextMessage() {
+            const textInput = document.getElementById("textInput");
+            const text = textInput.value.trim();
+
+            if (!text || !isRecording) {
+                return;
+            }
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showError("⚠️ WebSocket is not connected!");
+                return;
+            }
+
+            // Send ClientTextAppendEvent
+            ws.send(JSON.stringify({
+                type: "client_text_append",
+                session_id: sessionId,
+                text: text
+            }));
+
+            addMessage("You", text);
+            textInput.value = "";
+            updateSendButtonState();
+        }
+
+        // Add event listener for text input
+        document.addEventListener("DOMContentLoaded", function() {
+            const textInput = document.getElementById("textInput");
+
+            // Update button state on input
+            textInput.addEventListener("input", updateSendButtonState);
+
+            // Send on Enter key
+            textInput.addEventListener("keypress", function(e) {
+                if (e.key === "Enter" && !document.getElementById("sendBtn").disabled) {
+                    sendTextMessage();
+                }
+            });
+        });
 
         // Used to accumulate transcript text
         let currentTranscript = "";
@@ -749,6 +818,7 @@
                 addMessage("System", "❌ Disconnected");
                 stopVoice();
                 sessionCreated = false;  // Reset session state
+                updateSendButtonState();
             };
 
             ws.onerror = function() {
@@ -874,6 +944,7 @@
                 document.getElementById("voiceBtn").classList.add("recording");
                 document.getElementById("voiceBtn").innerText = "🔴 Voice Chat Active";
                 addMessage("System", "🎤 Voice chat started...");
+                updateSendButtonState();
 
             } catch (err) {
                 console.error("Failed to start recording:", err);
@@ -906,6 +977,7 @@
             document.getElementById("voiceBtn").classList.remove("recording");
             document.getElementById("voiceBtn").innerText = "🎤 Start Voice Chat";
             addMessage("System", "⏹️ Voice chat stopped");
+            updateSendButtonState();
         }
 
         function convertToPCM16(float32Array) {
@@ -1052,6 +1124,7 @@
                 ws.close();
             }
             sessionCreated = false;  // Reset session state
+            updateSendButtonState();
         }
 
 
