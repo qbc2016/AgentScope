@@ -52,7 +52,7 @@ a2a = [
 ]
 
 # ------------ Realtime -------------
-realtime = ["websockets>=14.0"]
+realtime = ["websockets>=14.0", "scipy"]
 
 # ------------ Model APIs ------------
 gemini = ["google-genai"]
