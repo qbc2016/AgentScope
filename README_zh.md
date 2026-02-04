@@ -211,13 +211,16 @@ asyncio.run(main())
 
 创建支持语音的 ReAct 智能体，能够理解语音并进行语音回复，还可以使用语音交互玩多智能体狼人杀游戏。
 
-
 https://github.com/user-attachments/assets/559af387-fd6f-4f0c-b882-cd4778214801
 
 
 ### 实时语音智能体
 
 使用 AgentScope 轻松构建实时交互的智能体应用，提供统一的事件接口和工具调用支持。
+
+[实时语音智能体](https://github.com/agentscope-ai/agentscope/tree/main/examples/agent/realtime_voice_agent) | [多智能体实时交互](https://github.com/agentscope-ai/agentscope/tree/main/examples/workflows/multiagent_realtime)
+
+https://github.com/user-attachments/assets/d9674ad5-f71d-43d5-a341-5bada318aee0
 
 
 
