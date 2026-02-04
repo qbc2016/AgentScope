@@ -259,6 +259,84 @@
             box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
         }
 
+        .model-options {
+            display: flex;
+            flex-direction: row;
+            gap: 0.75rem;
+        }
+
+        .model-option {
+            flex: 1;
+            padding: 0.75rem;
+            border: 2px solid hsl(214.3, 31.8%, 91.4%);
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            background: hsl(0, 0%, 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .model-option:hover:not(.disabled) {
+            border-color: hsl(221.2, 83.2%, 53.3%);
+            background: hsl(221.2, 83.2%, 98%);
+        }
+
+        .model-option.selected {
+            border-color: hsl(221.2, 83.2%, 53.3%);
+            background: hsl(221.2, 83.2%, 95%);
+        }
+
+        .model-option.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: hsl(0, 0%, 98%);
+        }
+
+        .model-option-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .model-option input[type="radio"] {
+            margin: 0;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .model-option.disabled input[type="radio"] {
+            cursor: not-allowed;
+        }
+
+        .model-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            flex: 1;
+        }
+
+        .model-name-line {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-height: 1.25rem;
+        }
+
+        .model-name {
+            font-weight: 600;
+            color: hsl(222.2, 84%, 4.9%);
+        }
+
+        .model-unavailable-reason {
+            font-size: 0.625rem;
+            color: hsl(215.4, 16.3%, 56.9%);
+            font-style: italic;
+            white-space: nowrap;
+        }
+
         @media (max-width: 768px) {
             .agents-grid {
                 grid-template-columns: 1fr;
@@ -339,6 +417,45 @@
                 <div class="preset-card" data-preset="human" onclick="selectPreset('human')">
                     👥 人性本恶 v.s. 人性本善 (zh)
                 </div>
+            </div>
+        </div>
+
+        <div class="config-field">
+            <label>Model Provider</label>
+            <div class="model-options" id="modelOptions">
+                <label class="model-option" data-provider="dashscope">
+                    <div class="model-option-header">
+                        <input type="radio" name="modelProvider" value="dashscope" checked />
+                        <div class="model-info">
+                            <div class="model-name-line">
+                                <span class="model-name">DashScope</span>
+                                <span class="model-unavailable-reason" style="display: none;"></span>
+                            </div>
+                        </div>
+                    </div>
+                </label>
+                <label class="model-option" data-provider="gemini">
+                    <div class="model-option-header">
+                        <input type="radio" name="modelProvider" value="gemini" />
+                        <div class="model-info">
+                            <div class="model-name-line">
+                                <span class="model-name">Gemini</span>
+                                <span class="model-unavailable-reason" style="display: none;"></span>
+                            </div>
+                        </div>
+                    </div>
+                </label>
+                <label class="model-option" data-provider="openai">
+                    <div class="model-option-header">
+                        <input type="radio" name="modelProvider" value="openai" />
+                        <div class="model-info">
+                            <div class="model-name-line">
+                                <span class="model-name">OpenAI</span>
+                                <span class="model-unavailable-reason" style="display: none;"></span>
+                            </div>
+                        </div>
+                    </div>
+                </label>
             </div>
         </div>
 
@@ -716,6 +833,10 @@
                 isConversationActive = true;
                 updateButtons();
 
+                // Get selected model provider
+                const selectedModel = document.querySelector('input[name="modelProvider"]:checked');
+                const modelProvider = selectedModel ? selectedModel.value : "dashscope";
+
                 // Send session create event
                 addMessage("System", "📝 Creating chat room...");
                 ws.send(JSON.stringify({
@@ -725,6 +846,7 @@
                         agent1_instructions: agent1Instructions,
                         agent2_name: agent2Name,
                         agent2_instructions: agent2Instructions,
+                        model_provider: modelProvider
                     }
                 }));
 
@@ -1058,12 +1180,92 @@
             }
         }
 
+        async function checkModelAvailability() {
+            try {
+                const response = await fetch('/model_availability');
+                const availability = await response.json();
+                console.log("Model availability:", availability);
+
+                const modelOptions = document.querySelectorAll('.model-option');
+                let hasAvailableModel = false;
+
+                modelOptions.forEach(option => {
+                    const provider = option.getAttribute('data-provider');
+                    const radio = option.querySelector('input[type="radio"]');
+                    const unavailableReason = option.querySelector('.model-unavailable-reason');
+
+                    if (!availability[provider]) {
+                        // Mark as disabled
+                        option.classList.add('disabled');
+                        radio.disabled = true;
+
+                        // Show unavailable reason
+                        const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
+                        unavailableReason.textContent = `(${providerName.toUpperCase()}_API_KEY not set)`;
+                        unavailableReason.style.display = 'inline';
+
+                        // If this was the selected option, uncheck it
+                        if (radio.checked) {
+                            radio.checked = false;
+                        }
+                    } else {
+                        hasAvailableModel = true;
+                        unavailableReason.style.display = 'none';
+                    }
+                });
+
+                // If no model is selected after checking availability, select first available
+                const selectedRadio = document.querySelector('input[name="modelProvider"]:checked');
+                if (!selectedRadio && hasAvailableModel) {
+                    for (const option of modelOptions) {
+                        const provider = option.getAttribute('data-provider');
+                        if (availability[provider]) {
+                            option.querySelector('input[type="radio"]').checked = true;
+                            option.classList.add('selected');
+                            break;
+                        }
+                    }
+                }
+
+                // Disable start button if no model is available
+                const startBtn = document.getElementById('startBtn');
+                if (!hasAvailableModel) {
+                    startBtn.disabled = true;
+                    showError('⚠️ No model API keys configured. Please set at least one API key to start conversation.');
+                } else {
+                    startBtn.disabled = false;
+                }
+
+                // Add click handlers for model options
+                modelOptions.forEach(option => {
+                    option.addEventListener('click', function() {
+                        if (!this.classList.contains('disabled')) {
+                            modelOptions.forEach(opt => opt.classList.remove('selected'));
+                            this.classList.add('selected');
+                        }
+                    });
+                });
+
+                // Mark initially selected option
+                const currentSelected = document.querySelector('input[name="modelProvider"]:checked');
+                if (currentSelected) {
+                    currentSelected.closest('.model-option').classList.add('selected');
+                }
+
+            } catch (error) {
+                console.error("Failed to check model availability:", error);
+                showError("⚠️ Failed to check model availability. Please refresh the page.");
+            }
+        }
+
         // Auto-connect when page loads
         window.onload = function() {
             connect();
             setupInputMonitoring();
             // Set default preset to AI debate
             selectPreset('ai');
+            // Check model availability
+            checkModelAvailability();
         };
     </script>
 </body>

@@ -18,6 +18,8 @@ from agentscope.realtime import (
     ServerEvents,
     ClientEventType,
     DashScopeRealtimeModel,
+    GeminiRealtimeModel,
+    OpenAIRealtimeModel,
 )
 
 app = FastAPI()
@@ -28,6 +30,16 @@ async def get() -> FileResponse:
     """Serve the HTML test page."""
     html_path = Path(__file__).parent / "multi_agent.html"
     return FileResponse(html_path)
+
+
+@app.get("/model_availability")
+async def model_availability() -> dict:
+    """Check which model API keys are available in environment variables."""
+    return {
+        "dashscope": bool(os.getenv("DASHSCOPE_API_KEY")),
+        "gemini": bool(os.getenv("GEMINI_API_KEY")),
+        "openai": bool(os.getenv("OPENAI_API_KEY")),
+    }
 
 
 async def frontend_receive(
@@ -96,28 +108,70 @@ async def multi_agent_endpoint(
                     "You are a helpful assistant.",
                 )
 
-                # Create the first agent
-                agent1 = RealtimeAgent(
-                    name=agent1_name,
-                    sys_prompt=agent1_instructions,
-                    model=DashScopeRealtimeModel(
+                model_provider = client_event.config.get(
+                    "model_provider",
+                    "dashscope",
+                )
+
+                # Create the appropriate model based on provider
+                if model_provider == "dashscope":
+                    model1 = DashScopeRealtimeModel(
                         model_name="qwen3-omni-flash-realtime",
                         api_key=os.getenv("DASHSCOPE_API_KEY"),
                         voice="Dylan",
                         enable_input_audio_transcription=False,
-                    ),
+                    )
+                    model2 = DashScopeRealtimeModel(
+                        model_name="qwen3-omni-flash-realtime",
+                        api_key=os.getenv("DASHSCOPE_API_KEY"),
+                        voice="Peter",
+                        enable_input_audio_transcription=False,
+                    )
+
+                elif model_provider == "gemini":
+                    model1 = GeminiRealtimeModel(
+                        model_name=(
+                            "gemini-2.5-flash-native-audio-preview-09-2025"
+                        ),
+                        api_key=os.getenv("GEMINI_API_KEY"),
+                        voice="Puck",
+                    )
+                    model2 = GeminiRealtimeModel(
+                        model_name=(
+                            "gemini-2.5-flash-native-audio-preview-09-2025"
+                        ),
+                        api_key=os.getenv("GEMINI_API_KEY"),
+                        voice="Charon",
+                    )
+
+                elif model_provider == "openai":
+                    model1 = OpenAIRealtimeModel(
+                        model_name="gpt-4o-realtime-preview",
+                        api_key=os.getenv("OPENAI_API_KEY"),
+                        voice="alloy",
+                    )
+                    model2 = OpenAIRealtimeModel(
+                        model_name="gpt-4o-realtime-preview",
+                        api_key=os.getenv("OPENAI_API_KEY"),
+                        voice="echo",
+                    )
+                else:
+                    raise ValueError(
+                        f"Unsupported model provider: {model_provider}",
+                    )
+
+                # Create the first agent
+                agent1 = RealtimeAgent(
+                    name=agent1_name,
+                    sys_prompt=agent1_instructions,
+                    model=model1,
                 )
 
                 # Create the second agent
                 agent2 = RealtimeAgent(
                     name=agent2_name,
                     sys_prompt=agent2_instructions,
-                    model=DashScopeRealtimeModel(
-                        model_name="qwen3-omni-flash-realtime",
-                        api_key=os.getenv("DASHSCOPE_API_KEY"),
-                        enable_input_audio_transcription=False,
-                        voice="Peter",
-                    ),
+                    model=model2,
                 )
 
                 # Create chat room with both agents
