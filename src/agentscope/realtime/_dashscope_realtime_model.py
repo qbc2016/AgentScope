@@ -4,7 +4,6 @@ import json
 from typing import Literal, Any
 
 import shortuuid
-from websockets import State
 
 from ._events import ModelEvents
 from ._base import RealtimeModelBase
@@ -146,6 +145,8 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             data (`AudioBlock | TextBlock | ImageBlock | ToolResultBlock`):
                 The data to be sent to the DashScope realtime model.
         """
+        from websockets import State
+
         if not self._websocket or self._websocket.state != State.OPEN:
             raise RuntimeError(
                 f"WebSocket is not connected for model {self.model_name}. "

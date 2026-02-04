@@ -3,13 +3,17 @@
 import json
 from typing import Literal, Any
 
-from websockets import State
-
 from ._events import ModelEvents
 from ._base import RealtimeModelBase
 from .._logging import logger
-from .._utils._common import _get_bytes_from_web_url
-from ..message import AudioBlock, TextBlock, ImageBlock, ToolResultBlock
+from .._utils._common import _get_bytes_from_web_url, _json_loads_with_repair
+from ..message import (
+    AudioBlock,
+    TextBlock,
+    ImageBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+)
 
 
 class OpenAIRealtimeModel(RealtimeModelBase):
@@ -133,6 +137,8 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             data (`AudioBlock | TextBlock | ImageBlock | ToolResultBlock`):
                 The data to be sent to the OpenAI realtime model.
         """
+        from websockets import State
+
         if not self._websocket or self._websocket.state != State.OPEN:
             raise RuntimeError(
                 f"WebSocket is not connected for model {self.model_name}. "
@@ -295,6 +301,12 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                     model_event = ModelEvents.ModelResponseToolUseDeltaEvent(
                         response_id=self._response_id,
                         item_id=data.get("item_id", ""),
+                        tool_use=ToolUseBlock(
+                            id=call_id,
+                            name=data.get("name", ""),
+                            input={},
+                            raw_input=self._tool_args_accumulator[call_id],
+                        ),
                         call_id=call_id,
                         name=data.get("name", ""),
                         input=self._tool_args_accumulator[call_id],
@@ -305,10 +317,16 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
             case "response.function_call_arguments.done":
                 call_id = data.get("call_id", "")
+                current_input = self._tool_args_accumulator[call_id]
                 model_event = ModelEvents.ModelResponseToolUseDoneEvent(
                     response_id=self._response_id,
-                    call_id=call_id,
                     item_id=data.get("item_id", ""),
+                    tool_use=ToolUseBlock(
+                        id=call_id,
+                        name=data.get("name", ""),
+                        input=_json_loads_with_repair(current_input),
+                        raw_input=current_input,
+                    ),
                 )
                 # Clear the accumulator for this call_id when done
                 if call_id in self._tool_args_accumulator:
