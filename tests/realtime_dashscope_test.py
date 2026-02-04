@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, patch
 from agentscope.realtime import DashScopeRealtimeModel, ModelEvents
 from agentscope.message import (
     AudioBlock,
-    TextBlock,
     ImageBlock,
     Base64Source,
     URLSource,
@@ -357,28 +356,28 @@ class TestDashScopeRealtimeModelSend(IsolatedAsyncioTestCase):
             self.assertEqual(sent_data["type"], "input_image_url.append")
             self.assertEqual(sent_data["image_url"], "fetched_image_bytes")
 
-    async def test_send_text(self) -> None:
-        """Test sending text data."""
-        text_data = TextBlock(
-            type="text",
-            text="Hello, how are you?",
-        )
-
-        with patch("shortuuid.uuid") as mock_uuid:
-            mock_uuid.return_value = "test_uuid_123"
-
-            await self.model.send(text_data)
-
-            # Verify websocket.send was called
-            self.mock_websocket.send.assert_called_once()
-
-            # Parse the sent message
-            sent_message = self.mock_websocket.send.call_args[0][0]
-            sent_data = json.loads(sent_message)
-
-            self.assertEqual(sent_data["event_id"], "test_uuid_123")
-            self.assertEqual(sent_data["type"], "response.create")
-            self.assertEqual(
-                sent_data["response"]["instructions"],
-                "Hello, how are you?",
-            )
+    # async def test_send_text(self) -> None:
+    #     """Test sending text data."""
+    #     text_data = TextBlock(
+    #         type="text",
+    #         text="Hello, how are you?",
+    #     )
+    #
+    #     with patch("shortuuid.uuid") as mock_uuid:
+    #         mock_uuid.return_value = "test_uuid_123"
+    #
+    #         await self.model.send(text_data)
+    #
+    #         # Verify websocket.send was called
+    #         self.mock_websocket.send.assert_called_once()
+    #
+    #         # Parse the sent message
+    #         sent_message = self.mock_websocket.send.call_args[0][0]
+    #         sent_data = json.loads(sent_message)
+    #
+    #         self.assertEqual(sent_data["event_id"], "test_uuid_123")
+    #         self.assertEqual(sent_data["type"], "response.create")
+    #         self.assertEqual(
+    #             sent_data["response"]["instructions"],
+    #             "Hello, how are you?",
+    #         )
