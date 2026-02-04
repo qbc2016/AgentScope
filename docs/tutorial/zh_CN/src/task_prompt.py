@@ -289,8 +289,6 @@ async def run_truncated_formatter() -> None:
     print(truncated_formatted_message[1]["content"])
 
 
-asyncio.run(run_truncated_formatter())
-
 # %%
 # 我们可以看到来自 Bob 和 Alice 的前两条消息被删除以适应 ``max_tokens`` 的限制。
 #

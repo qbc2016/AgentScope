@@ -289,8 +289,6 @@ async def run_truncated_formatter() -> None:
     print(truncated_formatted_message[1]["content"])
 
 
-asyncio.run(run_truncated_formatter())
-
 # %%
 # We can see the first two messages from Bob and Alice are removed to fit within the context length limits.
 #
