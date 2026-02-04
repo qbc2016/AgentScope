@@ -110,6 +110,7 @@ AgentScope 生态
 - [样例](#%E6%A0%B7%E4%BE%8B)
   - [Hello AgentScope！](#hello-agentscope)
   - [语音智能体](#%E8%AF%AD%E9%9F%B3%E6%99%BA%E8%83%BD%E4%BD%93)
+  - [实时语音智能体](#%E5%AE%9E%E6%97%B6%E8%AF%AD%E9%9F%B3%E6%99%BA%E8%83%BD%E4%BD%93)
   - [人机协作](#%E4%BA%BA%E6%9C%BA%E5%8D%8F%E4%BD%9C)
   - [灵活的 MCP 控制](#%E7%81%B5%E6%B4%BB%E7%9A%84-mcp-%E6%8E%A7%E5%88%B6)
   - [智能体强化学习](#%E6%99%BA%E8%83%BD%E4%BD%93%E5%BC%BA%E5%8C%96%E5%AD%A6%E4%B9%A0)

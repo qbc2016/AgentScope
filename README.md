@@ -112,6 +112,7 @@ Welcome to join our community on
 - [Example](#example)
   - [Hello AgentScope!](#hello-agentscope)
   - [Voice Agent](#voice-agent)
+  - [Realtime Voice Agent](#realtime-voice-agent)
   - [Human-in-the-loop](#human-in-the-loop)
   - [Flexible MCP Usage](#flexible-mcp-usage)
   - [Agentic RL](#agentic-rl)
