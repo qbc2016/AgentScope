@@ -97,14 +97,20 @@ docx-reader = [
     "python-docx"
 ]
 excel-reader = [
+    "agentscope[text-reader]",
     "pandas",
     "openpyxl",
+]
+ppt-reader = [
+    "agentscope[text-reader]",
+    "python-pptx"
 ]
 readers = [
     "agentscope[text-reader]",
     "agentscope[pdf-reader]",
     "agentscope[docx-reader]",
     "agentscope[excel-reader]",
+    "agentscope[ppt-reader]",
 ]
 
 # vdb
@@ -120,7 +126,6 @@ vdbs = [
     "agentscope[milvus]",
     "agentscope[mongodb]",
 ]
-
 
 rag = [
     "agentscope[readers]",
