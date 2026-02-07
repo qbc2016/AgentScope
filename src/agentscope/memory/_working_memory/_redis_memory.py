@@ -125,6 +125,35 @@ class RedisMemory(MemoryBase):
         """
         return self._client
 
+    def _decode_if_bytes(self, data: Any) -> Any:
+        """Helper method to decode bytes to str if needed.
+
+        Args:
+            data (`Any`):
+                The data to decode, which may be bytes, bytearray, or str.
+
+        Returns:
+            `Any`:
+                The decoded string if input was bytes/bytearray, otherwise
+                the original data.
+        """
+        if isinstance(data, (bytes, bytearray)):
+            return data.decode("utf-8")
+        return data
+
+    def _decode_list(self, data_list: list) -> list:
+        """Helper method to decode a list of potential bytes.
+
+        Args:
+            data_list (`list`):
+                A list that may contain bytes, bytearray, or str elements.
+
+        Returns:
+            `list`:
+                A list with all bytes/bytearray elements decoded to str.
+        """
+        return [self._decode_if_bytes(item) for item in data_list]
+
     def _get_session_key(self) -> str:
         """Get the Redis key for the current session.
 
@@ -224,6 +253,8 @@ class RedisMemory(MemoryBase):
                 match=self._get_session_pattern(),
                 count=100,
             )
+            # Decode keys if they are bytes
+            keys = self._decode_list(keys)
             for key in keys:
                 await pipe.expire(key, self.key_ttl)
             if cursor == 0:
@@ -284,6 +315,8 @@ class RedisMemory(MemoryBase):
                 -1,
             )
 
+        msg_ids = self._decode_list(msg_ids)
+
         # Exclude messages by exclude_mark
         if exclude_mark:
             exclude_msg_ids = await self._client.lrange(
@@ -291,6 +324,7 @@ class RedisMemory(MemoryBase):
                 0,
                 -1,
             )
+            exclude_msg_ids = self._decode_list(exclude_msg_ids)
             msg_ids = [_ for _ in msg_ids if _ not in exclude_msg_ids]
 
         # Use mget for batch retrieval to avoid N+1 queries
@@ -301,8 +335,8 @@ class RedisMemory(MemoryBase):
 
             for msg_data in msg_data_list:
                 if msg_data is not None:
-                    if isinstance(msg_data, (bytes, bytearray)):
-                        msg_data = msg_data.decode("utf-8")
+                    # Decode if bytes
+                    msg_data = self._decode_if_bytes(msg_data)
                     msg_dict = json.loads(msg_data)
                     messages.append(Msg.from_dict(msg_dict))
 
@@ -365,6 +399,7 @@ class RedisMemory(MemoryBase):
                 0,
                 -1,
             )
+            existing_msg_ids = self._decode_list(existing_msg_ids)
             existing_msg_ids_set = set(existing_msg_ids)
 
             # Filter out messages that already exist
@@ -430,6 +465,8 @@ class RedisMemory(MemoryBase):
                 match=self._get_mark_pattern(),
                 count=50,
             )
+            # Decode keys if they are bytes
+            keys = self._decode_list(keys)
             mark_keys.extend(keys)
             if cursor == 0:
                 break
@@ -488,6 +525,7 @@ class RedisMemory(MemoryBase):
         for m in mark:
             mark_key = self._get_mark_key(m)
             msg_ids = await self._client.lrange(mark_key, 0, -1)
+            msg_ids = self._decode_list(msg_ids)
 
             if not msg_ids:
                 continue
@@ -509,6 +547,7 @@ class RedisMemory(MemoryBase):
     async def clear(self) -> None:
         """Clear all messages belong to this session from the storage."""
         msg_ids = await self._client.lrange(self._get_session_key(), 0, -1)
+        msg_ids = self._decode_list(msg_ids)
 
         # Get all mark keys using SCAN
         mark_keys = []
@@ -519,6 +558,8 @@ class RedisMemory(MemoryBase):
                 match=self._get_mark_pattern(),
                 count=50,
             )
+            # Decode keys if they are bytes
+            keys = self._decode_list(keys)
             mark_keys.extend(keys)
             if cursor == 0:
                 break
@@ -588,6 +629,7 @@ class RedisMemory(MemoryBase):
                 0,
                 -1,
             )
+            mark_msg_ids = self._decode_list(mark_msg_ids)
         else:
             # Get all message IDs from the session
             mark_msg_ids = await self._client.lrange(
@@ -595,6 +637,7 @@ class RedisMemory(MemoryBase):
                 0,
                 -1,
             )
+            mark_msg_ids = self._decode_list(mark_msg_ids)
 
         # Filter by msg_ids if provided
         if msg_ids is not None:
@@ -610,6 +653,7 @@ class RedisMemory(MemoryBase):
         if new_mark is not None:
             new_mark_key = self._get_mark_key(new_mark)
             existing_ids = await self._client.lrange(new_mark_key, 0, -1)
+            existing_ids = self._decode_list(existing_ids)
             existing_ids_set = set(existing_ids)
 
         # Use pipeline for batch operations
