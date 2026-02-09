@@ -49,7 +49,25 @@ else:
 
 class DashScopeChatModel(ChatModelBase):
     """The DashScope chat model class, which unifies the Generation and
-    MultimodalConversation APIs into one method."""
+    MultimodalConversation APIs into one method.
+
+    This class provides a unified interface for DashScope API by automatically
+    selecting between text-only (Generation API) and multimodal
+    (MultiModalConversation API) endpoints. The `multimodality` parameter
+    allows explicit control over API selection:
+
+    - When `multimodality=True`: Forces use of MultiModalConversation API
+      for handling images, videos, and other multimodal inputs
+    - When `multimodality=False`: Forces use of Generation API for
+      text-only processing
+    - When `multimodality=None` (default): Automatically selects the API
+      based on model name (e.g., models with "-vl" suffix or starting
+      with "qvq" will use MultiModalConversation API)
+
+    This design enables seamless switching between text and multimodal
+    models without changing code structure, making it easier to work with
+    DashScope's diverse model offerings.
+    """
 
     def __init__(
         self,
