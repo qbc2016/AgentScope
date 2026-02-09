@@ -19,7 +19,7 @@ from ..message import (
 class OpenAIRealtimeModel(RealtimeModelBase):
     """The OpenAI realtime model class."""
 
-    support_input_modalities: list[str] = ["audio", "text"]
+    support_input_modalities: list[str] = ["audio", "text", "tool_result"]
     """The supported input modalities of the OpenAI realtime model."""
 
     support_tools: bool = True
