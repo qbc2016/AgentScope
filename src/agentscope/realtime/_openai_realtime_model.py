@@ -117,13 +117,35 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
         # Tools configuration
         if tools:
-            # TODO: format the tools
-            session_config["tools"] = tools
+            session_config["tools"] = self._format_toolkit_schema(tools)
 
         return {
             "type": "session.update",
             "session": session_config,
         }
+
+    def _format_toolkit_schema(
+        self,
+        schemas: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Format the tools JSON schema into OpenAI realtime model format.
+
+        Args:
+            schemas (`list[dict[str, Any]]`):
+                The tool schemas.
+
+        Returns:
+            `list[dict[str, Any]]`:
+                The formatted tools for OpenAI realtime model.
+        """
+        formatted_tools = []
+        for tool in schemas:
+            formatted_tool = {
+                "type": "function",
+                **tool["function"],
+            }
+            formatted_tools.append(formatted_tool)
+        return formatted_tools
 
     async def send(
         self,
@@ -228,7 +250,6 @@ class OpenAIRealtimeModel(RealtimeModelBase):
 
             # ================ Response related events ================
             case "response.created":
-                # TODO: @qbc we create one shortuuid here?
                 self._response_id = data.get("response", {}).get("id", "")
                 model_event = ModelEvents.ModelResponseCreatedEvent(
                     response_id=self._response_id,
