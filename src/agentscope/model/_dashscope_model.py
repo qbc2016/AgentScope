@@ -56,6 +56,7 @@ class DashScopeChatModel(ChatModelBase):
         api_key: str,
         stream: bool = True,
         enable_thinking: bool | None = None,
+        multimodality: bool | None = None,
         generate_kwargs: dict[str, JSONSerializableObject] | None = None,
         base_http_api_url: str | None = None,
         **_kwargs: Any,
@@ -74,6 +75,10 @@ class DashScopeChatModel(ChatModelBase):
                 Refer to `DashScope documentation
                 <https://help.aliyun.com/zh/model-studio/deep-thinking>`_
                 for more details.
+            multimodality (`bool | None`, optional):
+                Whether to use multimodal conversation API. If True, the model
+                will use `dashscope.MultiModalConversation.call` to process
+                multimodal inputs such as images and text.
             generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
             optional):
                The extra keyword arguments used in DashScope API generation,
@@ -95,6 +100,7 @@ class DashScopeChatModel(ChatModelBase):
 
         self.api_key = api_key
         self.enable_thinking = enable_thinking
+        self.multimodality = multimodality
         self.generate_kwargs = generate_kwargs or {}
 
         if base_http_api_url is not None:
@@ -224,7 +230,11 @@ class DashScopeChatModel(ChatModelBase):
             )
 
         start_datetime = datetime.now()
-        if self.model_name.startswith("qvq") or "-vl" in self.model_name:
+        if (
+            self.multimodality
+            or self.model_name.startswith("qvq")
+            or "-vl" in self.model_name
+        ):
             response = dashscope.MultiModalConversation.call(
                 api_key=self.api_key,
                 **kwargs,
