@@ -222,6 +222,7 @@ class AgentBase(StateModule, metaclass=_AgentMeta):
         """
         if not self._disable_msg_queue:
             await self.msg_queue.put((deepcopy(msg), last, speech))
+            await asyncio.sleep(0.001)
 
         if self._disable_console_output:
             return
