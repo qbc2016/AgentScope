@@ -138,14 +138,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             `list[dict[str, Any]]`:
                 The formatted tools for OpenAI realtime model.
         """
-        formatted_tools = []
-        for tool in schemas:
-            formatted_tool = {
-                "type": "function",
-                **tool["function"],
-            }
-            formatted_tools.append(formatted_tool)
-        return formatted_tools
+        return [{"type": "function", **tool["function"]} for tool in schemas]
 
     async def send(
         self,
