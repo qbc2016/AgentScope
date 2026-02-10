@@ -215,7 +215,7 @@ class RealtimeAgent(StateModule):
                             source=Base64Source(
                                 type="base64",
                                 media_type=media_type,
-                                data=event.image,
+                                data=event.data,
                             ),
                         ),
                     )
