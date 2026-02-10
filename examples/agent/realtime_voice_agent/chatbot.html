@@ -139,23 +139,14 @@
             border-color: hsl(221.2, 83.2%, 45%);
         }
 
-        button.btn-primary.recording {
-            background: hsl(0, 84.2%, 60.2%);
-            border-color: hsl(0, 84.2%, 60.2%);
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        button.btn-primary.recording:hover:not(:disabled) {
-            background: hsl(0, 84.2%, 50%);
-            border-color: hsl(0, 84.2%, 50%);
-        }
-
+        button.btn-primary.recording,
         button.btn-primary.recording-video {
             background: hsl(0, 84.2%, 60.2%);
             border-color: hsl(0, 84.2%, 60.2%);
             animation: pulse 1.5s ease-in-out infinite;
         }
 
+        button.btn-primary.recording:hover:not(:disabled),
         button.btn-primary.recording-video:hover:not(:disabled) {
             background: hsl(0, 84.2%, 50%);
             border-color: hsl(0, 84.2%, 50%);
@@ -1170,6 +1161,10 @@
         }
 
 
+        /**
+         * Toggles video recording on and off by calling the
+         * start or stop functions.
+         */
         async function toggleVideo() {
             if (!isRecordingVideo) {
                 await startVideoRecording();
@@ -1178,6 +1173,12 @@
             }
         }
 
+        /**
+         * Starts video recording by requesting camera access, displaying a
+         * live preview, and initiating frame capture to the server at 1 fps.
+         * Requires an active voice chat session (WebSocket connected and
+         * session created).
+         */
         async function startVideoRecording() {
             // Prevent duplicate starts
             if (isRecordingVideo) {
@@ -1200,18 +1201,14 @@
                     return;
                 }
 
-                // Request video and audio stream
+                // Request video stream only (audio is already captured by voice chat)
                 videoStream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         width: { ideal: 1280 },
                         height: { ideal: 720 },
                         facingMode: "user"
                     },
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 48000
-                    }
+                    audio: false
                 });
 
                 // Show video preview
@@ -1233,6 +1230,11 @@
             }
         }
 
+        /**
+         * Captures video frames from the preview element at 1 fps and sends
+         * them to the server as base64-encoded JPEG images via WebSocket
+         * using the client_image_append event.
+         */
         function startSendingVideoFrames() {
             if (videoFrameInterval) {
                 clearInterval(videoFrameInterval);
@@ -1288,6 +1290,10 @@
             }, 1000);
         }
 
+        /**
+         * Stops video recording by clearing the frame capture interval,
+         * releasing the camera stream, and resetting the UI state.
+         */
         function stopVideoRecording() {
             if (videoFrameInterval) {
                 clearInterval(videoFrameInterval);
