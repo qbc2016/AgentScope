@@ -137,6 +137,14 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         Returns:
             `list[dict[str, Any]]`:
                 The formatted tools for OpenAI realtime model.
+
+        .. note::
+            The OpenAI Realtime API uses a different tool format compared to
+            the regular Chat Completions API. While the Chat API expects tools
+            to be wrapped in ``{"type": "function", "function": {...}}``, the
+            Realtime API expects a flattened structure where the function
+            definition is directly at the top level with an added ``"type":
+            "function"`` field.
         """
         return [{"type": "function", **tool["function"]} for tool in schemas]
 
