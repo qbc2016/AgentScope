@@ -172,8 +172,12 @@ def _extract_image_data(para: DocxParagraph) -> list[ImageBlock]:
     # Method 2: Check for pict elements (older Word format)
     picts = para._element.findall(".//" + qn("w:pict"))
 
+    # Use full namespace URI for VML elements since python-docx's qn()
+    # does not register the 'v' prefix (urn:schemas-microsoft-com:vml)
+    vml_ns = "{urn:schemas-microsoft-com:vml}"
+
     for pict in picts:
-        imagedatas = pict.findall(".//" + qn("v:imagedata"))
+        imagedatas = pict.findall(".//" + vml_ns + "imagedata")
 
         for imagedata in imagedatas:
             rel_id = imagedata.get(qn("r:id"))
