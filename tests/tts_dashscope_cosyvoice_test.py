@@ -209,10 +209,10 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
         mock_modules = self._create_mock_dashscope_modules()
 
         with patch.dict("sys.modules", mock_modules):
-            # Mock get_cosyvoice_callback_class
+            # Mock _get_cosyvoice_callback_class
             with patch(
                 "agentscope.tts._dashscope_cosyvoice_realtime_tts_model"
-                ".get_cosyvoice_callback_class",
+                "._get_cosyvoice_callback_class",
             ) as mock_get_callback:
                 mock_callback_class = MagicMock()
                 mock_callback_class.return_value = self._create_mock_callback()
@@ -240,7 +240,7 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
         with patch.dict("sys.modules", mock_modules):
             with patch(
                 "agentscope.tts._dashscope_cosyvoice_realtime_tts_model"
-                ".get_cosyvoice_callback_class",
+                "._get_cosyvoice_callback_class",
             ) as mock_get_callback:
                 mock_callback_class = MagicMock()
                 mock_callback = self._create_mock_callback()
@@ -297,7 +297,7 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
         with patch.dict("sys.modules", mock_modules):
             with patch(
                 "agentscope.tts._dashscope_cosyvoice_realtime_tts_model"
-                ".get_cosyvoice_callback_class",
+                "._get_cosyvoice_callback_class",
             ) as mock_get_callback:
                 mock_callback_class = MagicMock()
                 mock_callback = self._create_mock_callback()
@@ -344,7 +344,7 @@ class DashScopeCosyVoiceRealtimeTTSModelTest(IsolatedAsyncioTestCase):
         with patch.dict("sys.modules", mock_modules):
             with patch(
                 "agentscope.tts._dashscope_cosyvoice_realtime_tts_model"
-                ".get_cosyvoice_callback_class",
+                "._get_cosyvoice_callback_class",
             ) as mock_get_callback:
                 mock_callback_class = MagicMock()
                 mock_callback = self._create_mock_callback()
