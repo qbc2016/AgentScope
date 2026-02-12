@@ -55,7 +55,17 @@ def get_poison_model(agents: list[AgentBase]) -> type[BaseModel]:
         # pylint: disable=no-self-argument
         @model_validator(mode="before")
         def clear_name_if_no_poison(cls, values: dict) -> dict:
-            """If poison is false, set name to None to skip validation."""
+            """Clear name if no poison is used.
+            This is to avoid validation errors when `poison` is false but a
+             `name` is provided.
+
+            Args:
+                values (`dict`):
+                    The input data for the model.
+            Returns:
+                `dict`:
+                    The validated and possibly modified data.
+            """
             if isinstance(values, dict) and not values.get("poison"):
                 values["name"] = None
             return values
@@ -96,7 +106,17 @@ def get_hunter_model(agents: list[AgentBase]) -> type[BaseModel]:
         # pylint: disable=no-self-argument
         @model_validator(mode="before")
         def clear_name_if_no_shoot(cls, values: dict) -> dict:
-            """If shoot is false, set name to None to skip validation."""
+            """If shoot is false, set name to None to skip validation.
+            This is to avoid validation errors when `shoot` is false but a
+             `name` is provided.
+
+            Args:
+                values (`dict`):
+                    The input data for the model.
+            Returns:
+                `dict`:
+                    The validated and possibly modified data.
+            """
             if isinstance(values, dict) and not values.get("shoot"):
                 values["name"] = None
             return values
