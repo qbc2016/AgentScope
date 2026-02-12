@@ -5,7 +5,7 @@ from typing import Any, Literal, AsyncGenerator
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
-from ._utils import get_cosyvoice_callback_class
+from ._utils import _get_cosyvoice_callback_class
 from ..message import Msg
 from ..types import JSONSerializableObject
 
@@ -113,7 +113,7 @@ class DashScopeCosyVoiceRealtimeTTSModel(TTSModelBase):
 
         # Initialize TTS client
         # Save callback reference (for DashScope SDK)
-        self._dashscope_callback = get_cosyvoice_callback_class()()
+        self._dashscope_callback = _get_cosyvoice_callback_class()()
 
         # The variables for tracking streaming input messages
         # If we have sent text for the current message

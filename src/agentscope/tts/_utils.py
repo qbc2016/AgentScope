@@ -15,7 +15,7 @@ else:
     ResultCallback = "dashscope.audio.tts_v2.ResultCallback"
 
 
-def get_cosyvoice_callback_class() -> type["ResultCallback"]:
+def _get_cosyvoice_callback_class() -> type["ResultCallback"]:
     """Get the callback class for CosyVoice TTS streaming audio output.
 
     This callback handles audio data accumulation with proper PCM and base64

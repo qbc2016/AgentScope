@@ -6,7 +6,7 @@ from typing import Any, Literal, AsyncGenerator
 
 from ._tts_base import TTSModelBase
 from ._tts_response import TTSResponse
-from ._utils import get_cosyvoice_callback_class
+from ._utils import _get_cosyvoice_callback_class
 from ..message import Msg, AudioBlock, Base64Source
 from ..types import JSONSerializableObject
 
@@ -85,7 +85,7 @@ class DashScopeCosyVoiceTTSModel(TTSModelBase):
         """Create a new SpeechSynthesizer instance for each request."""
         from dashscope.audio.tts_v2 import SpeechSynthesizer, AudioFormat
 
-        callback = get_cosyvoice_callback_class()() if self.stream else None
+        callback = _get_cosyvoice_callback_class()() if self.stream else None
 
         synthesizer = SpeechSynthesizer(
             model=self.model_name,
