@@ -26,15 +26,11 @@ async def stream_and_collect(
             continue  # Skip printing; full content is in the final chunk
         for block in chunk.content:
             if isinstance(block, ThinkingBlock):
-                if not block.thinking:
-                    continue  # Skip empty delta blocks
                 if not in_thinking:
                     print("[Thinking] ", end="", flush=True)
                     in_thinking = True
                 print(block.thinking, end="", flush=True)
             elif isinstance(block, TextBlock):
-                if not block.text:
-                    continue  # Skip empty delta blocks
                 if in_thinking:
                     print()  # Newline after thinking content
                     print("--- Answer ---")
