@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """The Moonshot AI LLM API modules."""
 
-from ._model import MoonshotCredential, MoonshotChatModel
+from ._model import MoonshotChatModel
 
 __all__ = [
-    "MoonshotCredential",
     "MoonshotChatModel",
 ]
