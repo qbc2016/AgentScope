@@ -13,6 +13,7 @@ from .._model_usage import ChatUsage
 from ...credential import DashScopeCredential
 from ...formatter import FormatterBase, DashScopeChatFormatter
 from ...message import (
+    Msg,
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
@@ -141,7 +142,7 @@ class DashScopeChatModel(ChatModelBase):
     async def _call_api(
         self,
         model_name: str,
-        messages: list[Any],
+        messages: list[Msg],
         tools: list[dict] | None = None,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
