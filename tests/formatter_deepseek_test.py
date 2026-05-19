@@ -15,6 +15,7 @@ from agentscope.message import (
     ToolResultBlock,
     ToolResultState,
     ThinkingBlock,
+    HintBlock,
 )
 
 
@@ -321,3 +322,38 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
 
         # Empty
         self.assertListEqual([], await fmt.format([]))
+
+    async def test_chat_formatter_hint_block(self) -> None:
+        """HintBlock flushes preceding content and becomes a user message."""
+        fmt = DeepSeekChatFormatter()
+        msgs = [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(text="Let me think about that."),
+                    HintBlock(hint="Remember to be concise."),
+                    TextBlock(text="Here is my answer."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "content": "Let me think about that.",
+                    "reasoning_content": "",
+                },
+                {
+                    "role": "user",
+                    "content": "Remember to be concise.",
+                },
+                {
+                    "role": "assistant",
+                    "content": "Here is my answer.",
+                    "reasoning_content": "",
+                },
+            ],
+        )

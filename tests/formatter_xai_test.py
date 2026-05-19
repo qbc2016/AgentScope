@@ -21,6 +21,7 @@ from agentscope.message import (
     ToolResultBlock,
     ThinkingBlock,
     ToolResultState,
+    HintBlock,
 )
 
 # ---------------------------------------------------------------------------
@@ -348,3 +349,27 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         fmt = XAIMultiAgentFormatter()
         res = await fmt.format([])
         self.assertListEqual([], res)
+
+    async def test_chat_formatter_hint_block(self) -> None:
+        """HintBlock flushes preceding content and becomes a user message."""
+        fmt = XAIChatFormatter()
+        msgs = [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(text="Let me think about that."),
+                    HintBlock(hint="Remember to be concise."),
+                    TextBlock(text="Here is my answer."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [m.role for m in res],
+            ["assistant", "user", "assistant"],
+        )
+        self.assertListEqual(
+            list(res[1].args),
+            ["Remember to be concise."],
+        )

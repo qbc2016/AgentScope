@@ -20,6 +20,7 @@ from agentscope.message import (
     Base64Source,
     URLSource,
     ThinkingBlock,
+    HintBlock,
 )
 
 
@@ -563,3 +564,44 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
         # Empty
         res = await fmt.format([])
         self.assertListEqual([], res)
+
+    async def test_chat_formatter_hint_block(self) -> None:
+        """HintBlock flushes preceding content and becomes a user message."""
+        fmt = OpenAIChatFormatter()
+        msgs = [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(text="Let me think about that."),
+                    HintBlock(hint="Remember to be concise."),
+                    TextBlock(text="Here is my answer."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "name": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Let me think about that."},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Remember to be concise."},
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "name": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Here is my answer."},
+                    ],
+                },
+            ],
+        )
