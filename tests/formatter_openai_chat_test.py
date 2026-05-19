@@ -58,10 +58,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of France?",
-                    ),
+                    TextBlock(text="What is the capital of France?"),
                     DataBlock(
                         source=URLSource(
                             url=self.image_url,
@@ -101,17 +98,11 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
@@ -331,10 +322,9 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(type="text", text="What's in this image?"),
+                    TextBlock(text="What's in this image?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
                             data=self.image_b64,
                             media_type="image/png",
                         ),
@@ -368,13 +358,12 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -382,6 +371,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                     "content": [{"type": "text", "text": "reply"}],
                 },
             ],
+            res,
         )
 
     @patch(
@@ -408,10 +398,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         id="call_img",
                         name="get_map",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="Here is the map.",
-                            ),
+                            TextBlock(text="Here is the map."),
                             DataBlock(
                                 source=URLSource(
                                     url=self.image_url,
@@ -421,10 +408,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="Here is the map of Tokyo.",
-                    ),
+                    TextBlock(text="Here is the map of Tokyo."),
                 ],
             ),
         ]
@@ -437,7 +421,6 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
             f"[{_FIXED_ID}].</system-reminder>"
         )
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -497,6 +480,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )
 
     # -------------------------------------------------------------------
@@ -572,7 +556,6 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -595,4 +578,5 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )

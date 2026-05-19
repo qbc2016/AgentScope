@@ -67,10 +67,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of France?",
-                    ),
+                    TextBlock(text="What is the capital of France?"),
                     DataBlock(
                         source=URLSource(
                             url=self.image_url,
@@ -86,10 +83,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of Germany?",
-                    ),
+                    TextBlock(text="What is the capital of Germany?"),
                     DataBlock(
                         source=URLSource(
                             url=self.audio_url,
@@ -123,17 +117,11 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
@@ -359,10 +347,9 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(type="text", text="What's in this image?"),
+                    TextBlock(text="What's in this image?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
                             data=self.image_b64,
                             media_type="image/png",
                         ),
@@ -414,10 +401,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         id="call_img",
                         name="get_map",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="Here is the map.",
-                            ),
+                            TextBlock(text="Here is the map."),
                             DataBlock(
                                 source=URLSource(
                                     url=self.image_url,
@@ -427,10 +411,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="Here is the map of Tokyo.",
-                    ),
+                    TextBlock(text="Here is the map of Tokyo."),
                 ],
             ),
         ]
@@ -443,7 +424,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             f"[{_FIXED_ID}].</system-reminder>"
         )
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -500,6 +480,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_thinking_dropped_without_flag(self) -> None:
@@ -511,19 +492,19 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
                     "content": [{"type": "text", "text": "reply"}],
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_thinking_becomes_reasoning_content(
@@ -539,13 +520,12 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -553,6 +533,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "inner thoughts",
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_multiple_thinking_blocks_joined(
@@ -569,13 +550,12 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                 content=[
                     ThinkingBlock(thinking="part one"),
                     ThinkingBlock(thinking="part two"),
-                    TextBlock(type="text", text="answer"),
+                    TextBlock(text="answer"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -583,6 +563,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "part one\npart two",
                 },
             ],
+            res,
         )
 
     # -------------------------------------------------------------------
@@ -660,7 +641,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         tr = ToolResultBlock(
             id="call_1",
             name="get_capital",
-            output=[TextBlock(type="text", text="Tokyo")],
+            output=[TextBlock(text="Tokyo")],
             state=ToolResultState.SUCCESS,
         )
         msgs = [
@@ -691,7 +672,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -712,4 +692,5 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )

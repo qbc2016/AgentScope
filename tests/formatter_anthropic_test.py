@@ -78,17 +78,11 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
@@ -313,10 +307,9 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(type="text", text="What's in this image?"),
+                    TextBlock(text="What's in this image?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
                             data=self.image_b64,
                             media_type="image/png",
                         ),
@@ -353,13 +346,12 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -373,6 +365,7 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_tool_result_role_forced_to_user(
@@ -410,7 +403,7 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                         id="call_img",
                         name="get_chart",
                         output=[
-                            TextBlock(type="text", text="Here is the chart."),
+                            TextBlock(text="Here is the chart."),
                             DataBlock(
                                 source=Base64Source(
                                     data=self.image_b64,
@@ -420,16 +413,12 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="Here is the chart analysis.",
-                    ),
+                    TextBlock(text="Here is the chart analysis."),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -475,6 +464,7 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )
 
     # -------------------------------------------------------------------
@@ -550,7 +540,6 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -571,4 +560,5 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )

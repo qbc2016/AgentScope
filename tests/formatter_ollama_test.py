@@ -3,6 +3,7 @@
 OllamaMultiAgentFormatter, with exact ground-truth comparisons.
 """
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 
 from agentscope.formatter import OllamaChatFormatter, OllamaMultiAgentFormatter
 from agentscope.message import (
@@ -17,6 +18,9 @@ from agentscope.message import (
     Base64Source,
     HintBlock,
 )
+
+
+_FIXED_ID = "TESTID1234567"
 
 
 class TestOllamaFormatter(IsolatedAsyncioTestCase):
@@ -70,17 +74,11 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
@@ -205,7 +203,6 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
             [AssistantMsg(name="assistant", content=[tc])],
         )
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -220,6 +217,7 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_base64_image(self) -> None:
@@ -230,10 +228,9 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(type="text", text="What is this?"),
+                    TextBlock(text="What is this?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
                             data=self.image_b64,
                             media_type="image/png",
                         ),
@@ -243,7 +240,6 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "user",
@@ -251,6 +247,89 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                     "images": [self.image_b64],
                 },
             ],
+            res,
+        )
+
+    @patch(
+        "agentscope.formatter._formatter_base.shortuuid.uuid",
+        return_value=_FIXED_ID,
+    )
+    async def test_chat_formatter_base64_image_in_tool_result(
+        self,
+        _mock_uuid: object,
+    ) -> None:
+        """Base64 images in tool results are promoted to a follow-up user
+        message with images list."""
+        fmt = OllamaChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ToolCallBlock(
+                        id="call_img",
+                        name="get_map",
+                        input='{"city": "Tokyo"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_img",
+                        name="get_map",
+                        output=[
+                            TextBlock(text="Here is the map."),
+                            DataBlock(
+                                source=Base64Source(
+                                    data=self.image_b64,
+                                    media_type="image/png",
+                                ),
+                            ),
+                        ],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    TextBlock(text="Here is the map of Tokyo."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+
+        expected_tool_content = (
+            "Here is the map.\n"
+            f"<system-reminder>A(n) image file is returned "
+            f"and will be presented to you with the identifier "
+            f"[{_FIXED_ID}].</system-reminder>"
+        )
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "get_map",
+                                "arguments": {"city": "Tokyo"},
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "content": expected_tool_content,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "<system-reminder>The multimodal data "
+                        "and their identifiers are listed as follows:\n"
+                        f"- {_FIXED_ID} (image file): \n"
+                        "</system-reminder>"
+                    ),
+                    "images": [self.image_b64],
+                },
+                {
+                    "role": "assistant",
+                    "content": "Here is the map of Tokyo.",
+                },
+            ],
+            res,
         )
 
     # ------------------------------------------------------------------
@@ -325,7 +404,6 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -340,4 +418,5 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                     "content": "Here is my answer.",
                 },
             ],
+            res,
         )

@@ -4,6 +4,7 @@ KimiMultiAgentFormatter, following the reference test style with exact
 ground-truth comparisons.
 """
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 
 from agentscope.formatter import (
     KimiChatFormatter,
@@ -37,7 +38,7 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
             url="https://example.com/image.png",
             media_type="image/png",
         )
-        image_url = str(_img_src.url)
+        self.image_url = str(_img_src.url)
 
         self.image_b64 = "ZmFrZSBpbWFnZSBkYXRh"
         self.image_data_uri = f"data:image/png;base64,{self.image_b64}"
@@ -56,13 +57,10 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of France?",
-                    ),
+                    TextBlock(text="What is the capital of France?"),
                     DataBlock(
                         source=URLSource(
-                            url=image_url,
+                            url=self.image_url,
                             media_type="image/png",
                         ),
                     ),
@@ -99,17 +97,11 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
@@ -134,7 +126,7 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                     {"type": "text", "text": "What is the capital of France?"},
                     {
                         "type": "image_url",
-                        "image_url": {"url": image_url},
+                        "image_url": {"url": self.image_url},
                     },
                 ],
             },
@@ -278,7 +270,7 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "image_url",
-                        "image_url": {"url": image_url},
+                        "image_url": {"url": self.image_url},
                     },
                 ],
             },
@@ -333,13 +325,12 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -348,6 +339,7 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "inner thoughts",
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_assistant_always_has_reasoning_content(
@@ -364,7 +356,6 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -373,6 +364,7 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "",
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_base64_image(self) -> None:
@@ -382,10 +374,9 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(type="text", text="What's in this image?"),
+                    TextBlock(text="What's in this image?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
                             data=self.image_b64,
                             media_type="image/png",
                         ),
@@ -406,6 +397,117 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                             "image_url": {"url": self.image_data_uri},
                         },
                     ],
+                },
+            ],
+            res,
+        )
+
+    @patch(
+        "agentscope.formatter._formatter_base.shortuuid.uuid",
+        return_value=_FIXED_ID,
+    )
+    async def test_chat_formatter_url_image_in_tool_result(
+        self,
+        _mock_uuid: object,
+    ) -> None:
+        """URL images in tool results are promoted to a follow-up user
+        message."""
+        fmt = KimiChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ToolCallBlock(
+                        id="call_img",
+                        name="get_map",
+                        input='{"city": "Tokyo"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_img",
+                        name="get_map",
+                        output=[
+                            TextBlock(text="Here is the map."),
+                            DataBlock(
+                                source=URLSource(
+                                    url=self.image_url,
+                                    media_type="image/png",
+                                ),
+                            ),
+                        ],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    TextBlock(text="Here is the map of Tokyo."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+
+        expected_tool_content = (
+            "Here is the map.\n"
+            f"<system-reminder>A(n) image file is returned "
+            f"and will be presented to you with the identifier "
+            f"[{_FIXED_ID}].</system-reminder>"
+        )
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "name": "assistant",
+                    "content": None,
+                    "reasoning_content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_img",
+                            "type": "function",
+                            "function": {
+                                "name": "get_map",
+                                "arguments": '{"city": "Tokyo"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_img",
+                    "content": expected_tool_content,
+                    "name": "get_map",
+                },
+                {
+                    "role": "user",
+                    "name": "system-reminder",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "<system-reminder>The multimodal data "
+                                "and their identifiers are listed as "
+                                "follows:"
+                            ),
+                        },
+                        {
+                            "type": "text",
+                            "text": f"- {_FIXED_ID} (image file): ",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": self.image_url},
+                        },
+                        {
+                            "type": "text",
+                            "text": "</system-reminder>",
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "name": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Here is the map of Tokyo.",
+                        },
+                    ],
+                    "reasoning_content": "",
                 },
             ],
             res,
@@ -484,7 +586,6 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -509,4 +610,5 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "",
                 },
             ],
+            res,
         )

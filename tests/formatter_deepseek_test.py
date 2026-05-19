@@ -71,17 +71,11 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
@@ -226,7 +220,6 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
         msgs = [AssistantMsg(name="assistant", content="Answer")]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -234,6 +227,7 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "",
                 },
             ],
+            res,
         )
 
     async def test_chat_formatter_thinking_block(self) -> None:
@@ -244,13 +238,12 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="Let me think..."),
-                    TextBlock(type="text", text="Answer"),
+                    TextBlock(text="Answer"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -258,6 +251,7 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "Let me think...",
                 },
             ],
+            res,
         )
 
     # ------------------------------------------------------------------
@@ -332,7 +326,6 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "assistant",
@@ -349,4 +342,5 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
                     "reasoning_content": "",
                 },
             ],
+            res,
         )

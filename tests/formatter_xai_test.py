@@ -138,13 +138,15 @@ def _build_xai_sdk_stub() -> None:
             return item
 
     class _FunctionSpec:
-        name: str = ""
-        arguments: str = ""
+        def __init__(self) -> None:
+            self.name = ""
+            self.arguments = ""
 
     class _ToolCallProto:
-        id: str = ""
-        type: int = 0
-        function = _FunctionSpec()
+        def __init__(self) -> None:
+            self.id = ""
+            self.type = 0
+            self.function = _FunctionSpec()
 
     class _ContentPart:
         text: str = ""
@@ -229,17 +231,11 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
@@ -257,8 +253,8 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         fmt = XAIChatFormatter()
         res = await fmt.format(self.msgs_system)
         self.assertListEqual(
-            res,
             [system("You're a helpful assistant.")],
+            res,
         )
 
     async def test_chat_formatter_user_assistant(self) -> None:
@@ -266,7 +262,6 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         fmt = XAIChatFormatter()
         res = await fmt.format(self.msgs_conversation)
         self.assertListEqual(
-            res,
             [
                 user("What is the capital of France?"),
                 assistant("The capital of France is Paris."),
@@ -274,6 +269,7 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
                 assistant("The capital of Germany is Berlin."),
                 user("What is the capital of Japan?"),
             ],
+            res,
         )
 
     async def test_chat_formatter_tool_call(self) -> None:
@@ -322,12 +318,12 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertListEqual(res, [assistant("reply")])
+        self.assertListEqual([assistant("reply")], res)
 
     async def test_chat_formatter_empty(self) -> None:
         """Empty input returns empty list."""
@@ -353,7 +349,6 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         fmt = XAIMultiAgentFormatter()
         res = await fmt.format(self.msgs_conversation)
         self.assertListEqual(
-            res,
             [
                 user(
                     self._hist_prompt + "<history>\n"
@@ -365,6 +360,7 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
                     "</history>",
                 ),
             ],
+            res,
         )
 
     async def test_multiagent_formatter_first_group_has_hist_prompt(
@@ -433,10 +429,10 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 assistant("Let me think about that."),
                 user("Remember to be concise."),
                 assistant("Here is my answer."),
             ],
+            res,
         )

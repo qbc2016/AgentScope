@@ -4,6 +4,7 @@ GeminiMultiAgentFormatter, following the reference test style with exact
 ground-truth comparisons.
 """
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 
 from agentscope.formatter import (
     GeminiChatFormatter,
@@ -24,12 +25,15 @@ from agentscope.message import (
 )
 
 
+_FIXED_ID = "TESTID1234567"
+
+
 class TestGeminiFormatter(IsolatedAsyncioTestCase):
     """Comprehensive tests for Gemini Chat and MultiAgent formatters."""
 
     async def asyncSetUp(self) -> None:
         """Set up shared message fixtures and expected ground-truth dicts."""
-        image_b64 = "ZmFrZSBpbWFnZSBkYXRh"
+        self.image_b64 = "ZmFrZSBpbWFnZSBkYXRh"
 
         # ---------------------------------------------------------------
         # Message fixtures
@@ -46,14 +50,10 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
             UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of France?",
-                    ),
+                    TextBlock(text="What is the capital of France?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
-                            data=image_b64,
+                            data=self.image_b64,
                             media_type="image/png",
                         ),
                     ),
@@ -90,23 +90,17 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
-                    TextBlock(
-                        type="text",
-                        text="The capital of Japan is Tokyo.",
-                    ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
             ),
         ]
 
         _inline_img = {
-            "inline_data": {"data": image_b64, "mime_type": "image/png"},
+            "inline_data": {"data": self.image_b64, "mime_type": "image/png"},
         }
 
         # ---------------------------------------------------------------
@@ -296,13 +290,12 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
             ),
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "model",
@@ -312,6 +305,111 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
+        )
+
+    @patch(
+        "agentscope.formatter._formatter_base.shortuuid.uuid",
+        return_value=_FIXED_ID,
+    )
+    async def test_chat_formatter_base64_image_in_tool_result(
+        self,
+        _mock_uuid: object,
+    ) -> None:
+        """Base64 images in tool results are promoted to a follow-up user
+        message."""
+        fmt = GeminiChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ToolCallBlock(
+                        id="call_img",
+                        name="get_map",
+                        input='{"city": "Tokyo"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_img",
+                        name="get_map",
+                        output=[
+                            TextBlock(text="Here is the map."),
+                            DataBlock(
+                                source=Base64Source(
+                                    data=self.image_b64,
+                                    media_type="image/png",
+                                ),
+                            ),
+                        ],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    TextBlock(text="Here is the map of Tokyo."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+
+        expected_tool_output = (
+            "Here is the map.\n"
+            f"<system-reminder>A(n) image file is returned "
+            f"and will be presented to you with the identifier "
+            f"[{_FIXED_ID}].</system-reminder>"
+        )
+        self.assertListEqual(
+            [
+                {
+                    "role": "model",
+                    "parts": [
+                        {
+                            "function_call": {
+                                "id": "call_img",
+                                "name": "get_map",
+                                "args": {"city": "Tokyo"},
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "function_response": {
+                                "id": "call_img",
+                                "name": "get_map",
+                                "response": {"output": expected_tool_output},
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                "<system-reminder>The multimodal data "
+                                "and their identifiers are listed as "
+                                "follows:"
+                            ),
+                        },
+                        {
+                            "text": f"- {_FIXED_ID} (image file): ",
+                        },
+                        {
+                            "inline_data": {
+                                "data": self.image_b64,
+                                "mime_type": "image/png",
+                            },
+                        },
+                        {"text": "</system-reminder>"},
+                    ],
+                },
+                {
+                    "role": "model",
+                    "parts": [
+                        {"text": "Here is the map of Tokyo."},
+                    ],
+                },
+            ],
+            res,
         )
 
     # -------------------------------------------------------------------
@@ -387,7 +485,6 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         self.assertListEqual(
-            res,
             [
                 {
                     "role": "model",
@@ -408,4 +505,5 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
                     ],
                 },
             ],
+            res,
         )
