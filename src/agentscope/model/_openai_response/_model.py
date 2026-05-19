@@ -10,7 +10,13 @@ from .._model_response import ChatResponse
 from .._model_usage import ChatUsage
 from ...credential import OpenAICredential
 from ...formatter import FormatterBase, OpenAIResponseFormatter
-from ...message import ThinkingBlock, ToolCallBlock, TextBlock
+from ...message import (
+    ThinkingBlock,
+    ToolCallBlock,
+    TextBlock,
+    DataBlock,
+    Base64Source,
+)
 from ...tool import ToolChoice
 from ...tracing import trace_llm
 
@@ -172,15 +178,31 @@ class OpenAIResponseModel(ChatModelBase):
         start_datetime = datetime.now()
         response = await client.responses.create(**api_kwargs)
 
-        if self.stream:
-            return self._parse_stream_response(start_datetime, response)
+        audio_cfg = api_kwargs.get("audio")
+        audio_fmt = (
+            audio_cfg.get("format", "wav")
+            if isinstance(audio_cfg, dict)
+            else "wav"
+        )
 
-        return self._parse_completion_response(start_datetime, response)
+        if self.stream:
+            return self._parse_stream_response(
+                start_datetime,
+                response,
+                audio_fmt,
+            )
+
+        return self._parse_completion_response(
+            start_datetime,
+            response,
+            audio_fmt,
+        )
 
     async def _parse_stream_response(
         self,
         start_datetime: datetime,
         response: "AsyncStream[ResponseStreamEvent]",
+        audio_format: str = "wav",
     ) -> AsyncGenerator[ChatResponse, None]:
         """Parse the OpenAI Responses API streaming response.
 
@@ -194,6 +216,9 @@ class OpenAIResponseModel(ChatModelBase):
                 The start datetime of the response generation.
             response (`AsyncStream[ResponseStreamEvent]`):
                 The OpenAI Responses API async stream object.
+            audio_format (`str`, defaults to ``"wav"``):
+                The audio format requested (used to set the media type on
+                the output ``DataBlock``).
 
         Yields:
             `ChatResponse`:
@@ -206,6 +231,8 @@ class OpenAIResponseModel(ChatModelBase):
         acc_text = TextBlock(text="")
         acc_thinking = ThinkingBlock(thinking="")
         tool_calls: dict[str, dict[str, Any]] = {}
+        acc_audio_data: str = ""
+        acc_audio_transcript: str = ""
 
         async for event in response:
             event_type = event.type
@@ -235,13 +262,15 @@ class OpenAIResponseModel(ChatModelBase):
                 acc_text.text += delta
                 delta_contents.append(TextBlock(id=acc_text.id, text=delta))
 
+            elif event_type == "response.audio.delta":
+                acc_audio_data += event.delta
+
+            elif event_type == "response.audio.transcript.delta":
+                acc_audio_transcript += event.delta
+
             elif event_type == "response.output_item.added":
                 item = event.item
                 if getattr(item, "type", None) == "function_call":
-                    # item.id  → fc_xxx  (item identifier, needed for
-                    #             function_call.id in multi-turn history)
-                    # item.call_id → call_xxx (needed for
-                    #             function_call_output.call_id)
                     tool_calls[item.id] = {
                         "id": item.id,
                         "call_id": getattr(item, "call_id", None),
@@ -275,11 +304,6 @@ class OpenAIResponseModel(ChatModelBase):
                     )
                 # Attach reasoning item IDs from the completed response so the
                 # formatter can echo them back in multi-turn history.
-                # The Responses API requires every function_call item to be
-                # accompanied by its preceding reasoning item (see the
-                # function-calling guide).  The reasoning item may have an
-                # empty summary when the model does not expose it (e.g.
-                # o1/o4-mini as of 2026-05).
                 for output_item in getattr(resp, "output", []):
                     if getattr(output_item, "type", None) == "reasoning":
                         reasoning_item_id = getattr(output_item, "id", None)
@@ -291,7 +315,7 @@ class OpenAIResponseModel(ChatModelBase):
                             )
                 # Emit the full accumulated state as the final response
                 final_contents: List[
-                    TextBlock | ToolCallBlock | ThinkingBlock
+                    TextBlock | ToolCallBlock | ThinkingBlock | DataBlock
                 ] = []
                 if acc_thinking.thinking or getattr(
                     acc_thinking,
@@ -301,6 +325,10 @@ class OpenAIResponseModel(ChatModelBase):
                     final_contents.append(acc_thinking)
                 if acc_text.text:
                     final_contents.append(acc_text)
+                elif acc_audio_transcript:
+                    final_contents.append(
+                        TextBlock(text=acc_audio_transcript),
+                    )
                 for tc in tool_calls.values():
                     final_contents.append(
                         ToolCallBlock(
@@ -308,6 +336,15 @@ class OpenAIResponseModel(ChatModelBase):
                             call_id=tc.get("call_id"),
                             name=tc["name"],
                             input=tc["input"] or "{}",
+                        ),
+                    )
+                if acc_audio_data:
+                    final_contents.append(
+                        DataBlock(
+                            source=Base64Source(
+                                data=acc_audio_data,
+                                media_type=f"audio/{audio_format}",
+                            ),
                         ),
                     )
                 final_kwargs: dict[str, Any] = {
@@ -335,6 +372,7 @@ class OpenAIResponseModel(ChatModelBase):
         self,
         start_datetime: datetime,
         response: "Response",
+        audio_format: str = "wav",
     ) -> ChatResponse:
         """Parse the OpenAI Responses API non-streaming response.
 
@@ -343,12 +381,18 @@ class OpenAIResponseModel(ChatModelBase):
                 The start datetime of the response generation.
             response (`Response`):
                 The OpenAI Responses API response object.
+            audio_format (`str`, defaults to ``"wav"``):
+                The audio format requested (used to set the media type on
+                the output ``DataBlock``).
 
         Returns:
             `ChatResponse`:
                 A single ``ChatResponse`` with ``is_last=True``.
         """
-        content_blocks: List[TextBlock | ToolCallBlock | ThinkingBlock] = []
+        content_blocks: List[
+            TextBlock | ToolCallBlock | ThinkingBlock | DataBlock
+        ] = []
+        has_text = False
 
         for item in response.output:
             item_type = getattr(item, "type", None)
@@ -371,10 +415,31 @@ class OpenAIResponseModel(ChatModelBase):
 
             elif item_type == "message":
                 for part in getattr(item, "content", []):
-                    if getattr(part, "type", None) == "output_text":
+                    part_type = getattr(part, "type", None)
+                    if part_type == "output_text":
                         content_blocks.append(
                             TextBlock(type="text", text=part.text),
                         )
+                        has_text = True
+                    elif part_type == "output_audio":
+                        audio_data = getattr(part, "data", "") or ""
+                        audio_transcript = (
+                            getattr(part, "transcript", "") or ""
+                        )
+                        if audio_transcript and not has_text:
+                            content_blocks.append(
+                                TextBlock(text=audio_transcript),
+                            )
+                            has_text = True
+                        if audio_data:
+                            content_blocks.append(
+                                DataBlock(
+                                    source=Base64Source(
+                                        data=audio_data,
+                                        media_type=f"audio/{audio_format}",
+                                    ),
+                                ),
+                            )
 
             elif item_type == "function_call":
                 content_blocks.append(

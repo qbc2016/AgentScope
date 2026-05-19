@@ -130,7 +130,49 @@ async def example_image_base64() -> None:
     await stream_and_collect(await model(msgs))
 
 
+async def example_audio() -> None:
+    """Call gpt-4o-audio-preview with audio output enabled.
+
+    Audio output requires ``modalities=["text", "audio"]`` and an ``audio``
+    configuration dict. The model returns audio data as a ``DataBlock`` with
+    ``Base64Source`` and the transcript as a ``TextBlock``.
+    """
+    model = OpenAIChatModel(
+        credential=OpenAICredential(
+            api_key=os.environ["OPENAI_API_KEY"],
+        ),
+        model="gpt-4o-audio-preview",
+        stream=True,
+    )
+
+    msgs = [
+        Msg(
+            name="user",
+            content="Introduce yourself briefly in one sentence.",
+            role="user",
+        ),
+    ]
+
+    print("=== Multimodal Call (Audio Output) ===")
+    response = await stream_and_collect(
+        await model(
+            msgs,
+            modalities=["text", "audio"],
+            audio={"voice": "alloy", "format": "wav"},
+        ),
+    )
+
+    # Save audio if present
+    for block in response.content:
+        if isinstance(block, DataBlock) and block.source.media_type.startswith(
+            "audio/",
+        ):
+            audio_bytes = base64.b64decode(block.source.data)
+            print(f"  Audio received: {len(audio_bytes)} bytes")
+
+
 if __name__ == "__main__":
     asyncio.run(example_image_url())
     asyncio.run(example_image_local_path())
     asyncio.run(example_image_base64())
+    asyncio.run(example_audio())
