@@ -1072,15 +1072,20 @@ class RemoveTitleFieldTest(TestCase):
         }
         self.fn(schema)
 
-        self.assertNotIn(
-            "title",
-            schema["$defs"]["MyModel"],
-            "Top-level title inside $defs must be removed",
-        )
-        self.assertNotIn(
-            "title",
-            schema["$defs"]["MyModel"]["properties"]["val"],
-            "Nested property title inside $defs must be removed",
+        self.assertDictEqual(
+            schema,
+            {
+                "type": "object",
+                "properties": {"x": {"$ref": "#/$defs/MyModel"}},
+                "$defs": {
+                    "MyModel": {
+                        "type": "object",
+                        "properties": {
+                            "val": {"type": "string"},
+                        },
+                    },
+                },
+            },
         )
 
     def test_does_not_mutate_non_dict_defs(self) -> None:

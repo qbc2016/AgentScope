@@ -296,6 +296,40 @@ class SseSchemaDefsPreservationTest(IsolatedAsyncioTestCase):
         self.process.start()
         await asyncio.sleep(10)
 
+        self.schemas = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "mcp__test_defs_client__tool_with_model",
+                    "description": "A tool whose parameter uses a "
+                    "Pydantic sub-model.\n\n    Args:\n        "
+                    "name: Item name.\n        "
+                    "config: Item configuration.\n    ",
+                    "parameters": {
+                        "$defs": {
+                            "_ItemConfig": {
+                                "description": "Config sub-model to "
+                                "generate $defs in the "
+                                "MCP inputSchema.",
+                                "properties": {
+                                    "key": {"type": "string"},
+                                    "count": {"type": "integer"},
+                                },
+                                "required": ["key", "count"],
+                                "type": "object",
+                            },
+                        },
+                        "properties": {
+                            "name": {"type": "string"},
+                            "config": {"$ref": "#/$defs/_ItemConfig"},
+                        },
+                        "required": ["name", "config"],
+                        "type": "object",
+                    },
+                },
+            },
+        ]
+
     async def asyncTearDown(self) -> None:
         """Stop the $defs test server."""
         while self.process.is_alive():
@@ -335,30 +369,7 @@ class SseSchemaDefsPreservationTest(IsolatedAsyncioTestCase):
             "MCPTool.input_schema must preserve $defs from inputSchema",
         )
 
-        # The sub-model key may be '_ItemConfig' or a flattened variant
-        # depending on FastMCP's schema generation; assert at least one $defs
-        # entry exists.
-        self.assertGreater(
-            len(mcp_tool.input_schema["$defs"]),
-            0,
-            "At least one $defs entry expected",
-        )
-
         # 2. get_function_schemas() must preserve $defs and strip titles
         toolkit = Toolkit(tools=[mcp_tool])
         schemas = toolkit.get_function_schemas()
-        self.assertEqual(len(schemas), 1)
-
-        params = schemas[0]["function"]["parameters"]
-        self.assertIn(
-            "$defs",
-            params,
-            "Function schema parameters must include $defs",
-        )
-
-        for def_name, def_schema in params["$defs"].items():
-            self.assertNotIn(
-                "title",
-                def_schema,
-                f"$defs.{def_name} must not contain a title field",
-            )
+        self.assertListEqual(schemas, self.schemas)
