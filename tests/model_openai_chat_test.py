@@ -54,6 +54,7 @@ class TestOpenAIChatModelParsing(IsolatedAsyncioTestCase):
         msg = MagicMock()
         msg.content = text
         msg.tool_calls = None
+        msg.audio = None
         setattr(msg, "reasoning_content", reasoning)
         setattr(msg, "reasoning", None)
 
