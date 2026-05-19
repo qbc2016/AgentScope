@@ -143,7 +143,7 @@ class TracingMiddleware(MiddlewareBase):
 
     Example::
 
-        from agentscope.tracing import TracingMiddleware
+        from agentscope.middleware import TracingMiddleware
 
         agent = Agent(
             ...,
@@ -301,7 +301,11 @@ class TracingMiddleware(MiddlewareBase):
 
         tracer = _get_tracer()
         model = input_kwargs.get("current_model")
-        assert isinstance(model, ChatModelBase)
+        if not isinstance(model, ChatModelBase):
+            raise TypeError(
+                f"Expected 'current_model' to be ChatModelBase, "
+                f"got {type(model).__name__}",
+            )
 
         combined_kwargs = {
             **getattr(model, "generate_kwargs", {}),
@@ -353,7 +357,11 @@ class TracingMiddleware(MiddlewareBase):
 
         tracer = _get_tracer()
         tool_call = input_kwargs.get("tool_call")
-        assert isinstance(tool_call, ToolCallBlock)
+        if not isinstance(tool_call, ToolCallBlock):
+            raise TypeError(
+                f"Expected 'tool_call' to be ToolCallBlock, "
+                f"got {type(tool_call).__name__}",
+            )
 
         request_attributes = _get_tool_request_attributes(
             agent.toolkit,

@@ -240,12 +240,33 @@ class TracingTest(IsolatedAsyncioTestCase):
         await self.agent.reply(msg)
 
         agent_spans = self._spans_by_name("invoke_agent")
-        self.assertTrue(agent_spans)
+        self.assertEqual(
+            len(agent_spans),
+            1,
+            "Expected exactly one invoke_agent span",
+        )
         span_attrs = dict(agent_spans[0].attributes or {})
-        self.assertIn(
-            "gen_ai.output.messages",
-            span_attrs,
-            "invoke_agent span should have gen_ai.output.messages attribute",
+        output_raw = span_attrs.get("gen_ai.output.messages")
+        assert isinstance(
+            output_raw,
+            str,
+        ), "invoke_agent span gen_ai.output.messages should be a string"
+        output = json.loads(output_raw)
+        self.assertEqual(
+            output,
+            [
+                {
+                    "role": "assistant",
+                    "parts": [
+                        {
+                            "type": "text",
+                            "content": "Wuhan weather: clear sky.",
+                        },
+                    ],
+                    "name": "test-agent",
+                    "finish_reason": "stop",
+                },
+            ],
         )
 
     async def test_invoke_agent_span_has_input_attributes(self) -> None:
@@ -259,12 +280,30 @@ class TracingTest(IsolatedAsyncioTestCase):
         await self.agent.reply(msg)
 
         agent_spans = self._spans_by_name("invoke_agent")
-        self.assertTrue(agent_spans)
+        self.assertEqual(
+            len(agent_spans),
+            1,
+            "Expected exactly one invoke_agent span",
+        )
         span_attrs = dict(agent_spans[0].attributes or {})
-        self.assertIn(
-            "gen_ai.input.messages",
-            span_attrs,
-            "invoke_agent span should have gen_ai.input.messages attribute",
+        input_raw = span_attrs.get("gen_ai.input.messages")
+        assert isinstance(
+            input_raw,
+            str,
+        ), "invoke_agent span gen_ai.input.messages should be a string"
+        input_msgs = json.loads(input_raw)
+        self.assertEqual(
+            input_msgs,
+            [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"type": "text", "content": "Simple question?"},
+                    ],
+                    "name": "user",
+                    "finish_reason": "stop",
+                },
+            ],
         )
 
     async def test_execute_tool_span_has_tool_name_attribute(self) -> None:
@@ -280,12 +319,96 @@ class TracingTest(IsolatedAsyncioTestCase):
         await self.agent.reply(msg)
 
         tool_spans = self._spans_by_name("execute_tool")
-        self.assertTrue(tool_spans)
+        self.assertEqual(
+            len(tool_spans),
+            1,
+            "Expected exactly one execute_tool span",
+        )
         span_attrs = dict(tool_spans[0].attributes or {})
         self.assertEqual(
             span_attrs.get("gen_ai.tool.name"),
             "get_weather",
             "execute_tool span should have gen_ai.tool.name = get_weather",
+        )
+
+    # -----------------------------------------------------------------------
+    # Tests: chat (LLM) span
+    # -----------------------------------------------------------------------
+
+    async def test_chat_span_has_model_and_provider(self) -> None:
+        """chat span must carry gen_ai.request.model and
+        gen_ai.provider.name."""
+        self.model.set_responses(
+            [_make_text_response("Hello from model.")],
+        )
+        msg = UserMsg(name="user", content="Hello?")
+        await self.agent.reply(msg)
+
+        chat_spans = self._spans_by_name("chat")
+        self.assertEqual(len(chat_spans), 1, "Expected exactly one chat span")
+        span_attrs = dict(chat_spans[0].attributes or {})
+        self.assertEqual(
+            span_attrs.get("gen_ai.request.model"),
+            "mock-model",
+            "chat span gen_ai.request.model should equal mock-model",
+        )
+        self.assertEqual(
+            span_attrs.get("gen_ai.operation.name"),
+            "chat",
+            "chat span gen_ai.operation.name should equal chat",
+        )
+
+    async def test_chat_span_has_output_messages(self) -> None:
+        """chat span must carry gen_ai.output.messages with response
+        content."""
+        self.model.set_responses(
+            [_make_text_response("Weather is fine.")],
+        )
+        msg = UserMsg(name="user", content="How is the weather?")
+        await self.agent.reply(msg)
+
+        chat_spans = self._spans_by_name("chat")
+        self.assertEqual(len(chat_spans), 1, "Expected exactly one chat span")
+        span_attrs = dict(chat_spans[0].attributes or {})
+        output_raw = span_attrs.get("gen_ai.output.messages")
+        assert isinstance(
+            output_raw,
+            str,
+        ), "chat span gen_ai.output.messages should be a string"
+        output = json.loads(output_raw)
+        self.assertEqual(
+            output,
+            [
+                {
+                    "role": "assistant",
+                    "parts": [
+                        {"type": "text", "content": "Weather is fine."},
+                    ],
+                    "finish_reason": "stop",
+                },
+            ],
+        )
+
+    async def test_chat_span_has_usage_tokens(self) -> None:
+        """chat span must carry input/output token counts from usage."""
+        self.model.set_responses(
+            [_make_text_response("Token test.")],
+        )
+        msg = UserMsg(name="user", content="Count tokens?")
+        await self.agent.reply(msg)
+
+        chat_spans = self._spans_by_name("chat")
+        self.assertEqual(len(chat_spans), 1, "Expected exactly one chat span")
+        span_attrs = dict(chat_spans[0].attributes or {})
+        self.assertEqual(
+            span_attrs.get("gen_ai.usage.input_tokens"),
+            15,
+            "chat span gen_ai.usage.input_tokens should equal 15",
+        )
+        self.assertEqual(
+            span_attrs.get("gen_ai.usage.output_tokens"),
+            8,
+            "chat span gen_ai.usage.output_tokens should equal 8",
         )
 
     # -----------------------------------------------------------------------
@@ -308,16 +431,17 @@ class TracingTest(IsolatedAsyncioTestCase):
         msg = UserMsg(name="user", content="Weather in Wuhan?")
         await self.agent.reply(msg)
 
-        spans_with_reply_id = [
-            s
-            for s in self._spans_by_name("invoke_agent")
-            if "agentscope.agent.reply_id" in (s.attributes or {})
-        ]
-        self.assertGreater(
-            len(spans_with_reply_id),
-            0,
-            "At least one invoke_agent span should have "
+        agent_spans = self._spans_by_name("invoke_agent")
+        self.assertEqual(
+            len(agent_spans),
+            1,
+            "Expected exactly one invoke_agent span",
+        )
+        span_attrs = dict(agent_spans[0].attributes or {})
+        self.assertIn(
             "agentscope.agent.reply_id",
+            span_attrs,
+            "invoke_agent span should have agentscope.agent.reply_id",
         )
 
     # -----------------------------------------------------------------------
@@ -346,9 +470,10 @@ class TracingTest(IsolatedAsyncioTestCase):
             pass
 
         first_spans = self._spans_by_name("invoke_agent")
-        self.assertTrue(
-            first_spans,
-            "Expected invoke_agent span from first HITL call",
+        self.assertEqual(
+            len(first_spans),
+            1,
+            "Expected exactly one invoke_agent span from first HITL call",
         )
         span_attrs = dict(first_spans[0].attributes or {})
         self.assertIn(
@@ -357,7 +482,7 @@ class TracingTest(IsolatedAsyncioTestCase):
             "First HITL span should carry agentscope.agent.hitl_pending_tools",
         )
         pending = json.loads(span_attrs["agentscope.agent.hitl_pending_tools"])
-        self.assertIn("get_weather", pending)
+        self.assertEqual(pending, ["get_weather"])
 
     async def test_hitl_spans_share_reply_id(self) -> None:
         """Both HITL calls must share the same agentscope.agent.reply_id."""
@@ -475,21 +600,15 @@ class TracingTest(IsolatedAsyncioTestCase):
         await hitl_agent.reply(event=confirm_event)
 
         agent_spans = self._spans_by_name("invoke_agent")
-        self.assertTrue(
-            agent_spans,
-            "Expected invoke_agent span from second HITL call",
+        self.assertEqual(
+            len(agent_spans),
+            1,
+            "Expected exactly one invoke_agent span from second HITL call",
         )
-        spans_with_event_type = [
-            s
-            for s in agent_spans
-            if dict(s.attributes or {}).get(
-                "agentscope.agent.incoming_event_type",
-            )
-            == "user_confirm_result"
-        ]
-        self.assertGreater(
-            len(spans_with_event_type),
-            0,
+        span_attrs = dict(agent_spans[0].attributes or {})
+        self.assertEqual(
+            span_attrs.get("agentscope.agent.incoming_event_type"),
+            "user_confirm_result",
             "Second HITL invoke_agent span should have "
             "incoming_event_type=user_confirm_result",
         )
@@ -521,7 +640,11 @@ class TracingTest(IsolatedAsyncioTestCase):
             pass
 
         first_spans = self._spans_by_name("invoke_agent")
-        self.assertTrue(first_spans)
+        self.assertEqual(
+            len(first_spans),
+            1,
+            "Expected exactly one invoke_agent span",
+        )
         span_attrs = dict(first_spans[0].attributes or {})
         self.assertIn(
             "agentscope.agent.external_execution_pending_tools",
@@ -532,7 +655,7 @@ class TracingTest(IsolatedAsyncioTestCase):
         pending = json.loads(
             span_attrs["agentscope.agent.external_execution_pending_tools"],
         )
-        self.assertIn("get_weather", pending)
+        self.assertEqual(pending, ["get_weather"])
 
     async def test_external_execution_spans_share_reply_id(self) -> None:
         """Both external-execution calls must share the same reply_id."""
@@ -653,13 +776,15 @@ class TracingTest(IsolatedAsyncioTestCase):
         await ext_agent.reply(event=ext_result)
 
         tool_spans = self._spans_by_name("execute_tool")
-        self.assertTrue(
-            tool_spans,
-            "Expected synthetic execute_tool span for external execution",
+        self.assertEqual(
+            len(tool_spans),
+            1,
+            "Expected exactly one synthetic execute_tool span",
         )
         span_attrs = dict(tool_spans[0].attributes or {})
-        self.assertTrue(
+        self.assertEqual(
             span_attrs.get("agentscope.agent.is_external_execution"),
+            True,
             "Synthetic execute_tool span should have "
             "is_external_execution=True",
         )
@@ -709,7 +834,11 @@ class TracingTest(IsolatedAsyncioTestCase):
         await ext_agent.reply(event=ext_result)
 
         agent_spans = self._spans_by_name("invoke_agent")
-        self.assertTrue(agent_spans)
+        self.assertEqual(
+            len(agent_spans),
+            1,
+            "Expected exactly one invoke_agent span",
+        )
         span_attrs = dict(agent_spans[0].attributes or {})
         self.assertEqual(
             span_attrs.get("agentscope.agent.incoming_event_type"),

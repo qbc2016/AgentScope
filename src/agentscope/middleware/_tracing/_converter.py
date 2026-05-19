@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Convert ContentBlock to OpenTelemetry GenAI part format."""
 
+import json
 from typing import Any, Dict
 
 from ...message import (
@@ -96,11 +97,15 @@ def _convert_block_to_part(block: ContentBlock) -> Dict[str, Any] | None:
             "content": block.thinking,
         }
     elif isinstance(block, ToolCallBlock):
+        try:
+            arguments = json.loads(block.input)
+        except (json.JSONDecodeError, TypeError):
+            arguments = block.input
         part = {
             "type": "tool_call",
             "id": block.id,
             "name": block.name,
-            "arguments": block.input,
+            "arguments": arguments,
         }
     elif isinstance(block, ToolResultBlock):
         output = block.output
