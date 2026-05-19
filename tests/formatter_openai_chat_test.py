@@ -11,7 +11,9 @@ from agentscope.formatter import (
     OpenAIMultiAgentFormatter,
 )
 from agentscope.message import (
-    Msg,
+    UserMsg,
+    AssistantMsg,
+    SystemMsg,
     TextBlock,
     DataBlock,
     ToolCallBlock,
@@ -46,15 +48,14 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
         # (No audio in conversation: OpenAI URL audio requires a download)
         # ---------------------------------------------------------------
         self.msgs_system = [
-            Msg(
+            SystemMsg(
                 name="system",
                 content="You're a helpful assistant.",
-                role="system",
             ),
         ]
 
         self.msgs_conversation = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
                     TextBlock(
@@ -68,32 +69,27 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of France is Paris.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Germany?",
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of Germany is Berlin.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Japan?",
-                role="user",
             ),
         ]
 
         self.msgs_tools = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -117,7 +113,6 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         text="The capital of Japan is Tokyo.",
                     ),
                 ],
-                role="assistant",
             ),
         ]
 
@@ -333,7 +328,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
         """Base64-encoded image is inlined as a data URI."""
         fmt = OpenAIChatFormatter()
         msgs = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
                     TextBlock(type="text", text="What's in this image?"),
@@ -345,7 +340,6 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
         ]
         res = await fmt.format(msgs)
@@ -370,13 +364,12 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
         """ThinkingBlock is silently dropped by OpenAI formatter."""
         fmt = OpenAIChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
                     TextBlock(type="text", text="reply"),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
@@ -403,7 +396,7 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
         message."""
         fmt = OpenAIChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -433,7 +426,6 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
                         text="Here is the map of Tokyo.",
                     ),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
@@ -569,9 +561,8 @@ class TestOpenAIFormatter(IsolatedAsyncioTestCase):
         """HintBlock flushes preceding content and becomes a user message."""
         fmt = OpenAIChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
-                role="assistant",
                 content=[
                     TextBlock(text="Let me think about that."),
                     HintBlock(hint="Remember to be concise."),

@@ -6,7 +6,9 @@ from unittest import IsolatedAsyncioTestCase
 
 from agentscope.formatter import OllamaChatFormatter, OllamaMultiAgentFormatter
 from agentscope.message import (
-    Msg,
+    UserMsg,
+    AssistantMsg,
+    SystemMsg,
     TextBlock,
     DataBlock,
     ToolCallBlock,
@@ -28,41 +30,35 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         self.image_b64 = "ZmFrZSBpbWFnZSBkYXRh"
 
         self.msgs_system = [
-            Msg(
+            SystemMsg(
                 name="system",
                 content="You're a helpful assistant.",
-                role="system",
             ),
         ]
         self.msgs_conversation = [
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of France?",
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of France is Paris.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Germany?",
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of Germany is Berlin.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Japan?",
-                role="user",
             ),
         ]
         self.msgs_tools = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -86,7 +82,6 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                         text="The capital of Japan is Tokyo.",
                     ),
                 ],
-                role="assistant",
             ),
         ]
 
@@ -207,7 +202,7 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         fmt = OllamaChatFormatter()
         tc = ToolCallBlock(id="c1", name="search", input='{"q": "weather"}')
         res = await fmt.format(
-            [Msg(name="assistant", content=[tc], role="assistant")],
+            [AssistantMsg(name="assistant", content=[tc])],
         )
         self.assertListEqual(
             res,
@@ -232,7 +227,7 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         string."""
         fmt = OllamaChatFormatter()
         msgs = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
                     TextBlock(type="text", text="What is this?"),
@@ -244,7 +239,6 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
         ]
         res = await fmt.format(msgs)
@@ -320,9 +314,8 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         """HintBlock flushes preceding content and becomes a user message."""
         fmt = OllamaChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
-                role="assistant",
                 content=[
                     TextBlock(text="Let me think about that."),
                     HintBlock(hint="Remember to be concise."),

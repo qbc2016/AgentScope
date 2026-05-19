@@ -10,7 +10,9 @@ from agentscope.formatter import (
     AnthropicMultiAgentFormatter,
 )
 from agentscope.message import (
-    Msg,
+    UserMsg,
+    AssistantMsg,
+    SystemMsg,
     TextBlock,
     DataBlock,
     ToolCallBlock,
@@ -34,43 +36,37 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
         # (No URL images: Anthropic URL handling downloads from the network)
         # ---------------------------------------------------------------
         self.msgs_system = [
-            Msg(
+            SystemMsg(
                 name="system",
                 content="You're a helpful assistant.",
-                role="system",
             ),
         ]
 
         self.msgs_conversation = [
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of France?",
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of France is Paris.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Germany?",
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of Germany is Berlin.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Japan?",
-                role="user",
             ),
         ]
 
         self.msgs_tools = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -94,7 +90,6 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                         text="The capital of Japan is Tokyo.",
                     ),
                 ],
-                role="assistant",
             ),
         ]
 
@@ -315,7 +310,7 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
         """Base64-encoded image is formatted as Anthropic image source."""
         fmt = AnthropicChatFormatter()
         msgs = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
                     TextBlock(type="text", text="What's in this image?"),
@@ -327,7 +322,6 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
         ]
         res = await fmt.format(msgs)
@@ -355,13 +349,12 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
         """ThinkingBlock is passed back as a thinking content block."""
         fmt = AnthropicChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
                     TextBlock(type="text", text="reply"),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
@@ -405,7 +398,7 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
         tool_result content without crashing on TextBlock system-reminders."""
         fmt = AnthropicChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -432,7 +425,6 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                         text="Here is the chart analysis.",
                     ),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
@@ -547,9 +539,8 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
         """HintBlock flushes preceding content and becomes a user message."""
         fmt = AnthropicChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
-                role="assistant",
                 content=[
                     TextBlock(text="Let me think about that."),
                     HintBlock(hint="Remember to be concise."),

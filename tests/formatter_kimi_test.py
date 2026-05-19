@@ -10,7 +10,9 @@ from agentscope.formatter import (
     KimiMultiAgentFormatter,
 )
 from agentscope.message import (
-    Msg,
+    UserMsg,
+    AssistantMsg,
+    SystemMsg,
     TextBlock,
     DataBlock,
     ToolCallBlock,
@@ -44,15 +46,14 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         # Message fixtures (no audio to avoid downloads)
         # ---------------------------------------------------------------
         self.msgs_system = [
-            Msg(
+            SystemMsg(
                 name="system",
                 content="You're a helpful assistant.",
-                role="system",
             ),
         ]
 
         self.msgs_conversation = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
                     TextBlock(
@@ -66,32 +67,27 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of France is Paris.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Germany?",
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of Germany is Berlin.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Japan?",
-                role="user",
             ),
         ]
 
         self.msgs_tools = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -115,7 +111,6 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                         text="The capital of Japan is Tokyo.",
                     ),
                 ],
-                role="assistant",
             ),
         ]
 
@@ -334,13 +329,12 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         Thinking)."""
         fmt = KimiChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
                     TextBlock(type="text", text="reply"),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
@@ -363,10 +357,9 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         empty)."""
         fmt = KimiChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="Hello!",
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
@@ -386,7 +379,7 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         """Base64-encoded image is inlined as a data URI."""
         fmt = KimiChatFormatter()
         msgs = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
                     TextBlock(type="text", text="What's in this image?"),
@@ -398,7 +391,6 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
         ]
         res = await fmt.format(msgs)
@@ -481,9 +473,8 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         """HintBlock flushes preceding content and becomes a user message."""
         fmt = KimiChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
-                role="assistant",
                 content=[
                     TextBlock(text="Let me think about that."),
                     HintBlock(hint="Remember to be concise."),
