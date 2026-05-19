@@ -212,7 +212,7 @@ Each script typically defines two or more async functions:
 
 - `example_simple_call()` – basic text call with streaming
 - `example_tool_call()` – two-round conversation with tool/function calling
-- `example_multimodal_call()` – image + text input (in `_multimodal.py` variants)
+- `example_image_url()` – image + text input (in `_multimodal.py` variants)
 
 ---
 
