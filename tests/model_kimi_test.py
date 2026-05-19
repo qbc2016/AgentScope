@@ -117,6 +117,21 @@ class TestKimiModelParsing(IsolatedAsyncioTestCase):
         self.assertEqual(result.id, "kimi-1")
 
 
+class TestKimiModelParameters(unittest.TestCase):
+    """Tests for KimiChatModel.Parameters."""
+
+    def test_thinking_enable_stored_on_model(self) -> None:
+        """thinking_enable is accessible through model.parameters."""
+        model = KimiChatModel(
+            credential=KimiCredential(api_key="test"),
+            model="kimi-k2-5",
+            stream=False,
+            context_size=131_072,
+            parameters=KimiChatModel.Parameters(thinking_enable=True),
+        )
+        self.assertTrue(model.parameters.thinking_enable)
+
+
 # ---------------------------------------------------------------------------
 # Shared _format_tools fixtures
 # ---------------------------------------------------------------------------

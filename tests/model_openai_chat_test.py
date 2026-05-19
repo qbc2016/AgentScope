@@ -124,6 +124,32 @@ class TestOpenAIChatModelParsing(IsolatedAsyncioTestCase):
         self.assertEqual(result.id, "resp-1")
 
 
+class TestOpenAIChatModelParameters(unittest.TestCase):
+    """Tests for OpenAIChatModel.Parameters."""
+
+    def test_reasoning_effort_stored_on_model(self) -> None:
+        """reasoning_effort is accessible through model.parameters."""
+        model = OpenAIChatModel(
+            credential=OpenAICredential(api_key="test"),
+            model="o3",
+            stream=False,
+            context_size=200_000,
+            parameters=OpenAIChatModel.Parameters(reasoning_effort="low"),
+        )
+        self.assertEqual(model.parameters.reasoning_effort, "low")
+
+    def test_thinking_enable_stored_on_model(self) -> None:
+        """thinking_enable is accessible through model.parameters."""
+        model = OpenAIChatModel(
+            credential=OpenAICredential(api_key="test"),
+            model="o3",
+            stream=False,
+            context_size=200_000,
+            parameters=OpenAIChatModel.Parameters(thinking_enable=True),
+        )
+        self.assertTrue(model.parameters.thinking_enable)
+
+
 # ---------------------------------------------------------------------------
 # Shared _format_tools fixtures
 # ---------------------------------------------------------------------------
