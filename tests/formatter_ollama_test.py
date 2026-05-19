@@ -11,9 +11,9 @@ from agentscope.message import (
     DataBlock,
     ToolCallBlock,
     ToolResultBlock,
+    ToolResultState,
     Base64Source,
 )
-from agentscope.message._block import ToolResultState
 
 
 class TestOllamaFormatter(IsolatedAsyncioTestCase):
@@ -69,12 +69,6 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                         name="get_capital",
                         input='{"country": "Japan"}',
                     ),
-                ],
-                role="assistant",
-            ),
-            Msg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_1",
                         name="get_capital",
@@ -86,12 +80,11 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
+                    TextBlock(
+                        type="text",
+                        text="The capital of Japan is Tokyo.",
+                    ),
                 ],
-                role="assistant",
-            ),
-            Msg(
-                name="assistant",
-                content="The capital of Japan is Tokyo.",
                 role="assistant",
             ),
         ]
@@ -140,17 +133,9 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
             "assistant:\nThe capital of Germany is Berlin.\n"
             "user:\nWhat is the capital of Japan?"
         )
-        _gt_trailing_asst_nonfirst = {
-            "role": "user",
-            "content": "assistant:\nThe capital of Japan is Tokyo.",
-        }
-        self._gt_trailing_asst_first = {
-            "role": "user",
-            "content": (
-                _hist_prompt + "<history>\n"
-                "assistant:\nThe capital of Japan is Tokyo.\n"
-                "</history>"
-            ),
+        self._gt_trailing_asst = {
+            "role": "assistant",
+            "content": "The capital of Japan is Tokyo.",
         }
         self._gt_tool_call = {
             "role": "assistant",
@@ -179,7 +164,7 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
             },
             self._gt_tool_call,
             self._gt_tool_result,
-            _gt_trailing_asst_nonfirst,
+            self._gt_trailing_asst,
         ]
 
     # ------------------------------------------------------------------
@@ -202,15 +187,16 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         self.assertListEqual(self.gt_chat[1:], res)
 
         # Without conversation
+        n_tools_gt = len(self.gt_chat) - 1 - len(self.msgs_conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
-            [self.gt_chat[0]] + self.gt_chat[-len(self.msgs_tools) :],
+            [self.gt_chat[0]] + self.gt_chat[-n_tools_gt:],
             res,
         )
 
         # Without tools
         res = await fmt.format([*self.msgs_system, *self.msgs_conversation])
-        self.assertListEqual(self.gt_chat[: -len(self.msgs_tools)], res)
+        self.assertListEqual(self.gt_chat[:-n_tools_gt], res)
 
         # Empty
         self.assertListEqual([], await fmt.format([]))
@@ -222,9 +208,23 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(
             [Msg(name="assistant", content=[tc], role="assistant")],
         )
-        args = res[0]["tool_calls"][0]["function"]["arguments"]
-        self.assertIsInstance(args, dict)
-        self.assertEqual(args["q"], "weather")
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "search",
+                                "arguments": {"q": "weather"},
+                            },
+                        },
+                    ],
+                },
+            ],
+        )
 
     async def test_chat_formatter_base64_image(self) -> None:
         """Base64 image is placed in the 'images' list as a raw base64
@@ -247,9 +247,16 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0]["content"], "What is this?")
-        self.assertEqual(res[0]["images"], [self.image_b64])
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "user",
+                    "content": "What is this?",
+                    "images": [self.image_b64],
+                },
+            ],
+        )
 
     # ------------------------------------------------------------------
     # OllamaMultiAgentFormatter tests
@@ -282,25 +289,25 @@ class TestOllamaFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(self.msgs_conversation)
         self.assertListEqual([self.gt_multiagent[1]], res)
 
-        # Tools only (is_first=True for trailing assistant)
+        # Tools only
         res = await fmt.format(self.msgs_tools)
         self.assertListEqual(
             [
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
 
-        # System + tools (is_first=True for trailing assistant)
+        # System + tools
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
             [
                 self.gt_multiagent[0],
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )

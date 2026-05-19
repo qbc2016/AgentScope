@@ -155,12 +155,6 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
                         name="get_capital",
                         input='{"country": "Japan"}',
                     ),
-                ],
-                role="assistant",
-            ),
-            Msg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_1",
                         name="get_capital",
@@ -172,12 +166,11 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
+                    TextBlock(
+                        type="text",
+                        text="The capital of Japan is Tokyo.",
+                    ),
                 ],
-                role="assistant",
-            ),
-            Msg(
-                name="assistant",
-                content="The capital of Japan is Tokyo.",
                 role="assistant",
             ),
         ]
@@ -194,17 +187,21 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         """System message becomes a system() proto."""
         fmt = XAIChatFormatter()
         res = await fmt.format(self.msgs_system)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0].role, "system")
-        self.assertIn("You're a helpful assistant.", res[0].args)
+        self.assertListEqual([m.role for m in res], ["system"])
+        self.assertListEqual(
+            list(res[0].args),
+            ["You're a helpful assistant."],
+        )
 
     async def test_chat_formatter_user_assistant(self) -> None:
         """User and assistant text messages are passed through correctly."""
         fmt = XAIChatFormatter()
         res = await fmt.format(self.msgs_conversation)
         roles = [m.role for m in res]
-        self.assertEqual(roles.count("user"), 3)
-        self.assertEqual(roles.count("assistant"), 2)
+        self.assertListEqual(
+            roles,
+            ["user", "assistant", "user", "assistant", "user"],
+        )
 
     async def test_chat_formatter_tool_call(self) -> None:
         """Assistant tool call becomes a _MessageProto with tool_calls set."""
@@ -218,25 +215,28 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
             for m in res
             if hasattr(m, "tool_calls") and len(m.tool_calls) > 0
         ]
-        self.assertEqual(len(tool_call_msgs), 1)
+        self.assertListEqual(
+            [len(tool_call_msgs)],
+            [1],
+        )
         tc = tool_call_msgs[0].tool_calls[0]
-        self.assertEqual(tc.id, "call_1")
-        self.assertEqual(tc.function.name, "get_capital")
-        self.assertIn('"country"', tc.function.arguments)
+        self.assertListEqual(
+            [tc.id, tc.function.name, tc.function.arguments],
+            ["call_1", "get_capital", '{"country": "Japan"}'],
+        )
 
     async def test_chat_formatter_tool_result(self) -> None:
         """Tool result becomes a tool_result() proto with the right id."""
         fmt = XAIChatFormatter()
         res = await fmt.format(self.msgs_tools)
         tool_msgs = [m for m in res if m.role == "tool"]
-        self.assertEqual(len(tool_msgs), 1)
-        self.assertEqual(
-            tool_msgs[0].kwargs.get("tool_call_id"),
-            "call_1",
+        self.assertListEqual(
+            list(tool_msgs[0].args),
+            ["The capital of Japan is Tokyo."],
         )
-        self.assertIn(
-            "The capital of Japan is Tokyo.",
-            tool_msgs[0].args,
+        self.assertListEqual(
+            [tool_msgs[0].kwargs.get("tool_call_id")],
+            ["call_1"],
         )
 
     async def test_chat_formatter_thinking_dropped(self) -> None:
@@ -255,8 +255,7 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         ]
         res = await fmt.format(msgs)
         # thinking block is silently skipped for assistant text path
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0].role, "assistant")
+        self.assertListEqual([m.role for m in res], ["assistant"])
 
     async def test_chat_formatter_empty(self) -> None:
         """Empty input returns empty list."""
@@ -274,21 +273,30 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(
             [*self.msgs_system, *self.msgs_conversation],
         )
-        self.assertEqual(res[0].role, "system")
-        self.assertIn("You're a helpful assistant.", res[0].args)
+        self.assertListEqual([res[0].role], ["system"])
+        self.assertListEqual(
+            list(res[0].args),
+            ["You're a helpful assistant."],
+        )
 
     async def test_multiagent_formatter_conversation_history(self) -> None:
         """Non-tool agent messages are collapsed into a user() history
         proto."""
         fmt = XAIMultiAgentFormatter()
         res = await fmt.format(self.msgs_conversation)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0].role, "user")
-        hist_text = res[0].args[0]
-        self.assertIn("<history>", hist_text)
-        self.assertIn("</history>", hist_text)
-        self.assertIn("user: What is the capital of France?", hist_text)
-        self.assertIn("assistant: The capital of France is Paris.", hist_text)
+        self.assertListEqual([m.role for m in res], ["user"])
+        self.assertListEqual(
+            list(res[0].args),
+            [
+                self._hist_prompt + "<history>\n"
+                "user: What is the capital of France?\n"
+                "assistant: The capital of France is Paris.\n"
+                "user: What is the capital of Germany?\n"
+                "assistant: The capital of Germany is Berlin.\n"
+                "user: What is the capital of Japan?\n"
+                "</history>",
+            ],
+        )
 
     async def test_multiagent_formatter_first_group_has_hist_prompt(
         self,
@@ -298,47 +306,42 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         fmt = XAIMultiAgentFormatter()
         res = await fmt.format(self.msgs_conversation)
         hist_text = res[0].args[0]
-        self.assertTrue(hist_text.startswith(self._hist_prompt))
+        self.assertListEqual(
+            [hist_text.startswith(self._hist_prompt)],
+            [True],
+        )
 
     async def test_multiagent_formatter_full_history(self) -> None:
         """Full history produces system + conv_history + tool_call +
-        tool_result + trailing."""
+        tool_result + trailing assistant."""
         fmt = XAIMultiAgentFormatter()
         res = await fmt.format(
             [*self.msgs_system, *self.msgs_conversation, *self.msgs_tools],
         )
         roles = [m.role for m in res]
-        self.assertIn("system", roles)
-        self.assertIn("user", roles)
-        self.assertIn("tool", roles)
+        self.assertListEqual(
+            sorted(r for r in roles if isinstance(r, str)),
+            sorted(["system", "user", "tool", "assistant"]),
+        )
 
     async def test_multiagent_formatter_tools_only_is_first(self) -> None:
-        """When only tools are given, trailing agent uses is_first=True
-        history."""
+        """When only tools are given, trailing text is formatted as
+        assistant."""
         fmt = XAIMultiAgentFormatter()
         res = await fmt.format(self.msgs_tools)
-        # tool_call proto, tool_result proto, trailing user history
-        trailing = [m for m in res if m.role == "user"]
-        self.assertEqual(len(trailing), 1)
-        hist_text = trailing[0].args[0]
-        self.assertIn(self._hist_prompt, hist_text)
-        self.assertIn("assistant: The capital of Japan is Tokyo.", hist_text)
+        trailing = [m for m in res if m.role == "assistant"]
+        self.assertListEqual([len(trailing)], [1])
 
-    async def test_multiagent_formatter_nonfirst_trailing_no_hist_prompt(
+    async def test_multiagent_formatter_nonfirst_trailing_is_assistant(
         self,
     ) -> None:
-        """Trailing agent after a conversation group uses is_first=False
-        (no prompt)."""
+        """Trailing text after a tool sequence is formatted as assistant."""
         fmt = XAIMultiAgentFormatter()
         res = await fmt.format(
             [*self.msgs_conversation, *self.msgs_tools],
         )
-        user_msgs = [m for m in res if m.role == "user"]
-        # First is conversation history (is_first=True), last is trailing
-        # (is_first=False)
-        trailing_text = user_msgs[-1].args[0]
-        self.assertNotIn(self._hist_prompt, trailing_text)
-        self.assertIn("<history>", trailing_text)
+        trailing = [m for m in res if m.role == "assistant"]
+        self.assertListEqual([len(trailing)], [1])
 
     async def test_multiagent_formatter_empty(self) -> None:
         """Empty input returns empty list."""

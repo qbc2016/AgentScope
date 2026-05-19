@@ -56,6 +56,20 @@ class _AnthropicFormatterBase(FormatterBase, ABC):
             has_tool_result = False
 
             for block in msg.get_content_blocks():
+                if (
+                    has_tool_result
+                    and content_blocks
+                    and not isinstance(
+                        block,
+                        ToolResultBlock,
+                    )
+                ):
+                    messages.append(
+                        {"role": "user", "content": content_blocks},
+                    )
+                    content_blocks = []
+                    has_tool_result = False
+
                 if isinstance(block, TextBlock):
                     content_blocks.append(
                         {"type": "text", "text": block.text},
@@ -75,7 +89,22 @@ class _AnthropicFormatterBase(FormatterBase, ABC):
                     )
 
                 elif isinstance(block, HintBlock):
-                    pass  # Anthropic does not support hint blocks
+                    if content_blocks:
+                        role = "user" if has_tool_result else msg.role
+                        messages.append(
+                            {"role": role, "content": content_blocks},
+                        )
+                        content_blocks = []
+                        has_tool_result = False
+
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": block.hint},
+                            ],
+                        },
+                    )
 
                 elif isinstance(block, DataBlock):
                     formatted_block = self._format_anthropic_data_block(block)
@@ -95,25 +124,31 @@ class _AnthropicFormatterBase(FormatterBase, ABC):
                     )
 
                 elif isinstance(block, ToolResultBlock):
-                    (
-                        textual_output,
-                        multimodal_data,
-                    ) = self.convert_tool_result_to_string(block.output)
+                    if content_blocks:
+                        role = "user" if has_tool_result else msg.role
+                        messages.append(
+                            {"role": role, "content": content_blocks},
+                        )
+                        content_blocks = []
 
-                    tool_result_content = []
-                    if textual_output:
+                    tool_result_content: list[dict] = []
+                    output = block.output
+                    if isinstance(output, str):
                         tool_result_content.append(
-                            {"type": "text", "text": textual_output},
+                            {"type": "text", "text": output},
                         )
-
-                    for data_block in multimodal_data:
-                        if not isinstance(data_block, DataBlock):
-                            continue
-                        formatted_block = self._format_anthropic_data_block(
-                            data_block,
-                        )
-                        if formatted_block:
-                            tool_result_content.append(formatted_block)
+                    else:
+                        for out_block in output:
+                            if isinstance(out_block, TextBlock):
+                                tool_result_content.append(
+                                    {"type": "text", "text": out_block.text},
+                                )
+                            elif isinstance(out_block, DataBlock):
+                                fmt_block = self._format_anthropic_data_block(
+                                    out_block,
+                                )
+                                if fmt_block:
+                                    tool_result_content.append(fmt_block)
 
                     content_blocks.append(
                         {

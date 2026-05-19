@@ -15,11 +15,11 @@ from agentscope.message import (
     DataBlock,
     ToolCallBlock,
     ToolResultBlock,
+    ToolResultState,
     Base64Source,
     URLSource,
     ThinkingBlock,
 )
-from agentscope.message._block import ToolResultState
 
 
 _FIXED_ID = "TESTID1234567"
@@ -98,12 +98,6 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                         name="get_capital",
                         input='{"country": "Japan"}',
                     ),
-                ],
-                role="assistant",
-            ),
-            Msg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_1",
                         name="get_capital",
@@ -115,12 +109,11 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
+                    TextBlock(
+                        type="text",
+                        text="The capital of Japan is Tokyo.",
+                    ),
                 ],
-                role="assistant",
-            ),
-            Msg(
-                name="assistant",
-                content="The capital of Japan is Tokyo.",
                 role="assistant",
             ),
         ]
@@ -235,31 +228,16 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
             "user: What is the capital of Japan?"
         )
 
-        _gt_trailing_asst_nonfirst = {
-            "role": "user",
+        self._gt_trailing_asst = {
+            "role": "assistant",
+            "name": "assistant",
             "content": [
                 {
                     "type": "text",
-                    "text": (
-                        "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
+                    "text": "The capital of Japan is Tokyo.",
                 },
             ],
-        }
-        self._gt_trailing_asst_first = {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        _hist_prompt + "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
-                },
-            ],
+            "reasoning_content": "",
         }
 
         self._gt_tool_call = {
@@ -310,7 +288,7 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
             },
             self._gt_tool_call,
             self._gt_tool_result,
-            _gt_trailing_asst_nonfirst,
+            self._gt_trailing_asst,
         ]
 
     # -------------------------------------------------------------------
@@ -333,15 +311,16 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         self.assertListEqual(self.gt_chat[1:], res)
 
         # Without conversation
+        n_tools_gt = len(self.gt_chat) - 1 - len(self.msgs_conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
-            [self.gt_chat[0]] + self.gt_chat[-len(self.msgs_tools) :],
+            [self.gt_chat[0]] + self.gt_chat[-n_tools_gt:],
             res,
         )
 
         # Without tools
         res = await fmt.format([*self.msgs_system, *self.msgs_conversation])
-        self.assertListEqual(self.gt_chat[: -len(self.msgs_tools)], res)
+        self.assertListEqual(self.gt_chat[:-n_tools_gt], res)
 
         # Empty
         res = await fmt.format([])
@@ -364,11 +343,16 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0]["reasoning_content"], "inner thoughts")
-        self.assertEqual(
-            res[0]["content"],
-            [{"type": "text", "text": "reply"}],
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "name": "assistant",
+                    "content": [{"type": "text", "text": "reply"}],
+                    "reasoning_content": "inner thoughts",
+                },
+            ],
         )
 
     async def test_chat_formatter_assistant_always_has_reasoning_content(
@@ -385,9 +369,17 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertIn("reasoning_content", res[0])
-        self.assertEqual(res[0]["reasoning_content"], "")
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "name": "assistant",
+                    "content": [{"type": "text", "text": "Hello!"}],
+                    "reasoning_content": "",
+                },
+            ],
+        )
 
     async def test_chat_formatter_base64_image(self) -> None:
         """Base64-encoded image is inlined as a data URI."""
@@ -457,25 +449,25 @@ class TestKimiFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(self.msgs_conversation)
         self.assertListEqual([self.gt_multiagent[1]], res)
 
-        # Tools only — is_first=True for trailing assistant
+        # Tools only
         res = await fmt.format(self.msgs_tools)
         self.assertListEqual(
             [
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
 
-        # System + tools — same is_first=True
+        # System + tools
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
             [
                 self.gt_multiagent[0],
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )

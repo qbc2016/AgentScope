@@ -6,8 +6,6 @@ ground-truth comparisons.
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
-import shortuuid
-
 from agentscope.formatter import (
     DashScopeChatFormatter,
     DashScopeMultiAgentFormatter,
@@ -18,11 +16,11 @@ from agentscope.message import (
     DataBlock,
     ToolCallBlock,
     ToolResultBlock,
+    ToolResultState,
     Base64Source,
     URLSource,
     ThinkingBlock,
 )
-from agentscope.message._block import ToolResultState
 
 
 # A fixed short-uuid used to make promote-to-multimodal tests deterministic.
@@ -124,12 +122,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         name="get_capital",
                         input='{"country": "Japan"}',
                     ),
-                ],
-                role="assistant",
-            ),
-            Msg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_1",
                         name="get_capital",
@@ -141,12 +133,11 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
+                    TextBlock(
+                        type="text",
+                        text="The capital of Japan is Tokyo.",
+                    ),
                 ],
-                role="assistant",
-            ),
-            Msg(
-                name="assistant",
-                content="The capital of Japan is Tokyo.",
                 role="assistant",
             ),
         ]
@@ -261,29 +252,12 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             DashScopeMultiAgentFormatter().conversation_history_prompt
         )
 
-        _gt_trailing_asst_nonfirst = {
-            "role": "user",
+        self._gt_trailing_asst = {
+            "role": "assistant",
             "content": [
                 {
                     "type": "text",
-                    "text": (
-                        "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
-                },
-            ],
-        }
-        self._gt_trailing_asst_first = {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        _hist_prompt + "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
+                    "text": "The capital of Japan is Tokyo.",
                 },
             ],
         }
@@ -344,7 +318,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             },
             self._gt_tool_call,
             self._gt_tool_result,
-            _gt_trailing_asst_nonfirst,
+            self._gt_trailing_asst,
         ]
 
     # -------------------------------------------------------------------
@@ -367,15 +341,16 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         self.assertListEqual(self.gt_chat[1:], res)
 
         # Without conversation
+        n_tools_gt = len(self.gt_chat) - 1 - len(self.msgs_conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
-            [self.gt_chat[0]] + self.gt_chat[-len(self.msgs_tools) :],
+            [self.gt_chat[0]] + self.gt_chat[-n_tools_gt:],
             res,
         )
 
         # Without tools
         res = await fmt.format([*self.msgs_system, *self.msgs_conversation])
-        self.assertListEqual(self.gt_chat[: -len(self.msgs_tools)], res)
+        self.assertListEqual(self.gt_chat[:-n_tools_gt], res)
 
         # Empty
         res = await fmt.format([])
@@ -417,51 +392,55 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             res,
         )
 
-    async def test_chat_formatter_url_image_in_tool_result(self) -> None:
+    @patch(
+        "agentscope.formatter._formatter_base.shortuuid.uuid",
+        return_value=_FIXED_ID,
+    )
+    async def test_chat_formatter_url_image_in_tool_result(
+        self,
+        _mock_uuid: object,
+    ) -> None:
         """URL images in tool results are promoted to a follow-up user message.
 
         The textual part of the tool result contains a system-reminder with a
         unique identifier; the identifier is mocked to be deterministic.
         """
-        with patch.object(shortuuid, "uuid", return_value=_FIXED_ID):
-            fmt = DashScopeChatFormatter()
-            msgs = [
-                Msg(
-                    name="assistant",
-                    content=[
-                        ToolCallBlock(
-                            id="call_img",
-                            name="get_map",
-                            input='{"city": "Tokyo"}',
-                        ),
-                    ],
-                    role="assistant",
-                ),
-                Msg(
-                    name="tool",
-                    content=[
-                        ToolResultBlock(
-                            id="call_img",
-                            name="get_map",
-                            output=[
-                                TextBlock(
-                                    type="text",
-                                    text="Here is the map.",
+        fmt = DashScopeChatFormatter()
+        msgs = [
+            Msg(
+                name="assistant",
+                content=[
+                    ToolCallBlock(
+                        id="call_img",
+                        name="get_map",
+                        input='{"city": "Tokyo"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_img",
+                        name="get_map",
+                        output=[
+                            TextBlock(
+                                type="text",
+                                text="Here is the map.",
+                            ),
+                            DataBlock(
+                                source=URLSource(
+                                    url=self.image_url,
+                                    media_type="image/png",
                                 ),
-                                DataBlock(
-                                    source=URLSource(
-                                        url=self.image_url,
-                                        media_type="image/png",
-                                    ),
-                                ),
-                            ],
-                            state=ToolResultState.SUCCESS,
-                        ),
-                    ],
-                    role="assistant",
-                ),
-            ]
-            res = await fmt.format(msgs)
+                            ),
+                        ],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    TextBlock(
+                        type="text",
+                        text="Here is the map of Tokyo.",
+                    ),
+                ],
+                role="assistant",
+            ),
+        ]
+        res = await fmt.format(msgs)
 
         expected_tool_content = (
             "Here is the map.\n"
@@ -469,19 +448,65 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             f"and will be presented to you with the identifier "
             f"[{_FIXED_ID}].</system-reminder>"
         )
-        self.assertEqual(len(res), 3)
-        self.assertEqual(res[0]["role"], "assistant")
-        self.assertEqual(res[1]["role"], "tool")
-        self.assertEqual(res[1]["content"], expected_tool_content)
-        # The promoted multimodal user message
-        self.assertEqual(res[2]["role"], "user")
-        image_blocks = [
-            b
-            for b in res[2]["content"]
-            if b.get("type") == "image_url"
-            and b.get("image_url", {}).get("url") == self.image_url
-        ]
-        self.assertEqual(len(image_blocks), 1)
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_img",
+                            "type": "function",
+                            "function": {
+                                "name": "get_map",
+                                "arguments": '{"city": "Tokyo"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_img",
+                    "content": expected_tool_content,
+                    "name": "get_map",
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "<system-reminder>The multimodal data "
+                                "and their identifiers are listed as "
+                                "follows:"
+                            ),
+                        },
+                        {
+                            "type": "text",
+                            "text": f"- {_FIXED_ID} (image file): ",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": self.image_url},
+                        },
+                        {
+                            "type": "text",
+                            "text": "</system-reminder>",
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Here is the map of Tokyo.",
+                        },
+                    ],
+                },
+            ],
+        )
 
     async def test_chat_formatter_thinking_dropped_without_flag(self) -> None:
         """ThinkingBlock is silently dropped when application/x-thinking is
@@ -498,8 +523,15 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertNotIn("reasoning_content", res[0])
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "reply"}],
+                },
+            ],
+        )
 
     async def test_chat_formatter_thinking_becomes_reasoning_content(
         self,
@@ -520,8 +552,16 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0]["reasoning_content"], "inner thoughts")
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "reply"}],
+                    "reasoning_content": "inner thoughts",
+                },
+            ],
+        )
 
     async def test_chat_formatter_multiple_thinking_blocks_joined(
         self,
@@ -543,8 +583,16 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertIn("part one", res[0]["reasoning_content"])
-        self.assertIn("part two", res[0]["reasoning_content"])
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "answer"}],
+                    "reasoning_content": "part one\npart two",
+                },
+            ],
+        )
 
     # -------------------------------------------------------------------
     # DashScopeMultiAgentFormatter tests
@@ -584,20 +632,19 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             [
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
 
-        # System + tools (no conversation) — same is_first=True for the
-        # trailing assistant message.
+        # System + tools (no conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
             [
                 self.gt_multiagent[0],
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
@@ -628,12 +675,13 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         msgs = [
             Msg(
                 name="assistant",
-                content=[ThinkingBlock(thinking="Need to check"), tc],
+                content=[ThinkingBlock(thinking="Need to check"), tc, tr],
                 role="assistant",
             ),
-            Msg(name="tool", content=[tr], role="assistant"),
         ]
         res = await fmt.format(msgs)
         asst_msgs = [m for m in res if m.get("role") == "assistant"]
-        self.assertTrue(len(asst_msgs) > 0)
-        self.assertEqual(asst_msgs[0]["reasoning_content"], "Need to check")
+        self.assertListEqual(
+            [m["reasoning_content"] for m in asst_msgs],
+            ["Need to check"],
+        )

@@ -15,10 +15,10 @@ from agentscope.message import (
     DataBlock,
     ToolCallBlock,
     ToolResultBlock,
+    ToolResultState,
     Base64Source,
     ThinkingBlock,
 )
-from agentscope.message._block import ToolResultState
 
 
 class TestGeminiFormatter(IsolatedAsyncioTestCase):
@@ -89,12 +89,6 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
                         name="get_capital",
                         input='{"country": "Japan"}',
                     ),
-                ],
-                role="assistant",
-            ),
-            Msg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_1",
                         name="get_capital",
@@ -106,12 +100,11 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
+                    TextBlock(
+                        type="text",
+                        text="The capital of Japan is Tokyo.",
+                    ),
                 ],
-                role="assistant",
-            ),
-            Msg(
-                name="assistant",
-                content="The capital of Japan is Tokyo.",
                 role="assistant",
             ),
         ]
@@ -199,28 +192,10 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
         # ---------------------------------------------------------------
         _hist_prompt = GeminiMultiAgentFormatter().conversation_history_prompt
 
-        _gt_trailing_asst_nonfirst = {
-            "role": "user",
+        self._gt_trailing_asst = {
+            "role": "model",
             "parts": [
-                {
-                    "text": (
-                        "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
-                },
-            ],
-        }
-        self._gt_trailing_asst_first = {
-            "role": "user",
-            "parts": [
-                {
-                    "text": (
-                        _hist_prompt + "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
-                },
+                {"text": "The capital of Japan is Tokyo."},
             ],
         }
 
@@ -279,7 +254,7 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
             },
             self._gt_tool_call,
             self._gt_tool_result,
-            _gt_trailing_asst_nonfirst,
+            self._gt_trailing_asst,
         ]
 
     # -------------------------------------------------------------------
@@ -302,15 +277,16 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
         self.assertListEqual(self.gt_chat[1:], res)
 
         # Without conversation
+        n_tools_gt = len(self.gt_chat) - 1 - len(self.msgs_conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
-            [self.gt_chat[0]] + self.gt_chat[-len(self.msgs_tools) :],
+            [self.gt_chat[0]] + self.gt_chat[-n_tools_gt:],
             res,
         )
 
         # Without tools
         res = await fmt.format([*self.msgs_system, *self.msgs_conversation])
-        self.assertListEqual(self.gt_chat[: -len(self.msgs_tools)], res)
+        self.assertListEqual(self.gt_chat[:-n_tools_gt], res)
 
         # Empty
         res = await fmt.format([])
@@ -330,12 +306,18 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        thinking_parts = [
-            p for p in res[0]["parts"] if p.get("thought") is True
-        ]
-        self.assertEqual(len(thinking_parts), 1)
-        self.assertEqual(thinking_parts[0]["text"], "inner thoughts")
+        self.assertListEqual(
+            res,
+            [
+                {
+                    "role": "model",
+                    "parts": [
+                        {"thought": True, "text": "inner thoughts"},
+                        {"text": "reply"},
+                    ],
+                },
+            ],
+        )
 
     # -------------------------------------------------------------------
     # GeminiMultiAgentFormatter tests
@@ -368,25 +350,25 @@ class TestGeminiFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(self.msgs_conversation)
         self.assertListEqual([self.gt_multiagent[1]], res)
 
-        # Tools only — is_first=True for trailing assistant
+        # Tools only
         res = await fmt.format(self.msgs_tools)
         self.assertListEqual(
             [
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
 
-        # System + tools — same is_first=True for trailing assistant
+        # System + tools
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
             [
                 self.gt_multiagent[0],
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
