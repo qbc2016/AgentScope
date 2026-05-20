@@ -21,7 +21,6 @@ from ...message import (
     Base64Source,
 )
 from ...tool import ToolChoice
-from ...tracing import trace_llm
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletion
@@ -138,7 +137,6 @@ class DashScopeChatModel(ChatModelBase):
         self.parameters = parameters or self.Parameters()
         self.formatter = formatter or DashScopeChatFormatter()
 
-    @trace_llm
     async def _call_api(
         self,
         model_name: str,
