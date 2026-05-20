@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""The Kimi (Moonshot AI) chat model implementation."""
+"""The Moonshot AI chat model implementation."""
 from collections import OrderedDict
 from datetime import datetime
 from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List
@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
 from .._model_response import ChatResponse
 from .._model_usage import ChatUsage
-from ...credential import KimiCredential
-from ...formatter import FormatterBase, KimiChatFormatter
+from ...credential import MoonshotCredential
+from ...formatter import FormatterBase, MoonshotChatFormatter
 from ...message import Msg, ThinkingBlock, ToolCallBlock, TextBlock
 from ...tool import ToolChoice
 
@@ -22,11 +22,11 @@ else:
     AsyncStream = Any
 
 
-class KimiChatModel(ChatModelBase):
-    """The Kimi (Moonshot AI) chat model."""
+class MoonshotChatModel(ChatModelBase):
+    """The Moonshot AI chat model."""
 
     class Parameters(BaseModel):
-        """The parameters for the Kimi chat model."""
+        """The parameters for the Moonshot AI chat model."""
 
         max_tokens: int | None = Field(
             default=None,
@@ -51,41 +51,40 @@ class KimiChatModel(ChatModelBase):
             le=1,
         )
 
-    type: Literal["kimi_chat"] = "kimi_chat"
+    type: Literal["moonshot_chat"] = "moonshot_chat"
     """The type of the chat model."""
 
     def __init__(
         self,
-        credential: KimiCredential,
+        credential: MoonshotCredential,
         model: str,
-        parameters: "KimiChatModel.Parameters | None" = None,
+        parameters: "MoonshotChatModel.Parameters | None" = None,
         stream: bool = True,
         max_retries: int = 3,
         context_size: int = 131072,
         formatter: FormatterBase | None = None,
     ) -> None:
-        """Initialize the Kimi chat model.
+        """Initialize the Moonshot AI chat model.
 
         Args:
-            credential (`KimiCredential`):
-                The Kimi (Moonshot AI) credential used to authenticate API
-                calls.
+            credential (`MoonshotCredential`):
+                The Moonshot AI credential used to authenticate API calls.
             model (`str`):
-                The Kimi model name, e.g. ``moonshot-v1-8k``.
-            parameters (`KimiChatModel.Parameters | None`, defaults to \
+                The model name, e.g. ``moonshot-v1-8k``, ``kimi-k2.6``.
+            parameters (`MoonshotChatModel.Parameters | None`, defaults to \
             `None`):
-                The Kimi API parameters. When ``None``, the default
-                parameters will be used.
+                The API parameters. When ``None``, the default parameters
+                will be used.
             stream (`bool`, defaults to `True`):
                 Whether to enable streaming output.
             max_retries (`int`, defaults to `3`):
-                The maximum number of retries for the Kimi API.
+                The maximum number of retries for the API.
             context_size (`int`, defaults to `131072`):
                 The model context size used for context compression.
             formatter (`FormatterBase | None`, defaults to `None`):
                 The formatter that converts ``Msg`` objects to the format
-                required by the Kimi API. When ``None``, a
-                ``KimiChatFormatter`` instance will be used.
+                required by the API. When ``None``, a
+                ``MoonshotChatFormatter`` instance will be used.
         """
         super().__init__(
             model=model,
@@ -95,7 +94,7 @@ class KimiChatModel(ChatModelBase):
         )
         self.credential = credential
         self.parameters = parameters or self.Parameters()
-        self.formatter = formatter or KimiChatFormatter()
+        self.formatter = formatter or MoonshotChatFormatter()
 
     async def _call_api(
         self,
@@ -105,7 +104,7 @@ class KimiChatModel(ChatModelBase):
         tool_choice: ToolChoice | None = None,
         **generate_kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        """Call the Kimi chat API (OpenAI-compatible).
+        """Call the Moonshot AI chat API (OpenAI-compatible).
 
         Args:
             model_name (`str`):
@@ -175,7 +174,7 @@ class KimiChatModel(ChatModelBase):
         start_datetime: datetime,
         response: AsyncStream,
     ) -> AsyncGenerator[ChatResponse, None]:
-        """Parse the Kimi streaming response.
+        """Parse the Moonshot AI streaming response.
 
         Args:
             start_datetime (`datetime`):
@@ -219,7 +218,7 @@ class KimiChatModel(ChatModelBase):
                 choice = chunk.choices[0]
                 delta = choice.delta
 
-                # Kimi thinking models (kimi-k2.6, kimi-k2-thinking) return
+                # Thinking models (kimi-k2.6, kimi-k2-thinking) return
                 # reasoning_content before content in the stream.
                 delta_thinking = (
                     getattr(delta, "reasoning_content", None) or ""
@@ -294,7 +293,7 @@ class KimiChatModel(ChatModelBase):
         start_datetime: datetime,
         response: ChatCompletion,
     ) -> ChatResponse:
-        """Parse the Kimi non-streaming response.
+        """Parse the Moonshot AI non-streaming response.
 
         Args:
             start_datetime (`datetime`):
@@ -352,7 +351,8 @@ class KimiChatModel(ChatModelBase):
         tools: list[dict] | None,
         tool_choice: ToolChoice | None,
     ) -> tuple[list[dict] | None, str | dict | None]:
-        """Validate, filter, and format tools and tool_choice for the Kimi API.
+        """Validate, filter, and format tools and tool_choice for the
+        Moonshot AI API.
 
         When ``tool_choice.tools`` is specified the schemas list is filtered
         to only those tools. When ``tool_choice.mode`` is a specific tool name
