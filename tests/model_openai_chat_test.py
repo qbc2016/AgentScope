@@ -164,7 +164,7 @@ class TestOpenAIChatNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("gpt-4o", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -191,7 +191,7 @@ class TestOpenAIChatNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("gpt-4o", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -221,7 +221,7 @@ class TestOpenAIChatNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("gpt-4o", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -268,7 +268,7 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("gpt-4o", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -300,7 +300,7 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("gpt-4o", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -353,7 +353,7 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("gpt-4o", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -408,7 +408,7 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("gpt-4o", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(

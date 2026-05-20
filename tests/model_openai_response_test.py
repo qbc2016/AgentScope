@@ -131,7 +131,7 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.responses.create = mock_create
 
-        result = await self.model._call_api("o4-mini", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -160,7 +160,7 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.responses.create = mock_create
 
-        result = await self.model._call_api("o4-mini", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -192,7 +192,7 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.responses.create = mock_create
 
-        result = await self.model._call_api("o4-mini", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -249,7 +249,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.responses.create = mock_create
 
-        gen = await self.model._call_api("o4-mini", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -298,7 +298,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.responses.create = mock_create
 
-        gen = await self.model._call_api("o4-mini", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -367,7 +367,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.responses.create = mock_create
 
-        gen = await self.model._call_api("o4-mini", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(

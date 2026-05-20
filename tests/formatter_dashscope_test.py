@@ -317,7 +317,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(
             [*self.msgs_system, *self.msgs_conversation, *self.msgs_tools],
         )
-        self.maxDiff = None
         self.assertListEqual(self.gt_chat, res)
 
         # Without system
@@ -573,7 +572,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
     async def test_multiagent_formatter(self) -> None:
         """MultiAgent formatter produces exact output for various subsets."""
         fmt = DashScopeMultiAgentFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -719,7 +717,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.maxDiff = None
         self.assertListEqual(
             [
                 {
@@ -870,7 +867,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.maxDiff = None
         self.assertListEqual(
             [
                 {

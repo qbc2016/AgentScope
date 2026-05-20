@@ -274,7 +274,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
     async def test_chat_formatter(self) -> None:
         """Chat formatter produces exact output for various subsets."""
         fmt = OpenAIResponseFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -506,7 +505,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
     async def test_multiagent_formatter(self) -> None:
         """MultiAgent formatter produces exact output for various subsets."""
         fmt = OpenAIResponseMultiAgentFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -619,7 +617,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.maxDiff = None
         self.assertListEqual(
             [
                 {

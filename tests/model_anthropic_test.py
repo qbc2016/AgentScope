@@ -121,7 +121,7 @@ class TestAnthropicNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.messages.create = mock_create
 
-        result = await self.model._call_api("claude-opus-4-5", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -148,7 +148,7 @@ class TestAnthropicNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.messages.create = mock_create
 
-        result = await self.model._call_api("claude-opus-4-5", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -178,7 +178,7 @@ class TestAnthropicNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.messages.create = mock_create
 
-        result = await self.model._call_api("claude-opus-4-5", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -245,7 +245,7 @@ class TestAnthropicStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.messages.create = mock_create
 
-        gen = await self.model._call_api("claude-opus-4-5", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -297,7 +297,7 @@ class TestAnthropicStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.messages.create = mock_create
 
-        gen = await self.model._call_api("claude-opus-4-5", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -372,7 +372,7 @@ class TestAnthropicStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.messages.create = mock_create
 
-        gen = await self.model._call_api("claude-opus-4-5", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(

@@ -127,7 +127,7 @@ class TestOllamaNonStream(IsolatedAsyncioTestCase):
             return_value=_mock_completion(content="Hello!"),
         )
 
-        result = await self.model._call_api("qwen3:8b", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -148,7 +148,7 @@ class TestOllamaNonStream(IsolatedAsyncioTestCase):
             ),
         )
 
-        result = await self.model._call_api("qwen3:8b", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -178,7 +178,7 @@ class TestOllamaNonStream(IsolatedAsyncioTestCase):
             ),
         )
 
-        result = await self.model._call_api("qwen3:8b", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -217,7 +217,7 @@ class TestOllamaStream(IsolatedAsyncioTestCase):
             return_value=_MockAsyncStream(chunks),
         )
 
-        gen = await self.model._call_api("qwen3:8b", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -244,7 +244,7 @@ class TestOllamaStream(IsolatedAsyncioTestCase):
             return_value=_MockAsyncStream(chunks),
         )
 
-        gen = await self.model._call_api("qwen3:8b", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -291,7 +291,7 @@ class TestOllamaStream(IsolatedAsyncioTestCase):
             return_value=_MockAsyncStream(chunks),
         )
 
-        gen = await self.model._call_api("qwen3:8b", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         tool_block = ToolCallBlock(

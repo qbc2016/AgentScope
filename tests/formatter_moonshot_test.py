@@ -288,7 +288,6 @@ class TestMoonshotFormatter(IsolatedAsyncioTestCase):
     async def test_chat_formatter(self) -> None:
         """Chat formatter produces exact output for various subsets."""
         fmt = MoonshotChatFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -522,7 +521,6 @@ class TestMoonshotFormatter(IsolatedAsyncioTestCase):
     async def test_multiagent_formatter(self) -> None:
         """MultiAgent formatter produces exact output for various subsets."""
         fmt = MoonshotMultiAgentFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -635,7 +633,6 @@ class TestMoonshotFormatter(IsolatedAsyncioTestCase):
             ),
         ]
         res = await fmt.format(msgs)
-        self.maxDiff = None
         self.assertListEqual(
             [
                 {

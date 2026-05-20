@@ -165,7 +165,7 @@ class TestDeepSeekNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("deepseek-v4-pro", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -197,7 +197,7 @@ class TestDeepSeekNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("deepseek-v4-pro", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -232,7 +232,7 @@ class TestDeepSeekNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("deepseek-v4-pro", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -279,7 +279,7 @@ class TestDeepSeekStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("deepseek-v4-pro", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -312,7 +312,7 @@ class TestDeepSeekStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("deepseek-v4-pro", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -368,7 +368,7 @@ class TestDeepSeekStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("deepseek-v4-pro", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -435,7 +435,7 @@ class TestDeepSeekStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("deepseek-v4-pro", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -505,7 +505,7 @@ class TestDeepSeekStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("deepseek-v4-pro", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(

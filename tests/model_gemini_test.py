@@ -125,7 +125,7 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
             return_value=_mock_completion(parts),
         )
 
-        result = await self.model._call_api("gemini-2.5-flash", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -151,7 +151,7 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
             return_value=_mock_completion(parts),
         )
 
-        result = await self.model._call_api("gemini-2.5-flash", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -184,7 +184,7 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
             return_value=_mock_completion(parts),
         )
 
-        result = await self.model._call_api("gemini-2.5-flash", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -223,7 +223,7 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
             AsyncMock(return_value=_MockAsyncStream(chunks))
         )
 
-        gen = await self.model._call_api("gemini-2.5-flash", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -249,7 +249,7 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
             AsyncMock(return_value=_MockAsyncStream(chunks))
         )
 
-        gen = await self.model._call_api("gemini-2.5-flash", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -293,7 +293,7 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
             AsyncMock(return_value=_MockAsyncStream(chunks))
         )
 
-        gen = await self.model._call_api("gemini-2.5-flash", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         tool_block = ToolCallBlock(

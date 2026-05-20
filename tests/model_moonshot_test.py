@@ -158,7 +158,7 @@ class TestMoonshotNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("kimi-k2-5", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -185,7 +185,7 @@ class TestMoonshotNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("kimi-k2-5", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -215,7 +215,7 @@ class TestMoonshotNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("kimi-k2-5", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -258,7 +258,7 @@ class TestMoonshotStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("kimi-k2-5", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -288,7 +288,7 @@ class TestMoonshotStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("kimi-k2-5", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -341,7 +341,7 @@ class TestMoonshotStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("kimi-k2-5", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(

@@ -167,7 +167,7 @@ class TestDashScopeNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("qwen3-max", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -194,7 +194,7 @@ class TestDashScopeNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("qwen3-max", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -224,7 +224,7 @@ class TestDashScopeNonStream(IsolatedAsyncioTestCase):
         )
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        result = await self.model._call_api("qwen3-max", [])
+        result = await self.model([])
 
         self.assertEqual(
             (result.is_last, result.content),
@@ -266,7 +266,7 @@ class TestDashScopeStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("qwen3-max", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -296,7 +296,7 @@ class TestDashScopeStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("qwen3-max", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -346,7 +346,7 @@ class TestDashScopeStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("qwen3-max", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -398,7 +398,7 @@ class TestDashScopeStream(IsolatedAsyncioTestCase):
         mock_create = AsyncMock(return_value=_MockAsyncStream(chunks))
         mock_client_cls.return_value.chat.completions.create = mock_create
 
-        gen = await self.model._call_api("qwen3-max", [])
+        gen = await self.model([])
         responses = [r async for r in gen]
 
         self.assertListEqual(
@@ -493,12 +493,13 @@ class TestDashScopeFormatTools(unittest.TestCase):
 
     def test_tools_filtered(self) -> None:
         """When tool_choice.tools is set, only those tools are included."""
-        fmt_tools, _ = self.model._format_tools(
+        fmt_tools, fmt_choice = self.model._format_tools(
             _FT_TOOLS,
             ToolChoice(mode="auto", tools=["get_weather"]),
         )
         self.assertEqual(len(fmt_tools), 1)
         self.assertEqual(fmt_tools[0]["function"]["name"], "get_weather")
+        self.assertEqual(fmt_choice, "auto")
 
     def test_no_tool_choice(self) -> None:
         """Without tool_choice, returns tools and None."""
