@@ -51,7 +51,7 @@ class _AnthropicFormatterBase(FormatterBase, ABC):
         self.assert_list_of_msgs(msgs)
 
         messages: list[dict] = []
-        for msg in msgs:
+        for msg in msgs:  # pylint: disable=too-many-nested-blocks
             content_blocks: list = []
             has_tool_result = False
 
@@ -149,6 +149,22 @@ class _AnthropicFormatterBase(FormatterBase, ABC):
                                 )
                                 if fmt_block:
                                     tool_result_content.append(fmt_block)
+                                else:
+                                    source = out_block.source
+                                    main_type = source.media_type.split("/")[0]
+                                    if isinstance(source, URLSource):
+                                        fallback = (
+                                            f"[{main_type} file returned, "
+                                            f"URL: {source.url}]"
+                                        )
+                                    else:
+                                        fallback = (
+                                            f"[{main_type} file returned, "
+                                            f"type: {source.media_type}]"
+                                        )
+                                    tool_result_content.append(
+                                        {"type": "text", "text": fallback},
+                                    )
 
                     content_blocks.append(
                         {
