@@ -253,6 +253,15 @@ class OpenAIResponseModel(ChatModelBase):
                 item_id = event.item_id
                 if item_id in tool_calls:
                     tool_calls[item_id]["input"] += event.delta
+                    tc = tool_calls[item_id]
+                    delta_contents.append(
+                        ToolCallBlock(
+                            id=tc["id"],
+                            call_id=tc.get("call_id"),
+                            name=tc["name"],
+                            input=event.delta,
+                        ),
+                    )
 
             elif event_type == "response.completed":
                 resp = event.response

@@ -328,7 +328,8 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
         self,
         mock_client_cls: MagicMock,
     ) -> None:
-        """Stream function-call events yield final ToolCallBlock only."""
+        """Stream function-call events yield deltas then final
+        ToolCallBlock."""
         fc_item = MagicMock()
         fc_item.type = "function_call"
         fc_item.id = "fc_1"
@@ -372,6 +373,28 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
         self.assertListEqual(
             [(r.is_last, r.content) for r in responses],
             [
+                (
+                    False,
+                    [
+                        ToolCallBlock(
+                            id="fc_1",
+                            call_id="call-1",
+                            name="search",
+                            input='{"q":',
+                        ),
+                    ],
+                ),
+                (
+                    False,
+                    [
+                        ToolCallBlock(
+                            id="fc_1",
+                            call_id="call-1",
+                            name="search",
+                            input='"test"}',
+                        ),
+                    ],
+                ),
                 (
                     True,
                     [
