@@ -414,6 +414,128 @@ class TestXAIFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format([])
         self.assertListEqual([], res)
 
+    async def test_chat_formatter_complex_multi_step(self) -> None:
+        """Complex multi-step sequence with interleaved thinking, text,
+        tool calls, and tool results."""
+        fmt = XAIChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ThinkingBlock(thinking="thinking_1"),
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolCallBlock(
+                        id="call_2",
+                        name="func_2",
+                        input='{"arg": "value2"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolResultBlock(
+                        id="call_2",
+                        name="func_2",
+                        output=[TextBlock(text="result_2")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_2"),
+                    TextBlock(text="text_2"),
+                    ToolCallBlock(
+                        id="call_3",
+                        name="func_3",
+                        input='{"arg": "value3"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_3",
+                        name="func_3",
+                        output=[TextBlock(text="result_3")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolCallBlock(
+                        id="call_4",
+                        name="func_4",
+                        input='{"arg": "value4"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_4",
+                        name="func_4",
+                        output=[TextBlock(text="result_4")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_3"),
+                    TextBlock(text="text_3"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+
+        # First message: proto with text_1 content + 2 tool_calls
+        self.assertTrue(hasattr(res[0], "tool_calls"))
+        self.assertEqual(len(res[0].tool_calls), 2)
+        self.assertEqual(len(res[0].content), 1)
+        self.assertEqual(res[0].tool_calls[0].id, "call_1")
+        self.assertEqual(res[0].tool_calls[0].function.name, "func_1")
+        self.assertEqual(
+            res[0].tool_calls[0].function.arguments,
+            '{"arg": "value1"}',
+        )
+        self.assertEqual(res[0].tool_calls[1].id, "call_2")
+        self.assertEqual(res[0].tool_calls[1].function.name, "func_2")
+        self.assertEqual(
+            res[0].tool_calls[1].function.arguments,
+            '{"arg": "value2"}',
+        )
+
+        # Tool results
+        self.assertEqual(
+            res[1],
+            tool_result("result_1", tool_call_id="call_1"),
+        )
+        self.assertEqual(
+            res[2],
+            tool_result("result_2", tool_call_id="call_2"),
+        )
+
+        # Second proto: text_2 + 1 tool_call
+        self.assertTrue(hasattr(res[3], "tool_calls"))
+        self.assertEqual(len(res[3].tool_calls), 1)
+        self.assertEqual(len(res[3].content), 1)
+        self.assertEqual(res[3].tool_calls[0].id, "call_3")
+        self.assertEqual(res[3].tool_calls[0].function.name, "func_3")
+
+        # Tool result for call_3
+        self.assertEqual(
+            res[4],
+            tool_result("result_3", tool_call_id="call_3"),
+        )
+
+        # Third proto: no content + 1 tool_call
+        self.assertTrue(hasattr(res[5], "tool_calls"))
+        self.assertEqual(len(res[5].tool_calls), 1)
+        self.assertEqual(len(res[5].content), 0)
+        self.assertEqual(res[5].tool_calls[0].id, "call_4")
+        self.assertEqual(res[5].tool_calls[0].function.name, "func_4")
+
+        # Tool result for call_4
+        self.assertEqual(
+            res[6],
+            tool_result("result_4", tool_call_id="call_4"),
+        )
+
+        # Final assistant text
+        self.assertEqual(res[7], assistant("text_3"))
+
+        # Total 8 items
+        self.assertEqual(len(res), 8)
+
     async def test_chat_formatter_hint_block(self) -> None:
         """HintBlock flushes preceding content and becomes a user message."""
         fmt = XAIChatFormatter()

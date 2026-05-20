@@ -657,6 +657,307 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             ["Need to check"],
         )
 
+    async def test_chat_formatter_complex_multi_step(self) -> None:
+        """Complex multi-step sequence with interleaved thinking, text,
+        tool calls, and tool results (thinking dropped without flag)."""
+        fmt = DashScopeChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ThinkingBlock(thinking="thinking_1"),
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolCallBlock(
+                        id="call_2",
+                        name="func_2",
+                        input='{"arg": "value2"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolResultBlock(
+                        id="call_2",
+                        name="func_2",
+                        output=[TextBlock(text="result_2")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_2"),
+                    TextBlock(text="text_2"),
+                    ToolCallBlock(
+                        id="call_3",
+                        name="func_3",
+                        input='{"arg": "value3"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_3",
+                        name="func_3",
+                        output=[TextBlock(text="result_3")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolCallBlock(
+                        id="call_4",
+                        name="func_4",
+                        input='{"arg": "value4"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_4",
+                        name="func_4",
+                        output=[TextBlock(text="result_4")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_3"),
+                    TextBlock(text="text_3"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.maxDiff = None
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_1"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "func_1",
+                                "arguments": '{"arg": "value1"}',
+                            },
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {
+                                "name": "func_2",
+                                "arguments": '{"arg": "value2"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "result_1",
+                    "name": "func_1",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_2",
+                    "content": "result_2",
+                    "name": "func_2",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_2"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_3",
+                            "type": "function",
+                            "function": {
+                                "name": "func_3",
+                                "arguments": '{"arg": "value3"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_3",
+                    "content": "result_3",
+                    "name": "func_3",
+                },
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_4",
+                            "type": "function",
+                            "function": {
+                                "name": "func_4",
+                                "arguments": '{"arg": "value4"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_4",
+                    "content": "result_4",
+                    "name": "func_4",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_3"}],
+                },
+            ],
+            res,
+        )
+
+    async def test_chat_formatter_complex_multi_step_with_thinking(
+        self,
+    ) -> None:
+        """Complex multi-step sequence with thinking preserved via
+        application/x-thinking flag."""
+        fmt = DashScopeChatFormatter(
+            input_types=["text/plain", "application/x-thinking"],
+        )
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ThinkingBlock(thinking="thinking_1"),
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolCallBlock(
+                        id="call_2",
+                        name="func_2",
+                        input='{"arg": "value2"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolResultBlock(
+                        id="call_2",
+                        name="func_2",
+                        output=[TextBlock(text="result_2")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_2"),
+                    TextBlock(text="text_2"),
+                    ToolCallBlock(
+                        id="call_3",
+                        name="func_3",
+                        input='{"arg": "value3"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_3",
+                        name="func_3",
+                        output=[TextBlock(text="result_3")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolCallBlock(
+                        id="call_4",
+                        name="func_4",
+                        input='{"arg": "value4"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_4",
+                        name="func_4",
+                        output=[TextBlock(text="result_4")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_3"),
+                    TextBlock(text="text_3"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.maxDiff = None
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_1"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "func_1",
+                                "arguments": '{"arg": "value1"}',
+                            },
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {
+                                "name": "func_2",
+                                "arguments": '{"arg": "value2"}',
+                            },
+                        },
+                    ],
+                    "reasoning_content": "thinking_1",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "result_1",
+                    "name": "func_1",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_2",
+                    "content": "result_2",
+                    "name": "func_2",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_2"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_3",
+                            "type": "function",
+                            "function": {
+                                "name": "func_3",
+                                "arguments": '{"arg": "value3"}',
+                            },
+                        },
+                    ],
+                    "reasoning_content": "thinking_2",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_3",
+                    "content": "result_3",
+                    "name": "func_3",
+                },
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_4",
+                            "type": "function",
+                            "function": {
+                                "name": "func_4",
+                                "arguments": '{"arg": "value4"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_4",
+                    "content": "result_4",
+                    "name": "func_4",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_3"}],
+                    "reasoning_content": "thinking_3",
+                },
+            ],
+            res,
+        )
+
     async def test_chat_formatter_hint_block(self) -> None:
         """HintBlock flushes preceding content and becomes a user message."""
         fmt = DashScopeChatFormatter()

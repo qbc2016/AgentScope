@@ -525,6 +525,185 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format([])
         self.assertListEqual([], res)
 
+    async def test_chat_formatter_complex_multi_step(self) -> None:
+        """Complex multi-step sequence with interleaved thinking, text,
+        tool calls, and tool results."""
+        fmt = AnthropicChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ThinkingBlock(thinking="thinking_1"),
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolCallBlock(
+                        id="call_2",
+                        name="func_2",
+                        input='{"arg": "value2"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolResultBlock(
+                        id="call_2",
+                        name="func_2",
+                        output=[TextBlock(text="result_2")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_2"),
+                    TextBlock(text="text_2"),
+                    ToolCallBlock(
+                        id="call_3",
+                        name="func_3",
+                        input='{"arg": "value3"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_3",
+                        name="func_3",
+                        output=[TextBlock(text="result_3")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolCallBlock(
+                        id="call_4",
+                        name="func_4",
+                        input='{"arg": "value4"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_4",
+                        name="func_4",
+                        output=[TextBlock(text="result_4")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_3"),
+                    TextBlock(text="text_3"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.maxDiff = None
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "thinking_1",
+                            "signature": "",
+                        },
+                        {"type": "text", "text": "text_1"},
+                        {
+                            "type": "tool_use",
+                            "id": "call_1",
+                            "name": "func_1",
+                            "input": {"arg": "value1"},
+                        },
+                        {
+                            "type": "tool_use",
+                            "id": "call_2",
+                            "name": "func_2",
+                            "input": {"arg": "value2"},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "content": [
+                                {"type": "text", "text": "result_1"},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_2",
+                            "content": [
+                                {"type": "text", "text": "result_2"},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "thinking_2",
+                            "signature": "",
+                        },
+                        {"type": "text", "text": "text_2"},
+                        {
+                            "type": "tool_use",
+                            "id": "call_3",
+                            "name": "func_3",
+                            "input": {"arg": "value3"},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_3",
+                            "content": [
+                                {"type": "text", "text": "result_3"},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_4",
+                            "name": "func_4",
+                            "input": {"arg": "value4"},
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_4",
+                            "content": [
+                                {"type": "text", "text": "result_4"},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "thinking",
+                            "thinking": "thinking_3",
+                            "signature": "",
+                        },
+                        {"type": "text", "text": "text_3"},
+                    ],
+                },
+            ],
+            res,
+        )
+
     async def test_chat_formatter_hint_block(self) -> None:
         """HintBlock flushes preceding content and becomes a user message."""
         fmt = AnthropicChatFormatter()
