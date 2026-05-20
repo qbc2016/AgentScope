@@ -22,6 +22,12 @@ TEST_IMAGE_URL = (
     "-files/zh-CN/20241022/emyrja/dog_and_girl.jpeg"
 )
 
+# A publicly accessible test audio
+TEST_AUDIO_URL = (
+    "https://help-static-aliyun-doc.aliyuncs.com/file-manage"
+    "-files/zh-CN/20250211/tixcef/cherry.wav"
+)
+
 
 async def example_image_url() -> None:
     """Call gpt-4.1 with an image URL and ask what is in the image."""
@@ -130,35 +136,45 @@ async def example_image_base64() -> None:
     await stream_and_collect(await model(msgs))
 
 
-async def example_audio() -> None:
-    """Call gpt-4o-audio-preview with audio output enabled.
+async def example_audio_input() -> None:
+    """Call gpt-audio-mini with an audio URL.
 
-    Audio output requires ``modalities=["text", "audio"]`` and an ``audio``
-    configuration dict. The model returns audio data as a ``DataBlock`` with
-    ``Base64Source`` and the transcript as a ``TextBlock``.
+    Audio understanding requires an audio-capable model such as
+    ``gpt-audio-mini``.  The formatter converts the audio source
+    to the ``input_audio`` format expected by the Chat Completions API.
     """
     model = OpenAIChatModel(
         credential=OpenAICredential(
             api_key=os.environ["OPENAI_API_KEY"],
         ),
-        model="gpt-4o-audio-preview",
+        model="gpt-audio-mini",
         stream=True,
+    )
+
+    audio_block = DataBlock(
+        source=URLSource(
+            url=TEST_AUDIO_URL,
+            media_type="audio/wav",
+        ),
     )
 
     msgs = [
         Msg(
             name="user",
-            content="Introduce yourself briefly in one sentence.",
+            content=[
+                TextBlock(text="What is being said in this audio clip?"),
+                audio_block,
+            ],
             role="user",
         ),
     ]
 
-    print("=== Multimodal Call (Audio Output) ===")
+    print("=== Multimodal Call (Audio Input and Output) ===")
     response = await stream_and_collect(
         await model(
             msgs,
             modalities=["text", "audio"],
-            audio={"voice": "alloy", "format": "wav"},
+            audio={"voice": "alloy", "format": "pcm16"},
         ),
     )
 
@@ -175,4 +191,4 @@ if __name__ == "__main__":
     asyncio.run(example_image_url())
     asyncio.run(example_image_local_path())
     asyncio.run(example_image_base64())
-    asyncio.run(example_audio())
+    asyncio.run(example_audio_input())

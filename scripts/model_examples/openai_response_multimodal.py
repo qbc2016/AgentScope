@@ -23,6 +23,12 @@ TEST_IMAGE_URL = (
     "-files/zh-CN/20241022/emyrja/dog_and_girl.jpeg"
 )
 
+# A publicly accessible test audio
+TEST_AUDIO_URL = (
+    "https://help-static-aliyun-doc.aliyuncs.com/file-manage"
+    "-files/zh-CN/20250211/tixcef/cherry.wav"
+)
+
 
 async def example_image_url() -> None:
     """Call gpt-4.1 (Responses API) with an image URL and ask what is in
@@ -132,49 +138,50 @@ async def example_image_base64() -> None:
     await stream_and_collect(await model(msgs))
 
 
-async def example_audio() -> None:
-    """Call gpt-4o-audio-preview (Responses API) with audio output enabled.
+async def example_audio_input() -> None:
+    """Call gpt-4o-audio-preview (Responses API) with an audio URL.
 
-    Audio output requires ``modalities=["text", "audio"]`` and an ``audio``
-    configuration dict. Streaming audio arrives via ``response.audio.delta``
-    and ``response.audio.transcript.delta`` events.
+    Audio understanding requires an audio-capable model such as
+    ``gpt-audio-mini``.  The Responses API does not have a dedicated
+    audio input type; audio is sent as ``input_file`` (the formatter handles
+    the conversion from the Chat-Completions-style ``input_audio`` format
+    automatically).
+
+    Note: audio *output* is not yet supported by the Responses API.
+    See https://developers.openai.com/api/docs/guides/migrate-to-responses
     """
     model = OpenAIResponseModel(
         credential=OpenAICredential(
             api_key=os.environ["OPENAI_API_KEY"],
         ),
-        model="gpt-4o-audio-preview",
+        model="gpt-audio-mini",
         stream=True,
+    )
+
+    audio_block = DataBlock(
+        source=URLSource(
+            url=TEST_AUDIO_URL,
+            media_type="audio/wav",
+        ),
     )
 
     msgs = [
         Msg(
             name="user",
-            content="Introduce yourself briefly in one sentence.",
+            content=[
+                TextBlock(text="What is being said in this audio clip?"),
+                audio_block,
+            ],
             role="user",
         ),
     ]
 
-    print("=== Multimodal Call (Audio Output) ===")
-    response = await stream_and_collect(
-        await model(
-            msgs,
-            modalities=["text", "audio"],
-            audio={"voice": "alloy", "format": "wav"},
-        ),
-    )
-
-    # Save audio if present
-    for block in response.content:
-        if isinstance(block, DataBlock) and block.source.media_type.startswith(
-            "audio/",
-        ):
-            audio_bytes = base64.b64decode(block.source.data)
-            print(f"  Audio received: {len(audio_bytes)} bytes")
+    print("=== Multimodal Call (Audio Input) ===")
+    await stream_and_collect(await model(msgs))
 
 
 if __name__ == "__main__":
     asyncio.run(example_image_url())
     asyncio.run(example_image_local_path())
     asyncio.run(example_image_base64())
-    asyncio.run(example_audio())
+    asyncio.run(example_audio_input())

@@ -42,6 +42,14 @@ class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
     ) -> dict[str, Any] | None:
         """Format a DataBlock into the Response API format.
 
+        The Responses API uses different content types from the Chat
+        Completions API:
+
+        * ``image_url`` → ``input_image``
+        * ``input_audio`` → ``input_file`` (the Responses API has no
+          dedicated audio input type; audio is sent as a generic file). See
+           https://developers.openai.com/api/docs/guides/migrate-to-responses
+
         Args:
             block (`DataBlock`):
                 The DataBlock to format.
@@ -61,6 +69,17 @@ class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
             return {
                 "type": "input_image",
                 "image_url": base_result["image_url"]["url"],
+            }
+
+        if base_result.get("type") == "input_audio":
+            audio_data = base_result.get("input_audio", {})
+            data = audio_data.get("data", "")
+            fmt = audio_data.get("format", "wav")
+            media_type = f"audio/{fmt}"
+            return {
+                "type": "input_file",
+                "filename": f"audio.{fmt}",
+                "file_data": f"data:{media_type};base64,{data}",
             }
 
         return base_result
