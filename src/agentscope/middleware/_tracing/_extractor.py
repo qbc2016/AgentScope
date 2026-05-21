@@ -195,11 +195,7 @@ def _get_llm_request_attributes(
         SpanAttributes.GEN_AI_OPERATION_NAME: OperationNameValues.CHAT,
         SpanAttributes.GEN_AI_PROVIDER_NAME: _get_provider_name(instance),
         # conditionally required attributes
-        SpanAttributes.GEN_AI_REQUEST_MODEL: getattr(
-            instance,
-            "model",
-            "unknown_model",
-        ),
+        SpanAttributes.GEN_AI_REQUEST_MODEL: instance.model,
         # recommended attributes
         SpanAttributes.GEN_AI_REQUEST_TEMPERATURE: kwargs.get("temperature"),
         SpanAttributes.GEN_AI_REQUEST_TOP_P: kwargs.get("p")
@@ -315,7 +311,7 @@ def _get_llm_output_messages(
 
 
 def _get_llm_response_attributes(
-    chat_response: Any,
+    chat_response: ChatResponse,
 ) -> Dict[str, Any]:
     """Get LLM response attributes for OpenTelemetry tracing.
 
@@ -464,12 +460,7 @@ def _get_agent_request_attributes(
         SpanAttributes.GEN_AI_OPERATION_NAME: (
             OperationNameValues.INVOKE_AGENT
         ),
-        SpanAttributes.GEN_AI_AGENT_ID: getattr(instance, "id", "unknown"),
-        SpanAttributes.GEN_AI_AGENT_NAME: getattr(
-            instance,
-            "name",
-            "unknown_agent",
-        ),
+        SpanAttributes.GEN_AI_AGENT_NAME: instance.name,
         SpanAttributes.GEN_AI_AGENT_DESCRIPTION: inspect.getdoc(
             instance.__class__,
         )
@@ -515,14 +506,13 @@ def _get_agent_span_name(attributes: Dict[str, str]) -> str:
 
 
 def _get_agent_response_attributes(
-    agent_response: Any,
+    agent_response: Msg,
 ) -> Dict[str, str]:
     """Get agent response attributes for OpenTelemetry tracing.
 
     Args:
-        agent_response (`Any`):
-            Response object returned by agent. Should be a Msg object with
-            content blocks.
+        agent_response (`Msg`):
+            Response message returned by agent, containing content blocks.
 
     Returns:
         `Dict[str, str]`:
