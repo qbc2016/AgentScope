@@ -83,28 +83,6 @@ def _get_provider_name(instance: "ChatModelBase") -> str:
     """
     classname = instance.__class__.__name__
 
-    # Special handling for OpenAIChatModel - check base_url
-    if classname == "OpenAIChatModel":
-        # Try to get base_url from the client
-        base_url = None
-        if hasattr(instance, "client") and hasattr(
-            instance.client,
-            "base_url",
-        ):
-            base_url = str(instance.client.base_url)
-
-        # If base_url is None or empty, return default OpenAI
-        if not base_url:
-            return ProviderNameValues.OPENAI
-
-        # Check base_url fragments to identify provider
-        for url_fragment, provider_name in _BASE_URL_PROVIDER_MAP:
-            if url_fragment in base_url:
-                return provider_name
-
-        # If no match found, return openai as default
-        return ProviderNameValues.OPENAI
-
     # For other model types, use direct mapping
     prefix_key = (
         classname.removesuffix("ChatModel")
@@ -112,6 +90,18 @@ def _get_provider_name(instance: "ChatModelBase") -> str:
         .removesuffix("ResponseModel")
         .lower()
     )
+
+    # Special handling for OpenAI-compatible models — inspect base_url
+    # from credential to distinguish the actual provider.
+    if prefix_key == "openai":
+        base_url = getattr(instance.credential, "base_url", None)
+        if base_url:
+            base_url = str(base_url)
+            for url_fragment, provider_name in _BASE_URL_PROVIDER_MAP:
+                if url_fragment in base_url:
+                    return provider_name
+        return ProviderNameValues.OPENAI
+
     return _CLASS_NAME_MAP.get(prefix_key, "unknown")
 
 
