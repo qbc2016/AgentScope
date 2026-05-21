@@ -24,8 +24,7 @@ from ...event import (
     ReplyStartEvent,
 )
 from ...message import Msg, ToolCallBlock
-from ...model import ChatModelBase, ChatResponse
-from ...agent import Agent
+from ...model import ChatModelBase
 
 from ._attributes import SpanAttributes, OperationNameValues
 from ._extractor import (
@@ -45,7 +44,8 @@ from ._utils import _serialize_to_str
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
-
+    from ...agent import Agent
+    from ...model import ChatResponse
 
 T = TypeVar("T")
 

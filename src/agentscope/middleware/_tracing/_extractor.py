@@ -32,7 +32,6 @@ _CLASS_NAME_MAP = {
     "deepseek": ProviderNameValues.DEEPSEEK,
     "xai": ProviderNameValues.XAI,
     "moonshot": ProviderNameValues.MOONSHOT,
-    "trinity": ProviderNameValues.OPENAI,
 }
 
 # Map base URL fragments to provider names for OpenAI-compatible APIs
@@ -245,7 +244,7 @@ def _get_llm_span_name(attributes: Dict[str, str]) -> str:
 
 
 def _get_llm_output_messages(
-    chat_response: Any,
+    chat_response: ChatResponse | None,
 ) -> list[dict[str, Any]]:
     """Extract and format LLM output messages for tracing.
 
@@ -253,7 +252,7 @@ def _get_llm_output_messages(
     with OpenTelemetry GenAI specification.
 
     Args:
-        chat_response (`Any`):
+        chat_response (` ChatResponse | None`):
             Chat response object with content blocks. Should be a ChatResponse
             instance containing content blocks (text, tool_use, etc.).
 
@@ -311,14 +310,14 @@ def _get_llm_output_messages(
 
 
 def _get_llm_response_attributes(
-    chat_response: ChatResponse,
+    chat_response: ChatResponse | None,
 ) -> Dict[str, Any]:
     """Get LLM response attributes for OpenTelemetry tracing.
 
     Extracts response metadata and formats into GenAI attributes.
 
     Args:
-        chat_response (`Any`):
+        chat_response (`ChatResponse | None`):
             Chat response object with data and usage info. Should have
             attributes like id, usage (with input_tokens and output_tokens),
             and content blocks.
@@ -347,20 +346,13 @@ def _get_llm_response_attributes(
             SpanAttributes.GEN_AI_USAGE_OUTPUT_TOKENS
         ] = usage.output_tokens
 
-        cache_input = getattr(usage, "cache_input_tokens", 0) or 0
+        cache_input = usage.cache_input_tokens
         if cache_input:
             attributes[
                 SpanAttributes.AGENTSCOPE_CACHE_INPUT_TOKENS
             ] = cache_input
 
-        cache_creation = (
-            getattr(
-                usage,
-                "cache_creation_input_tokens",
-                0,
-            )
-            or 0
-        )
+        cache_creation = usage.cache_creation_input_tokens
         if cache_creation:
             attributes[
                 SpanAttributes.AGENTSCOPE_CACHE_CREATION_INPUT_TOKENS
