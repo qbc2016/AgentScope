@@ -2,7 +2,7 @@
 """The DashScope credential."""
 from typing import Literal, Type, TYPE_CHECKING
 
-from pydantic import Field, SecretStr
+from pydantic import ConfigDict, Field, SecretStr
 
 from ._base import CredentialBase
 
@@ -14,6 +14,10 @@ _DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 class DashScopeCredential(CredentialBase):
     """The credential for DashScope API."""
+
+    model_config = ConfigDict(
+        title="DashScope API",
+    )
 
     type: Literal["dashscope_credential"] = "dashscope_credential"
     """The type of the credential."""

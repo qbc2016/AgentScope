@@ -6,23 +6,24 @@ ground-truth comparisons.
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
-import shortuuid
-
 from agentscope.formatter import (
     DashScopeChatFormatter,
     DashScopeMultiAgentFormatter,
 )
 from agentscope.message import (
-    Msg,
+    UserMsg,
+    AssistantMsg,
+    SystemMsg,
     TextBlock,
     DataBlock,
     ToolCallBlock,
     ToolResultBlock,
+    ToolResultState,
     Base64Source,
     URLSource,
     ThinkingBlock,
+    HintBlock,
 )
-from agentscope.message._block import ToolResultState
 
 
 # A fixed short-uuid used to make promote-to-multimodal tests deterministic.
@@ -56,21 +57,17 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         # Message fixtures
         # ---------------------------------------------------------------
         self.msgs_system = [
-            Msg(
+            SystemMsg(
                 name="system",
                 content="You're a helpful assistant.",
-                role="system",
             ),
         ]
 
         self.msgs_conversation = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of France?",
-                    ),
+                    TextBlock(text="What is the capital of France?"),
                     DataBlock(
                         source=URLSource(
                             url=self.image_url,
@@ -78,20 +75,15 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of France is Paris.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of Germany?",
-                    ),
+                    TextBlock(text="What is the capital of Germany?"),
                     DataBlock(
                         source=URLSource(
                             url=self.audio_url,
@@ -99,24 +91,21 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of Germany is Berlin.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Japan?",
-                role="user",
             ),
         ]
 
         # Messages with ToolResultBlock must use role="assistant" because the
         # system-role validator rejects non-text blocks.
         self.msgs_tools = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -124,30 +113,16 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
                         name="get_capital",
                         input='{"country": "Japan"}',
                     ),
-                ],
-                role="assistant",
-            ),
-            Msg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
-                role="assistant",
-            ),
-            Msg(
-                name="assistant",
-                content="The capital of Japan is Tokyo.",
-                role="assistant",
             ),
         ]
 
@@ -261,29 +236,12 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             DashScopeMultiAgentFormatter().conversation_history_prompt
         )
 
-        _gt_trailing_asst_nonfirst = {
-            "role": "user",
+        self._gt_trailing_asst = {
+            "role": "assistant",
             "content": [
                 {
                     "type": "text",
-                    "text": (
-                        "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
-                },
-            ],
-        }
-        self._gt_trailing_asst_first = {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        _hist_prompt + "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
+                    "text": "The capital of Japan is Tokyo.",
                 },
             ],
         }
@@ -344,7 +302,7 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             },
             self._gt_tool_call,
             self._gt_tool_result,
-            _gt_trailing_asst_nonfirst,
+            self._gt_trailing_asst,
         ]
 
     # -------------------------------------------------------------------
@@ -359,7 +317,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(
             [*self.msgs_system, *self.msgs_conversation, *self.msgs_tools],
         )
-        self.maxDiff = None
         self.assertListEqual(self.gt_chat, res)
 
         # Without system
@@ -367,15 +324,16 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         self.assertListEqual(self.gt_chat[1:], res)
 
         # Without conversation
+        n_tools_gt = len(self.gt_chat) - 1 - len(self.msgs_conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
-            [self.gt_chat[0]] + self.gt_chat[-len(self.msgs_tools) :],
+            [self.gt_chat[0]] + self.gt_chat[-n_tools_gt:],
             res,
         )
 
         # Without tools
         res = await fmt.format([*self.msgs_system, *self.msgs_conversation])
-        self.assertListEqual(self.gt_chat[: -len(self.msgs_tools)], res)
+        self.assertListEqual(self.gt_chat[:-n_tools_gt], res)
 
         # Empty
         res = await fmt.format([])
@@ -385,19 +343,17 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         """Base64-encoded image is inlined as a data URI."""
         fmt = DashScopeChatFormatter()
         msgs = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
-                    TextBlock(type="text", text="What's in this image?"),
+                    TextBlock(text="What's in this image?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
                             data=self.image_b64,
                             media_type="image/png",
                         ),
                     ),
                 ],
-                role="user",
             ),
         ]
         res = await fmt.format(msgs)
@@ -417,51 +373,48 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             res,
         )
 
-    async def test_chat_formatter_url_image_in_tool_result(self) -> None:
+    @patch(
+        "agentscope.formatter._formatter_base.shortuuid.uuid",
+        return_value=_FIXED_ID,
+    )
+    async def test_chat_formatter_url_image_in_tool_result(
+        self,
+        _mock_uuid: object,
+    ) -> None:
         """URL images in tool results are promoted to a follow-up user message.
 
         The textual part of the tool result contains a system-reminder with a
         unique identifier; the identifier is mocked to be deterministic.
         """
-        with patch.object(shortuuid, "uuid", return_value=_FIXED_ID):
-            fmt = DashScopeChatFormatter()
-            msgs = [
-                Msg(
-                    name="assistant",
-                    content=[
-                        ToolCallBlock(
-                            id="call_img",
-                            name="get_map",
-                            input='{"city": "Tokyo"}',
-                        ),
-                    ],
-                    role="assistant",
-                ),
-                Msg(
-                    name="tool",
-                    content=[
-                        ToolResultBlock(
-                            id="call_img",
-                            name="get_map",
-                            output=[
-                                TextBlock(
-                                    type="text",
-                                    text="Here is the map.",
+        fmt = DashScopeChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ToolCallBlock(
+                        id="call_img",
+                        name="get_map",
+                        input='{"city": "Tokyo"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_img",
+                        name="get_map",
+                        output=[
+                            TextBlock(text="Here is the map."),
+                            DataBlock(
+                                source=URLSource(
+                                    url=self.image_url,
+                                    media_type="image/png",
                                 ),
-                                DataBlock(
-                                    source=URLSource(
-                                        url=self.image_url,
-                                        media_type="image/png",
-                                    ),
-                                ),
-                            ],
-                            state=ToolResultState.SUCCESS,
-                        ),
-                    ],
-                    role="assistant",
-                ),
-            ]
-            res = await fmt.format(msgs)
+                            ),
+                        ],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    TextBlock(text="Here is the map of Tokyo."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
 
         expected_tool_content = (
             "Here is the map.\n"
@@ -469,37 +422,89 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             f"and will be presented to you with the identifier "
             f"[{_FIXED_ID}].</system-reminder>"
         )
-        self.assertEqual(len(res), 3)
-        self.assertEqual(res[0]["role"], "assistant")
-        self.assertEqual(res[1]["role"], "tool")
-        self.assertEqual(res[1]["content"], expected_tool_content)
-        # The promoted multimodal user message
-        self.assertEqual(res[2]["role"], "user")
-        image_blocks = [
-            b
-            for b in res[2]["content"]
-            if b.get("type") == "image_url"
-            and b.get("image_url", {}).get("url") == self.image_url
-        ]
-        self.assertEqual(len(image_blocks), 1)
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_img",
+                            "type": "function",
+                            "function": {
+                                "name": "get_map",
+                                "arguments": '{"city": "Tokyo"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_img",
+                    "content": expected_tool_content,
+                    "name": "get_map",
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "<system-reminder>The multimodal data "
+                                "and their identifiers are listed as "
+                                "follows:"
+                            ),
+                        },
+                        {
+                            "type": "text",
+                            "text": f"- {_FIXED_ID} (image file): ",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": self.image_url},
+                        },
+                        {
+                            "type": "text",
+                            "text": "</system-reminder>",
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Here is the map of Tokyo.",
+                        },
+                    ],
+                },
+            ],
+            res,
+        )
 
     async def test_chat_formatter_thinking_dropped_without_flag(self) -> None:
         """ThinkingBlock is silently dropped when application/x-thinking is
         absent from input_types."""
         fmt = DashScopeChatFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertNotIn("reasoning_content", res[0])
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "reply"}],
+                },
+            ],
+            res,
+        )
 
     async def test_chat_formatter_thinking_becomes_reasoning_content(
         self,
@@ -510,18 +515,25 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             input_types=["text/plain", "application/x-thinking"],
         )
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0]["reasoning_content"], "inner thoughts")
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "reply"}],
+                    "reasoning_content": "inner thoughts",
+                },
+            ],
+            res,
+        )
 
     async def test_chat_formatter_multiple_thinking_blocks_joined(
         self,
@@ -532,19 +544,26 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             input_types=["text/plain", "application/x-thinking"],
         )
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="part one"),
                     ThinkingBlock(thinking="part two"),
-                    TextBlock(type="text", text="answer"),
+                    TextBlock(text="answer"),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertIn("part one", res[0]["reasoning_content"])
-        self.assertIn("part two", res[0]["reasoning_content"])
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "answer"}],
+                    "reasoning_content": "part one\npart two",
+                },
+            ],
+            res,
+        )
 
     # -------------------------------------------------------------------
     # DashScopeMultiAgentFormatter tests
@@ -553,7 +572,6 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
     async def test_multiagent_formatter(self) -> None:
         """MultiAgent formatter produces exact output for various subsets."""
         fmt = DashScopeMultiAgentFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -584,20 +602,19 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
             [
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
 
-        # System + tools (no conversation) — same is_first=True for the
-        # trailing assistant message.
+        # System + tools (no conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
             [
                 self.gt_multiagent[0],
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
@@ -622,18 +639,355 @@ class TestDashScopeFormatter(IsolatedAsyncioTestCase):
         tr = ToolResultBlock(
             id="call_1",
             name="get_capital",
-            output=[TextBlock(type="text", text="Tokyo")],
+            output=[TextBlock(text="Tokyo")],
             state=ToolResultState.SUCCESS,
         )
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
-                content=[ThinkingBlock(thinking="Need to check"), tc],
-                role="assistant",
+                content=[ThinkingBlock(thinking="Need to check"), tc, tr],
             ),
-            Msg(name="tool", content=[tr], role="assistant"),
         ]
         res = await fmt.format(msgs)
         asst_msgs = [m for m in res if m.get("role") == "assistant"]
-        self.assertTrue(len(asst_msgs) > 0)
-        self.assertEqual(asst_msgs[0]["reasoning_content"], "Need to check")
+        self.assertListEqual(
+            [m["reasoning_content"] for m in asst_msgs],
+            ["Need to check"],
+        )
+
+    async def test_chat_formatter_complex_multi_step(self) -> None:
+        """Complex multi-step sequence with interleaved thinking, text,
+        tool calls, and tool results (thinking dropped without flag)."""
+        fmt = DashScopeChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ThinkingBlock(thinking="thinking_1"),
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolCallBlock(
+                        id="call_2",
+                        name="func_2",
+                        input='{"arg": "value2"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolResultBlock(
+                        id="call_2",
+                        name="func_2",
+                        output=[TextBlock(text="result_2")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_2"),
+                    TextBlock(text="text_2"),
+                    ToolCallBlock(
+                        id="call_3",
+                        name="func_3",
+                        input='{"arg": "value3"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_3",
+                        name="func_3",
+                        output=[TextBlock(text="result_3")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolCallBlock(
+                        id="call_4",
+                        name="func_4",
+                        input='{"arg": "value4"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_4",
+                        name="func_4",
+                        output=[TextBlock(text="result_4")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_3"),
+                    TextBlock(text="text_3"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_1"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "func_1",
+                                "arguments": '{"arg": "value1"}',
+                            },
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {
+                                "name": "func_2",
+                                "arguments": '{"arg": "value2"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "result_1",
+                    "name": "func_1",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_2",
+                    "content": "result_2",
+                    "name": "func_2",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_2"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_3",
+                            "type": "function",
+                            "function": {
+                                "name": "func_3",
+                                "arguments": '{"arg": "value3"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_3",
+                    "content": "result_3",
+                    "name": "func_3",
+                },
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_4",
+                            "type": "function",
+                            "function": {
+                                "name": "func_4",
+                                "arguments": '{"arg": "value4"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_4",
+                    "content": "result_4",
+                    "name": "func_4",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_3"}],
+                },
+            ],
+            res,
+        )
+
+    async def test_chat_formatter_complex_multi_step_with_thinking(
+        self,
+    ) -> None:
+        """Complex multi-step sequence with thinking preserved via
+        application/x-thinking flag."""
+        fmt = DashScopeChatFormatter(
+            input_types=["text/plain", "application/x-thinking"],
+        )
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ThinkingBlock(thinking="thinking_1"),
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolCallBlock(
+                        id="call_2",
+                        name="func_2",
+                        input='{"arg": "value2"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolResultBlock(
+                        id="call_2",
+                        name="func_2",
+                        output=[TextBlock(text="result_2")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_2"),
+                    TextBlock(text="text_2"),
+                    ToolCallBlock(
+                        id="call_3",
+                        name="func_3",
+                        input='{"arg": "value3"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_3",
+                        name="func_3",
+                        output=[TextBlock(text="result_3")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolCallBlock(
+                        id="call_4",
+                        name="func_4",
+                        input='{"arg": "value4"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_4",
+                        name="func_4",
+                        output=[TextBlock(text="result_4")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_3"),
+                    TextBlock(text="text_3"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_1"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "func_1",
+                                "arguments": '{"arg": "value1"}',
+                            },
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {
+                                "name": "func_2",
+                                "arguments": '{"arg": "value2"}',
+                            },
+                        },
+                    ],
+                    "reasoning_content": "thinking_1",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "result_1",
+                    "name": "func_1",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_2",
+                    "content": "result_2",
+                    "name": "func_2",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_2"}],
+                    "tool_calls": [
+                        {
+                            "id": "call_3",
+                            "type": "function",
+                            "function": {
+                                "name": "func_3",
+                                "arguments": '{"arg": "value3"}',
+                            },
+                        },
+                    ],
+                    "reasoning_content": "thinking_2",
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_3",
+                    "content": "result_3",
+                    "name": "func_3",
+                },
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_4",
+                            "type": "function",
+                            "function": {
+                                "name": "func_4",
+                                "arguments": '{"arg": "value4"}',
+                            },
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_4",
+                    "content": "result_4",
+                    "name": "func_4",
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "text_3"}],
+                    "reasoning_content": "thinking_3",
+                },
+            ],
+            res,
+        )
+
+    async def test_chat_formatter_hint_block(self) -> None:
+        """HintBlock flushes preceding content and becomes a user message."""
+        fmt = DashScopeChatFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    TextBlock(text="Let me think about that."),
+                    HintBlock(hint="Remember to be concise."),
+                    TextBlock(text="Here is my answer."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Let me think about that."},
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Remember to be concise."},
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Here is my answer."},
+                    ],
+                },
+            ],
+            res,
+        )

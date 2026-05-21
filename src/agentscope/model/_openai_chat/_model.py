@@ -110,13 +110,13 @@ class OpenAIChatModel(ChatModelBase):
                 ``OpenAIChatFormatter`` instance will be used.
         """
         super().__init__(
+            credential=credential,
             model=model,
+            parameters=parameters or self.Parameters(),
             stream=stream,
             max_retries=max_retries,
             context_size=context_size,
         )
-        self.credential = credential
-        self.parameters = parameters or self.Parameters()
         self.formatter = formatter or OpenAIChatFormatter()
 
     async def _call_api(
@@ -296,19 +296,26 @@ class OpenAIChatModel(ChatModelBase):
                 acc_thinking.thinking += delta_thinking
                 acc_text.text += delta_text
 
+                delta_tool_call_blocks: List[ToolCallBlock] = []
                 for tool_call in getattr(delta, "tool_calls", None) or []:
                     idx = tool_call.index
+                    args = tool_call.function.arguments or ""
                     if idx in acc_tool_calls:
-                        if tool_call.function.arguments is not None:
-                            acc_tool_calls[idx][
-                                "input"
-                            ] += tool_call.function.arguments
+                        acc_tool_calls[idx]["input"] += args
                     else:
                         acc_tool_calls[idx] = {
                             "id": tool_call.id,
                             "name": tool_call.function.name,
-                            "input": tool_call.function.arguments or "",
+                            "input": args,
                         }
+                    tc = acc_tool_calls[idx]
+                    delta_tool_call_blocks.append(
+                        ToolCallBlock(
+                            id=tc["id"],
+                            name=tc["name"],
+                            input=args,
+                        ),
+                    )
 
                 delta_contents: List[
                     TextBlock | ToolCallBlock | ThinkingBlock
@@ -324,6 +331,7 @@ class OpenAIChatModel(ChatModelBase):
                     delta_contents.append(
                         TextBlock(id=acc_text.id, text=delta_text),
                     )
+                delta_contents.extend(delta_tool_call_blocks)
 
                 if delta_contents:
                     _kwargs: dict[str, Any] = {

@@ -13,23 +13,24 @@ Key differences from OpenAI Chat formatter:
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
-import shortuuid
-
 from agentscope.formatter import (
     OpenAIResponseFormatter,
     OpenAIResponseMultiAgentFormatter,
 )
 from agentscope.message import (
-    Msg,
+    UserMsg,
+    AssistantMsg,
+    SystemMsg,
     TextBlock,
     DataBlock,
     ToolCallBlock,
     ToolResultBlock,
+    ToolResultState,
     Base64Source,
     URLSource,
     ThinkingBlock,
+    HintBlock,
 )
-from agentscope.message._block import ToolResultState
 
 
 _FIXED_ID = "TESTID1234567"
@@ -53,21 +54,17 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         # Message fixtures (no audio to avoid downloads)
         # ---------------------------------------------------------------
         self.msgs_system = [
-            Msg(
+            SystemMsg(
                 name="system",
                 content="You're a helpful assistant.",
-                role="system",
             ),
         ]
 
         self.msgs_conversation = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
-                    TextBlock(
-                        type="text",
-                        text="What is the capital of France?",
-                    ),
+                    TextBlock(text="What is the capital of France?"),
                     DataBlock(
                         source=URLSource(
                             url=self.image_url,
@@ -75,32 +72,27 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                         ),
                     ),
                 ],
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of France is Paris.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Germany?",
-                role="user",
             ),
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content="The capital of Germany is Berlin.",
-                role="assistant",
             ),
-            Msg(
+            UserMsg(
                 name="user",
                 content="What is the capital of Japan?",
-                role="user",
             ),
         ]
 
         self.msgs_tools = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
@@ -108,30 +100,16 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                         name="get_capital",
                         input='{"country": "Japan"}',
                     ),
-                ],
-                role="assistant",
-            ),
-            Msg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_1",
                         name="get_capital",
                         output=[
-                            TextBlock(
-                                type="text",
-                                text="The capital of Japan is Tokyo.",
-                            ),
+                            TextBlock(text="The capital of Japan is Tokyo."),
                         ],
                         state=ToolResultState.SUCCESS,
                     ),
+                    TextBlock(text="The capital of Japan is Tokyo."),
                 ],
-                role="assistant",
-            ),
-            Msg(
-                name="assistant",
-                content="The capital of Japan is Tokyo.",
-                role="assistant",
             ),
         ]
 
@@ -241,29 +219,12 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             "user: What is the capital of Japan?"
         )
 
-        _gt_trailing_asst_nonfirst = {
-            "role": "user",
+        self._gt_trailing_asst = {
+            "role": "assistant",
             "content": [
                 {
                     "type": "input_text",
-                    "text": (
-                        "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
-                },
-            ],
-        }
-        self._gt_trailing_asst_first = {
-            "role": "user",
-            "content": [
-                {
-                    "type": "input_text",
-                    "text": (
-                        _hist_prompt + "<history>\n"
-                        "assistant: The capital of Japan is Tokyo.\n"
-                        "</history>"
-                    ),
+                    "text": "The capital of Japan is Tokyo.",
                 },
             ],
         }
@@ -303,7 +264,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             },
             self._gt_tool_call,
             self._gt_tool_result,
-            _gt_trailing_asst_nonfirst,
+            self._gt_trailing_asst,
         ]
 
     # -------------------------------------------------------------------
@@ -313,7 +274,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
     async def test_chat_formatter(self) -> None:
         """Chat formatter produces exact output for various subsets."""
         fmt = OpenAIResponseFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -326,15 +286,16 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         self.assertListEqual(self.gt_chat[1:], res)
 
         # Without conversation
+        n_tools_gt = len(self.gt_chat) - 1 - len(self.msgs_conversation)
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
-            [self.gt_chat[0]] + self.gt_chat[-len(self.msgs_tools) :],
+            [self.gt_chat[0]] + self.gt_chat[-n_tools_gt:],
             res,
         )
 
         # Without tools
         res = await fmt.format([*self.msgs_system, *self.msgs_conversation])
-        self.assertListEqual(self.gt_chat[: -len(self.msgs_tools)], res)
+        self.assertListEqual(self.gt_chat[:-n_tools_gt], res)
 
         # Empty
         res = await fmt.format([])
@@ -344,19 +305,17 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         """Base64-encoded image becomes an input_image item with data URI."""
         fmt = OpenAIResponseFormatter()
         msgs = [
-            Msg(
+            UserMsg(
                 name="user",
                 content=[
-                    TextBlock(type="text", text="What's in this image?"),
+                    TextBlock(text="What's in this image?"),
                     DataBlock(
                         source=Base64Source(
-                            type="base64",
                             data=self.image_b64,
                             media_type="image/png",
                         ),
                     ),
                 ],
-                role="user",
             ),
         ]
         res = await fmt.format(msgs)
@@ -385,21 +344,26 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         """ThinkingBlock without reasoning_item_id is silently skipped."""
         fmt = OpenAIResponseFormatter()
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
                 content=[
                     ThinkingBlock(thinking="inner thoughts"),
-                    TextBlock(type="text", text="reply"),
+                    TextBlock(text="reply"),
                 ],
-                role="assistant",
             ),
         ]
         res = await fmt.format(msgs)
-        self.assertEqual(len(res), 1)
-        self.assertEqual(res[0]["role"], "assistant")
-        parts = res[0]["content"]
-        self.assertEqual(len(parts), 1)
-        self.assertEqual(parts[0]["type"], "input_text")
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "input_text", "text": "reply"},
+                    ],
+                },
+            ],
+            res,
+        )
 
     async def test_chat_formatter_thinking_echoed_with_reasoning_item_id(
         self,
@@ -410,79 +374,129 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         thinking = ThinkingBlock(thinking="my reasoning")
         thinking.reasoning_item_id = "rs_001"
         msgs = [
-            Msg(
+            AssistantMsg(
                 name="assistant",
-                content=[thinking, TextBlock(type="text", text="reply")],
-                role="assistant",
+                content=[thinking, TextBlock(text="reply")],
             ),
         ]
         res = await fmt.format(msgs)
-        reasoning_items = [r for r in res if r.get("type") == "reasoning"]
-        self.assertEqual(len(reasoning_items), 1)
-        self.assertEqual(reasoning_items[0]["id"], "rs_001")
-        self.assertEqual(
-            reasoning_items[0]["summary"],
-            [{"type": "summary_text", "text": "my reasoning"}],
+        self.assertListEqual(
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_001",
+                    "summary": [
+                        {"type": "summary_text", "text": "my reasoning"},
+                    ],
+                    "content": [],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "input_text", "text": "reply"},
+                    ],
+                },
+            ],
+            res,
         )
 
-    async def test_chat_formatter_url_image_in_tool_result(self) -> None:
+    @patch(
+        "agentscope.formatter._formatter_base.shortuuid.uuid",
+        return_value=_FIXED_ID,
+    )
+    async def test_chat_formatter_url_image_in_tool_result(
+        self,
+        _mock_uuid: object,
+    ) -> None:
         """URL images in tool results are promoted to a follow-up user
         message."""
-        with patch.object(shortuuid, "uuid", return_value=_FIXED_ID):
-            fmt = OpenAIResponseFormatter()
-            msgs = [
-                Msg(
-                    name="assistant",
-                    content=[
-                        ToolCallBlock(
-                            id="call_img",
-                            name="get_map",
-                            input='{"city": "Tokyo"}',
-                        ),
-                    ],
-                    role="assistant",
-                ),
-                Msg(
-                    name="tool",
-                    content=[
-                        ToolResultBlock(
-                            id="call_img",
-                            name="get_map",
-                            output=[
-                                TextBlock(
-                                    type="text",
-                                    text="Here is the map.",
+        fmt = OpenAIResponseFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ToolCallBlock(
+                        id="call_img",
+                        name="get_map",
+                        input='{"city": "Tokyo"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_img",
+                        name="get_map",
+                        output=[
+                            TextBlock(text="Here is the map."),
+                            DataBlock(
+                                source=URLSource(
+                                    url=self.image_url,
+                                    media_type="image/png",
                                 ),
-                                DataBlock(
-                                    source=URLSource(
-                                        url=self.image_url,
-                                        media_type="image/png",
-                                    ),
-                                ),
-                            ],
-                            state=ToolResultState.SUCCESS,
-                        ),
-                    ],
-                    role="assistant",
-                ),
-            ]
-            res = await fmt.format(msgs)
-
-        self.assertEqual(len(res), 3)
-        # function_call
-        self.assertEqual(res[0]["type"], "function_call")
-        # function_call_output with reminder text
-        self.assertEqual(res[1]["type"], "function_call_output")
-        self.assertIn("Here is the map.", res[1]["output"])
-        # promoted user message with the image
-        self.assertEqual(res[2]["role"], "user")
-        image_parts = [
-            p
-            for p in res[2]["content"]
-            if p.get("type") == "input_image"
-            and p.get("image_url") == self.image_url
+                            ),
+                        ],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    TextBlock(text="Here is the map of Tokyo."),
+                ],
+            ),
         ]
-        self.assertEqual(len(image_parts), 1)
+        res = await fmt.format(msgs)
+
+        expected_tool_content = (
+            "Here is the map.\n"
+            f"<system-reminder>A(n) image file is returned "
+            f"and will be presented to you with the identifier "
+            f"[{_FIXED_ID}].</system-reminder>"
+        )
+        self.assertListEqual(
+            [
+                {
+                    "type": "function_call",
+                    "id": "call_img",
+                    "call_id": "call_img",
+                    "name": "get_map",
+                    "arguments": '{"city": "Tokyo"}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_img",
+                    "output": expected_tool_content,
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "<system-reminder>The multimodal data "
+                                "and their identifiers are listed as "
+                                "follows:"
+                            ),
+                        },
+                        {
+                            "type": "input_text",
+                            "text": f"- {_FIXED_ID} (image file): ",
+                        },
+                        {
+                            "type": "input_image",
+                            "image_url": self.image_url,
+                        },
+                        {
+                            "type": "input_text",
+                            "text": "</system-reminder>",
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Here is the map of Tokyo.",
+                        },
+                    ],
+                },
+            ],
+            res,
+        )
 
     # -------------------------------------------------------------------
     # OpenAIResponseMultiAgentFormatter tests
@@ -491,7 +505,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
     async def test_multiagent_formatter(self) -> None:
         """MultiAgent formatter produces exact output for various subsets."""
         fmt = OpenAIResponseMultiAgentFormatter()
-        self.maxDiff = None
 
         # Full history
         res = await fmt.format(
@@ -515,25 +528,25 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         res = await fmt.format(self.msgs_conversation)
         self.assertListEqual([self.gt_multiagent[1]], res)
 
-        # Tools only — is_first=True for trailing assistant
+        # Tools only
         res = await fmt.format(self.msgs_tools)
         self.assertListEqual(
             [
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
 
-        # System + tools — same is_first=True
+        # System + tools
         res = await fmt.format([*self.msgs_system, *self.msgs_tools])
         self.assertListEqual(
             [
                 self.gt_multiagent[0],
                 self._gt_tool_call,
                 self._gt_tool_result,
-                self._gt_trailing_asst_first,
+                self._gt_trailing_asst,
             ],
             res,
         )
@@ -541,3 +554,184 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         # Empty
         res = await fmt.format([])
         self.assertListEqual([], res)
+
+    async def test_chat_formatter_complex_multi_step(self) -> None:
+        """Complex multi-step sequence with interleaved thinking, text,
+        tool calls, and tool results."""
+        fmt = OpenAIResponseFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    ThinkingBlock(thinking="thinking_1"),
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolCallBlock(
+                        id="call_2",
+                        name="func_2",
+                        input='{"arg": "value2"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolResultBlock(
+                        id="call_2",
+                        name="func_2",
+                        output=[TextBlock(text="result_2")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_2"),
+                    TextBlock(text="text_2"),
+                    ToolCallBlock(
+                        id="call_3",
+                        name="func_3",
+                        input='{"arg": "value3"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_3",
+                        name="func_3",
+                        output=[TextBlock(text="result_3")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ToolCallBlock(
+                        id="call_4",
+                        name="func_4",
+                        input='{"arg": "value4"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_4",
+                        name="func_4",
+                        output=[TextBlock(text="result_4")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    ThinkingBlock(thinking="thinking_3"),
+                    TextBlock(text="text_3"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "input_text", "text": "text_1"},
+                    ],
+                },
+                {
+                    "type": "function_call",
+                    "id": "call_1",
+                    "call_id": "call_1",
+                    "name": "func_1",
+                    "arguments": '{"arg": "value1"}',
+                },
+                {
+                    "type": "function_call",
+                    "id": "call_2",
+                    "call_id": "call_2",
+                    "name": "func_2",
+                    "arguments": '{"arg": "value2"}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "result_1",
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_2",
+                    "output": "result_2",
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "input_text", "text": "text_2"},
+                    ],
+                },
+                {
+                    "type": "function_call",
+                    "id": "call_3",
+                    "call_id": "call_3",
+                    "name": "func_3",
+                    "arguments": '{"arg": "value3"}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_3",
+                    "output": "result_3",
+                },
+                {
+                    "type": "function_call",
+                    "id": "call_4",
+                    "call_id": "call_4",
+                    "name": "func_4",
+                    "arguments": '{"arg": "value4"}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_4",
+                    "output": "result_4",
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "input_text", "text": "text_3"},
+                    ],
+                },
+            ],
+            res,
+        )
+
+    async def test_chat_formatter_hint_block(self) -> None:
+        """HintBlock flushes preceding content and becomes a user message."""
+        fmt = OpenAIResponseFormatter()
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    TextBlock(text="Let me think about that."),
+                    HintBlock(hint="Remember to be concise."),
+                    TextBlock(text="Here is my answer."),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Let me think about that.",
+                        },
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Remember to be concise.",
+                        },
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": "Here is my answer.",
+                        },
+                    ],
+                },
+            ],
+            res,
+        )
