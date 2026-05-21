@@ -184,9 +184,10 @@ def _get_llm_request_attributes(
 
     Returns:
         `Dict[str, Any]`:
-            OpenTelemetry GenAI attributes with string values, including
-            operation name, provider name, model name, generation parameters,
-            and tool definitions.
+            OpenTelemetry GenAI attributes with mixed-type values (``str``,
+            ``int``, ``float``, or ``list``), including operation name,
+            provider name, model name, generation parameters (e.g.
+            temperature, max_tokens, stop_sequences), and tool definitions.
     """
 
     attributes = {
