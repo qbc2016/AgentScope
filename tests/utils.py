@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator, Type
 
 from pydantic import BaseModel
 
+from agentscope.credential import CredentialBase
 from agentscope.message import Msg
 from agentscope.model import ChatModelBase, ChatResponse, StructuredResponse
 
@@ -20,8 +21,20 @@ class AnyString:
         return "<AnyString>"
 
 
+class MockCredential(CredentialBase):
+    """The mock credential class."""
+
+    @classmethod
+    def get_chat_model_class(cls) -> Type["ChatModelBase"]:
+        """Return the mock model class."""
+        return MockModel
+
+
 class MockModel(ChatModelBase):
     """A mock model for testing."""
+
+    class Parameters(BaseModel):
+        """The parameters."""
 
     def __init__(
         self,
@@ -32,7 +45,9 @@ class MockModel(ChatModelBase):
     ) -> None:
         """Initialize the mock model."""
         super().__init__(
+            credential=MockCredential(),
             model=model,
+            parameters=MockModel.Parameters(),
             context_size=context_size,
         )
         self.mock_chat_responses = mock_chat_responses or []

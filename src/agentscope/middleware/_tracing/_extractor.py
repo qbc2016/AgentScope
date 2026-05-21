@@ -12,10 +12,14 @@ from ._attributes import (
 )
 from ._converter import _convert_block_to_part
 from ._utils import _serialize_to_str
+from ...model import ChatResponse, ChatModelBase
+from ...event import (
+    ExternalExecutionResultEvent,
+    UserConfirmResultEvent,
+)
 
 if TYPE_CHECKING:
     from ...agent import Agent
-    from ...model import ChatModelBase
     from ...tool import Toolkit, ToolChoice
 
 _CLASS_NAME_MAP = {
@@ -25,7 +29,8 @@ _CLASS_NAME_MAP = {
     "gemini": ProviderNameValues.GCP_GEMINI,
     "ollama": ProviderNameValues.OLLAMA,
     "deepseek": ProviderNameValues.DEEPSEEK,
-    "trinity": ProviderNameValues.OPENAI,
+    "xai": ProviderNameValues.XAI,
+    "moonshot": ProviderNameValues.MOONSHOT,
 }
 
 # Map base URL fragments to provider names for OpenAI-compatible APIs
@@ -37,19 +42,21 @@ _BASE_URL_PROVIDER_MAP = [
     ("generativelanguage.googleapis.com", ProviderNameValues.GCP_GEMINI),
     ("openai.azure.com", ProviderNameValues.AZURE_AI_OPENAI),
     ("amazonaws.com", ProviderNameValues.AWS_BEDROCK),
+    ("api.x.ai", ProviderNameValues.XAI),
 ]
 
 
-def _get_common_attributes() -> Dict[str, str]:
+def _get_common_attributes(session_id: str = "") -> Dict[str, str]:
     """Get common attributes for all spans.
+
+    Args:
+        session_id (`str`):
+            The session ID to set as conversation ID.
 
     Returns:
         `Dict[str, str]`:
-        Common span attributes including conversation ID
+            Common span attributes including conversation ID.
     """
-    from ._trace import _current_session_id
-
-    session_id = _current_session_id.get()
     return {
         SpanAttributes.GEN_AI_CONVERSATION_ID: (
             session_id if session_id else "[no_session_id]"
@@ -74,34 +81,25 @@ def _get_provider_name(instance: "ChatModelBase") -> str:
     """
     classname = instance.__class__.__name__
 
-    # Special handling for OpenAIChatModel - check base_url
-    if classname == "OpenAIChatModel":
-        # Try to get base_url from the client
-        base_url = None
-        if hasattr(instance, "client") and hasattr(
-            instance.client,
-            "base_url",
-        ):
-            base_url = str(instance.client.base_url)
-
-        # If base_url is None or empty, return default OpenAI
-        if not base_url:
-            return ProviderNameValues.OPENAI
-
-        # Check base_url fragments to identify provider
-        for url_fragment, provider_name in _BASE_URL_PROVIDER_MAP:
-            if url_fragment in base_url:
-                return provider_name
-
-        # If no match found, return openai as default
-        return ProviderNameValues.OPENAI
-
     # For other model types, use direct mapping
     prefix_key = (
         classname.removesuffix("ChatModel")
         .removesuffix("MultiAgentModel")
+        .removesuffix("ResponseModel")
         .lower()
     )
+
+    # Special handling for OpenAI-compatible models — inspect base_url
+    # from credential to distinguish the actual provider.
+    if prefix_key == "openai":
+        base_url = getattr(instance.credential, "base_url", None)
+        if base_url:
+            base_url = str(base_url)
+            for url_fragment, provider_name in _BASE_URL_PROVIDER_MAP:
+                if url_fragment in base_url:
+                    return provider_name
+        return ProviderNameValues.OPENAI
+
     return _CLASS_NAME_MAP.get(prefix_key, "unknown")
 
 
@@ -185,9 +183,10 @@ def _get_llm_request_attributes(
 
     Returns:
         `Dict[str, Any]`:
-            OpenTelemetry GenAI attributes with string values, including
-            operation name, provider name, model name, generation parameters,
-            and tool definitions.
+            OpenTelemetry GenAI attributes with mixed-type values (``str``,
+            ``int``, ``float``, or ``list``), including operation name,
+            provider name, model name, generation parameters (e.g.
+            temperature, max_tokens, stop_sequences), and tool definitions.
     """
 
     attributes = {
@@ -195,11 +194,7 @@ def _get_llm_request_attributes(
         SpanAttributes.GEN_AI_OPERATION_NAME: OperationNameValues.CHAT,
         SpanAttributes.GEN_AI_PROVIDER_NAME: _get_provider_name(instance),
         # conditionally required attributes
-        SpanAttributes.GEN_AI_REQUEST_MODEL: getattr(
-            instance,
-            "model",
-            "unknown_model",
-        ),
+        SpanAttributes.GEN_AI_REQUEST_MODEL: instance.model,
         # recommended attributes
         SpanAttributes.GEN_AI_REQUEST_TEMPERATURE: kwargs.get("temperature"),
         SpanAttributes.GEN_AI_REQUEST_TOP_P: kwargs.get("p")
@@ -249,7 +244,7 @@ def _get_llm_span_name(attributes: Dict[str, str]) -> str:
 
 
 def _get_llm_output_messages(
-    chat_response: Any,
+    chat_response: ChatResponse | None,
 ) -> list[dict[str, Any]]:
     """Extract and format LLM output messages for tracing.
 
@@ -257,7 +252,7 @@ def _get_llm_output_messages(
     with OpenTelemetry GenAI specification.
 
     Args:
-        chat_response (`Any`):
+        chat_response (` ChatResponse | None`):
             Chat response object with content blocks. Should be a ChatResponse
             instance containing content blocks (text, tool_use, etc.).
 
@@ -269,10 +264,19 @@ def _get_llm_output_messages(
             conversion fails.
     """
     try:
-        from agentscope.model import ChatResponse
-
         if not isinstance(chat_response, ChatResponse):
-            return chat_response
+            return [
+                {
+                    "role": "assistant",
+                    "parts": [
+                        {
+                            "type": "text",
+                            "content": str(chat_response),
+                        },
+                    ],
+                    "finish_reason": "unknown",
+                },
+            ]
 
         parts = []
         finish_reason = "stop"  # Default finish reason
@@ -306,14 +310,14 @@ def _get_llm_output_messages(
 
 
 def _get_llm_response_attributes(
-    chat_response: Any,
+    chat_response: ChatResponse | None,
 ) -> Dict[str, Any]:
     """Get LLM response attributes for OpenTelemetry tracing.
 
     Extracts response metadata and formats into GenAI attributes.
 
     Args:
-        chat_response (`Any`):
+        chat_response (`ChatResponse | None`):
             Chat response object with data and usage info. Should have
             attributes like id, usage (with input_tokens and output_tokens),
             and content blocks.
@@ -334,12 +338,25 @@ def _get_llm_response_attributes(
         SpanAttributes.GEN_AI_RESPONSE_FINISH_REASONS: '["stop"]',
     }
     if hasattr(chat_response, "usage") and chat_response.usage:
+        usage = chat_response.usage
         attributes[
             SpanAttributes.GEN_AI_USAGE_INPUT_TOKENS
-        ] = chat_response.usage.input_tokens
+        ] = usage.input_tokens
         attributes[
             SpanAttributes.GEN_AI_USAGE_OUTPUT_TOKENS
-        ] = chat_response.usage.output_tokens
+        ] = usage.output_tokens
+
+        cache_input = usage.cache_input_tokens
+        if cache_input:
+            attributes[
+                SpanAttributes.AGENTSCOPE_CACHE_INPUT_TOKENS
+            ] = cache_input
+
+        cache_creation = usage.cache_creation_input_tokens
+        if cache_creation:
+            attributes[
+                SpanAttributes.AGENTSCOPE_CACHE_CREATION_INPUT_TOKENS
+            ] = cache_creation
 
     output_messages = _get_llm_output_messages(chat_response)
     if output_messages:
@@ -435,42 +452,25 @@ def _get_agent_request_attributes(
         SpanAttributes.GEN_AI_OPERATION_NAME: (
             OperationNameValues.INVOKE_AGENT
         ),
-        SpanAttributes.GEN_AI_AGENT_ID: getattr(instance, "id", "unknown"),
-        SpanAttributes.GEN_AI_AGENT_NAME: getattr(
-            instance,
-            "name",
-            "unknown_agent",
-        ),
+        SpanAttributes.GEN_AI_AGENT_NAME: instance.name,
         SpanAttributes.GEN_AI_AGENT_DESCRIPTION: inspect.getdoc(
             instance.__class__,
         )
         or "No description available",
     }
 
-    msg = None
-    if "msgs" in kwargs:
-        msg = kwargs["msgs"]
-    elif "msg" in kwargs:
-        msg = kwargs["msg"]
-    if msg:
-        input_messages = _get_agent_messages(msg)
-        attributes[SpanAttributes.GEN_AI_INPUT_MESSAGES] = _serialize_to_str(
-            input_messages,
-        )
-
-    # Record the incoming continuation event type for HITL/external execution
-    event = kwargs.get("event")
-    if event is not None:
-        from ...event import (
-            ExternalExecutionResultEvent,
-            UserConfirmResultEvent,
-        )
-
-        if isinstance(event, UserConfirmResultEvent):
+    inputs = kwargs.get("inputs")
+    if inputs is not None:
+        if isinstance(inputs, (Msg, list)):
+            input_messages = _get_agent_messages(inputs)
+            attributes[
+                SpanAttributes.GEN_AI_INPUT_MESSAGES
+            ] = _serialize_to_str(input_messages)
+        elif isinstance(inputs, UserConfirmResultEvent):
             attributes[
                 SpanAttributes.AGENTSCOPE_INCOMING_EVENT_TYPE
             ] = "user_confirm_result"
-        elif isinstance(event, ExternalExecutionResultEvent):
+        elif isinstance(inputs, ExternalExecutionResultEvent):
             attributes[
                 SpanAttributes.AGENTSCOPE_INCOMING_EVENT_TYPE
             ] = "external_execution_result"
@@ -498,14 +498,13 @@ def _get_agent_span_name(attributes: Dict[str, str]) -> str:
 
 
 def _get_agent_response_attributes(
-    agent_response: Any,
+    agent_response: Msg,
 ) -> Dict[str, str]:
     """Get agent response attributes for OpenTelemetry tracing.
 
     Args:
-        agent_response (`Any`):
-            Response object returned by agent. Should be a Msg object with
-            content blocks.
+        agent_response (`Msg`):
+            Response message returned by agent, containing content blocks.
 
     Returns:
         `Dict[str, str]`:

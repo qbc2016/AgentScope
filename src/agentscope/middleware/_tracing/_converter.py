@@ -17,18 +17,14 @@ from ...message import (
 
 from ._utils import _serialize_to_str
 
-# Map MIME type prefix to OTel modality name
-_MEDIA_TYPE_TO_MODALITY: Dict[str, str] = {
-    "image": "image",
-    "audio": "audio",
-    "video": "video",
-}
+# Valid OTel GenAI modality values for multimodal content parts.
+_VALID_MODALITIES = frozenset({"image", "audio", "video"})
 
 
 def _get_modality(media_type: str) -> str:
     """Derive OTel modality from a MIME type string (e.g. 'image/png')."""
     prefix = media_type.split("/")[0] if media_type else ""
-    return _MEDIA_TYPE_TO_MODALITY.get(prefix, "unknown")
+    return prefix if prefix in _VALID_MODALITIES else "unknown"
 
 
 def _convert_media_block(

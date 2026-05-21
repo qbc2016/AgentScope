@@ -536,7 +536,7 @@ class TracingTest(IsolatedAsyncioTestCase):
                 ),
             ],
         )
-        await hitl_agent.reply(event=confirm_event)
+        await hitl_agent.reply(inputs=confirm_event)
 
         second_spans = self._spans_by_name("invoke_agent")
         second_reply_ids = {
@@ -597,7 +597,7 @@ class TracingTest(IsolatedAsyncioTestCase):
                 ),
             ],
         )
-        await hitl_agent.reply(event=confirm_event)
+        await hitl_agent.reply(inputs=confirm_event)
 
         agent_spans = self._spans_by_name("invoke_agent")
         self.assertEqual(
@@ -711,7 +711,7 @@ class TracingTest(IsolatedAsyncioTestCase):
                 ),
             ],
         )
-        await ext_agent.reply(event=ext_result)
+        await ext_agent.reply(inputs=ext_result)
 
         second_spans = self._spans_by_name("invoke_agent")
         second_reply_ids = {
@@ -773,7 +773,7 @@ class TracingTest(IsolatedAsyncioTestCase):
                 ),
             ],
         )
-        await ext_agent.reply(event=ext_result)
+        await ext_agent.reply(inputs=ext_result)
 
         tool_spans = self._spans_by_name("execute_tool")
         self.assertEqual(
@@ -831,7 +831,7 @@ class TracingTest(IsolatedAsyncioTestCase):
                 ),
             ],
         )
-        await ext_agent.reply(event=ext_result)
+        await ext_agent.reply(inputs=ext_result)
 
         agent_spans = self._spans_by_name("invoke_agent")
         self.assertEqual(

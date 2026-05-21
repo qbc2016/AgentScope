@@ -11,12 +11,20 @@ from typing import (
     TYPE_CHECKING,
 )
 
-from contextvars import ContextVar
-
 import aioitertools
 
+from opentelemetry import trace as otel_trace
+from opentelemetry.trace import StatusCode
+
 from .._base import MiddlewareBase
-from ...message import Msg
+from ...event import (
+    ExternalExecutionResultEvent,
+    RequireExternalExecutionEvent,
+    RequireUserConfirmEvent,
+    ReplyStartEvent,
+)
+from ...message import Msg, ToolCallBlock
+from ...model import ChatModelBase
 
 from ._attributes import SpanAttributes, OperationNameValues
 from ._extractor import (
@@ -36,18 +44,10 @@ from ._utils import _serialize_to_str
 
 if TYPE_CHECKING:
     from opentelemetry.trace import Span
-
     from ...agent import Agent
     from ...model import ChatResponse
 
 T = TypeVar("T")
-
-# Context variable to propagate the session ID from agent reply through
-# all inner tracing spans (LLM calls, tool calls, formatter calls, etc.)
-_current_session_id: ContextVar[str] = ContextVar(
-    "_current_session_id",
-    default="",
-)
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +62,6 @@ def _check_tracing_enabled() -> bool:
     package is not installed.
     """
     try:
-        from opentelemetry import trace as otel_trace
         from opentelemetry.sdk.trace import TracerProvider
     except ImportError:
         return False
@@ -72,17 +71,13 @@ def _check_tracing_enabled() -> bool:
 
 def _set_span_success_status(span: "Span") -> None:
     """Set the span status to OK and end it."""
-    from opentelemetry import trace as trace_api
-
-    span.set_status(trace_api.StatusCode.OK)
+    span.set_status(StatusCode.OK)
     span.end()
 
 
 def _set_span_error_status(span: "Span", e: BaseException) -> None:
     """Set the span status to ERROR, record the exception and end it."""
-    from opentelemetry import trace as trace_api
-
-    span.set_status(trace_api.StatusCode.ERROR, str(e))
+    span.set_status(StatusCode.ERROR, str(e))
     span.record_exception(e)
     span.end()
 
@@ -108,23 +103,7 @@ async def _trace_async_generator_wrapper(
 
     finally:
         if not has_error:
-            if (
-                getattr(span, "attributes", {}).get(
-                    SpanAttributes.GEN_AI_OPERATION_NAME,
-                )
-                == OperationNameValues.CHAT
-            ):
-                response_attributes = _get_llm_response_attributes(last_chunk)
-            elif (
-                getattr(span, "attributes", {}).get(
-                    SpanAttributes.GEN_AI_OPERATION_NAME,
-                )
-                == OperationNameValues.EXECUTE_TOOL
-            ):
-                response_attributes = _get_tool_response_attributes(last_chunk)
-            else:
-                response_attributes = {}
-
+            response_attributes = _get_llm_response_attributes(last_chunk)
             span.set_attributes(response_attributes)
             _set_span_success_status(span)
 
@@ -165,122 +144,101 @@ class TracingMiddleware(MiddlewareBase):
                 yield item
             return
 
-        session_id = getattr(
-            getattr(agent, "state", None),
-            "session_id",
-            "",
+        session_id = agent.state.session_id
+        common_attrs = _get_common_attributes(session_id)
+
+        tracer = _get_tracer()
+        request_attributes = _get_agent_request_attributes(
+            agent,
+            input_kwargs,
         )
-        token = _current_session_id.set(session_id or "")
+        span_name = _get_agent_span_name(request_attributes)
 
-        try:
-            tracer = _get_tracer()
-            request_attributes = _get_agent_request_attributes(
-                agent,
-                input_kwargs,
-            )
-            span_name = _get_agent_span_name(request_attributes)
+        with tracer.start_as_current_span(
+            name=span_name,
+            attributes={
+                **request_attributes,
+                **common_attrs,
+            },
+            end_on_exit=False,
+        ) as span:
+            # Synthetic execute_tool spans for externally executed tools
+            event_arg = input_kwargs.get("inputs")
+            if isinstance(event_arg, ExternalExecutionResultEvent):
+                for result in event_arg.execution_results:
+                    tool_attrs: dict[str, Any] = {
+                        SpanAttributes.GEN_AI_OPERATION_NAME: (
+                            OperationNameValues.EXECUTE_TOOL
+                        ),
+                        SpanAttributes.GEN_AI_TOOL_CALL_ID: result.id,
+                        SpanAttributes.GEN_AI_TOOL_NAME: result.name,
+                        SpanAttributes.AGENTSCOPE_IS_EXTERNAL_EXECUTION: (
+                            True
+                        ),
+                        **common_attrs,
+                    }
+                    if result.output is not None:
+                        tool_attrs[
+                            SpanAttributes.GEN_AI_TOOL_CALL_RESULT
+                        ] = _serialize_to_str(result.output)
+                    with tracer.start_as_current_span(
+                        name=(
+                            f"{OperationNameValues.EXECUTE_TOOL}"
+                            f" {result.name}"
+                        ),
+                        attributes=tool_attrs,
+                    ):
+                        pass
 
-            with tracer.start_as_current_span(
-                name=span_name,
-                attributes={
-                    **request_attributes,
-                    **_get_common_attributes(),
-                },
-                end_on_exit=False,
-            ) as span:
-                from ...event import (
-                    ExternalExecutionResultEvent,
-                    RequireExternalExecutionEvent as _RequireExtExec,
-                    RequireUserConfirmEvent as _RequireUserConfirm,
-                    ReplyStartEvent as _ReplyStart,
-                )
+            has_error = False
+            error_exc: BaseException | None = None
+            last_msg: Msg | None = None
+            hitl_pending: list[str] = []
+            external_pending: list[str] = []
+            observed_reply_id: str | None = None
 
-                # Synthetic execute_tool spans for externally executed tools
-                event_arg = input_kwargs.get("event")
-                if isinstance(event_arg, ExternalExecutionResultEvent):
-                    common_attrs = _get_common_attributes()
-                    for result in event_arg.execution_results:
-                        tool_attrs: dict[str, Any] = {
-                            SpanAttributes.GEN_AI_OPERATION_NAME: (
-                                OperationNameValues.EXECUTE_TOOL
-                            ),
-                            SpanAttributes.GEN_AI_TOOL_CALL_ID: result.id,
-                            SpanAttributes.GEN_AI_TOOL_NAME: result.name,
-                            SpanAttributes.AGENTSCOPE_IS_EXTERNAL_EXECUTION: (
-                                True
-                            ),
-                            **common_attrs,
-                        }
-                        if result.output is not None:
-                            tool_attrs[
-                                SpanAttributes.GEN_AI_TOOL_CALL_RESULT
-                            ] = _serialize_to_str(result.output)
-                        with tracer.start_as_current_span(
-                            name=(
-                                f"{OperationNameValues.EXECUTE_TOOL}"
-                                f" {result.name}"
-                            ),
-                            attributes=tool_attrs,
-                        ):
-                            pass
-
-                has_error = False
-                error_exc: BaseException | None = None
-                last_msg: Msg | None = None
-                hitl_pending: list[str] = []
-                external_pending: list[str] = []
-                observed_reply_id: str | None = None
-
-                try:
-                    async for item in next_handler(**input_kwargs):
-                        if isinstance(item, _ReplyStart):
-                            observed_reply_id = item.reply_id
-                        elif isinstance(item, _RequireUserConfirm):
-                            hitl_pending.extend(
-                                t.name for t in item.tool_calls
-                            )
-                        elif isinstance(item, _RequireExtExec):
-                            external_pending.extend(
-                                t.name for t in item.tool_calls
-                            )
-                        if isinstance(item, Msg):
-                            last_msg = item
-                        yield item
-                except BaseException as e:
-                    has_error = True
-                    error_exc = e
-                    raise
-                finally:
-                    reply_id = observed_reply_id or getattr(
-                        getattr(agent, "state", None),
-                        "reply_id",
-                        None,
+            try:
+                async for item in next_handler(**input_kwargs):
+                    if isinstance(item, ReplyStartEvent):
+                        observed_reply_id = item.reply_id
+                    elif isinstance(item, RequireUserConfirmEvent):
+                        hitl_pending.extend(t.name for t in item.tool_calls)
+                    elif isinstance(item, RequireExternalExecutionEvent):
+                        external_pending.extend(
+                            t.name for t in item.tool_calls
+                        )
+                    if isinstance(item, Msg):
+                        last_msg = item
+                    yield item
+            except BaseException as e:
+                has_error = True
+                error_exc = e
+                raise
+            finally:
+                reply_id = observed_reply_id or agent.state.reply_id
+                if reply_id:
+                    span.set_attribute(
+                        SpanAttributes.AGENTSCOPE_REPLY_ID,
+                        reply_id,
                     )
-                    if reply_id:
-                        span.set_attribute(
-                            SpanAttributes.AGENTSCOPE_REPLY_ID,
-                            reply_id,
+                if hitl_pending:
+                    span.set_attribute(
+                        SpanAttributes.AGENTSCOPE_HITL_PENDING_TOOLS,
+                        json.dumps(hitl_pending, ensure_ascii=False),
+                    )
+                if external_pending:
+                    span.set_attribute(
+                        SpanAttributes.AGENTSCOPE_EXTERNAL_EXECUTION_PENDING_TOOLS,  # noqa
+                        json.dumps(external_pending, ensure_ascii=False),
+                    )
+                if has_error and error_exc is not None:
+                    _set_span_error_status(span, error_exc)
+                else:
+                    if last_msg is not None:
+                        span.set_attributes(
+                            _get_agent_response_attributes(last_msg),
                         )
-                    if hitl_pending:
-                        span.set_attribute(
-                            SpanAttributes.AGENTSCOPE_HITL_PENDING_TOOLS,
-                            json.dumps(hitl_pending),
-                        )
-                    if external_pending:
-                        span.set_attribute(
-                            SpanAttributes.AGENTSCOPE_EXTERNAL_EXECUTION_PENDING_TOOLS,  # noqa
-                            json.dumps(external_pending),
-                        )
-                    if has_error and error_exc is not None:
-                        _set_span_error_status(span, error_exc)
-                    else:
-                        if last_msg is not None:
-                            span.set_attributes(
-                                _get_agent_response_attributes(last_msg),
-                            )
-                        _set_span_success_status(span)
-        finally:
-            _current_session_id.reset(token)
+                    _set_span_success_status(span)
 
     # ------------------------------------------------------------------
     # on_model_call
@@ -297,15 +255,11 @@ class TracingMiddleware(MiddlewareBase):
         if not _check_tracing_enabled():
             return await next_handler(**input_kwargs)
 
-        from ...model import ChatModelBase
-
-        tracer = _get_tracer()
         model = input_kwargs.get("current_model")
         if not isinstance(model, ChatModelBase):
-            raise TypeError(
-                f"Expected 'current_model' to be ChatModelBase, "
-                f"got {type(model).__name__}",
-            )
+            return await next_handler(**input_kwargs)
+
+        tracer = _get_tracer()
 
         combined_kwargs = {
             **getattr(model, "generate_kwargs", {}),
@@ -321,7 +275,7 @@ class TracingMiddleware(MiddlewareBase):
             name=span_name,
             attributes={
                 **request_attributes,
-                **_get_common_attributes(),
+                **_get_common_attributes(agent.state.session_id),
             },
             end_on_exit=False,
         ) as span:
@@ -353,15 +307,13 @@ class TracingMiddleware(MiddlewareBase):
                 yield item
             return
 
-        from ...message import ToolCallBlock
-
-        tracer = _get_tracer()
         tool_call = input_kwargs.get("tool_call")
         if not isinstance(tool_call, ToolCallBlock):
-            raise TypeError(
-                f"Expected 'tool_call' to be ToolCallBlock, "
-                f"got {type(tool_call).__name__}",
-            )
+            async for item in next_handler(**input_kwargs):
+                yield item
+            return
+
+        tracer = _get_tracer()
 
         request_attributes = _get_tool_request_attributes(
             agent.toolkit,
@@ -373,7 +325,7 @@ class TracingMiddleware(MiddlewareBase):
             name=span_name,
             attributes={
                 **request_attributes,
-                **_get_common_attributes(),
+                **_get_common_attributes(agent.state.session_id),
             },
             end_on_exit=False,
         ) as span:

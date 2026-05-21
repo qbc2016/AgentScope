@@ -109,13 +109,13 @@ class OpenAIResponseModel(ChatModelBase):
                 ``OpenAIResponseFormatter`` instance will be used.
         """
         super().__init__(
+            credential=credential,
             model=model,
+            parameters=parameters or self.Parameters(),
             stream=stream,
             max_retries=max_retries,
             context_size=context_size,
         )
-        self.credential = credential
-        self.parameters = parameters or self.Parameters()
         self.formatter = formatter or OpenAIResponseFormatter()
 
     async def _call_api(
@@ -268,6 +268,15 @@ class OpenAIResponseModel(ChatModelBase):
                 item_id = event.item_id
                 if item_id in tool_calls:
                     tool_calls[item_id]["input"] += event.delta
+                    tc = tool_calls[item_id]
+                    delta_contents.append(
+                        ToolCallBlock(
+                            id=tc["id"],
+                            call_id=tc.get("call_id"),
+                            name=tc["name"],
+                            input=event.delta,
+                        ),
+                    )
 
             elif event_type == "response.completed":
                 resp = event.response

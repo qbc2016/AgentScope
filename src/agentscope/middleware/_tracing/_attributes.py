@@ -104,6 +104,14 @@ class SpanAttributes:
     GEN_AI_TOOL_DEFINITIONS = GenAIAttributes.GEN_AI_TOOL_DEFINITIONS
     """The gen ai tool definitions."""
 
+    AGENTSCOPE_CACHE_INPUT_TOKENS = "agentscope.usage.cache_input_tokens"
+    """The number of input tokens read from prompt cache."""
+
+    AGENTSCOPE_CACHE_CREATION_INPUT_TOKENS = (
+        "agentscope.usage.cache_creation_input_tokens"
+    )
+    """The number of input tokens used to create prompt cache."""
+
     AGENTSCOPE_REPLY_ID = "agentscope.agent.reply_id"
     """The reply ID of the current agent reply.
 
@@ -188,3 +196,6 @@ class ProviderNameValues:
 
     AWS_BEDROCK = GenAIAttributes.GenAiProviderNameValues.AWS_BEDROCK.value
     """The aws bedrock provider name."""
+
+    XAI = GenAIAttributes.GenAiProviderNameValues.X_AI.value
+    """The xAI (Grok) provider name."""

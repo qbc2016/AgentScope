@@ -14,6 +14,7 @@ from ._model_response import StructuredResponse, ChatResponse
 from ._model_card import ModelCard
 from .._logging import logger
 from .._utils._common import _json_loads_with_repair
+from ..credential import CredentialBase
 from ..message import (
     Msg,
     TextBlock,
@@ -37,6 +38,9 @@ class ChatModelBase:
         """Each subclass should implement this inner class to define its
         parameters."""
 
+    credential: CredentialBase
+    """The API credential."""
+
     model: str
     """The model name."""
 
@@ -51,7 +55,9 @@ class ChatModelBase:
 
     def __init__(
         self,
+        credential: CredentialBase,
         model: str,
+        parameters: BaseModel,
         stream: bool = True,
         max_retries: int = 3,
         context_size: int = 32768,
@@ -59,8 +65,12 @@ class ChatModelBase:
         """Initialize the chat model base.
 
         Args:
+            credential (CredentialBase):
+                The API credential.
             model (`str`):
                 The model name.
+            parameters (`BaseModel`):
+                The model parameters.
             stream (`bool`, defaults to `True`):
                 Whether to enable streaming output for the LLM.
             max_retries (`int`, defaults to `3`):
@@ -68,7 +78,9 @@ class ChatModelBase:
             context_size (`int`, defaults to `32768`):
                 The model context size used for context compression.
         """
+        self.credential = credential
         self.model = model
+        self.parameters = parameters
         self.stream = stream
         self.max_retries = max_retries
         self.context_size = context_size
