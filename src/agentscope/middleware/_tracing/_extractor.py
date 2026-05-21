@@ -12,7 +12,7 @@ from ._attributes import (
 )
 from ._converter import _convert_block_to_part
 from ._utils import _serialize_to_str
-from ...model import ChatResponse
+from ...model import ChatResponse, ChatModelBase
 from ...event import (
     ExternalExecutionResultEvent,
     UserConfirmResultEvent,
@@ -20,7 +20,6 @@ from ...event import (
 
 if TYPE_CHECKING:
     from ...agent import Agent
-    from ...model import ChatModelBase
     from ...tool import Toolkit, ToolChoice
 
 _CLASS_NAME_MAP = {
