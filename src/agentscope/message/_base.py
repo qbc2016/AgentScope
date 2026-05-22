@@ -210,7 +210,10 @@ class Msg(BaseModel):
     def append_event(self, event: AgentEvent) -> Self:
         """Update the message by applying a streaming event.
 
-        Only ``self.content`` and ``self.finished_at`` are ever modified.
+        Mutates ``self.content``, ``self.finished_at``, and ``self.usage``:
+        content blocks are appended/updated by block-level events,
+        ``finished_at`` is stamped by ``REPLY_END``, and ``usage`` is
+        initialized then accumulated across each ``MODEL_CALL_END``.
         Events whose ``reply_id`` does not match ``self.id`` are skipped with
         a warning. Block-level delta/end events whose target block cannot be
         found are also skipped with a warning.
