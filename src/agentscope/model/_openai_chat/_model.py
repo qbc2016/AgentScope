@@ -46,9 +46,22 @@ class OpenAIChatModel(ChatModelBase):
             default=False,
             title="Thinking",
             description=(
-                "Whether to enable reasoning output. Note: for the OpenAI "
-                "Chat Completions API, reasoning is controlled by model "
-                "selection (e.g. o3, o4-mini) rather than an API parameter."
+                "Whether to enable reasoning for reasoning models "
+                "(e.g. o3, o4-mini, gpt-5.5). Use reasoning_effort to "
+                "control the depth of reasoning."
+            ),
+        )
+
+        reasoning_effort: (
+            Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
+        ) = Field(
+            default=None,
+            title="Reasoning Effort",
+            description=(
+                "Controls the depth of reasoning for reasoning models "
+                "(e.g. o3, o4-mini, gpt-5.5). Supported values are "
+                "model-dependent and may include: none, minimal, low, "
+                "medium, high, xhigh."
             ),
         )
 
@@ -171,6 +184,12 @@ class OpenAIChatModel(ChatModelBase):
 
         if self.parameters.top_p is not None:
             kwargs["top_p"] = self.parameters.top_p
+
+        if (
+            self.parameters.thinking_enable
+            and self.parameters.reasoning_effort
+        ):
+            kwargs["reasoning_effort"] = self.parameters.reasoning_effort
 
         kwargs.update(generate_kwargs)
 

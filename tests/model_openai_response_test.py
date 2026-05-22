@@ -210,6 +210,34 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
         )
 
 
+class TestOpenAIResponseModelParameters(unittest.TestCase):
+    """Tests for OpenAIResponseModel.Parameters."""
+
+    def test_thinking_enable_stored_on_model(self) -> None:
+        """thinking_enable is accessible through model.parameters."""
+        model = OpenAIResponseModel(
+            credential=OpenAICredential(api_key="test"),
+            model="o4-mini",
+            stream=False,
+            context_size=200_000,
+            parameters=OpenAIResponseModel.Parameters(thinking_enable=True),
+        )
+        self.assertTrue(model.parameters.thinking_enable)
+
+    def test_reasoning_effort_stored_on_model(self) -> None:
+        """reasoning_effort is accessible through model.parameters."""
+        model = OpenAIResponseModel(
+            credential=OpenAICredential(api_key="test"),
+            model="o4-mini",
+            stream=False,
+            context_size=200_000,
+            parameters=OpenAIResponseModel.Parameters(
+                reasoning_effort="high",
+            ),
+        )
+        self.assertEqual(model.parameters.reasoning_effort, "high")
+
+
 # ---------------------------------------------------------------------------
 # Streaming tests
 # ---------------------------------------------------------------------------

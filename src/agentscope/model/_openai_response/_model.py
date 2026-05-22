@@ -45,12 +45,26 @@ class OpenAIResponseModel(ChatModelBase):
             gt=0,
         )
 
-        reasoning_effort: Literal["low", "medium", "high"] | None = Field(
+        thinking_enable: bool = Field(
+            default=False,
+            title="Thinking",
+            description=(
+                "Whether to enable reasoning for reasoning models "
+                "(e.g. o3, o4-mini, gpt-5.5). Use reasoning_effort to "
+                "control the depth of reasoning."
+            ),
+        )
+
+        reasoning_effort: (
+            Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
+        ) = Field(
             default=None,
             title="Reasoning Effort",
             description=(
-                "The reasoning effort level for reasoning models "
-                "(e.g. o3, o4-mini)."
+                "Controls the depth of reasoning for reasoning models "
+                "(e.g. o3, o4-mini, gpt-5.5). Supported values are "
+                "model-dependent and may include: none, minimal, low, "
+                "medium, high, xhigh."
             ),
         )
 
@@ -157,7 +171,10 @@ class OpenAIResponseModel(ChatModelBase):
         if self.parameters.temperature is not None:
             api_kwargs["temperature"] = self.parameters.temperature
 
-        if self.parameters.reasoning_effort is not None:
+        if (
+            self.parameters.thinking_enable
+            and self.parameters.reasoning_effort
+        ):
             api_kwargs["reasoning"] = {
                 "effort": self.parameters.reasoning_effort,
             }
