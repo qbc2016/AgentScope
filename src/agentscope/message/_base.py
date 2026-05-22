@@ -53,6 +53,15 @@ def _to_blocks(content: str | list) -> list:
     return content
 
 
+class Usage(BaseModel):
+    """The token usage information of a message."""
+
+    input_tokens: int
+    """The number of input tokens."""
+    output_tokens: int
+    """The number of output tokens."""
+
+
 class Msg(BaseModel):
     """The message class in AgentScope, responsible for information storage
     and transmission among different agents."""
@@ -71,6 +80,8 @@ class Msg(BaseModel):
     """The creation time of the message"""
     finished_at: str | None = Field(default=None)
     """The finished time of the message"""
+    usage: Usage | None = Field(default=None)
+    """The token usage information of the message"""
 
     @model_validator(mode="after")
     def validate_role_content(self) -> Self:
@@ -223,6 +234,16 @@ class Msg(BaseModel):
         match event.type:
             case EventType.REPLY_END:
                 self.finished_at = event.created_at
+
+            case EventType.MODEL_CALL_END:
+                if self.usage is None:
+                    self.usage = Usage(
+                        input_tokens=event.input_tokens,
+                        output_tokens=event.output_tokens,
+                    )
+                else:
+                    self.usage.input_tokens += event.input_tokens
+                    self.usage.output_tokens += event.output_tokens
 
             case EventType.TEXT_BLOCK_START:
                 self.content.append(TextBlock(id=event.block_id, text=""))
