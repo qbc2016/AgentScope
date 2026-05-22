@@ -738,18 +738,21 @@ class Agent:
         if not any(
             isinstance(_, ToolCallBlock) for _ in completed_response.content
         ):
-            final_msg = AssistantMsg(
-                id=self.state.reply_id,
-                name=self.name,
-                content=list(completed_response.content),
-            )
             last_ctx = self._get_last_msg()
-            if last_ctx is not None and last_ctx.usage is not None:
-                final_msg.usage = Usage(
+            final_usage = (
+                Usage(
                     input_tokens=last_ctx.usage.input_tokens,
                     output_tokens=last_ctx.usage.output_tokens,
                 )
-            yield final_msg
+                if last_ctx is not None and last_ctx.usage is not None
+                else None
+            )
+            yield AssistantMsg(
+                id=self.state.reply_id,
+                name=self.name,
+                content=list(completed_response.content),
+                usage=final_usage,
+            )
 
     async def _check_incoming_event(
         self,
@@ -1992,7 +1995,7 @@ class Agent:
             | ToolResultBlock
             | DataBlock
         ],
-        _usage: ChatUsage | None = None,
+        usage: ChatUsage | None = None,
     ) -> None:
         """Save content blocks into the context.
 
@@ -2002,10 +2005,10 @@ class Agent:
         """
         msg_usage = (
             Usage(
-                input_tokens=_usage.input_tokens,
-                output_tokens=_usage.output_tokens,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
             )
-            if _usage is not None
+            if usage is not None
             else None
         )
 
@@ -2015,9 +2018,9 @@ class Agent:
                     id=self.state.reply_id,
                     name=self.name,
                     content=list(blocks),
+                    usage=msg_usage,
                 ),
             )
-            self.state.context[-1].usage = msg_usage
         else:
             last_msg = self.state.context[-1]
             if last_msg.role == "assistant" and last_msg.name == self.name:
@@ -2036,9 +2039,9 @@ class Agent:
                         id=self.state.reply_id,
                         name=self.name,
                         content=list(blocks),
+                        usage=msg_usage,
                     ),
                 )
-                self.state.context[-1].usage = msg_usage
 
     def _get_last_msg(self) -> Msg | None:
         """Get the last message in the context that belongs to this agent."""

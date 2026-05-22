@@ -483,6 +483,7 @@ def AssistantMsg(
     created_at: str | None = None,
     finished_at: str | None = None,
     id: str | None = None,  # pylint: disable=redefined-builtin
+    usage: "Usage | None" = None,
 ) -> Msg:
     """Create an assistant message with role ``"assistant"``.
 
@@ -505,6 +506,8 @@ def AssistantMsg(
         id (`str | None`, optional):
             A unique identifier for the message. A random UUID hex string is
             generated when not provided.
+        usage (`Usage | None`, optional):
+            The token usage information of the message.
 
     Returns:
         `Msg`:
@@ -518,6 +521,7 @@ def AssistantMsg(
         created_at=created_at or datetime.now().isoformat(),
         finished_at=finished_at,
         id=id or uuid.uuid4().hex,
+        usage=usage,
     )
 
 
