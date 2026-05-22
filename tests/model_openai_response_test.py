@@ -539,14 +539,22 @@ class TestOpenAIResponseFormatTools(unittest.TestCase):
         )
 
     def test_tools_filtered(self) -> None:
-        """ToolChoice with tools list filters to matching function names."""
+        """ToolChoice with tools list keeps the full tools schema and
+        narrows the callable subset via ``allowed_tools`` to preserve
+        prompt cache hits."""
         fmt_tools, fmt_choice = self.model._format_tools(
             _FT_TOOLS,
             ToolChoice(mode="auto", tools=["get_weather"]),
         )
-        self.assertEqual(len(fmt_tools), 1)
-        self.assertEqual(fmt_tools[0]["name"], "get_weather")
-        self.assertEqual(fmt_choice, "auto")
+        self.assertListEqual(fmt_tools, _FT_TOOLS_RESPONSE)
+        self.assertEqual(
+            fmt_choice,
+            {
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": [{"type": "function", "name": "get_weather"}],
+            },
+        )
 
     def test_no_tool_choice(self) -> None:
         """Tools are converted when tool_choice is None."""
