@@ -127,10 +127,17 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             Msg("assistant", "The capital of Japan is Tokyo.", "assistant"),
         ]
 
+        tool_result_text = (
+            "- The capital of Japan is Tokyo.\n"
+            "- The returned image can be found at: "
+            f"{self.image_path}\n"
+            "- The returned audio can be found at: "
+            f"{self.mock_audio_path}"
+        )
+
         self.ground_truth_chat = [
             {
                 "role": "system",
-                "name": "system",
                 "content": [
                     {
                         "type": "input_text",
@@ -140,7 +147,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             },
             {
                 "role": "user",
-                "name": "user",
                 "content": [
                     {
                         "type": "input_text",
@@ -155,17 +161,15 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             },
             {
                 "role": "assistant",
-                "name": "assistant",
                 "content": [
                     {
-                        "type": "input_text",
+                        "type": "output_text",
                         "text": "The capital of France is Paris.",
                     },
                 ],
             },
             {
                 "role": "user",
-                "name": "user",
                 "content": [
                     {
                         "type": "input_text",
@@ -182,17 +186,15 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             },
             {
                 "role": "assistant",
-                "name": "assistant",
                 "content": [
                     {
-                        "type": "input_text",
+                        "type": "output_text",
                         "text": "The capital of Germany is Berlin.",
                     },
                 ],
             },
             {
                 "role": "user",
-                "name": "user",
                 "content": [
                     {
                         "type": "input_text",
@@ -201,36 +203,21 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 ],
             },
             {
-                "role": "assistant",
-                "name": "assistant",
-                "content": [],
-                "tool_calls": [
-                    {
-                        "id": "1",
-                        "type": "function",
-                        "function": {
-                            "name": "get_capital",
-                            "arguments": '{"country": "Japan"}',
-                        },
-                    },
-                ],
-            },
-            {
-                "role": "assistant",
-                "tool_call_id": "1",
-                "content": "- The capital of Japan is Tokyo.\n"
-                "- The returned image can be found at: "
-                f"{self.image_path}\n"
-                "- The returned audio can be found at: "
-                f"{self.mock_audio_path}",
+                "type": "function_call",
+                "call_id": "1",
                 "name": "get_capital",
+                "arguments": '{"country": "Japan"}',
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "1",
+                "output": tool_result_text,
             },
             {
                 "role": "assistant",
-                "name": "assistant",
                 "content": [
                     {
-                        "type": "input_text",
+                        "type": "output_text",
                         "text": "The capital of Japan is Tokyo.",
                     },
                 ],
@@ -278,29 +265,15 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 ],
             },
             {
-                "role": "assistant",
-                "name": "assistant",
-                "content": [],
-                "tool_calls": [
-                    {
-                        "id": "1",
-                        "type": "function",
-                        "function": {
-                            "name": "get_capital",
-                            "arguments": '{"country": "Japan"}',
-                        },
-                    },
-                ],
+                "type": "function_call",
+                "call_id": "1",
+                "name": "get_capital",
+                "arguments": '{"country": "Japan"}',
             },
             {
-                "role": "assistant",
-                "tool_call_id": "1",
-                "content": "- The capital of Japan is Tokyo.\n"
-                "- The returned image can be found at: "
-                f"{self.image_path}\n"
-                "- The returned audio can be found at: "
-                f"{self.mock_audio_path}",
-                "name": "get_capital",
+                "type": "function_call_output",
+                "call_id": "1",
+                "output": tool_result_text,
             },
             {
                 "role": "user",
@@ -344,10 +317,12 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             [*self.msgs_system, *self.msgs_conversation, *self.msgs_tools],
         )
 
-        # Verify tool result format
-        tool_results = [m for m in res if m.get("tool_call_id") is not None]
+        # Verify tool result format (Responses API: function_call_output item)
+        tool_results = [
+            m for m in res if m.get("type") == "function_call_output"
+        ]
         self.assertEqual(len(tool_results), 1)
-        self.assertEqual(tool_results[0]["tool_call_id"], "1")
+        self.assertEqual(tool_results[0]["call_id"], "1")
 
         # Verify promoted image block is inserted as a separate user message
         promoted_msgs = [
