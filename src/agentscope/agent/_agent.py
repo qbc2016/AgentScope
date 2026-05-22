@@ -70,6 +70,7 @@ from ..message import (
     URLSource,
     ToolCallState,
     ToolResultState,
+    Usage,
 )
 from ..tool import (
     Toolkit,
@@ -737,11 +738,18 @@ class Agent:
         if not any(
             isinstance(_, ToolCallBlock) for _ in completed_response.content
         ):
-            yield AssistantMsg(
+            final_msg = AssistantMsg(
                 id=self.state.reply_id,
                 name=self.name,
                 content=list(completed_response.content),
             )
+            last_ctx = self._get_last_msg()
+            if last_ctx is not None and last_ctx.usage is not None:
+                final_msg.usage = Usage(
+                    input_tokens=last_ctx.usage.input_tokens,
+                    output_tokens=last_ctx.usage.output_tokens,
+                )
+            yield final_msg
 
     async def _check_incoming_event(
         self,
@@ -1992,6 +2000,15 @@ class Agent:
         its id so that one reply corresponds to one message and the message
         id matches the ``reply_id`` carried by streaming events.
         """
+        msg_usage = (
+            Usage(
+                input_tokens=_usage.input_tokens,
+                output_tokens=_usage.output_tokens,
+            )
+            if _usage is not None
+            else None
+        )
+
         if len(self.state.context) == 0:
             self.state.context.append(
                 AssistantMsg(
@@ -2000,13 +2017,19 @@ class Agent:
                     content=list(blocks),
                 ),
             )
+            self.state.context[-1].usage = msg_usage
         else:
             last_msg = self.state.context[-1]
             if last_msg.role == "assistant" and last_msg.name == self.name:
                 if isinstance(last_msg.content, str):
                     last_msg.content = [TextBlock(text=last_msg.content)]
                 last_msg.content.extend(blocks)
-                # TODO: Merge usage if needed
+                if msg_usage is not None:
+                    if last_msg.usage is None:
+                        last_msg.usage = msg_usage
+                    else:
+                        last_msg.usage.input_tokens += msg_usage.input_tokens
+                        last_msg.usage.output_tokens += msg_usage.output_tokens
             else:
                 self.state.context.append(
                     AssistantMsg(
@@ -2015,6 +2038,7 @@ class Agent:
                         content=list(blocks),
                     ),
                 )
+                self.state.context[-1].usage = msg_usage
 
     def _get_last_msg(self) -> Msg | None:
         """Get the last message in the context that belongs to this agent."""
