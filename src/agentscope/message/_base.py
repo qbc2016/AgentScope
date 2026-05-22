@@ -483,7 +483,7 @@ def AssistantMsg(
     created_at: str | None = None,
     finished_at: str | None = None,
     id: str | None = None,  # pylint: disable=redefined-builtin
-    usage: "Usage | None" = None,
+    usage: Usage | None = None,
 ) -> Msg:
     """Create an assistant message with role ``"assistant"``.
 
