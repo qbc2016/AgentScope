@@ -136,7 +136,7 @@ async def example_image_base64() -> None:
     await stream_and_collect(await model(msgs))
 
 
-async def example_audio_input() -> None:
+async def example_audio() -> None:
     """Call gpt-audio-mini with an audio URL.
 
     Audio understanding requires an audio-capable model such as
@@ -191,4 +191,4 @@ if __name__ == "__main__":
     asyncio.run(example_image_url())
     asyncio.run(example_image_local_path())
     asyncio.run(example_image_base64())
-    asyncio.run(example_audio_input())
+    asyncio.run(example_audio())

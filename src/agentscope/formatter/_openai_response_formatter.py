@@ -27,10 +27,11 @@ class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
     """
 
     input_types: list[str] = Field(
-        default_factory=lambda: ["text/plain", "image/*", "audio/*"],
+        default_factory=lambda: ["text/plain", "image/*"],
         description=(
             "The supported input types. "
-            'Defaults to ``["text/plain", "image/*", "audio/*"]``.'
+            'Defaults to ``["text/plain", "image/*"]``. '
+            "Audio is not supported by the Responses API."
         ),
     )
 
@@ -45,9 +46,9 @@ class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
         Completions API:
 
         * ``image_url`` → ``input_image``
-        * ``input_audio`` → ``input_file`` (the Responses API has no
-          dedicated audio input type; audio is sent as a generic file). See
-           https://developers.openai.com/api/docs/guides/migrate-to-responses
+        * ``input_audio`` → skipped (the Responses API does not support
+          audio input yet; use Chat Completions API instead). See
+          https://developers.openai.com/api/docs/guides/audio
 
         Args:
             block (`DataBlock`):
@@ -71,15 +72,15 @@ class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
             }
 
         if base_result.get("type") == "input_audio":
-            audio_data = base_result.get("input_audio", {})
-            data = audio_data.get("data", "")
-            fmt = audio_data.get("format", "wav")
-            media_type = f"audio/{fmt}"
-            return {
-                "type": "input_file",
-                "filename": f"audio.{fmt}",
-                "file_data": f"data:{media_type};base64,{data}",
-            }
+            # The Responses API does not support audio input yet.
+            # Use Chat Completions API with an audio-capable model instead.
+            # https://developers.openai.com/api/docs/guides/audio
+            logger.warning(
+                "Audio input is not supported by the OpenAI Responses API. "
+                "Use OpenAIChatModel with an audio-capable model instead. "
+                "This audio block will be skipped.",
+            )
+            return None
 
         return base_result
 

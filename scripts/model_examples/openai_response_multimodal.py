@@ -138,50 +138,7 @@ async def example_image_base64() -> None:
     await stream_and_collect(await model(msgs))
 
 
-async def example_audio_input() -> None:
-    """Call gpt-4o-audio-preview (Responses API) with an audio URL.
-
-    Audio understanding requires an audio-capable model such as
-    ``gpt-audio-mini``.  The Responses API does not have a dedicated
-    audio input type; audio is sent as ``input_file`` (the formatter handles
-    the conversion from the Chat-Completions-style ``input_audio`` format
-    automatically).
-
-    Note: audio *output* is not yet supported by the Responses API.
-    See https://developers.openai.com/api/docs/guides/migrate-to-responses
-    """
-    model = OpenAIResponseModel(
-        credential=OpenAICredential(
-            api_key=os.environ["OPENAI_API_KEY"],
-        ),
-        model="gpt-audio-mini",
-        stream=True,
-    )
-
-    audio_block = DataBlock(
-        source=URLSource(
-            url=TEST_AUDIO_URL,
-            media_type="audio/wav",
-        ),
-    )
-
-    msgs = [
-        Msg(
-            name="user",
-            content=[
-                TextBlock(text="What is being said in this audio clip?"),
-                audio_block,
-            ],
-            role="user",
-        ),
-    ]
-
-    print("=== Multimodal Call (Audio Input) ===")
-    await stream_and_collect(await model(msgs))
-
-
 if __name__ == "__main__":
     asyncio.run(example_image_url())
     asyncio.run(example_image_local_path())
     asyncio.run(example_image_base64())
-    asyncio.run(example_audio_input())
