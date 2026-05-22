@@ -61,6 +61,20 @@ class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
                 A dictionary in the Responses API format, or ``None`` when the
                 block type is unsupported.
         """
+        # Intercept audio blocks before the generic formatter rejects them
+        # with a less helpful "Unsupported media type" warning. The Responses
+        # API does not support audio input yet; use Chat Completions API with
+        # an audio-capable model instead.
+        # https://developers.openai.com/api/docs/guides/audio
+        media_type = getattr(block.source, "media_type", "") or ""
+        if media_type.split("/", 1)[0] == "audio":
+            logger.warning(
+                "Audio input is not supported by the OpenAI Responses API. "
+                "Use OpenAIChatModel with an audio-capable model instead. "
+                "This audio block will be skipped.",
+            )
+            return None
+
         base_result = self._format_openai_data_block(block, role)
         if base_result is None:
             return None
@@ -70,17 +84,6 @@ class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
                 "type": "input_image",
                 "image_url": base_result["image_url"]["url"],
             }
-
-        if base_result.get("type") == "input_audio":
-            # The Responses API does not support audio input yet.
-            # Use Chat Completions API with an audio-capable model instead.
-            # https://developers.openai.com/api/docs/guides/audio
-            logger.warning(
-                "Audio input is not supported by the OpenAI Responses API. "
-                "Use OpenAIChatModel with an audio-capable model instead. "
-                "This audio block will be skipped.",
-            )
-            return None
 
         return base_result
 
