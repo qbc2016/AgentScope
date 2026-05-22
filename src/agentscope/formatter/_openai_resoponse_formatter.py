@@ -11,7 +11,6 @@ from ..message import (
     Msg,
     TextBlock,
     ImageBlock,
-    AudioBlock,
     ToolUseBlock,
     ToolResultBlock,
 )
@@ -72,7 +71,6 @@ class OpenAIResponseChatFormatter(TruncatedFormatterBase):
     supported_blocks: list[type] = [
         TextBlock,
         ImageBlock,
-        AudioBlock,
         ToolUseBlock,
         ToolResultBlock,
     ]
@@ -199,7 +197,6 @@ class OpenAIResponseChatFormatter(TruncatedFormatterBase):
                         messages.append(
                             {
                                 "role": "user",
-                                "name": "user",
                                 "content": [
                                     {
                                         "type": "input_text",
@@ -250,7 +247,6 @@ class OpenAIResponseChatFormatter(TruncatedFormatterBase):
 
             msg_openai_response = {
                 "role": msg.role,
-                "name": msg.name,
                 "content": content_blocks,
             }
 
@@ -290,7 +286,6 @@ class OpenAIResponseMultiAgentFormatter(TruncatedFormatterBase):
     supported_blocks: list[type] = [
         TextBlock,
         ImageBlock,
-        AudioBlock,
         ToolUseBlock,
         ToolResultBlock,
     ]
