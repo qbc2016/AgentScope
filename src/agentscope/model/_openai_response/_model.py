@@ -443,13 +443,12 @@ class OpenAIResponseModel(ChatModelBase):
         tools: list[dict] | None,
         tool_choice: ToolChoice | None,
     ) -> tuple[list[dict] | None, str | dict | None]:
-        """Validate, filter, and format tools and tool_choice for the
-        Responses API.
+        """Validate and format tools and tool_choice for the Responses API.
 
-        When ``tool_choice.tools`` is specified the schemas list is filtered
-        to only those tools. When ``tool_choice.mode`` is a specific tool name
-        (str) the model is forced to call exactly that tool without needing to
-        filter the list, preserving prompt-cache efficiency.
+        The full ``tools`` list is always sent unchanged to maximise prompt
+        cache hits.  When ``tool_choice.tools`` restricts the callable
+        subset, the ``allowed_tools`` tool_choice format is used instead of
+        filtering the schemas list.
 
         Args:
             tools (`list[dict] | None`, optional):
@@ -464,9 +463,6 @@ class OpenAIResponseModel(ChatModelBase):
         """
         if tool_choice and tools:
             self._validate_tool_choice(tool_choice, tools)
-            if tool_choice.tools:
-                allowed = set(tool_choice.tools)
-                tools = [t for t in tools if t["function"]["name"] in allowed]
 
         fmt_tools = None
         if tools:
@@ -481,5 +477,15 @@ class OpenAIResponseModel(ChatModelBase):
 
         if mode not in _TOOL_CHOICE_LITERAL_MODES:
             return fmt_tools, {"type": "function", "name": mode}
+
+        if tool_choice.tools:
+            return fmt_tools, {
+                "type": "allowed_tools",
+                "mode": mode,
+                "tools": [
+                    {"type": "function", "name": name}
+                    for name in tool_choice.tools
+                ],
+            }
 
         return fmt_tools, mode
