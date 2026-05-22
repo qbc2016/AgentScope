@@ -29,7 +29,7 @@ from ._deepseek_formatter import (
 )
 from ._a2a_formatter import A2AChatFormatter
 
-from ._openai_resoponse_formatter import (
+from ._openai_response_formatter import (
     OpenAIResponseChatFormatter,
     OpenAIResponseMultiAgentFormatter,
 )

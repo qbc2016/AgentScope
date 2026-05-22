@@ -125,30 +125,36 @@ class OpenAIResponseChatFormatter(TruncatedFormatterBase):
         while i < len(msgs):
             msg = msgs[i]
             content_blocks = []
-            tool_calls = []
+            # Responses API treats function_call / function_call_output as
+            # top-level input items (not nested inside a message). Collect
+            # them here and flush after the current message item.
+            trailing_items: list[dict] = []
+            # Assistant text must use output_text in Responses API; user /
+            # system messages use input_text.
+            text_type = (
+                "output_text" if msg.role == "assistant" else "input_text"
+            )
 
             for block in msg.get_content_blocks():
                 typ = block.get("type")
                 if typ == "text":
                     content_blocks.append(
                         {
-                            "type": "input_text",
+                            "type": text_type,
                             "text": block.get("text"),
                         },
                     )
 
                 elif typ == "tool_use":
-                    tool_calls.append(
+                    trailing_items.append(
                         {
-                            "id": block.get("id"),
-                            "type": "function",
-                            "function": {
-                                "name": block.get("name"),
-                                "arguments": json.dumps(
-                                    block.get("input", {}),
-                                    ensure_ascii=False,
-                                ),
-                            },
+                            "type": "function_call",
+                            "call_id": block.get("id"),
+                            "name": block.get("name"),
+                            "arguments": json.dumps(
+                                block.get("input", {}),
+                                ensure_ascii=False,
+                            ),
                         },
                     )
 
@@ -158,12 +164,11 @@ class OpenAIResponseChatFormatter(TruncatedFormatterBase):
                         multimodal_data,
                     ) = self.convert_tool_result_to_string(block["output"])
 
-                    messages.append(
+                    trailing_items.append(
                         {
-                            "role": "assistant",
-                            "tool_call_id": block.get("id"),
-                            "content": textual_output,
-                            "name": block.get("name"),
+                            "type": "function_call_output",
+                            "call_id": block.get("id"),
+                            "output": textual_output,
                         },
                     )
 
@@ -245,19 +250,17 @@ class OpenAIResponseChatFormatter(TruncatedFormatterBase):
                         typ,
                     )
 
-            msg_openai_response = {
-                "role": msg.role,
-                "content": content_blocks,
-            }
+            if content_blocks:
+                messages.append(
+                    {
+                        "role": msg.role,
+                        "content": content_blocks,
+                    },
+                )
 
-            if tool_calls:
-                msg_openai_response["tool_calls"] = tool_calls
-
-            # When both content and tool_calls are None, skipped
-            if msg_openai_response["content"] or msg_openai_response.get(
-                "tool_calls",
-            ):
-                messages.append(msg_openai_response)
+            # Append function_call / function_call_output items (if any)
+            # as separate top-level items after the message.
+            messages.extend(trailing_items)
 
             # Move to next message
             i += 1

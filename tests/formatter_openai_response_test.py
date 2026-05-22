@@ -4,7 +4,7 @@ import os
 from unittest.async_case import IsolatedAsyncioTestCase
 from unittest.mock import patch, MagicMock
 
-from agentscope.formatter._openai_resoponse_formatter import (
+from agentscope.formatter._openai_response_formatter import (
     OpenAIResponseChatFormatter,
     OpenAIResponseMultiAgentFormatter,
 )

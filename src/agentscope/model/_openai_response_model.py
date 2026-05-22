@@ -68,7 +68,8 @@ class OpenAIResponseModel(ChatModelBase):
                 API key.  Falls back to ``OPENAI_API_KEY`` env var.
             stream (`bool`, default ``True``):
                 Whether to use streaming output.
-            reasoning_effort (`Literal["low", "medium", "high"]`, optional):
+            reasoning_effort (`Literal["minimal", "low", "medium", \
+            "high"]`, optional):
                 Reasoning effort level.
             reasoning_summary (`Literal["auto", "concise", "detailed"]`, \
             optional):
@@ -268,6 +269,16 @@ class OpenAIResponseModel(ChatModelBase):
             elif event_type == "response.output_item.added":
                 item = event.item
                 if getattr(item, "type", None) == "function_call":
+                    # NOTE: two distinct ids are in play here.
+                    # * ``item.id`` is the Responses-API stream item id;
+                    #   subsequent ``function_call_arguments.delta`` events
+                    #   reference it via ``event.item_id``, so it must be
+                    #   the dict key.
+                    # * ``call_id`` is the public identifier used to pair
+                    #   the call with its later ``function_call_output``;
+                    #   it's what we expose on ``ToolUseBlock.id``.
+                    # Do not collapse them — downstream tool-result
+                    # matching relies on ``call_id``.
                     call_id = getattr(item, "call_id", None) or getattr(
                         item,
                         "id",
@@ -480,7 +491,16 @@ class OpenAIResponseModel(ChatModelBase):
             definition is directly at the top level with an added ``"type":
             "function"`` field.
         """
-        return [{"type": "function", **tool["function"]} for tool in schemas]
+        formatted: list[dict[str, Any]] = []
+        for tool in schemas:
+            # Accept both Chat-Completions wrapped form
+            # ({"type": "function", "function": {...}}) and already-flat
+            # Responses-API form ({"type": "function", "name": ..., ...}).
+            if "function" in tool and isinstance(tool["function"], dict):
+                formatted.append({"type": "function", **tool["function"]})
+            else:
+                formatted.append({"type": "function", **tool})
+        return formatted
 
     def _validate_tool_choice(
         self,
