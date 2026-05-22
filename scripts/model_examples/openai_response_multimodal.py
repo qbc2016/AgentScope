@@ -23,12 +23,6 @@ TEST_IMAGE_URL = (
     "-files/zh-CN/20241022/emyrja/dog_and_girl.jpeg"
 )
 
-# A publicly accessible test audio
-TEST_AUDIO_URL = (
-    "https://help-static-aliyun-doc.aliyuncs.com/file-manage"
-    "-files/zh-CN/20250211/tixcef/cherry.wav"
-)
-
 
 async def example_image_url() -> None:
     """Call gpt-4.1 (Responses API) with an image URL and ask what is in
