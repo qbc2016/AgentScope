@@ -14,6 +14,16 @@ DEFAULT_DANGEROUS_FILES = [
     ".netrc",
     ".npmrc",
     ".pypirc",
+    ".env",
+    ".envrc",
+    ".env.local",
+    ".env.development",
+    ".env.development.local",
+    ".env.test",
+    ".env.test.local",
+    ".env.staging",
+    ".env.production",
+    ".env.production.local",
 ]
 # Built-in list of dangerous files that should be protected from auto-editing.
 #
@@ -23,6 +33,8 @@ DEFAULT_DANGEROUS_FILES = [
 # - Git configuration: .gitconfig, .gitmodules
 # - SSH configuration: .ssh/config, .ssh/authorized_keys
 # - Credential files: .netrc, .npmrc, .pypirc
+# - Environment / secret files: .env and common variants (.envrc for direnv,
+#   .env.local / .env.production / etc. for framework-specific overrides)
 
 
 DEFAULT_DANGEROUS_DIRECTORIES = [

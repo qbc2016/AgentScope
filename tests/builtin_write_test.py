@@ -10,6 +10,8 @@ from agentscope.permission import (
     PermissionBehavior,
     PermissionRule,
 )
+from agentscope.state import AgentState
+from agentscope.message import ToolResultState
 
 
 class WriteToolTest(IsolatedAsyncioTestCase):
@@ -123,6 +125,27 @@ class WriteToolTest(IsolatedAsyncioTestCase):
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         self.assertEqual(content, "")
+
+    async def test_overwrite_existing_without_prior_read_errors(self) -> None:
+        """Overwriting an existing file via state-injected call requires
+        the file to have been read first (cached in tool_context).
+        """
+        file_path = os.path.join(self.temp_dir, "existing.txt")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("original")
+
+        state = AgentState()
+        chunk = await self.write_tool(
+            file_path=file_path,
+            content="new",
+            _agent_state=state,
+        )
+
+        self.assertEqual(chunk.state, ToolResultState.ERROR)
+        self.assertIn("has not been read", chunk.content[0].text)
+        # File must not have been mutated
+        with open(file_path, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), "original")
 
     async def test_match_rule_glob_pattern(self) -> None:
         """Test match_rule with glob patterns."""
