@@ -2,14 +2,17 @@
 """The DashScope chat model class (OpenAI-compatible implementation)."""
 import warnings
 from collections import OrderedDict
+from copy import deepcopy
 from datetime import datetime
-from typing import Any, AsyncGenerator, List, Literal, TYPE_CHECKING
+from typing import Any, AsyncGenerator, List, Literal, Type, TYPE_CHECKING
 
+import jsonschema
 from pydantic import BaseModel, Field
 
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
-from .._model_response import ChatResponse
+from .._model_response import ChatResponse, StructuredResponse
 from .._model_usage import ChatUsage
+from ..._utils._common import _json_loads_with_repair
 from ...credential import DashScopeCredential
 from ...formatter import FormatterBase, DashScopeChatFormatter
 from ...message import (
@@ -17,6 +20,7 @@ from ...message import (
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
+    UserMsg,
     DataBlock,
     Base64Source,
 )
@@ -517,3 +521,144 @@ class DashScopeChatModel(ChatModelBase):
             return fmt_tools, "auto"
 
         return fmt_tools, mode
+
+    async def _call_api_with_structured_output(
+        self,
+        model_name: str,
+        messages: list[Msg],
+        structured_model: Type[BaseModel] | dict,
+        **kwargs: Any,
+    ) -> StructuredResponse:
+        """DashScope-specific override for structured output.
+
+        DashScope rejects ``tool_choice="required"`` or an object-form
+        ``tool_choice`` when thinking mode is enabled. When that is the case,
+        we fall back to ``tool_choice="auto"`` and rely on the injected
+        system-reminder prompt to guide the model to call the
+        ``generate_structured_output`` tool. When thinking is disabled, this
+        delegates to the base implementation which forces the tool call.
+
+        Args:
+            model_name (`str`):
+                The model name to use for this call.
+            messages (`list[Msg]`):
+                The context for the LLM to generate the structured output.
+            structured_model (`Type[BaseModel] | dict`):
+                A Pydantic model class or a JSON schema dict describing the
+                required output structure.
+            **kwargs (`Any`):
+                Additional keyword arguments forwarded to ``_call_api``
+                (e.g. extra request parameters).
+
+        Returns:
+            `StructuredResponse`:
+                The structured response whose ``content`` is the validated
+                output dict matching ``structured_model``.
+
+        Raises:
+            `RuntimeError`:
+                If no completed response is received, or if the model did
+                not call the ``generate_structured_output`` tool (more
+                likely under thinking mode where the tool call cannot be
+                forced).
+            `ValueError`:
+                If ``structured_model`` is neither a ``BaseModel`` subclass
+                nor a dict.
+        """
+        if not self.parameters.thinking_enable:
+            return await super()._call_api_with_structured_output(
+                model_name=model_name,
+                messages=messages,
+                structured_model=structured_model,
+                **kwargs,
+            )
+
+        if isinstance(structured_model, dict):
+            input_schema = structured_model
+        else:
+            input_schema = structured_model.model_json_schema()
+
+        func_name = "generate_structured_output"
+        instruction = (
+            "<system-reminder>Now you **MUST** call the tool named "
+            f"'{func_name}' to generate the structured output required "
+            "by the user. DON'T do anything else.</system-reminder>"
+        )
+
+        copied_messages = deepcopy(messages)
+        if copied_messages[-1].role == "user":
+            copied_messages[-1].content = copied_messages[
+                -1
+            ].get_content_blocks() + [TextBlock(text=instruction)]
+        else:
+            copied_messages.append(
+                UserMsg(name="user", content=[TextBlock(text=instruction)]),
+            )
+
+        res = await self._call_api(
+            model_name=model_name,
+            messages=copied_messages,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": func_name,
+                        "description": "Call this function to generate "
+                        "structured output required by the user.",
+                        "parameters": input_schema,
+                    },
+                },
+            ],
+            tool_choice=ToolChoice(mode="auto"),
+            **kwargs,
+        )
+
+        completed_response: ChatResponse | None = None
+        if self.stream:
+            async for chunk in res:
+                if chunk.is_last:
+                    completed_response = chunk
+        else:
+            completed_response = res
+
+        if completed_response is None:
+            raise RuntimeError(
+                f"Failed to get the completed response from model "
+                f"{model_name}.",
+            )
+
+        structured_output: dict[str, Any] | None = None
+        for block in completed_response.content:
+            if isinstance(block, ToolCallBlock) and block.name == func_name:
+                structured_output = _json_loads_with_repair(
+                    block.input,
+                    input_schema,
+                )
+                break
+
+        if structured_output is None:
+            raise RuntimeError(
+                "Failed to generate structured output: the model did not "
+                "call the 'generate_structured_output' tool. This can "
+                "happen with DashScope thinking mode where tool_choice "
+                "cannot be forced; consider disabling thinking for "
+                "structured output, or retry.",
+            )
+
+        if isinstance(structured_model, dict):
+            jsonschema.validate(structured_output, structured_model)
+        elif issubclass(structured_model, BaseModel):
+            structured_model.model_validate(structured_output)
+        else:
+            raise ValueError(
+                "The structured_model is expected to be a subclass of "
+                "Pydantic.BaseModel or a dict, "
+                f"but got {type(structured_model)}.",
+            )
+
+        return StructuredResponse(
+            id=completed_response.id,
+            created_at=completed_response.created_at,
+            content=structured_output,
+            usage=completed_response.usage,
+        )

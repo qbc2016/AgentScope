@@ -4,6 +4,8 @@ import asyncio
 import json
 import os
 
+from pydantic import BaseModel, Field
+
 from _utils import stream_and_collect
 from agentscope.message import (
     Msg,
@@ -130,6 +132,60 @@ async def example_tool_call() -> None:
         await stream_and_collect(await model(msgs))
 
 
+# ---------------------------------------------------------------------------
+# Example 3: Structured output
+# ---------------------------------------------------------------------------
+
+
+class MathSolution(BaseModel):
+    """Structured solution to a math problem."""
+
+    problem: str = Field(description="The original problem statement")
+    answer: float = Field(description="The final numeric answer")
+    steps: list[str] = Field(
+        description="Step-by-step reasoning leading to the answer",
+    )
+
+
+async def example_structured_output() -> None:
+    """Call the Gemini model and force a structured (JSON) output."""
+    model = GeminiChatModel(
+        credential=GeminiCredential(
+            api_key=os.environ["GEMINI_API_KEY"],
+        ),
+        model="gemini-2.5-flash",
+        stream=True,
+        context_size=1_048_576,
+        parameters=GeminiChatModel.Parameters(
+            thinking_enable=True,
+            thinking_budget=8192,
+        ),
+    )
+
+    msgs = [
+        Msg(
+            name="user",
+            content=[
+                TextBlock(
+                    text=(
+                        "Solve this: A train travels at 60 km/h for "
+                        "2.5 hours. How far does it travel in km?"
+                    ),
+                ),
+            ],
+            role="user",
+        ),
+    ]
+
+    print("=== Structured Output ===")
+    response = await model.generate_structured_output(
+        msgs,
+        structured_model=MathSolution,
+    )
+    print(response.content)
+
+
 if __name__ == "__main__":
     asyncio.run(example_simple_call())
     asyncio.run(example_tool_call())
+    asyncio.run(example_structured_output())
