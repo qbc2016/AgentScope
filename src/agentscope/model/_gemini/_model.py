@@ -130,6 +130,7 @@ class GeminiChatModel(ChatModelBase):
         max_retries: int = 3,
         context_size: int = 1048576,
         formatter: FormatterBase | None = None,
+        client_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the Gemini chat model.
 
@@ -152,6 +153,10 @@ class GeminiChatModel(ChatModelBase):
                 The formatter that converts ``Msg`` objects to the format
                 required by the Gemini API. When ``None``, a
                 ``GeminiChatFormatter`` instance will be used.
+            client_kwargs (`dict[str, Any] | None`, defaults to `None`):
+                Extra keyword arguments forwarded to ``google.genai.Client``
+                (e.g. ``vertexai``, ``project``, ``location``,
+                ``credentials``, ``http_options``).
         """
         super().__init__(
             credential=credential,
@@ -160,6 +165,7 @@ class GeminiChatModel(ChatModelBase):
             stream=stream,
             max_retries=max_retries,
             context_size=context_size,
+            client_kwargs=client_kwargs,
         )
         self.formatter = formatter or GeminiChatFormatter()
 
@@ -195,6 +201,7 @@ class GeminiChatModel(ChatModelBase):
 
         client = genai.Client(
             api_key=self.credential.api_key.get_secret_value(),
+            **self.client_kwargs,
         )
 
         formatted_messages = await self.formatter.format(messages)

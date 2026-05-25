@@ -104,6 +104,7 @@ class DashScopeChatModel(ChatModelBase):
         max_retries: int = 3,
         context_size: int = 131072,
         formatter: FormatterBase | None = None,
+        client_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the DashScope chat model.
 
@@ -126,6 +127,9 @@ class DashScopeChatModel(ChatModelBase):
                 The formatter that converts ``Msg`` objects to the format
                 required by the DashScope API. When ``None``, a
                 ``DashScopeChatFormatter`` instance will be used.
+            client_kwargs (`dict[str, Any] | None`, defaults to `None`):
+                Extra keyword arguments forwarded to ``openai.AsyncClient``
+                (e.g. ``timeout``, ``default_headers``, ``http_client``).
         """
         super().__init__(
             credential=credential,
@@ -134,6 +138,7 @@ class DashScopeChatModel(ChatModelBase):
             stream=stream,
             max_retries=max_retries,
             context_size=context_size,
+            client_kwargs=client_kwargs,
         )
         self.formatter = formatter or DashScopeChatFormatter()
 
@@ -166,6 +171,7 @@ class DashScopeChatModel(ChatModelBase):
         client = openai.AsyncClient(
             api_key=self.credential.api_key.get_secret_value(),
             base_url=self.credential.base_url,
+            **self.client_kwargs,
         )
 
         formatted_messages = await self.formatter.format(messages)

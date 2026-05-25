@@ -98,6 +98,7 @@ class XAIChatModel(ChatModelBase):
         max_retries: int = 3,
         context_size: int = 131072,
         formatter: XAIChatFormatter | None = None,
+        client_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the xAI chat model.
 
@@ -120,6 +121,10 @@ class XAIChatModel(ChatModelBase):
                 The formatter that converts ``Msg`` objects to xai_sdk
                 proto messages. When ``None``, an ``XAIChatFormatter``
                 instance will be used.
+            client_kwargs (`dict[str, Any] | None`, defaults to `None`):
+                Extra keyword arguments forwarded to ``xai_sdk.AsyncClient``
+                (e.g. ``api_host``, ``timeout``, ``metadata``,
+                ``channel_options``).
         """
         super().__init__(
             credential=credential,
@@ -128,6 +133,7 @@ class XAIChatModel(ChatModelBase):
             stream=stream,
             max_retries=max_retries,
             context_size=context_size,
+            client_kwargs=client_kwargs,
         )
         self.formatter = formatter or XAIChatFormatter()
 
@@ -163,6 +169,8 @@ class XAIChatModel(ChatModelBase):
 
         client = AsyncClient(
             api_key=self.credential.api_key.get_secret_value(),
+            api_host=self.credential.api_host,
+            **self.client_kwargs,
         )
 
         xai_messages = await self.formatter.format(messages)
