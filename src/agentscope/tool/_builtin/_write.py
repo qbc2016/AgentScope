@@ -63,38 +63,30 @@ Usage:
     is_external_tool: bool = False
     is_state_injected: bool = True
 
-    def __init__(
+    def __init__(  # pylint: disable=dangerous-default-value
         self,
-        dangerous_files: list[str] | None = None,
-        dangerous_directories: list[str] | None = None,
+        dangerous_files: list[str] = DEFAULT_DANGEROUS_FILES,
+        dangerous_directories: list[str] = DEFAULT_DANGEROUS_DIRECTORIES,
     ) -> None:
         """Initialize the write tool.
 
         Args:
-            dangerous_files (`list[str] | None`, optional):
+            dangerous_files (`list[str]`, optional):
                 Sensitive files that require explicit user confirmation,
                 even in BYPASS mode. Matched by basename
-                (case-insensitive). Defaults to `DEFAULT_DANGEROUS_FILES`
-                when `None`. Pass a custom list to fully replace the
-                defaults, or `[]` to disable the filename check.
-            dangerous_directories (`list[str] | None`, optional):
+                (case-insensitive). Defaults to `DEFAULT_DANGEROUS_FILES`.
+                Pass a custom list to fully replace the defaults, or `[]`
+                to disable the filename check.
+            dangerous_directories (`list[str]`, optional):
                 Sensitive directories that require explicit user
                 confirmation. Matched when any path segment equals an
                 entry (case-insensitive). Defaults to
-                `DEFAULT_DANGEROUS_DIRECTORIES` when `None`. Pass a custom
-                list to fully replace the defaults, or `[]` to disable the
+                `DEFAULT_DANGEROUS_DIRECTORIES`. Pass a custom list to
+                fully replace the defaults, or `[]` to disable the
                 directory check.
         """
-        self.dangerous_files = (
-            list(dangerous_files)
-            if dangerous_files is not None
-            else list(DEFAULT_DANGEROUS_FILES)
-        )
-        self.dangerous_directories = (
-            list(dangerous_directories)
-            if dangerous_directories is not None
-            else list(DEFAULT_DANGEROUS_DIRECTORIES)
-        )
+        self.dangerous_files = list(dangerous_files)
+        self.dangerous_directories = list(dangerous_directories)
 
     async def check_permissions(
         self,
