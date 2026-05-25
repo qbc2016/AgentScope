@@ -32,6 +32,10 @@ async def example_multiagent_image_url() -> None:
         model="claude-opus-4-5",
         stream=True,
         context_size=1_000_000,
+        parameters=AnthropicChatModel.Parameters(
+            thinking_enable=True,
+            thinking_budget=1024,
+        ),
         formatter=formatter,
     )
 

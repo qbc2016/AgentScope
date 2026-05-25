@@ -31,6 +31,7 @@ async def example_multiagent() -> None:
         model="deepseek-v4-flash",
         stream=True,
         context_size=1_000_000,
+        parameters=DeepSeekChatModel.Parameters(thinking_enable=True),
         formatter=formatter,
     )
 

@@ -44,6 +44,7 @@ async def example_image_url() -> None:
         model="qwen3.5-plus",
         stream=True,
         context_size=1_000_000,
+        parameters=DashScopeChatModel.Parameters(thinking_enable=True),
     )
 
     image_block = DataBlock(
@@ -79,6 +80,7 @@ def _build_model() -> DashScopeChatModel:
         model="qwen3.5-plus",
         stream=True,
         context_size=1_000_000,
+        parameters=DashScopeChatModel.Parameters(thinking_enable=True),
     )
 
 

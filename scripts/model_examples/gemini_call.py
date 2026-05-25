@@ -35,7 +35,7 @@ async def example_simple_call() -> None:
         context_size=1_048_576,
         parameters=GeminiChatModel.Parameters(
             thinking_enable=True,
-            thinking_budget=8192,
+            thinking_budget=1024,
         ),
     )
 
@@ -82,7 +82,7 @@ async def example_tool_call() -> None:
         context_size=1_048_576,
         parameters=GeminiChatModel.Parameters(
             thinking_enable=True,
-            thinking_budget=8192,
+            thinking_budget=1024,
         ),
     )
 
@@ -158,7 +158,7 @@ async def example_structured_output() -> None:
         context_size=1_048_576,
         parameters=GeminiChatModel.Parameters(
             thinking_enable=True,
-            thinking_budget=8192,
+            thinking_budget=1024,
         ),
     )
 

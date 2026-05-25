@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Examples of DeepSeek model calls.
 
-For DeepSeek, thinking (chain-of-thought) is controlled by model selection:
-  - deepseek-reasoner: always reasoning (uses reasoning_content field)
-  - deepseek-v4-flash: non-thinking mode
+For DeepSeek, thinking (chain-of-thought) is controlled by the
+``thinking_enable`` parameter on ``deepseek-v4-flash``. The legacy
+``deepseek-chat`` / ``deepseek-reasoner`` model names will be deprecated;
+they correspond to the non-thinking / thinking modes of
+``deepseek-v4-flash`` respectively.
 """
 import asyncio
 import json
@@ -30,14 +32,15 @@ from agentscope.tool import Toolkit, ToolChoice, FunctionTool
 
 
 async def example_simple_call() -> None:
-    """Call the DeepSeek reasoning model with a simple text message."""
+    """Call DeepSeek with thinking enabled on a simple text message."""
     model = DeepSeekChatModel(
         credential=DeepSeekCredential(
             api_key=os.environ["DEEPSEEK_API_KEY"],
         ),
-        model="deepseek-reasoner",
+        model="deepseek-v4-flash",
         stream=True,
-        context_size=65_536,
+        context_size=1_000_000,
+        parameters=DeepSeekChatModel.Parameters(thinking_enable=True),
     )
 
     msgs = [
@@ -70,11 +73,7 @@ def get_weather(city: str) -> str:
 
 
 async def example_tool_call() -> None:
-    """Call the DeepSeek model with tool calling enabled.
-
-    Uses deepseek-v4-flash (non-reasoning) for tool calling, since
-    deepseek-reasoner has limited tool call support.
-    """
+    """Call DeepSeek with thinking + tool calling enabled."""
     toolkit = Toolkit(tools=[FunctionTool(get_weather)])
     tools = await toolkit.get_tool_schemas()
 
@@ -84,7 +83,8 @@ async def example_tool_call() -> None:
         ),
         model="deepseek-v4-flash",
         stream=True,
-        context_size=65_536,
+        context_size=1_000_000,
+        parameters=DeepSeekChatModel.Parameters(thinking_enable=True),
     )
 
     msgs = [
@@ -149,17 +149,15 @@ class MathSolution(BaseModel):
 
 
 async def example_structured_output() -> None:
-    """Call the DeepSeek reasoning model and force a structured output.
-
-    Uses deepseek-reasoner — the reasoning model with chain-of-thought.
-    """
+    """Call DeepSeek with thinking enabled and force a structured output."""
     model = DeepSeekChatModel(
         credential=DeepSeekCredential(
             api_key=os.environ["DEEPSEEK_API_KEY"],
         ),
-        model="deepseek-reasoner",
+        model="deepseek-v4-flash",
         stream=True,
-        context_size=65_536,
+        context_size=1_000_000,
+        parameters=DeepSeekChatModel.Parameters(thinking_enable=True),
     )
 
     msgs = [

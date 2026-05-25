@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """The Moonshot AI formatter for agentscope."""
+import base64
 from typing import Any
 
+import requests
 from pydantic import Field
 
 from ._openai_formatter import _OpenAIFormatterBase
 from .._logging import logger
 from ..message import (
     Msg,
+    URLSource,
+    Base64Source,
     TextBlock,
     DataBlock,
     ThinkingBlock,
@@ -15,6 +19,41 @@ from ..message import (
     ToolCallBlock,
     ToolResultBlock,
 )
+
+
+def _moonshot_format_image_source(
+    source: URLSource | Base64Source,
+) -> dict[str, Any]:
+    """Convert an image source to Moonshot ``image_url`` format.
+
+    Moonshot's vision API only accepts base64 data URIs or file IDs — raw
+    remote URLs are rejected. This helper downloads remote ``http(s)://``
+    URLs and converts them to base64 data URIs, while ``file://`` URLs and
+    ``Base64Source`` go through the same conversion as the OpenAI base.
+    """
+    if isinstance(source, Base64Source):
+        url = f"data:{source.media_type};base64,{source.data}"
+
+    elif isinstance(source, URLSource):
+        url_str = str(source.url)
+        if url_str.startswith("file://"):
+            local_path = url_str.removeprefix("file://")
+            with open(local_path, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("utf-8")
+            url = f"data:{source.media_type};base64,{encoded}"
+        else:
+            response = requests.get(url_str)
+            response.raise_for_status()
+            encoded = base64.b64encode(response.content).decode("utf-8")
+            url = f"data:{source.media_type};base64,{encoded}"
+
+    else:
+        raise ValueError(f"Unsupported image source type: {type(source)}")
+
+    return {
+        "type": "image_url",
+        "image_url": {"url": url},
+    }
 
 
 class MoonshotChatFormatter(_OpenAIFormatterBase):
@@ -34,6 +73,12 @@ class MoonshotChatFormatter(_OpenAIFormatterBase):
             'Defaults to ``["text/plain", "image/*", "audio/*"]``.'
         ),
     )
+
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
+        return _moonshot_format_image_source(source)
 
     async def format(
         self,
@@ -244,6 +289,12 @@ class MoonshotMultiAgentFormatter(_OpenAIFormatterBase):
             'Defaults to ``["text/plain", "image/*", "audio/*"]``.'
         ),
     )
+
+    def _format_image_source(
+        self,
+        source: URLSource | Base64Source,
+    ) -> dict[str, Any]:
+        return _moonshot_format_image_source(source)
 
     async def format(self, msgs: list[Msg]) -> list[dict[str, Any]]:
         """Format input messages into the Moonshot AI API format for

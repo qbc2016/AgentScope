@@ -31,6 +31,10 @@ async def example_multiagent() -> None:
         model="gemini-2.5-flash",
         stream=True,
         context_size=1_048_576,
+        parameters=GeminiChatModel.Parameters(
+            thinking_enable=True,
+            thinking_budget=1024,
+        ),
         formatter=formatter,
     )
 

@@ -25,6 +25,7 @@ async def example_multiagent() -> None:
         model="qwen3:14b",
         stream=True,
         context_size=40_960,
+        parameters=OllamaChatModel.Parameters(thinking_enable=True),
         formatter=formatter,
     )
 

@@ -30,6 +30,7 @@ async def example_multiagent() -> None:
         model="kimi-k2.6",
         stream=True,
         context_size=262_144,
+        parameters=MoonshotChatModel.Parameters(thinking_enable=True),
         formatter=formatter,
     )
 

@@ -31,6 +31,7 @@ async def example_multiagent_image_url() -> None:
         model="qwen3.5-plus",
         stream=True,
         context_size=1_000_000,
+        parameters=DashScopeChatModel.Parameters(thinking_enable=True),
         formatter=formatter,
     )
 

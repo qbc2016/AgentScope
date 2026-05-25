@@ -16,7 +16,6 @@ from agentscope.message import (
 from agentscope.model import MoonshotChatModel
 from agentscope.credential import MoonshotCredential
 
-# A publicly accessible test image (a simple cat photo)
 TEST_IMAGE_URL = (
     "https://help-static-aliyun-doc.aliyuncs.com/file-manage"
     "-files/zh-CN/20241022/emyrja/dog_and_girl.jpeg"
@@ -32,6 +31,7 @@ async def example_image_url() -> None:
         model="kimi-k2.6",
         stream=True,
         context_size=262_144,
+        parameters=MoonshotChatModel.Parameters(thinking_enable=True),
     )
 
     image_block = DataBlock(
@@ -64,6 +64,7 @@ def _build_model() -> MoonshotChatModel:
         model="kimi-k2.6",
         stream=True,
         context_size=262_144,
+        parameters=MoonshotChatModel.Parameters(thinking_enable=True),
     )
 
 

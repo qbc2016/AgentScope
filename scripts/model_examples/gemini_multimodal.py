@@ -32,6 +32,10 @@ async def example_image_url() -> None:
         model="gemini-2.5-flash",
         stream=True,
         context_size=1_048_576,
+        parameters=GeminiChatModel.Parameters(
+            thinking_enable=True,
+            thinking_budget=1024,
+        ),
     )
 
     image_block = DataBlock(
@@ -64,6 +68,10 @@ def _build_model() -> GeminiChatModel:
         model="gemini-2.5-flash",
         stream=True,
         context_size=1_048_576,
+        parameters=GeminiChatModel.Parameters(
+            thinking_enable=True,
+            thinking_budget=1024,
+        ),
     )
 
 

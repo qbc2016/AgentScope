@@ -83,14 +83,17 @@ class _OpenAIFormatterBase(FormatterBase, ABC):
         )
         return None
 
-    @staticmethod
     def _format_image_source(
+        self,
         source: URLSource | Base64Source,
     ) -> dict[str, Any]:
         """Convert an image source to OpenAI image_url format.
 
         Local ``file://`` URLs are read from disk and converted to base64
-        data URIs. Remote URLs are passed through unchanged.
+        data URIs. Remote URLs are passed through unchanged. Subclasses may
+        override this to apply provider-specific handling (e.g. forcing
+        remote URLs to be downloaded and base64-encoded for APIs that don't
+        accept raw HTTPS URLs).
 
         Args:
             source (`URLSource | Base64Source`):
