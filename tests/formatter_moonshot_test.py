@@ -3,8 +3,9 @@
 MoonshotMultiAgentFormatter, following the reference test style with exact
 ground-truth comparisons.
 """
+import base64
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from agentscope.formatter import (
     MoonshotChatFormatter,
@@ -40,8 +41,23 @@ class TestMoonshotFormatter(IsolatedAsyncioTestCase):
         )
         self.image_url = str(_img_src.url)
 
+        # The Moonshot formatter downloads remote image URLs and inlines
+        # them as base64 data URIs (the Moonshot vision API rejects raw
+        # HTTPS URLs). Patch `requests.get` so tests don't hit the network
+        # and produce a deterministic payload that matches `image_b64`.
         self.image_b64 = "ZmFrZSBpbWFnZSBkYXRh"
+        self.image_bytes = base64.b64decode(self.image_b64)
         self.image_data_uri = f"data:image/png;base64,{self.image_b64}"
+
+        mock_response = MagicMock()
+        mock_response.content = self.image_bytes
+        mock_response.raise_for_status = MagicMock()
+        self._requests_get_patcher = patch(
+            "agentscope.formatter._moonshot_formatter.requests.get",
+            return_value=mock_response,
+        )
+        self._requests_get_patcher.start()
+        self.addCleanup(self._requests_get_patcher.stop)
 
         # ---------------------------------------------------------------
         # Message fixtures (no audio to avoid downloads)
@@ -126,7 +142,7 @@ class TestMoonshotFormatter(IsolatedAsyncioTestCase):
                     {"type": "text", "text": "What is the capital of France?"},
                     {
                         "type": "image_url",
-                        "image_url": {"url": self.image_url},
+                        "image_url": {"url": self.image_data_uri},
                     },
                 ],
             },
@@ -272,7 +288,7 @@ class TestMoonshotFormatter(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "image_url",
-                        "image_url": {"url": self.image_url},
+                        "image_url": {"url": self.image_data_uri},
                     },
                 ],
             },
@@ -491,7 +507,7 @@ class TestMoonshotFormatter(IsolatedAsyncioTestCase):
                         },
                         {
                             "type": "image_url",
-                            "image_url": {"url": self.image_url},
+                            "image_url": {"url": self.image_data_uri},
                         },
                         {
                             "type": "text",
