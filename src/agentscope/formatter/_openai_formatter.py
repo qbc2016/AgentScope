@@ -180,7 +180,7 @@ class _OpenAIFormatterBase(FormatterBase, ABC):
                         f"Unsupported audio file extension: {extension}, "
                         "wav and mp3 are supported.",
                     )
-                response = requests.get(url_str)
+                response = requests.get(url_str, timeout=30)
                 response.raise_for_status()
                 data = base64.b64encode(response.content).decode("utf-8")
 

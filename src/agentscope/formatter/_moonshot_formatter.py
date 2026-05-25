@@ -42,7 +42,7 @@ def _moonshot_format_image_source(
                 encoded = base64.b64encode(f.read()).decode("utf-8")
             url = f"data:{source.media_type};base64,{encoded}"
         else:
-            response = requests.get(url_str)
+            response = requests.get(url_str, timeout=30)
             response.raise_for_status()
             encoded = base64.b64encode(response.content).decode("utf-8")
             url = f"data:{source.media_type};base64,{encoded}"
