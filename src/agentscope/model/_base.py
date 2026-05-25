@@ -413,6 +413,7 @@ class ChatModelBase:
         model_name: str,
         messages: list[Msg],
         structured_model: Type[BaseModel] | dict,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> StructuredResponse:
         """This function constructs a 'generate_structured_output' tool to
@@ -423,11 +424,28 @@ class ChatModelBase:
         API supports structured output, you can override this method to
         provide a more accurate implementation.
 
-        Note this method use the "required" tool choice to force LLM to call
-        the 'generate_structured_output' method, and adds instructions into
-        the input messages. However, LLM APIs that doesn't support
-        "required" tool choice may still fail (e.g. generate text output and
-        ignore the tool call, or fail in validation).
+        Note by default this method forces LLM to call the
+        'generate_structured_output' tool via tool_choice, and adds
+        instructions into the input messages. Subclasses whose underlying
+        API rejects forced tool_choice in certain modes (e.g. DashScope in
+        thinking mode) can pass ``tool_choice=ToolChoice(mode="auto")`` and
+        rely solely on the injected system-reminder prompt. LLM APIs that
+        don't support "required" tool choice may still fail (e.g. generate
+        text output and ignore the tool call, or fail in validation).
+
+        Args:
+            model_name (`str`):
+                The model name to use for this call.
+            messages (`list[Msg]`):
+                The context for the LLM to generate the structured output.
+            structured_model (`Type[BaseModel] | dict`):
+                A Pydantic model class or a JSON schema dict describing the
+                required output structure.
+            tool_choice (`ToolChoice | None`, defaults to `None`):
+                The tool_choice forwarded to ``_call_api``. When ``None``,
+                defaults to forcing the ``generate_structured_output`` tool.
+            **kwargs (`Any`):
+                Additional keyword arguments forwarded to ``_call_api``.
         """
 
         if isinstance(structured_model, dict):
@@ -436,6 +454,8 @@ class ChatModelBase:
             input_schema = structured_model.model_json_schema()
 
         func_name = "generate_structured_output"
+        if tool_choice is None:
+            tool_choice = ToolChoice(mode=func_name)
         instruction = (
             "<system-reminder>Now you **MUST** call the tool named "
             f"'{func_name}' to generate the structured output required "
@@ -469,9 +489,7 @@ class ChatModelBase:
                     },
                 },
             ],
-            tool_choice=ToolChoice(
-                mode=func_name,
-            ),
+            tool_choice=tool_choice,
             **kwargs,
         )
 
