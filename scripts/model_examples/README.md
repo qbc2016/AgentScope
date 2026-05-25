@@ -13,7 +13,7 @@ scripts/model_examples/
 ├── _utils.py                             # Shared helpers (stream_and_collect)
 ├── test.jpeg                             # Sample image for multimodal tests
 │
-├── openai_chat_call.py             # OpenAI Chat Completions – basic + tool call
+├── openai_chat_call.py             # OpenAI Chat Completions – basic + tool call + structured output
 ├── openai_chat_multiagent.py       # OpenAI Chat Completions – multi-agent conversation
 ├── openai_chat_multimodal.py       # OpenAI Chat Completions – image/text multimodal
 ├── openai_chat_multiagent_multimodal.py
@@ -63,9 +63,9 @@ scripts/model_examples/
 
 | Suffix | File Pattern | What it covers |
 |---|---|---|
-| `call` | `*_call.py` | Basic text call + two-round tool calling |
+| `call` | `*_call.py` | Basic text call + two-round tool calling + structured output |
 | `multiagent` | `*_multiagent.py` | Multi-agent scenario using `MultiAgentFormatter` |
-| `multimodal` | `*_multimodal.py` | Image + text multimodal input |
+| `multimodal` | `*_multimodal.py` | Image + text multimodal input (some providers also test audio/video) |
 | `multiagent_multimodal` | `*_multiagent_multimodal.py` | Multi-agent + multimodal combined |
 
 ---
@@ -212,7 +212,10 @@ Each script typically defines two or more async functions:
 
 - `example_simple_call()` – basic text call with streaming
 - `example_tool_call()` – two-round conversation with tool/function calling
-- `example_image_url()` – image + text input (in `_multimodal.py` variants)
+- `example_structured_output()` – force a Pydantic-validated JSON output (in `_call.py` variants, uses a thinking-enabled model)
+- `example_image_url()` / `example_image_local_path()` / `example_image_base64()` – image + text input (in `_multimodal.py` variants)
+- `example_audio()` – audio input (e.g. `openai_chat_multimodal.py`, `dashscope_multimodal.py`)
+- `example_video()` – video input (e.g. `dashscope_multimodal.py`)
 
 ---
 
