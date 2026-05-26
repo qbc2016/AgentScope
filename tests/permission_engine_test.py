@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Test cases for PermissionEngine."""
+import os
 import sys
+import tempfile
 import unittest
 from unittest.async_case import IsolatedAsyncioTestCase
 
@@ -231,6 +233,63 @@ class PermissionEngineModeTest(IsolatedAsyncioTestCase):
             {"file_path": "/tmp/project/file.txt"},
         )
         self.assertEqual(decision.behavior, PermissionBehavior.ALLOW)
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "os.symlink typically requires admin privileges on Windows",
+    )
+    async def test_accept_edits_mode_resolves_symlinked_working_directory(
+        self,
+    ) -> None:
+        """ACCEPT_EDITS must recognize a working directory and a file path
+        as equivalent even when one side reaches it through a symlink
+        (e.g. macOS's /tmp -> /private/tmp). Regression for the
+        abspath -> realpath fix in `_path_in_allowed_working_path`.
+        """
+        parent = tempfile.mkdtemp()
+        try:
+            real_dir = os.path.join(parent, "real")
+            os.makedirs(real_dir)
+            link_dir = os.path.join(parent, "link")
+            os.symlink(real_dir, link_dir)
+
+            # Case 1: working_dir given as real path, file accessed via link
+            context = PermissionContext(
+                mode=PermissionMode.ACCEPT_EDITS,
+                working_directories={
+                    real_dir: AdditionalWorkingDirectory(
+                        path=real_dir,
+                        source="test",
+                    ),
+                },
+            )
+            engine = PermissionEngine(context)
+            decision = await engine.check_permission(
+                Write(),
+                {"file_path": os.path.join(link_dir, "file.txt")},
+            )
+            self.assertEqual(decision.behavior, PermissionBehavior.ALLOW)
+
+            # Case 2: working_dir given as link path, file accessed via real
+            context = PermissionContext(
+                mode=PermissionMode.ACCEPT_EDITS,
+                working_directories={
+                    link_dir: AdditionalWorkingDirectory(
+                        path=link_dir,
+                        source="test",
+                    ),
+                },
+            )
+            engine = PermissionEngine(context)
+            decision = await engine.check_permission(
+                Edit(),
+                {"file_path": os.path.join(real_dir, "file.txt")},
+            )
+            self.assertEqual(decision.behavior, PermissionBehavior.ALLOW)
+        finally:
+            import shutil
+
+            shutil.rmtree(parent, ignore_errors=True)
 
     async def test_accept_edits_mode_outside_working_directory(self) -> None:
         """Test ACCEPT_EDITS mode asks for edits outside working

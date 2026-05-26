@@ -7,6 +7,10 @@ import asyncio
 
 from ._bash_parser import BashCommandParser
 from .._base import ToolBase
+from .._constants import (
+    DEFAULT_DANGEROUS_FILES,
+    DEFAULT_DANGEROUS_DIRECTORIES,
+)
 from ...permission import (
     PermissionContext,
     PermissionDecision,
@@ -130,36 +134,33 @@ easier to review tool calls and give permission.
     is_external_tool: bool = False
     is_state_injected: bool = False
 
-    def __init__(
+    def __init__(  # pylint: disable=dangerous-default-value
         self,
-        additional_dangerous_files: list[str] | None = None,
-        additional_dangerous_directories: list[str] | None = None,
+        dangerous_files: list[str] = DEFAULT_DANGEROUS_FILES,
+        dangerous_directories: list[str] = DEFAULT_DANGEROUS_DIRECTORIES,
     ) -> None:
         """Initialize the bash tool.
 
         Args:
-            additional_dangerous_files (`list[str] | None`, optional):
-                Additional dangerous files to check (added to built-in
-                defaults). Use this to add project-specific sensitive files
-                like '.env' or '.secrets'.
-            additional_dangerous_directories (`list[str] | None`, optional):
-                Additional dangerous directories to check (added to built-in
-                defaults). Use this to add project-specific sensitive
-                directories.
+            dangerous_files (`list[str]`, optional):
+                Sensitive files that require explicit user confirmation,
+                even in BYPASS mode. Matched by basename
+                (case-insensitive). Defaults to `DEFAULT_DANGEROUS_FILES`.
+                Pass a custom list to fully replace the defaults, or `[]`
+                to disable the filename check.
+            dangerous_directories (`list[str]`, optional):
+                Sensitive directories that require explicit user
+                confirmation. Matched when any path segment equals an
+                entry (case-insensitive). Defaults to
+                `DEFAULT_DANGEROUS_DIRECTORIES`. Pass a custom list to
+                fully replace the defaults, or `[]` to disable the
+                directory check.
         """
 
         self._bash_parser = BashCommandParser()
 
-        # Merge class-level dangerous paths with additional ones
-        self.dangerous_files = self.__class__.dangerous_files.copy()
-        if additional_dangerous_files:
-            self.dangerous_files.extend(additional_dangerous_files)
-
-        self.dangerous_directories = (
-            self.__class__.dangerous_directories.copy()
-        )
-        if additional_dangerous_directories:
-            self.dangerous_directories.extend(additional_dangerous_directories)
+        self.dangerous_files = list(dangerous_files)
+        self.dangerous_directories = list(dangerous_directories)
 
     async def check_permissions(
         self,

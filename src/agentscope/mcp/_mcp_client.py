@@ -154,7 +154,15 @@ class MCPClient(BaseModel):
         self._initialize_client()
 
     def _initialize_client(self) -> None:
-        """Initialize the underlying MCP client based on config type."""
+        """Pre-build the stdio client context manager.
+
+        Only the stdio transport is materialised at construction time —
+        ``StdioServerParameters`` carry process-launch details that are
+        cheap to bind upfront. HTTP transports are built lazily inside
+        :meth:`connect` (or per-call inside :meth:`_get_client_gen` for
+        stateless mode), since each ``streamable_http_client`` /
+        ``sse_client`` is a one-shot context manager.
+        """
         if self.mcp_config.type == "stdio_mcp":
             config = self.mcp_config
             self._client = stdio_client(
@@ -282,19 +290,21 @@ class MCPClient(BaseModel):
         else:
             return self._create_http_client()
 
-    async def list_tools(self) -> list[ToolBase]:
-        """List available tools from the MCP server. If `enable_tools` and
-        `disable_tools` are not `None` in the constructor, the returned
-        tools will be filtered accordingly.
+    async def list_raw_tools(self) -> list[mcp.types.Tool]:
+        """List available tools from the MCP server in raw
+        :class:`mcp.types.Tool` form, applying ``enable_tools`` and
+        ``disable_tools`` filtering.
+
+        The full (unfiltered) tool list is cached on ``_cached_tools`` so
+        :meth:`get_tool` can resolve names that were filtered out as well.
 
         Returns:
-            `list[ToolBase]`:
-                List of available MCP tools.
+            `list[mcp.types.Tool]`:
+                Raw MCP tool descriptors after filtering.
 
         Raises:
             RuntimeError: If not connected (for stateful connections).
         """
-        available_tools: list[mcp.types.Tool] = []
         if not self.is_stateful:
             # Stateless: create temporary session
             async with self._get_client_gen() as cli:
@@ -306,15 +316,13 @@ class MCPClient(BaseModel):
                     await session.initialize()
                     res = await session.list_tools()
                     self._cached_tools = res.tools
-                    available_tools = res.tools
         else:
             # Stateful: use existing session
             self._validate_connection()
             res = await self._session.list_tools()
             self._cached_tools = res.tools
-            available_tools = res.tools
 
-        # Filter tools based on enable_tools and disable_tools
+        available_tools: list = self._cached_tools
         if self.enable_tools is not None:
             available_tools = [
                 tool
@@ -325,8 +333,23 @@ class MCPClient(BaseModel):
             available_tools = [
                 _ for _ in available_tools if _.name not in self.disable_tools
             ]
+        return available_tools
 
-        return [await self.get_tool(_.name) for _ in available_tools]
+    async def list_tools(self) -> list[ToolBase]:
+        """List available tools from the MCP server as wrapped
+        :class:`ToolBase` instances. If `enable_tools` and `disable_tools`
+        are not `None` in the constructor, the returned tools will be
+        filtered accordingly.
+
+        Returns:
+            `list[ToolBase]`:
+                List of available MCP tools.
+
+        Raises:
+            RuntimeError: If not connected (for stateful connections).
+        """
+        raw_tools = await self.list_raw_tools()
+        return [await self.get_tool(_.name) for _ in raw_tools]
 
     async def get_tool(
         self,
@@ -351,9 +374,10 @@ class MCPClient(BaseModel):
         # Avoid circular import by importing here
         from ..tool import MCPTool
 
-        # Fetch tools if not cached
+        # Fetch tools if not cached. Use list_raw_tools() to avoid the
+        # recursion list_tools() → get_tool() → list_tools().
         if self._cached_tools is None:
-            await self.list_tools()
+            await self.list_raw_tools()
 
         # Find target tool
         target_tool = None

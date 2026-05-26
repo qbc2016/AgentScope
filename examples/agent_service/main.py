@@ -13,30 +13,42 @@ from agentscope.app import (
 )
 from agentscope.mcp import MCPClient, StdioMCPConfig, HttpMCPConfig
 
+
+default_mcps = [
+    MCPClient(
+        name="browser-use",
+        mcp_config=StdioMCPConfig(
+            command="npx",
+            args=["@playwright/mcp@latest"],
+        ),
+        is_stateful=True,
+    ),
+]
+
+if os.getenv("AMAP_API_KEY"):
+    default_mcps.append(
+        MCPClient(
+            name="amap",
+            mcp_config=HttpMCPConfig(
+                url=f"https://mcp.amap.com/mcp?key="
+                f"{os.environ['AMAP_API_KEY']}",
+            ),
+            is_stateful=False,
+        ),
+    )
+
 app = create_app(
     RedisStorage(
-        # connection_pool=fakeredis.aioredis.FakeRedis().connection_pool,
+        host="localhost",
+        port=6379,
     ),
     workspace_manager=LocalWorkspaceManager(
-        basedir="/Users/david/Documents/Python/agents/agentscope_2/workdir",
-        default_mcps=[
-            MCPClient(
-                name="browser-use",
-                mcp_config=StdioMCPConfig(
-                    command="npx",
-                    args=["install @playwright/browser-use"],
-                ),
-                is_stateful=True,
-            ),
-            MCPClient(
-                name="amap",
-                mcp_config=HttpMCPConfig(
-                    url=f"https://mcp.amap.com/mcp?key="
-                    f"{os.environ['GAODE_API_KEY']}",
-                ),
-                is_stateful=False,
-            ),
-        ],
+        basedir=os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "workspaces",
+        ),
+        # The default MCP servers that will be added into the workspace
+        default_mcps=default_mcps,
     ),
     extra_middlewares=[
         Middleware(
@@ -48,7 +60,9 @@ app = create_app(
     ],
 )
 
+
 if __name__ == "__main__":
+    # Start the service
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

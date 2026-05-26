@@ -67,7 +67,7 @@ Usage:
     is_read_only: bool = True
     is_concurrency_safe: bool = True
     is_external_tool: bool = False
-    is_state_injected: bool = False
+    is_state_injected: bool = True
 
     def __init__(
         self,
