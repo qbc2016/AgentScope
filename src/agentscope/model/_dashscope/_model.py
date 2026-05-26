@@ -540,7 +540,7 @@ class DashScopeChatModel(ChatModelBase):
         injected system-reminder prompt to guide the model. When thinking
         is disabled, this falls through to the base implementation.
 
-        See: https://help.aliyun.com/zh/model-studio/qwen-function-calling
+        See: https://help.aliyun.com/en/model-studio/qwen-function-calling
 
         Args:
             model_name (`str`):
