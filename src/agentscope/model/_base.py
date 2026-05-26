@@ -53,10 +53,6 @@ class ChatModelBase:
     context_size: int
     """The model context size that will be used in the context compression."""
 
-    client_kwargs: dict[str, Any]
-    """Extra keyword arguments forwarded to the underlying SDK client
-    constructor (e.g. ``timeout``, ``http_client``, proxies)."""
-
     def __init__(
         self,
         credential: CredentialBase,
@@ -65,7 +61,6 @@ class ChatModelBase:
         stream: bool = True,
         max_retries: int = 3,
         context_size: int = 32768,
-        client_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the chat model base.
 
@@ -82,10 +77,6 @@ class ChatModelBase:
                 The maximum number of retries for API calls.
             context_size (`int`, defaults to `32768`):
                 The model context size used for context compression.
-            client_kwargs (`dict[str, Any] | None`, defaults to `None`):
-                Extra keyword arguments forwarded to the underlying SDK
-                client constructor (e.g. ``timeout``, ``http_client``,
-                proxies). When ``None``, an empty dict is used.
         """
         self.credential = credential
         self.model = model
@@ -93,7 +84,6 @@ class ChatModelBase:
         self.stream = stream
         self.max_retries = max_retries
         self.context_size = context_size
-        self.client_kwargs = client_kwargs or {}
 
     @classmethod
     def list_models(

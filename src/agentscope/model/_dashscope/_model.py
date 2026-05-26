@@ -138,9 +138,9 @@ class DashScopeChatModel(ChatModelBase):
             stream=stream,
             max_retries=max_retries,
             context_size=context_size,
-            client_kwargs=client_kwargs,
         )
         self.formatter = formatter or DashScopeChatFormatter()
+        self.client_kwargs = client_kwargs or {}
 
     async def _call_api(
         self,
