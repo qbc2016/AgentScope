@@ -88,4 +88,11 @@ parameter_overrides:
           - Sigga
           - Bea
           - Chloe
+      # Qwen omni streaming delivers raw PCM upstream regardless of the
+      # requested ``format``; the model wraps it as WAV before yielding to
+      # consumers, so this is the only format we expose here.
+      format:
+        enum:
+          - pcm16
+        default: pcm16
 

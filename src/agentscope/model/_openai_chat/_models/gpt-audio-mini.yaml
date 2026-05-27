@@ -36,3 +36,10 @@ parameter_overrides:
           - sage
           - shimmer
           - verse
+      # OpenAI streaming only accepts ``pcm16`` over the wire; the model
+      # wraps it as WAV before yielding to consumers, so this is the only
+      # format we expose here.
+      format:
+        enum:
+          - pcm16
+        default: pcm16

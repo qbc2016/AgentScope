@@ -2,7 +2,6 @@
 """The DashScope chat model class (OpenAI-compatible implementation)."""
 import base64
 import io
-import struct
 import uuid
 import warnings
 import wave
@@ -15,6 +14,7 @@ from pydantic import BaseModel, Field
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
 from .._model_response import ChatResponse, StructuredResponse
 from .._model_usage import ChatUsage
+from ..._utils._audio import build_streaming_wav_header
 from ...credential import DashScopeCredential
 from ...formatter import FormatterBase, DashScopeChatFormatter
 from ...message import (
@@ -277,42 +277,6 @@ class DashScopeChatModel(ChatModelBase):
 
         return self._parse_completion_response(start_datetime, response)
 
-    @staticmethod
-    def _streaming_wav_header(
-        sample_rate: int = 24000,
-        channels: int = 1,
-        bits_per_sample: int = 16,
-    ) -> bytes:
-        """Build a 44-byte WAV/RIFF header for streaming PCM.
-
-        The RIFF and ``data`` chunk sizes are set to ``0xFFFFFFFF`` since
-        the total length isn't known yet. Decoders that only need
-        sample-rate, channel count and bit depth (e.g. the web
-        ``WavStreamPlayer``) treat everything after the ``data`` chunk
-        header as PCM, so this is sufficient for live decoding of an
-        open-ended stream.
-        """
-        byte_rate = sample_rate * channels * bits_per_sample // 8
-        block_align = channels * bits_per_sample // 8
-        return (
-            b"RIFF"
-            + struct.pack("<I", 0xFFFFFFFF)
-            + b"WAVE"
-            + b"fmt "
-            + struct.pack("<I", 16)
-            + struct.pack(
-                "<HHIIHH",
-                1,
-                channels,
-                sample_rate,
-                byte_rate,
-                block_align,
-                bits_per_sample,
-            )
-            + b"data"
-            + struct.pack("<I", 0xFFFFFFFF)
-        )
-
     async def _parse_stream_response(
         self,
         start_datetime: datetime,
@@ -397,7 +361,7 @@ class DashScopeChatModel(ChatModelBase):
                         pcm_bytes = base64.b64decode(audio_chunk)
                         acc_audio_data += pcm_bytes
                         if not audio_header_sent:
-                            payload = self._streaming_wav_header() + pcm_bytes
+                            payload = build_streaming_wav_header() + pcm_bytes
                             audio_header_sent = True
                         else:
                             payload = pcm_bytes

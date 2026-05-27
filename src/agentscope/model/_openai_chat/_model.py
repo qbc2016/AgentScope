@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """The OpenAI Chat Completions model implementation."""
 import base64
+import io
 import uuid
+import wave
 from collections import OrderedDict
 from datetime import datetime
 from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List
@@ -11,6 +13,7 @@ from pydantic import BaseModel, Field
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
 from .._model_response import ChatResponse
 from .._model_usage import ChatUsage
+from ..._utils._audio import build_streaming_wav_header
 from ...credential import OpenAICredential
 from ...formatter import FormatterBase, OpenAIChatFormatter
 from ...message import (
@@ -236,7 +239,14 @@ class OpenAIChatModel(ChatModelBase):
         if self.parameters.audio is not None:
             # Requesting audio output implies ``modalities`` must include
             # ``"audio"``; set it automatically so callers don't have to.
-            kwargs["audio"] = self.parameters.audio.model_dump()
+            audio_kwargs = self.parameters.audio.model_dump()
+            # OpenAI streaming only supports ``pcm16``; other formats raise
+            # 400. We force pcm16 over the wire and re-wrap as WAV downstream
+            # so the frontend (and any other consumer) receives a playable
+            # audio block.
+            if self.stream:
+                audio_kwargs["format"] = "pcm16"
+            kwargs["audio"] = audio_kwargs
             kwargs["modalities"] = ["text", "audio"]
 
         kwargs.update(generate_kwargs)
@@ -265,10 +275,11 @@ class OpenAIChatModel(ChatModelBase):
         )
 
         if self.stream:
+            # Streaming wire format is always ``pcm16`` (forced above) and we
+            # re-wrap it as WAV before yielding, so downstream sees ``wav``.
             return self._parse_stream_response(
                 start_datetime,
                 response,
-                audio_fmt,
             )
 
         return self._parse_completion_response(
@@ -281,18 +292,20 @@ class OpenAIChatModel(ChatModelBase):
         self,
         start_datetime: datetime,
         response: AsyncStream,
-        audio_format: str = "wav",
     ) -> AsyncGenerator[ChatResponse, None]:
         """Parse the OpenAI Chat streaming response.
+
+        Upstream sends raw PCM16 (24kHz, 16-bit mono — OpenAI's only
+        streaming-supported audio format). We prefix the first audio
+        chunk with a streaming WAV header so the frontend can start
+        playback immediately, and assemble a fixed-size WAV on the
+        final chunk for non-streaming consumers.
 
         Args:
             start_datetime (`datetime`):
                 The start datetime of the response generation.
             response (`AsyncStream`):
                 The OpenAI async stream object.
-            audio_format (`str`, defaults to ``"wav"``):
-                The audio format requested (used to set the media type on
-                the output ``DataBlock``).
 
         Yields:
             `ChatResponse`:
@@ -312,6 +325,9 @@ class OpenAIChatModel(ChatModelBase):
         acc_audio_data: bytearray = bytearray()
         acc_audio_transcript: str = ""
         audio_block_id: str | None = None
+        # ``True`` once the first audio chunk has been prefixed with a
+        # streaming WAV header and yielded.
+        audio_header_sent: bool = False
 
         async with response as stream:
             async for chunk in stream:
@@ -362,14 +378,22 @@ class OpenAIChatModel(ChatModelBase):
                             getattr(delta_audio, "transcript", "") or ""
                         )
                     if audio_chunk:
-                        acc_audio_data += base64.b64decode(audio_chunk)
                         if audio_block_id is None:
                             audio_block_id = uuid.uuid4().hex
+                        pcm_bytes = base64.b64decode(audio_chunk)
+                        acc_audio_data += pcm_bytes
+                        if not audio_header_sent:
+                            payload = build_streaming_wav_header() + pcm_bytes
+                            audio_header_sent = True
+                        else:
+                            payload = pcm_bytes
                         delta_audio_block = DataBlock(
                             id=audio_block_id,
                             source=Base64Source(
-                                data=audio_chunk,
-                                media_type=f"audio/{audio_format}",
+                                data=base64.b64encode(payload).decode(
+                                    "ascii",
+                                ),
+                                media_type="audio/wav",
                             ),
                         )
                     if transcript_chunk:
@@ -441,14 +465,25 @@ class OpenAIChatModel(ChatModelBase):
                 ToolCallBlock(id=tc["id"], name=tc["name"], input=tc["input"]),
             )
         if acc_audio_data:
+            # PCM bytes were already streamed incrementally above (first
+            # chunk prefixed with a WAV header). Here we also assemble a
+            # standalone fixed-size WAV and attach it to the ``is_last``
+            # chunk so callers that consume the model directly (i.e.
+            # without going through ``Agent``, which filters audio blocks
+            # out of context) get a self-contained audio block for
+            # downstream serialization / display.
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(24000)
+                wav.writeframes(bytes(acc_audio_data))
             final_contents.append(
                 DataBlock(
                     id=audio_block_id,
                     source=Base64Source(
-                        data=base64.b64encode(
-                            bytes(acc_audio_data),
-                        ).decode("ascii"),
-                        media_type=f"audio/{audio_format}",
+                        data=base64.b64encode(buf.getvalue()).decode("ascii"),
+                        media_type="audio/wav",
                     ),
                 ),
             )
