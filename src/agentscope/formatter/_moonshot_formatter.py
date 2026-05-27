@@ -118,10 +118,7 @@ class MoonshotChatFormatter(_OpenAIFormatterBase):
                     content_blocks.append({"type": "text", "text": block.text})
 
                 elif isinstance(block, DataBlock):
-                    formatted = self._format_openai_data_block(
-                        block,
-                        role=msg.role,
-                    )
+                    formatted = self._format_openai_data_block(block)
                     if formatted is not None:
                         content_blocks.append(formatted)
 
@@ -210,7 +207,6 @@ class MoonshotChatFormatter(_OpenAIFormatterBase):
                             elif isinstance(item, DataBlock):
                                 fmt_item = self._format_openai_data_block(
                                     item,
-                                    role="user",
                                 )
                                 if fmt_item is not None:
                                     promo_content.append(fmt_item)
@@ -370,10 +366,7 @@ class MoonshotMultiAgentFormatter(_OpenAIFormatterBase):
                 if isinstance(block, TextBlock):
                     accumulated_text.append(f"{msg.name}: {block.text}")
                 elif isinstance(block, DataBlock):
-                    formatted = self._format_openai_data_block(
-                        block,
-                        role=msg.role,
-                    )
+                    formatted = self._format_openai_data_block(block)
                     if formatted is not None:
                         media_blocks.append(formatted)
 

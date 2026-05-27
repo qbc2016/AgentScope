@@ -323,7 +323,6 @@ class OpenAIChatModel(ChatModelBase):
         # the byte stream when an intermediate chunk happens to carry
         # base64 padding (``=``).
         acc_audio_data: bytearray = bytearray()
-        acc_audio_transcript: str = ""
         audio_block_id: str | None = None
         # ``True`` once the first audio chunk has been prefixed with a
         # streaming WAV header and yielded.
@@ -367,6 +366,7 @@ class OpenAIChatModel(ChatModelBase):
                 # Collect audio output (delta.audio.data /
                 # delta.audio.transcript)
                 delta_audio_block: DataBlock | None = None
+                transcript_chunk: str = ""
                 delta_audio = getattr(delta, "audio", None)
                 if delta_audio is not None:
                     if isinstance(delta_audio, dict):
@@ -396,8 +396,12 @@ class OpenAIChatModel(ChatModelBase):
                                 media_type="audio/wav",
                             ),
                         )
-                    if transcript_chunk:
-                        acc_audio_transcript += transcript_chunk
+                # Omni models deliver text via ``delta.audio.transcript``
+                # (not ``delta.content``); fold it into ``delta_text`` so
+                # the agent's streaming pipeline emits ``TextBlockDelta``
+                # events alongside the audio chunks.
+                if transcript_chunk:
+                    delta_text += transcript_chunk
 
                 acc_thinking.thinking += delta_thinking
                 acc_text.text += delta_text
@@ -458,8 +462,6 @@ class OpenAIChatModel(ChatModelBase):
             final_contents.append(acc_thinking)
         if acc_text.text:
             final_contents.append(acc_text)
-        elif acc_audio_transcript:
-            final_contents.append(TextBlock(text=acc_audio_transcript))
         for tc in acc_tool_calls.values():
             final_contents.append(
                 ToolCallBlock(id=tc["id"], name=tc["name"], input=tc["input"]),

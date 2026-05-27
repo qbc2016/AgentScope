@@ -482,8 +482,10 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
     ) -> None:
         """Stream PCM deltas produce per-chunk DataBlocks (first chunk
         prefixed with a streaming WAV header) sharing a stable id, plus a
-        final fixed-size WAV block readable by the ``wave`` module. The
-        transcript is accumulated into a single TextBlock."""
+        final fixed-size WAV block readable by the ``wave`` module.
+        Transcript chunks ride alongside as TextBlock deltas so the agent
+        can stream caption text live; the final block carries the full
+        accumulated transcript."""
         pcm1 = bytes([1, 2, 3, 4])
         pcm2 = bytes([5, 6, 7, 8])
         pcm3 = bytes([9, 10, 11, 12])
@@ -548,6 +550,18 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
             )
             self.assertEqual(base64.b64decode(audio_block.source.data), pcm)
             self.assertEqual(audio_block.source.media_type, "audio/wav")
+
+        # Transcript rides alongside: each delta carries a TextBlock with
+        # only that chunk's text (so the agent emits TextBlockDeltaEvents
+        # in real time).
+        for resp, expected_text in zip(
+            responses[:3],
+            ["Hello", " world", "!"],
+        ):
+            text_block = next(
+                b for b in resp.content if isinstance(b, TextBlock)
+            )
+            self.assertEqual(text_block.text, expected_text)
 
         # Final ``is_last`` block: a fixed-size WAV the ``wave`` module
         # can parse end-to-end at 24kHz / mono / 16-bit.
