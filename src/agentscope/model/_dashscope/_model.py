@@ -263,17 +263,7 @@ class DashScopeChatModel(ChatModelBase):
         response = await client.chat.completions.create(**request_kwargs)
 
         if self.stream:
-            audio_cfg = request_kwargs.get("audio")
-            audio_fmt = (
-                audio_cfg.get("format", "wav")
-                if isinstance(audio_cfg, dict)
-                else "wav"
-            )
-            return self._parse_stream_response(
-                start_datetime,
-                response,
-                audio_fmt,
-            )
+            return self._parse_stream_response(start_datetime, response)
 
         return self._parse_completion_response(start_datetime, response)
 
@@ -281,7 +271,6 @@ class DashScopeChatModel(ChatModelBase):
         self,
         start_datetime: datetime,
         response: AsyncStream,
-        audio_format: str = "wav",
     ) -> AsyncGenerator[ChatResponse, None]:
         """Parse the DashScope streaming response (OpenAI-compatible format).
 
@@ -290,9 +279,6 @@ class DashScopeChatModel(ChatModelBase):
                 The start datetime of the response generation.
             response (`AsyncStream`):
                 The OpenAI-compatible async stream object.
-            audio_format (`str`, defaults to ``"wav"``):
-                The audio format requested (used to set the media type on
-                the output ``DataBlock``).
 
         Yields:
             `ChatResponse`:
@@ -371,7 +357,7 @@ class DashScopeChatModel(ChatModelBase):
                                 data=base64.b64encode(payload).decode(
                                     "ascii",
                                 ),
-                                media_type=f"audio/{audio_format}",
+                                media_type="audio/wav",
                             ),
                         )
 
@@ -469,7 +455,7 @@ class DashScopeChatModel(ChatModelBase):
                     id=audio_block_id,
                     source=Base64Source(
                         data=base64.b64encode(buf.getvalue()).decode("ascii"),
-                        media_type=f"audio/{audio_format}",
+                        media_type="audio/wav",
                     ),
                 ),
             )
