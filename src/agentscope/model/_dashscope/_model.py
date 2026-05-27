@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """The DashScope chat model class (OpenAI-compatible implementation)."""
+import base64
+import io
+import struct
+import uuid
 import warnings
+import wave
 from collections import OrderedDict
 from datetime import datetime
 from typing import Any, AsyncGenerator, List, Literal, Type, TYPE_CHECKING
@@ -28,6 +33,33 @@ if TYPE_CHECKING:
 else:
     ChatCompletion = Any
     AsyncStream = Any
+
+
+class DashScopeAudioOutput(BaseModel):
+    """Audio output configuration for omni-style DashScope models.
+
+    Mirrors the OpenAI ``audio`` request parameter shape; required when
+    asking an omni model to speak its response.
+    """
+
+    # ``Ethan`` is common across Qwen3.5-Omni / qwen3-omni-flash /
+    # Qwen-Omni-Turbo; ``Tina`` / ``Cherry`` / ``Chelsie`` are the three
+    # family defaults. The authoritative per-model set lives in each model
+    # card's ``audio.voice.enum`` override; ``| str`` accepts any other
+    # voice the API supports.
+    voice: Literal["Ethan", "Tina", "Cherry", "Chelsie"] | str = Field(
+        ...,
+        title="Voice",
+        description=(
+            "The voice the model uses for audio output. Supported voices "
+            "vary by model — see the model card's ``audio.voice.enum``."
+        ),
+    )
+    format: Literal["wav", "mp3", "pcm16"] | str = Field(
+        default="wav",
+        title="Audio Format",
+        description="The audio output format.",
+    )
 
 
 class DashScopeChatModel(ChatModelBase):
@@ -90,6 +122,17 @@ class DashScopeChatModel(ChatModelBase):
             default=True,
             title="Parallel Tool Calls",
             description="If enable parallel tool calls for the LLM output.",
+        )
+
+        audio: DashScopeAudioOutput | None = Field(
+            default=None,
+            title="Audio Output",
+            description=(
+                "Audio output configuration for omni-style models. When "
+                "set, the model is implicitly asked for audio output "
+                "(``modalities`` is filled in automatically); leave unset "
+                "for text-only responses."
+            ),
         )
 
     type: Literal["dashscope_chat"] = "dashscope_chat"
@@ -185,6 +228,12 @@ class DashScopeChatModel(ChatModelBase):
         if self.parameters.top_p is not None:
             request_kwargs["top_p"] = self.parameters.top_p
 
+        if self.parameters.audio is not None:
+            # Requesting audio output implies ``modalities`` must include
+            # ``"audio"``; set it automatically so callers don't have to.
+            request_kwargs["audio"] = self.parameters.audio.model_dump()
+            request_kwargs["modalities"] = ["text", "audio"]
+
         request_kwargs.update(kwargs)
 
         fmt_tools, fmt_tool_choice = self._format_tools(tools, tool_choice)
@@ -228,6 +277,42 @@ class DashScopeChatModel(ChatModelBase):
 
         return self._parse_completion_response(start_datetime, response)
 
+    @staticmethod
+    def _streaming_wav_header(
+        sample_rate: int = 24000,
+        channels: int = 1,
+        bits_per_sample: int = 16,
+    ) -> bytes:
+        """Build a 44-byte WAV/RIFF header for streaming PCM.
+
+        The RIFF and ``data`` chunk sizes are set to ``0xFFFFFFFF`` since
+        the total length isn't known yet. Decoders that only need
+        sample-rate, channel count and bit depth (e.g. the web
+        ``WavStreamPlayer``) treat everything after the ``data`` chunk
+        header as PCM, so this is sufficient for live decoding of an
+        open-ended stream.
+        """
+        byte_rate = sample_rate * channels * bits_per_sample // 8
+        block_align = channels * bits_per_sample // 8
+        return (
+            b"RIFF"
+            + struct.pack("<I", 0xFFFFFFFF)
+            + b"WAVE"
+            + b"fmt "
+            + struct.pack("<I", 16)
+            + struct.pack(
+                "<HHIIHH",
+                1,
+                channels,
+                sample_rate,
+                byte_rate,
+                block_align,
+                bits_per_sample,
+            )
+            + b"data"
+            + struct.pack("<I", 0xFFFFFFFF)
+        )
+
     async def _parse_stream_response(
         self,
         start_datetime: datetime,
@@ -255,7 +340,15 @@ class DashScopeChatModel(ChatModelBase):
         acc_text = TextBlock(text="")
         acc_thinking = ThinkingBlock(thinking="")
         acc_tool_calls: OrderedDict = OrderedDict()
-        acc_audio_data: str = ""
+        # Raw PCM bytes accumulated across chunks. Storing the decoded form
+        # (rather than concatenated base64 strings) avoids the risk of
+        # corrupting the byte stream when an intermediate chunk happens to
+        # carry base64 padding (``=``).
+        acc_audio_data: bytearray = bytearray()
+        audio_block_id: str | None = None
+        # ``True`` once the first audio chunk has been prefixed with a
+        # streaming WAV header and yielded.
+        audio_header_sent: bool = False
 
         async with response as stream:
             async for chunk in stream:
@@ -286,15 +379,37 @@ class DashScopeChatModel(ChatModelBase):
                 )
                 delta_text = getattr(delta, "content", None) or ""
 
-                # Collect audio output from Omni models (delta.audio.data)
+                # Collect audio output from Omni models (delta.audio.data).
+                # Upstream sends raw PCM (24kHz, 16-bit mono); we prefix the
+                # first chunk with a streaming WAV header so the frontend
+                # can start playback immediately rather than waiting for
+                # end-of-stream.
                 delta_audio = getattr(delta, "audio", None)
+                delta_audio_block: DataBlock | None = None
                 if delta_audio is not None:
                     if isinstance(delta_audio, dict):
                         audio_chunk = delta_audio.get("data", "")
                     else:
                         audio_chunk = getattr(delta_audio, "data", "") or ""
                     if audio_chunk:
-                        acc_audio_data += audio_chunk
+                        if audio_block_id is None:
+                            audio_block_id = uuid.uuid4().hex
+                        pcm_bytes = base64.b64decode(audio_chunk)
+                        acc_audio_data += pcm_bytes
+                        if not audio_header_sent:
+                            payload = self._streaming_wav_header() + pcm_bytes
+                            audio_header_sent = True
+                        else:
+                            payload = pcm_bytes
+                        delta_audio_block = DataBlock(
+                            id=audio_block_id,
+                            source=Base64Source(
+                                data=base64.b64encode(payload).decode(
+                                    "ascii",
+                                ),
+                                media_type=f"audio/{audio_format}",
+                            ),
+                        )
 
                 acc_thinking.thinking += delta_thinking
                 acc_text.text += delta_text
@@ -329,7 +444,7 @@ class DashScopeChatModel(ChatModelBase):
                     )
 
                 delta_contents: List[
-                    TextBlock | ToolCallBlock | ThinkingBlock
+                    TextBlock | ToolCallBlock | ThinkingBlock | DataBlock
                 ] = []
                 if delta_thinking:
                     delta_contents.append(
@@ -343,6 +458,8 @@ class DashScopeChatModel(ChatModelBase):
                         TextBlock(id=acc_text.id, text=delta_text),
                     )
                 delta_contents.extend(delta_tool_call_blocks)
+                if delta_audio_block is not None:
+                    delta_contents.append(delta_audio_block)
 
                 if delta_contents:
                     _kwargs: dict[str, Any] = {
@@ -370,10 +487,24 @@ class DashScopeChatModel(ChatModelBase):
                 ),
             )
         if acc_audio_data:
+            # PCM bytes were already streamed incrementally above (first
+            # chunk prefixed with a WAV header). Here we also assemble a
+            # standalone fixed-size WAV and attach it to the ``is_last``
+            # chunk so callers that consume the model directly (i.e.
+            # without going through ``Agent``, which filters audio blocks
+            # out of context) get a self-contained audio block for
+            # downstream serialization / display.
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(24000)
+                wav.writeframes(bytes(acc_audio_data))
             final_contents.append(
                 DataBlock(
+                    id=audio_block_id,
                     source=Base64Source(
-                        data=acc_audio_data,
+                        data=base64.b64encode(buf.getvalue()).decode("ascii"),
                         media_type=f"audio/{audio_format}",
                     ),
                 ),

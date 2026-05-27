@@ -61,6 +61,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { AudioProvider } from '@/context/AudioContext';
 import { ChatProvider, useChatContext } from '@/context/ChatContext';
 import { useAgents } from '@/hooks/useAgents';
 import { useAvailableModels } from '@/hooks/useAvailableModels';
@@ -575,6 +576,8 @@ const ChatPageInner = () => {
 
 export const ChatPage = () => (
 	<ChatProvider>
-		<ChatPageInner />
+		<AudioProvider>
+			<ChatPageInner />
+		</AudioProvider>
 	</ChatProvider>
 );

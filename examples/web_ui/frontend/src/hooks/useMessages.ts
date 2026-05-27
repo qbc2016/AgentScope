@@ -1,6 +1,9 @@
 import { EventType } from '@agentscope-ai/agentscope/event';
 import type {
 	AgentEvent,
+	DataBlockStartEvent,
+	DataBlockDeltaEvent,
+	DataBlockEndEvent,
 	ReplyStartEvent,
 	UserConfirmResultEvent,
 } from '@agentscope-ai/agentscope/event';
@@ -12,6 +15,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { sessionApi } from '@/api';
 import { chatApi } from '@/api';
 import type { ChatRequest } from '@/api/types';
+import { useAudioManager } from '@/context/AudioContext';
 
 export function useMessages(agentId: string | null, sessionId: string | null) {
 	const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -23,6 +27,8 @@ export function useMessages(agentId: string | null, sessionId: string | null) {
 	const currentReplyRef = useRef<Msg | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
 	const rafRef = useRef<number | null>(null);
+
+	const audioManager = useAudioManager();
 
 	const scheduleUpdate = useCallback(() => {
 		if (rafRef.current !== null) return;
@@ -42,9 +48,33 @@ export function useMessages(agentId: string | null, sessionId: string | null) {
 			} else if (currentReplyRef.current) {
 				appendEvent(currentReplyRef.current, event);
 			}
+
+			// Route streaming audio DataBlocks to the audio manager. They still
+			// flow through `appendEvent` above (which builds up `source.data`
+			// in the Msg), but MessageBubble reads playback state from the
+			// manager so it can show progress and autoplay on completion.
+			if (audioManager) {
+				if (event.type === EventType.DATA_BLOCK_START) {
+					const e = event as DataBlockStartEvent;
+					if (e.media_type.startsWith('audio/')) {
+						audioManager.start(e.block_id, e.media_type);
+					}
+				} else if (event.type === EventType.DATA_BLOCK_DELTA) {
+					const e = event as DataBlockDeltaEvent;
+					if (e.media_type.startsWith('audio/')) {
+						audioManager.append(e.block_id, e.data);
+					}
+				} else if (event.type === EventType.DATA_BLOCK_END) {
+					const e = event as DataBlockEndEvent;
+					// `end` is a no-op when the block isn't being tracked, so
+					// we can call it unconditionally.
+					audioManager.end(e.block_id);
+				}
+			}
+
 			scheduleUpdate();
 		},
-		[scheduleUpdate],
+		[scheduleUpdate, audioManager],
 	);
 
 	// Load history when sessionId changes

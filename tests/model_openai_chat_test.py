@@ -477,8 +477,8 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
         self,
         mock_client_cls: MagicMock,
     ) -> None:
-        """Stream audio deltas accumulate into a final DataBlock with the
-        concatenated base64 payload and a transcript TextBlock."""
+        """Stream audio deltas yield per-chunk DataBlocks (with a stable id)
+        followed by a final cumulative DataBlock and a transcript TextBlock."""
         chunks = [
             _make_stream_chunk(
                 delta_audio={"data": "AAAA", "transcript": "Hello"},
@@ -500,18 +500,51 @@ class TestOpenAIChatStream(IsolatedAsyncioTestCase):
         gen = await self.model([])
         responses = [r async for r in gen]
 
-        # Only the final response carries the assembled audio content; the
-        # per-chunk deltas have no text/thinking/tool_call so no delta
-        # ChatResponse is yielded mid-stream.
-        self.assertEqual(len(responses), 1)
-        final = responses[0]
+        # 3 delta ChatResponses (each carries a DataBlock chunk plus the
+        # delta transcript text) + 1 final cumulative ChatResponse.
+        self.assertEqual(len(responses), 4)
+
+        # All three delta DataBlocks must share the same stable block id so
+        # downstream consumers can stitch them into one DataBlock stream.
+        delta_audio_ids = {
+            block.id
+            for r in responses[:3]
+            for block in r.content
+            if isinstance(block, DataBlock)
+        }
+        self.assertEqual(len(delta_audio_ids), 1)
+        audio_block_id = delta_audio_ids.pop()
+
+        expected_deltas = [
+            ("Hello", "AAAA"),
+            (" world", "BBBB"),
+            ("!", "CCCC"),
+        ]
+        for resp, (text, audio_data) in zip(responses[:3], expected_deltas):
+            self.assertFalse(resp.is_last)
+            self.assertEqual(
+                resp.content,
+                [
+                    TextBlock.model_construct(id=A, text=text),
+                    DataBlock.model_construct(
+                        id=audio_block_id,
+                        source=Base64Source.model_construct(
+                            type="base64",
+                            media_type="audio/wav",
+                            data=audio_data,
+                        ),
+                    ),
+                ],
+            )
+
+        final = responses[-1]
         self.assertTrue(final.is_last)
         self.assertEqual(
             final.content,
             [
                 TextBlock.model_construct(id=A, text="Hello world!"),
                 DataBlock.model_construct(
-                    id=A,
+                    id=audio_block_id,
                     source=Base64Source.model_construct(
                         type="base64",
                         media_type="audio/wav",

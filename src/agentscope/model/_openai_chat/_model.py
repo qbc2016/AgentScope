@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """The OpenAI Chat Completions model implementation."""
+import base64
+import uuid
 from collections import OrderedDict
 from datetime import datetime
 from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List
@@ -27,6 +29,34 @@ if TYPE_CHECKING:
 else:
     ChatCompletion = Any
     AsyncStream = Any
+
+
+class OpenAIAudioOutput(BaseModel):
+    """Audio output configuration for OpenAI omni-style models
+    (e.g. ``gpt-audio-mini``).
+
+    Mirrors the OpenAI ``audio`` request parameter shape; required when
+    asking the model to speak its response.
+    """
+
+    # ``alloy``/``echo``/``nova``/``shimmer`` are the original cross-version
+    # voices; newer additions (``ash``/``ballad``/``coral``/``sage``/
+    # ``verse`` etc.) and any future ones go through the ``| str`` escape
+    # hatch. Per-model authoritative sets live in each model card's
+    # ``audio.voice.enum`` override.
+    voice: Literal["alloy", "echo", "nova", "shimmer"] | str = Field(
+        ...,
+        title="Voice",
+        description=(
+            "The voice the model uses for audio output. Supported voices "
+            "vary by model — see the model card's ``audio.voice.enum``."
+        ),
+    )
+    format: Literal["wav", "mp3", "flac", "opus", "pcm16"] | str = Field(
+        default="wav",
+        title="Audio Format",
+        description="The audio output format.",
+    )
 
 
 class OpenAIChatModel(ChatModelBase):
@@ -85,6 +115,18 @@ class OpenAIChatModel(ChatModelBase):
             default=True,
             title="Parallel Tool Calls",
             description="Whether to enable parallel tool calls.",
+        )
+
+        audio: OpenAIAudioOutput | None = Field(
+            default=None,
+            title="Audio Output",
+            description=(
+                "Audio output configuration for omni-style models (e.g. "
+                "``gpt-audio-mini``). When set, the model is "
+                "implicitly asked for audio output (``modalities`` is "
+                "filled in automatically); leave unset for text-only "
+                "responses."
+            ),
         )
 
     type: Literal["openai_chat"] = "openai_chat"
@@ -191,6 +233,12 @@ class OpenAIChatModel(ChatModelBase):
         ):
             kwargs["reasoning_effort"] = self.parameters.reasoning_effort
 
+        if self.parameters.audio is not None:
+            # Requesting audio output implies ``modalities`` must include
+            # ``"audio"``; set it automatically so callers don't have to.
+            kwargs["audio"] = self.parameters.audio.model_dump()
+            kwargs["modalities"] = ["text", "audio"]
+
         kwargs.update(generate_kwargs)
 
         fmt_tools, fmt_tool_choice = self._format_tools(tools, tool_choice)
@@ -257,8 +305,13 @@ class OpenAIChatModel(ChatModelBase):
         acc_text = TextBlock(text="")
         acc_thinking = ThinkingBlock(thinking="")
         acc_tool_calls: OrderedDict = OrderedDict()
-        acc_audio_data: str = ""
+        # Raw audio bytes accumulated across chunks. Storing the decoded
+        # form (rather than concatenated base64 strings) avoids corrupting
+        # the byte stream when an intermediate chunk happens to carry
+        # base64 padding (``=``).
+        acc_audio_data: bytearray = bytearray()
         acc_audio_transcript: str = ""
+        audio_block_id: str | None = None
 
         async with response as stream:
             async for chunk in stream:
@@ -297,6 +350,7 @@ class OpenAIChatModel(ChatModelBase):
 
                 # Collect audio output (delta.audio.data /
                 # delta.audio.transcript)
+                delta_audio_block: DataBlock | None = None
                 delta_audio = getattr(delta, "audio", None)
                 if delta_audio is not None:
                     if isinstance(delta_audio, dict):
@@ -308,7 +362,16 @@ class OpenAIChatModel(ChatModelBase):
                             getattr(delta_audio, "transcript", "") or ""
                         )
                     if audio_chunk:
-                        acc_audio_data += audio_chunk
+                        acc_audio_data += base64.b64decode(audio_chunk)
+                        if audio_block_id is None:
+                            audio_block_id = uuid.uuid4().hex
+                        delta_audio_block = DataBlock(
+                            id=audio_block_id,
+                            source=Base64Source(
+                                data=audio_chunk,
+                                media_type=f"audio/{audio_format}",
+                            ),
+                        )
                     if transcript_chunk:
                         acc_audio_transcript += transcript_chunk
 
@@ -337,7 +400,7 @@ class OpenAIChatModel(ChatModelBase):
                     )
 
                 delta_contents: List[
-                    TextBlock | ToolCallBlock | ThinkingBlock
+                    TextBlock | ToolCallBlock | ThinkingBlock | DataBlock
                 ] = []
                 if delta_thinking:
                     delta_contents.append(
@@ -351,6 +414,8 @@ class OpenAIChatModel(ChatModelBase):
                         TextBlock(id=acc_text.id, text=delta_text),
                     )
                 delta_contents.extend(delta_tool_call_blocks)
+                if delta_audio_block is not None:
+                    delta_contents.append(delta_audio_block)
 
                 if delta_contents:
                     _kwargs: dict[str, Any] = {
@@ -378,8 +443,11 @@ class OpenAIChatModel(ChatModelBase):
         if acc_audio_data:
             final_contents.append(
                 DataBlock(
+                    id=audio_block_id,
                     source=Base64Source(
-                        data=acc_audio_data,
+                        data=base64.b64encode(
+                            bytes(acc_audio_data),
+                        ).decode("ascii"),
                         media_type=f"audio/{audio_format}",
                     ),
                 ),

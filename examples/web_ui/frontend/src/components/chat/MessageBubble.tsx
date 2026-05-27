@@ -1,10 +1,11 @@
 import type {
 	ContentBlock,
+	DataBlock,
 	Msg,
 	ToolCallBlock,
 	ToolResultBlock,
 } from '@agentscope-ai/agentscope/message';
-import { ArrowDown, ArrowUp, Circle, Copy } from 'lucide-react';
+import { ArrowDown, ArrowUp, AudioLines, Circle, Copy } from 'lucide-react';
 import type { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,6 +16,7 @@ import lineCornerSvg from '@/assets/images/line-corner.svg';
 import lineVerticalSvg from '@/assets/images/line-vertical.svg';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useAudioBlock } from '@/context/AudioContext';
 import { useTranslation } from '@/i18n/useI18n';
 import { formatNumber } from '@/utils/common';
 
@@ -315,6 +317,43 @@ function ToolCallGroup({
 }
 
 /**
+ * Renders an audio {@link DataBlock}. While the block is still being streamed
+ * by the assistant we show a "generating" indicator and let
+ * {@link useAudioBlock}'s live player handle real-time playback. Once the
+ * stream finishes the manager publishes an Object URL and we mount an
+ * ``<audio controls>`` element so the user can replay or scrub.
+ *
+ * For historical messages loaded from the server the block isn't tracked by
+ * the manager — we fall back to a regular data URL rendered from the
+ * accumulated base64.
+ */
+function AudioDataBlock({ block }: { block: DataBlock }) {
+	const { t } = useTranslation();
+	const audioState = useAudioBlock(block.id);
+
+	if (audioState && audioState.status === 'streaming') {
+		return (
+			<div className="flex flex-row items-center gap-x-2 text-sm text-muted-foreground">
+				<AudioLines className="size-4 animate-pulse" />
+				<span>{t('messageBubble.audioGenerating')}</span>
+			</div>
+		);
+	}
+
+	let src: string | null = null;
+	if (audioState?.url) {
+		src = audioState.url;
+	} else if (block.source.type === 'url') {
+		src = block.source.url;
+	} else if (block.source.data) {
+		src = `data:${block.source.media_type};base64,${block.source.data}`;
+	}
+
+	if (!src) return null;
+	return <audio controls src={src} />;
+}
+
+/**
  * Renders a content block based on its type.
  *
  * @param block - The content block to render.
@@ -394,6 +433,9 @@ function renderBlock(
 
 		case 'data': {
 			const dataType = block.source.media_type.split('/')[0];
+			if (dataType === 'audio') {
+				return <AudioDataBlock block={block} />;
+			}
 			let data: string;
 			if (block.source.type === 'url') {
 				data = block.source.url;
@@ -403,8 +445,6 @@ function renderBlock(
 			switch (dataType) {
 				case 'image':
 					return <img src={data} alt="Uploaded image" />;
-				case 'audio':
-					return <audio controls src={data} />;
 				case 'video':
 					return <video controls src={data} />;
 			}
