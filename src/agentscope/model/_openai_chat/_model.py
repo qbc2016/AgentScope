@@ -48,7 +48,7 @@ class OpenAIAudioOutput(BaseModel):
     # hatch. Per-model authoritative sets live in each model card's
     # ``audio.voice.enum`` override.
     voice: Literal["alloy", "echo", "nova", "shimmer"] | str = Field(
-        ...,
+        default="alloy",
         title="Voice",
         description=(
             "The voice the model uses for audio output. Supported voices "
@@ -56,7 +56,7 @@ class OpenAIAudioOutput(BaseModel):
         ),
     )
     format: Literal["wav", "mp3", "flac", "opus", "pcm16"] | str = Field(
-        default="wav",
+        default="pcm16",
         title="Audio Format",
         description="The audio output format.",
     )

@@ -48,7 +48,7 @@ class DashScopeAudioOutput(BaseModel):
     # card's ``audio.voice.enum`` override; ``| str`` accepts any other
     # voice the API supports.
     voice: Literal["Ethan", "Tina", "Cherry", "Chelsie"] | str = Field(
-        ...,
+        default="Tina",
         title="Voice",
         description=(
             "The voice the model uses for audio output. Supported voices "
@@ -56,7 +56,7 @@ class DashScopeAudioOutput(BaseModel):
         ),
     )
     format: Literal["wav", "mp3", "pcm16"] | str = Field(
-        default="wav",
+        default="pcm16",
         title="Audio Format",
         description="The audio output format.",
     )
