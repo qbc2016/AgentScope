@@ -123,8 +123,10 @@ class XAIChatModel(ChatModelBase):
                 instance will be used.
             client_kwargs (`dict[str, Any] | None`, defaults to `None`):
                 Extra keyword arguments forwarded to ``xai_sdk.AsyncClient``
-                (e.g. ``api_host``, ``timeout``, ``metadata``,
-                ``channel_options``).
+                (e.g. ``timeout``, ``metadata``, ``channel_options``). Keys
+                that overlap with credential-derived arguments (such as
+                ``api_key`` or ``api_host``) take precedence over the
+                credential values.
         """
         super().__init__(
             credential=credential,
@@ -168,9 +170,11 @@ class XAIChatModel(ChatModelBase):
         from xai_sdk import AsyncClient
 
         client = AsyncClient(
-            api_key=self.credential.api_key.get_secret_value(),
-            api_host=self.credential.api_host,
-            **self.client_kwargs,
+            **{
+                "api_key": self.credential.api_key.get_secret_value(),
+                "api_host": self.credential.api_host,
+                **self.client_kwargs,
+            },
         )
 
         xai_messages = await self.formatter.format(messages)

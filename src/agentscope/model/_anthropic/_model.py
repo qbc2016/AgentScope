@@ -136,9 +136,11 @@ class AnthropicChatModel(ChatModelBase):
         import anthropic
 
         client = anthropic.AsyncAnthropic(
-            api_key=self.credential.api_key.get_secret_value(),
-            base_url=self.credential.base_url,
-            **self.client_kwargs,
+            **{
+                "api_key": self.credential.api_key.get_secret_value(),
+                "base_url": self.credential.base_url,
+                **self.client_kwargs,
+            },
         )
 
         # Anthropic requires max_tokens; fall back to a safe default when

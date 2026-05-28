@@ -200,8 +200,10 @@ class GeminiChatModel(ChatModelBase):
         from google import genai
 
         client = genai.Client(
-            api_key=self.credential.api_key.get_secret_value(),
-            **self.client_kwargs,
+            **{
+                "api_key": self.credential.api_key.get_secret_value(),
+                **self.client_kwargs,
+            },
         )
 
         formatted_messages = await self.formatter.format(messages)

@@ -153,9 +153,11 @@ class DeepSeekChatModel(ChatModelBase):
         import openai
 
         client = openai.AsyncClient(
-            api_key=self.credential.api_key.get_secret_value(),
-            base_url=self.credential.base_url,
-            **self.client_kwargs,
+            **{
+                "api_key": self.credential.api_key.get_secret_value(),
+                "base_url": self.credential.base_url,
+                **self.client_kwargs,
+            },
         )
 
         formatted_messages = await self.formatter.format(messages)

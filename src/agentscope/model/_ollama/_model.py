@@ -136,8 +136,10 @@ class OllamaChatModel(ChatModelBase):
         import ollama
 
         client = ollama.AsyncClient(
-            host=self.credential.host,
-            **self.client_kwargs,
+            **{
+                "host": self.credential.host,
+                **self.client_kwargs,
+            },
         )
 
         formatted_messages = await self.formatter.format(messages)
