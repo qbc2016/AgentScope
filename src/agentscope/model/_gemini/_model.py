@@ -5,7 +5,7 @@ import copy
 import json
 import uuid
 from datetime import datetime
-from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List
+from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List, Type
 
 from pydantic import BaseModel, Field
 
@@ -128,6 +128,7 @@ class GeminiChatModel(ChatModelBase):
         parameters: "GeminiChatModel.Parameters | None" = None,
         stream: bool = True,
         max_retries: int = 3,
+        retry_delay: float = 1.0,
         context_size: int = 1048576,
         formatter: FormatterBase | None = None,
         client_kwargs: dict[str, Any] | None = None,
@@ -147,6 +148,8 @@ class GeminiChatModel(ChatModelBase):
                 Whether to enable streaming output.
             max_retries (`int`, defaults to `3`):
                 The maximum number of retries for the Gemini API.
+            retry_delay (`float`, defaults to `1.0`):
+                Seconds to sleep between retry attempts.
             context_size (`int`, defaults to `1048576`):
                 The model context size used for context compression.
             formatter (`FormatterBase | None`, defaults to `None`):
@@ -164,10 +167,20 @@ class GeminiChatModel(ChatModelBase):
             parameters=parameters or self.Parameters(),
             stream=stream,
             max_retries=max_retries,
+            retry_delay=retry_delay,
             context_size=context_size,
         )
         self.formatter = formatter or GeminiChatFormatter()
         self.client_kwargs = client_kwargs or {}
+
+    @classmethod
+    def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
+        from google.genai import errors
+
+        # ServerError covers 5xx; ClientError (4xx incl. 429) is intentionally
+        # excluded so auth/bad-request errors don't retry. Rate limits surface
+        # as ClientError here and won't retry — refine if that becomes a pain.
+        return (errors.ServerError,)
 
     async def _call_api(
         self,
