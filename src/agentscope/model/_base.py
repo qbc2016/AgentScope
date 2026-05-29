@@ -59,7 +59,11 @@ class ChatModelBase:
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        if "_get_retryable_exceptions" not in cls.__dict__:
+        # Accept the declaration from any ancestor between cls and the
+        # ChatModelBase stub — so test mocks subclassing MockModel inherit
+        # MockModel's declaration without needing to redeclare.
+        inherited = cls._get_retryable_exceptions.__func__
+        if inherited is ChatModelBase._get_retryable_exceptions.__func__:
             raise TypeError(
                 f"{cls.__name__} must declare _get_retryable_exceptions() "
                 "(return an empty tuple to explicitly opt out of retry).",
