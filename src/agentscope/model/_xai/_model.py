@@ -145,13 +145,16 @@ class XAIChatModel(ChatModelBase):
 
     @classmethod
     def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
-        # TODO: xai_sdk uses gRPC under the hood, not the OpenAI SDK, so the
-        # right retry set is some subset of grpc.aio.AioRpcError keyed on
-        # status code (UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED).
-        # Returning an empty tuple opts out until the SDK exception surface
-        # is verified — better than declaring openai.* types that will never
-        # match a real xAI failure.
-        return ()
+        import grpc
+
+        # xai_sdk uses grpc.aio under the hood; transport/API failures surface
+        # as grpc.aio.AioRpcError (subclass of grpc.RpcError). We retry the
+        # whole class because the retry mechanism here only filters by type,
+        # not by status code — so 4xx-equivalents (UNAUTHENTICATED, INVALID
+        # _ARGUMENT) will also be retried a few times before failing, which
+        # we accept. Note xai_sdk additionally retries UNAVAILABLE 5 times at
+        # the gRPC layer with exponential backoff before raising to us.
+        return (grpc.RpcError,)
 
     async def _call_api(
         self,
