@@ -209,8 +209,12 @@ class ChatModelBase:
                         self.max_retries + 1,
                         self.model,
                     )
-        assert last_error is not None
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(
+            f"Failed to call model {self.model} after "
+            f"{self.max_retries + 1} retries.",
+        )
 
     @abstractmethod
     async def _call_api(
@@ -424,8 +428,12 @@ class ChatModelBase:
                         self.max_retries + 1,
                         self.model,
                     )
-        assert last_error is not None
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError(
+            f"Failed to generate structured output after "
+            f"{self.max_retries + 1} retries.",
+        )
 
     async def _call_api_with_structured_output(
         self,
