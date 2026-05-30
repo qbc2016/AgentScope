@@ -57,10 +57,6 @@ class MockModel(ChatModelBase):
         self.mock_structured_response = mock_structured_response
         self.cnt = 0
 
-    @classmethod
-    def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
-        return ()
-
     def set_responses(
         self,
         mock_responses: list[ChatResponse | list[ChatResponse]],

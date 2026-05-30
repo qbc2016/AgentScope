@@ -6,7 +6,7 @@ import json
 from abc import abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Type, Any, AsyncGenerator, Awaitable, Callable
+from typing import Type, Any, AsyncGenerator
 
 import jsonschema
 from pydantic import BaseModel
@@ -57,18 +57,6 @@ class ChatModelBase:
     context_size: int
     """The model context size that will be used in the context compression."""
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        # Accept the declaration from any ancestor between cls and the
-        # ChatModelBase stub — so test mocks subclassing MockModel inherit
-        # MockModel's declaration without needing to redeclare.
-        inherited = cls._get_retryable_exceptions.__func__
-        if inherited is ChatModelBase._get_retryable_exceptions.__func__:
-            raise TypeError(
-                f"{cls.__name__} must declare _get_retryable_exceptions() "
-                "(return an empty tuple to explicitly opt out of retry).",
-            )
-
     def __init__(
         self,
         credential: CredentialBase,
@@ -111,59 +99,12 @@ class ChatModelBase:
     def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
         """Return the exception types that should trigger a retry.
 
-        Subclasses MUST override this. Return an empty tuple ``()`` to
-        explicitly opt out of retry. SDK exception types should be imported
-        lazily inside this method so the SDK stays an optional dependency.
+        Defaults to an empty tuple (no retries). Subclasses can override to
+        declare provider-specific retryable exceptions. SDK exception types
+        should be imported lazily inside the override so the SDK stays an
+        optional dependency.
         """
-        raise NotImplementedError(
-            f"{cls.__name__} must override _get_retryable_exceptions().",
-        )
-
-    async def _call_with_retry(
-        self,
-        coro_factory: Callable[[], Awaitable[Any]],
-        op_name: str,
-    ) -> Any:
-        """Invoke ``coro_factory`` up to ``max_retries + 1`` times.
-
-        Only exceptions in ``_get_retryable_exceptions()`` are retried;
-        other exceptions are re-raised immediately.
-
-        Args:
-            coro_factory (`Callable[[], Awaitable[Any]]`):
-                A zero-arg callable returning a fresh awaitable each call.
-            op_name (`str`):
-                Short label for logging (e.g. ``"chat"``).
-        """
-        retryable = tuple(self._get_retryable_exceptions())
-        last_error: Exception | None = None
-        for attempt in range(self.max_retries + 1):
-            try:
-                return await coro_factory()
-            except Exception as e:
-                if not isinstance(e, retryable):
-                    raise
-                last_error = e
-                if attempt < self.max_retries:
-                    logger.warning(
-                        "Attempt %d failed for %s on model %s: %s. "
-                        "Retrying in %.1fs...",
-                        attempt + 1,
-                        op_name,
-                        self.model,
-                        str(e),
-                        self.retry_delay,
-                    )
-                    await asyncio.sleep(self.retry_delay)
-                else:
-                    logger.warning(
-                        "All %d attempt(s) failed for %s on model %s.",
-                        self.max_retries + 1,
-                        op_name,
-                        self.model,
-                    )
-        assert last_error is not None
-        raise last_error
+        return ()
 
     @classmethod
     def list_models(
@@ -237,16 +178,39 @@ class ChatModelBase:
                 Additional keyword arguments passed to the underlying API.
         """
 
-        return await self._call_with_retry(
-            lambda: self._call_api(
-                self.model,
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-                **kwargs,
-            ),
-            op_name="chat",
-        )
+        retryable = tuple(self._get_retryable_exceptions())
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await self._call_api(
+                    self.model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=tool_choice,
+                    **kwargs,
+                )
+            except Exception as e:
+                if not isinstance(e, retryable):
+                    raise
+                last_error = e
+                if attempt < self.max_retries:
+                    logger.warning(
+                        "Attempt %d failed for model %s: %s. "
+                        "Retrying in %.1fs...",
+                        attempt + 1,
+                        self.model,
+                        str(e),
+                        self.retry_delay,
+                    )
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    logger.warning(
+                        "All %d attempt(s) failed for model %s.",
+                        self.max_retries + 1,
+                        self.model,
+                    )
+        assert last_error is not None
+        raise last_error
 
     @abstractmethod
     async def _call_api(
@@ -430,15 +394,38 @@ class ChatModelBase:
                 "`generate_structured_output` method.",
             )
 
-        return await self._call_with_retry(
-            lambda: self._call_api_with_structured_output(
-                self.model,
-                messages=messages,
-                structured_model=structured_model,
-                **kwargs,
-            ),
-            op_name="structured_output",
-        )
+        retryable = tuple(self._get_retryable_exceptions())
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await self._call_api_with_structured_output(
+                    self.model,
+                    messages=messages,
+                    structured_model=structured_model,
+                    **kwargs,
+                )
+            except Exception as e:
+                if not isinstance(e, retryable):
+                    raise
+                last_error = e
+                if attempt < self.max_retries:
+                    logger.warning(
+                        "Attempt %d failed for model %s: %s. "
+                        "Retrying in %.1fs...",
+                        attempt + 1,
+                        self.model,
+                        str(e),
+                        self.retry_delay,
+                    )
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    logger.warning(
+                        "All %d attempt(s) failed for model %s.",
+                        self.max_retries + 1,
+                        self.model,
+                    )
+        assert last_error is not None
+        raise last_error
 
     async def _call_api_with_structured_output(
         self,

@@ -177,10 +177,12 @@ class GeminiChatModel(ChatModelBase):
     def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
         from google.genai import errors
 
-        # ServerError covers 5xx; ClientError (4xx incl. 429) is intentionally
-        # excluded so auth/bad-request errors don't retry. Rate limits surface
-        # as ClientError here and won't retry — refine if that becomes a pain.
-        return (errors.ServerError,)
+        # APIError is the common parent of ClientError (4xx) and ServerError
+        # (5xx). The google-genai SDK does not expose a dedicated rate-limit
+        # subclass, and 429 surfaces as ClientError — so we accept the wider
+        # set to make sure 429s are retried, at the cost of also retrying
+        # rare 4xx like auth/bad-request a few times.
+        return (errors.APIError,)
 
     async def _call_api(
         self,
