@@ -3,7 +3,7 @@
 import struct
 
 
-def build_streaming_wav_header(
+def _build_streaming_wav_header(
     sample_rate: int = 24000,
     channels: int = 1,
     bits_per_sample: int = 16,

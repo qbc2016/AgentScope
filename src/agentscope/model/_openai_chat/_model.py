@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
 from .._model_response import ChatResponse
 from .._model_usage import ChatUsage
-from ..._utils._audio import build_streaming_wav_header
+from ..._utils._audio import _build_streaming_wav_header
 from ...credential import OpenAICredential
 from ...formatter import FormatterBase, OpenAIChatFormatter
 from ...message import (
@@ -380,7 +380,7 @@ class OpenAIChatModel(ChatModelBase):
                         pcm_bytes = base64.b64decode(audio_chunk)
                         acc_audio_data += pcm_bytes
                         if not audio_header_sent:
-                            payload = build_streaming_wav_header() + pcm_bytes
+                            payload = _build_streaming_wav_header() + pcm_bytes
                             audio_header_sent = True
                         else:
                             payload = pcm_bytes
