@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """The model card class."""
+import copy
 from datetime import datetime
 from typing import Literal, Self, Type
 
@@ -92,12 +93,9 @@ class ModelCard(BaseModel):
         with open(yaml_path, "r", encoding="utf-8") as file:
             config = yaml.safe_load(file)
 
-        # Each Parameters class overrides ``model_json_schema`` to flatten
-        # pydantic's ``Optional[X]`` wrapper at source (see
-        # :func:`flatten_optional_schema`), so what we get here is already in
-        # the shape callers expect — no $defs/$ref to resolve.
+        # Get base schema from parameter class
         base_schema = parameter_class.model_json_schema()
-        properties = dict(base_schema.get("properties", {}))
+        properties = copy.deepcopy(base_schema.get("properties", {}))
 
         # Auto-filter: remove thinking parameters if not supported
         output_types = config.get("output_types", [])
@@ -135,10 +133,12 @@ class ModelCard(BaseModel):
                     properties.pop(param_name, None)
                     continue
 
+                # Simple dict merge: {**base, **override}
                 if param_name in properties:
-                    merged = dict(properties[param_name])
-                    merged.update(override)
-                    properties[param_name] = merged
+                    properties[param_name] = {
+                        **properties[param_name],
+                        **override,
+                    }
 
         # Build final parameter schema
         final_schema = {
