@@ -35,33 +35,6 @@ else:
     AsyncStream = Any
 
 
-class DashScopeAudioOutput(BaseModel):
-    """Audio output configuration for omni-style DashScope models.
-
-    Mirrors the OpenAI ``audio`` request parameter shape; required when
-    asking an omni model to speak its response.
-    """
-
-    # ``Ethan`` is common across Qwen3.5-Omni / qwen3-omni-flash /
-    # Qwen-Omni-Turbo; ``Tina`` / ``Cherry`` / ``Chelsie`` are the three
-    # family defaults. The authoritative per-model set lives in each model
-    # card's ``audio.voice.enum`` override; ``| str`` accepts any other
-    # voice the API supports.
-    voice: Literal["Ethan", "Tina", "Cherry", "Chelsie"] | str = Field(
-        default="Tina",
-        title="Voice",
-        description=(
-            "The voice the model uses for audio output. Supported voices "
-            "vary by model — see the model card's ``audio.voice.enum``."
-        ),
-    )
-    format: Literal["wav", "mp3", "pcm16"] | str = Field(
-        default="pcm16",
-        title="Audio Format",
-        description="The audio output format.",
-    )
-
-
 class DashScopeChatModel(ChatModelBase):
     """The DashScope chat model (OpenAI-compatible implementation).
 
@@ -124,14 +97,18 @@ class DashScopeChatModel(ChatModelBase):
             description="If enable parallel tool calls for the LLM output.",
         )
 
-        audio: DashScopeAudioOutput | None = Field(
+        voice: str | None = Field(
             default=None,
-            title="Audio Output",
+            title="Voice",
             description=(
-                "Audio output configuration for omni-style models. When "
-                "set, the model is implicitly asked for audio output "
-                "(``modalities`` is filled in automatically); leave unset "
-                "for text-only responses."
+                "Voice for audio output on omni-style models (e.g. "
+                "``qwen3.5-omni-plus``). Setting this implicitly asks the "
+                "model to speak its response — ``modalities`` is filled in "
+                "automatically. Supported voices vary by model — see the "
+                "model card's ``voice.suggestions``. Any value the API "
+                "accepts works — the suggestions are convenience-only. "
+                "Leave unset for text-only "
+                "responses."
             ),
         )
 
@@ -251,10 +228,16 @@ class DashScopeChatModel(ChatModelBase):
         if self.parameters.top_p is not None:
             request_kwargs["top_p"] = self.parameters.top_p
 
-        if self.parameters.audio is not None:
+        if self.parameters.voice is not None:
             # Requesting audio output implies ``modalities`` must include
             # ``"audio"``; set it automatically so callers don't have to.
-            request_kwargs["audio"] = self.parameters.audio.model_dump()
+            # ``format`` is forced to ``pcm16``: omni streaming delivers raw
+            # PCM upstream regardless of the requested format, and we wrap
+            # it as WAV in ``_parse_stream_response`` before yielding.
+            request_kwargs["audio"] = {
+                "voice": self.parameters.voice,
+                "format": "pcm16",
+            }
             request_kwargs["modalities"] = ["text", "audio"]
 
         request_kwargs.update(kwargs)

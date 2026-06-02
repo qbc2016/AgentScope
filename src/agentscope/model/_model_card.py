@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """The model card class."""
-import copy
 from datetime import datetime
-from typing import Any, Literal, Self, Type
+from typing import Literal, Self, Type
 
 import yaml
 from pydantic import BaseModel, Field
@@ -93,53 +92,12 @@ class ModelCard(BaseModel):
         with open(yaml_path, "r", encoding="utf-8") as file:
             config = yaml.safe_load(file)
 
-        # Get base schema from parameter class
+        # Each Parameters class overrides ``model_json_schema`` to flatten
+        # pydantic's ``Optional[X]`` wrapper at source (see
+        # :func:`flatten_optional_schema`), so what we get here is already in
+        # the shape callers expect — no $defs/$ref to resolve.
         base_schema = parameter_class.model_json_schema()
-        defs = base_schema.get("$defs", {})
-
-        def _inline_refs(node: Any) -> Any:
-            """Recursively resolve ``$ref`` against ``defs`` and collapse
-            ``Optional[X]`` wrappers so the frontend (and yaml overrides)
-            see a flat shape.
-
-            Pydantic emits ``T | None`` as
-            ``{"anyOf": [<schema>, {"type": "null"}], "default": null}``;
-            we flatten that to ``<schema>`` merged with the sibling keys
-            (``default``, ``title``, …) so ``audio.properties.voice`` is
-            reachable directly instead of via ``audio.anyOf[0].properties``.
-            """
-            if isinstance(node, dict):
-                ref = node.get("$ref")
-                if isinstance(ref, str) and ref.startswith("#/$defs/"):
-                    target = defs.get(ref.split("/", 2)[-1])
-                    if isinstance(target, dict):
-                        return _inline_refs(copy.deepcopy(target))
-                resolved = {k: _inline_refs(v) for k, v in node.items()}
-                any_of = resolved.get("anyOf")
-                if isinstance(any_of, list) and len(any_of) == 2:
-                    non_null = [
-                        v
-                        for v in any_of
-                        if not (
-                            isinstance(v, dict) and v.get("type") == "null"
-                        )
-                    ]
-                    if len(non_null) == 1 and isinstance(non_null[0], dict):
-                        flat = {
-                            k: v for k, v in resolved.items() if k != "anyOf"
-                        }
-                        # ``anyOf`` variant wins on key collisions so nested
-                        # ``properties``/``required`` are preserved.
-                        flat.update(non_null[0])
-                        return flat
-                return resolved
-            if isinstance(node, list):
-                return [_inline_refs(item) for item in node]
-            return node
-
-        properties = _inline_refs(
-            copy.deepcopy(base_schema.get("properties", {})),
-        )
+        properties = dict(base_schema.get("properties", {}))
 
         # Auto-filter: remove thinking parameters if not supported
         output_types = config.get("output_types", [])
@@ -148,31 +106,22 @@ class ModelCard(BaseModel):
             properties.pop("thinking_budget", None)
 
         # Auto-filter: only omni-style models that declare an ``audio/*``
-        # output type should expose the ``audio`` (voice/format) parameter
-        # to the frontend popover.
+        # output type expose the ``voice`` parameter to the frontend
+        # popover. Defense in depth — a model yaml can also drop ``voice``
+        # explicitly via ``parameter_overrides: { voice: { hidden: true } }``.
         if not any(
             isinstance(t, str) and t.startswith("audio/") for t in output_types
         ):
-            properties.pop("audio", None)
+            properties.pop("voice", None)
 
         # Auto-inject: set max_tokens maximum from output_size
         if "max_tokens" in properties and "output_size" in config:
             properties["max_tokens"]["maximum"] = config["output_size"]
 
-        def _deep_merge(base: Any, override: Any) -> Any:
-            """Recursive dict merge so a yaml override can target a nested
-            JSON-Schema field (e.g. ``audio.properties.voice.enum``) without
-            blowing away sibling keys. Lists and scalars are replaced
-            wholesale.
-            """
-            if not isinstance(base, dict) or not isinstance(override, dict):
-                return override
-            out = dict(base)
-            for k, v in override.items():
-                out[k] = _deep_merge(out[k], v) if k in out else v
-            return out
-
-        # Apply parameter_overrides with deep merge so nested fields survive
+        # Apply parameter_overrides. Each override is a shallow dict merge on
+        # the corresponding property; the Parameters schema is intentionally
+        # flat (no nested object properties) so siblings of the override
+        # (``type``, ``title``, ``description``) are preserved by ``.update``.
         overrides = config.get("parameter_overrides", {})
         for param_name, override in overrides.items():
             if override is None:
@@ -187,10 +136,9 @@ class ModelCard(BaseModel):
                     continue
 
                 if param_name in properties:
-                    properties[param_name] = _deep_merge(
-                        properties[param_name],
-                        override,
-                    )
+                    merged = dict(properties[param_name])
+                    merged.update(override)
+                    properties[param_name] = merged
 
         # Build final parameter schema
         final_schema = {

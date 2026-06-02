@@ -34,34 +34,6 @@ else:
     AsyncStream = Any
 
 
-class OpenAIAudioOutput(BaseModel):
-    """Audio output configuration for OpenAI omni-style models
-    (e.g. ``gpt-audio-mini``).
-
-    Mirrors the OpenAI ``audio`` request parameter shape; required when
-    asking the model to speak its response.
-    """
-
-    # ``alloy``/``echo``/``nova``/``shimmer`` are the original cross-version
-    # voices; newer additions (``ash``/``ballad``/``coral``/``sage``/
-    # ``verse`` etc.) and any future ones go through the ``| str`` escape
-    # hatch. Per-model authoritative sets live in each model card's
-    # ``audio.voice.enum`` override.
-    voice: Literal["alloy", "echo", "nova", "shimmer"] | str = Field(
-        default="alloy",
-        title="Voice",
-        description=(
-            "The voice the model uses for audio output. Supported voices "
-            "vary by model — see the model card's ``audio.voice.enum``."
-        ),
-    )
-    format: Literal["wav", "mp3", "flac", "opus", "pcm16"] | str = Field(
-        default="pcm16",
-        title="Audio Format",
-        description="The audio output format.",
-    )
-
-
 class OpenAIChatModel(ChatModelBase):
     """The OpenAI Chat Completions model."""
 
@@ -120,14 +92,17 @@ class OpenAIChatModel(ChatModelBase):
             description="Whether to enable parallel tool calls.",
         )
 
-        audio: OpenAIAudioOutput | None = Field(
+        voice: str | None = Field(
             default=None,
-            title="Audio Output",
+            title="Voice",
             description=(
-                "Audio output configuration for omni-style models (e.g. "
-                "``gpt-audio-mini``). When set, the model is "
-                "implicitly asked for audio output (``modalities`` is "
-                "filled in automatically); leave unset for text-only "
+                "Voice for audio output on omni-style models (e.g. "
+                "``gpt-audio-mini``). Setting this implicitly asks the "
+                "model to speak its response — ``modalities`` is filled in "
+                "automatically. Supported voices vary by model — see the "
+                "model card's ``voice.suggestions``. Any value the API "
+                "accepts works — the suggestions are convenience-only. "
+                "Leave unset for text-only "
                 "responses."
             ),
         )
@@ -259,17 +234,16 @@ class OpenAIChatModel(ChatModelBase):
         ):
             kwargs["reasoning_effort"] = self.parameters.reasoning_effort
 
-        if self.parameters.audio is not None:
+        if self.parameters.voice is not None:
             # Requesting audio output implies ``modalities`` must include
             # ``"audio"``; set it automatically so callers don't have to.
-            audio_kwargs = self.parameters.audio.model_dump()
-            # OpenAI streaming only supports ``pcm16``; other formats raise
-            # 400. We force pcm16 over the wire and re-wrap as WAV downstream
-            # so the frontend (and any other consumer) receives a playable
-            # audio block.
-            if self.stream:
-                audio_kwargs["format"] = "pcm16"
-            kwargs["audio"] = audio_kwargs
+            # ``format`` is forced to ``pcm16``: OpenAI streaming only
+            # supports ``pcm16`` (other formats raise 400), and we re-wrap
+            # as WAV downstream so the frontend receives a playable block.
+            kwargs["audio"] = {
+                "voice": self.parameters.voice,
+                "format": "pcm16",
+            }
             kwargs["modalities"] = ["text", "audio"]
 
         kwargs.update(generate_kwargs)

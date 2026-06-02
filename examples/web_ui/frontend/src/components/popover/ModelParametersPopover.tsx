@@ -37,6 +37,11 @@ interface ParameterProperty {
 	exclusiveMinimum?: number;
 	exclusiveMaximum?: number;
 	enum?: unknown[];
+	// Non-strict counterpart of ``enum``: render as a free-text input with
+	// these values surfaced as a ``<datalist>`` autocomplete. Use when the
+	// underlying field accepts any string (e.g. ``voice``) but a few common
+	// choices are worth one-click access.
+	suggestions?: unknown[];
 	properties?: Record<string, ParameterProperty>;
 	required?: string[];
 	anyOf?: ParameterProperty[];
@@ -103,12 +108,16 @@ interface ScalarFieldProps {
 	onChange: (next: unknown) => void;
 }
 
-/** Renders one scalar (boolean / number / enum / string) parameter input. */
+/** Renders one scalar (boolean / number / enum / suggested-string / string)
+ *  parameter input. */
 function ScalarField({ id, label, required, prop, value, onChange }: ScalarFieldProps) {
 	const effectiveType = getScalarType(prop) ?? 'string';
 	const isBoolean = effectiveType === 'boolean';
 	const isNumber = effectiveType === 'number' || effectiveType === 'integer';
 	const enumValues = Array.isArray(prop.enum) ? (prop.enum as unknown[]) : null;
+	const suggestionValues = Array.isArray(prop.suggestions)
+		? (prop.suggestions as unknown[])
+		: null;
 
 	if (isBoolean) {
 		return (
@@ -149,6 +158,11 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 		);
 	}
 
+	// Suggested-string field: free text input backed by a ``<datalist>``.
+	// Differs from ``enum`` in that the user may type any value — the
+	// suggestions are convenience-only.
+	const datalistId = suggestionValues ? `${id}-suggestions` : undefined;
+
 	return (
 		<>
 			<Label htmlFor={id} className="whitespace-nowrap">
@@ -163,6 +177,7 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 				min={prop.minimum}
 				max={prop.maximum}
 				step={isNumber && effectiveType === 'number' ? 'any' : undefined}
+				list={datalistId}
 				onChange={(e) => {
 					const raw = e.target.value;
 					if (isNumber) {
@@ -187,6 +202,13 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 					if (num !== Number(e.target.value)) onChange(num);
 				}}
 			/>
+			{suggestionValues && datalistId && (
+				<datalist id={datalistId}>
+					{suggestionValues.map((opt) => (
+						<option key={String(opt)} value={String(opt)} />
+					))}
+				</datalist>
+			)}
 		</>
 	);
 }

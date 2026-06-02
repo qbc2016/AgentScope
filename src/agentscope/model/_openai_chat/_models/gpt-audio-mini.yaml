@@ -19,27 +19,16 @@ parameter_overrides:
     maximum: 16384
   thinking_enable:
     hidden: true
-  # Voices supported by gpt-audio-mini.
+  # A handful of voices supported by gpt-audio-mini surfaced as
+  # autocomplete suggestions; users may type any other voice name
+  # supported by the model.
   # Source: https://platform.openai.com/docs/guides/text-to-speech
-  audio:
-    properties:
-      voice:
-        enum:
-          - alloy
-          - ash
-          - ballad
-          - coral
-          - echo
-          - fable
-          - nova
-          - onyx
-          - sage
-          - shimmer
-          - verse
-      # OpenAI streaming only accepts ``pcm16`` over the wire; the model
-      # wraps it as WAV before yielding to consumers, so this is the only
-      # format we expose here.
-      format:
-        enum:
-          - pcm16
-        default: pcm16
+  voice:
+    default: alloy
+    suggestions:
+      - alloy
+      - echo
+      - nova
+      - shimmer
+      - sage
+      - verse
