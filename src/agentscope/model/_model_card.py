@@ -116,10 +116,7 @@ class ModelCard(BaseModel):
         if "max_tokens" in properties and "output_size" in config:
             properties["max_tokens"]["maximum"] = config["output_size"]
 
-        # Apply parameter_overrides. Each override is a shallow dict merge on
-        # the corresponding property; the Parameters schema is intentionally
-        # flat (no nested object properties) so siblings of the override
-        # (``type``, ``title``, ``description``) are preserved by ``.update``.
+        # Apply parameter_overrides with simple dict merge
         overrides = config.get("parameter_overrides", {})
         for param_name, override in overrides.items():
             if override is None:
