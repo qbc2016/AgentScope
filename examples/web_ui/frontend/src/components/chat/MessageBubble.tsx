@@ -4,8 +4,17 @@ import type {
 	Msg,
 	ToolCallBlock,
 } from '@agentscope-ai/agentscope/message';
-import { ArrowDown, ArrowUp, AudioLines, CheckCircle, Copy, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+	ArrowDown,
+	ArrowUp,
+	AudioLines,
+	CheckCircle,
+	CirclePause,
+	CirclePlay,
+	Copy,
+	Loader2,
+} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -90,40 +99,101 @@ function groupToolCalls(content: ContentBlock[]): ExtendedContentBlock[] {
 }
 
 /**
- * Renders an audio {@link DataBlock}. While the block is still being streamed
- * by the assistant we show a "generating" indicator and let
- * {@link useAudioBlock}'s live player handle real-time playback. Once the
- * stream finishes the manager publishes an Object URL and we mount an
- * ``<audio controls>`` element so the user can replay or scrub.
+ * Inline audio control rendered *inside* the time/usage Badge so the play
+ * icon visually merges into the same chip rather than floating as its own
+ * pill.
+ *
+ * While the block is still being streamed by the assistant we show a pulsing
+ * {@link AudioLines} icon — actual playback during that window is driven by
+ * {@link useAudioBlock}'s live player. Once the stream finishes the manager
+ * publishes an Object URL and we render a clickable Circle Play/Pause icon
+ * for replay.
  *
  * For historical messages loaded from the server the block isn't tracked by
- * the manager — we fall back to a regular data URL rendered from the
- * accumulated base64.
+ * the manager — we fall back to a data URL built from the accumulated base64.
  */
-function AudioDataBlock({ block }: { block: DataBlock }) {
+function AudioInlineControl({ block }: { block: DataBlock }) {
 	const { t } = useTranslation();
 	const audioState = useAudioBlock(block.id);
+	const audioRef = useRef<HTMLAudioElement | null>(null);
+	const [isPlaying, setIsPlaying] = useState(false);
 
-	if (audioState && audioState.status === 'streaming') {
+	const isStreaming = audioState?.status === 'streaming';
+
+	// Don't build the giant base64 data URL while bytes are still streaming —
+	// it would re-allocate on every DATA_BLOCK_DELTA. Live playback during
+	// that window is handled by the manager's WavStreamPlayer; we only need
+	// `src` for replay after the stream ends (or for historical messages).
+	let src: string | null = null;
+	if (!isStreaming) {
+		if (audioState?.url) {
+			src = audioState.url;
+		} else if (block.source.type === 'url') {
+			src = block.source.url;
+		} else if (block.source.type === 'base64' && block.source.data) {
+			src = `data:${block.source.media_type};base64,${block.source.data}`;
+		}
+	}
+
+	// Reset the hidden <audio> when the source URL changes (e.g. streaming
+	// just transitioned to a Blob URL). Without an explicit load() some
+	// browsers keep the previous (or empty) source bound to the element.
+	useEffect(() => {
+		const el = audioRef.current;
+		if (!el || !src) return;
+		setIsPlaying(false);
+		el.load();
+	}, [src]);
+
+	if (isStreaming) {
 		return (
-			<div className="flex flex-row items-center gap-x-2 text-sm text-muted-foreground">
-				<AudioLines className="size-4 animate-pulse" />
-				<span>{t('messageBubble.audioGenerating')}</span>
-			</div>
+			<AudioLines
+				data-icon="inline-start"
+				className="ml-1 animate-pulse"
+				aria-label={t('messageBubble.audioGenerating')}
+			/>
 		);
 	}
 
-	let src: string | null = null;
-	if (audioState?.url) {
-		src = audioState.url;
-	} else if (block.source.type === 'url') {
-		src = block.source.url;
-	} else if (block.source.data) {
-		src = `data:${block.source.media_type};base64,${block.source.data}`;
-	}
-
 	if (!src) return null;
-	return <audio controls src={src} />;
+
+	const toggle = async () => {
+		const el = audioRef.current;
+		if (!el) return;
+		if (el.paused) {
+			try {
+				await el.play();
+			} catch (err) {
+				console.error('Audio playback failed', err);
+			}
+		} else {
+			el.pause();
+		}
+	};
+
+	const Icon = isPlaying ? CirclePause : CirclePlay;
+	return (
+		<>
+			<button
+				type="button"
+				onClick={toggle}
+				aria-label={
+					isPlaying ? t('messageBubble.pauseAudio') : t('messageBubble.playAudio')
+				}
+				className="ml-1 inline-flex cursor-pointer items-center transition-opacity hover:opacity-70"
+			>
+				<Icon className="size-3" />
+			</button>
+			<audio
+				ref={audioRef}
+				src={src}
+				preload="auto"
+				onPlay={() => setIsPlaying(true)}
+				onPause={() => setIsPlaying(false)}
+				onEnded={() => setIsPlaying(false)}
+			/>
+		</>
+	);
 }
 
 /**
@@ -219,9 +289,9 @@ function renderBlock(
 
 		case 'data': {
 			const dataType = block.source.media_type.split('/')[0];
-			if (dataType === 'audio') {
-				return <AudioDataBlock key={index} block={block} />;
-			}
+			// Audio data blocks render in the footer (see AudioFooterControl),
+			// not inline alongside text.
+			if (dataType === 'audio') return null;
 			let data: string;
 			if (block.source.type === 'url') {
 				data = block.source.url;
@@ -286,7 +356,16 @@ export function MessageBubble({ message, onUserConfirm }: MessageBubbleProps) {
 	}, [isRunning]);
 
 	const blocks = groupToolCalls(message.content);
-	const showBody = blocks.length > 0;
+	const audioBlocks = message.content.filter(
+		(b): b is DataBlock =>
+			b.type === 'data' && b.source.media_type.split('/')[0] === 'audio',
+	);
+	// Audio data blocks are rendered in the footer, so they shouldn't keep an
+	// otherwise-empty body bubble alive.
+	const hasBodyContent = blocks.some(
+		(b) => !(b.type === 'data' && b.source.media_type.split('/')[0] === 'audio'),
+	);
+	const showBody = hasBodyContent;
 	const showFooter = !isUser;
 
 	const startMs = new Date(message.created_at).getTime();
@@ -345,6 +424,9 @@ export function MessageBubble({ message, onUserConfirm }: MessageBubbleProps) {
 								</span>
 							</>
 						)}
+						{audioBlocks.map((block) => (
+							<AudioInlineControl key={block.id} block={block} />
+						))}
 					</Badge>
 				</div>
 			)}
