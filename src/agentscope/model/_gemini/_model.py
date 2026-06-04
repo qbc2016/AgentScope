@@ -89,10 +89,13 @@ class GeminiChatModel(ChatModelBase):
             gt=0,
         )
 
-        thinking_enable: bool = Field(
-            default=False,
+        thinking_enable: bool | None = Field(
+            default=None,
             title="Thinking",
-            description="Whether to enable thinking output.",
+            description="Whether to enable thinking output."
+            " ``None`` keeps the Gemini model's own default"
+            " (2.5 Pro/Flash think by default);"
+            " ``True``/``False`` explicitly turns thinking on/off.",
         )
 
         thinking_budget: int | None = Field(
@@ -234,11 +237,17 @@ class GeminiChatModel(ChatModelBase):
         if self.parameters.top_p is not None:
             config["top_p"] = self.parameters.top_p
 
-        if self.parameters.thinking_enable:
-            config["thinking_config"] = {
-                "include_thoughts": True,
-                "thinking_budget": self.parameters.thinking_budget or 1024,
-            }
+        if self.parameters.thinking_enable is not None:
+            if self.parameters.thinking_enable:
+                config["thinking_config"] = {
+                    "include_thoughts": True,
+                    "thinking_budget": self.parameters.thinking_budget or 1024,
+                }
+            else:
+                config["thinking_config"] = {
+                    "include_thoughts": False,
+                    "thinking_budget": 0,
+                }
 
         fmt_tools, fmt_tool_choice = self._format_tools(tools, tool_choice)
 
