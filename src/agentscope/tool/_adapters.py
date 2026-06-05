@@ -2,6 +2,7 @@
 """Adapters to convert functions and MCP tools to ToolProtocol."""
 import inspect
 import json
+import re
 from contextlib import _AsyncGeneratorContextManager
 from datetime import timedelta
 from typing import Callable, Any, AsyncGenerator, Generator
@@ -199,7 +200,22 @@ class MCPTool(ToolBase):
                 The timeout in seconds for tool execution.
         """
         self.mcp_name = mcp_name
-        self.name = f"mcp__{self.mcp_name}__{tool.name}"
+
+        # OpenAI APIs enforce ^[a-zA-Z0-9_-]+$ on tool names;
+        # MCP servers may return names with dots, colons, slashes, etc.
+        # Sanitize here for the model-facing name (self.name) while
+        # self._tool.name retains the original for server-side calls.
+        sanitized_mcp = re.sub(r"[^a-zA-Z0-9_-]", "_", mcp_name)
+        sanitized_tool = re.sub(r"[^a-zA-Z0-9_-]", "_", tool.name)
+        self.name = f"mcp__{sanitized_mcp}__{sanitized_tool}"
+        if sanitized_mcp != mcp_name or sanitized_tool != tool.name:
+            logger.debug(
+                "MCP tool name sanitized: '%s.%s' -> '%s'.",
+                mcp_name,
+                tool.name,
+                self.name,
+            )
+
         self.description = tool.description or ""
 
         # Preserve the full inputSchema (including $defs, anyOf, oneOf, etc.)
