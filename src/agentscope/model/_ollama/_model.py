@@ -38,7 +38,8 @@ class OllamaChatModel(ChatModelBase):
         thinking_enable: bool = Field(
             default=False,
             title="Thinking",
-            description="Whether to enable thinking.",
+            description="Whether to enable thinking"
+            " (for models like qwen3, deepseek-r1).",
         )
 
         temperature: float | None = Field(
