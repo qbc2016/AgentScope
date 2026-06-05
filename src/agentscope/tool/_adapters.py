@@ -201,17 +201,17 @@ class MCPTool(ToolBase):
         """
         self.mcp_name = mcp_name
 
-        # OpenAI APIs enforce ^[a-zA-Z0-9_-]+$ on tool names;
-        # MCP servers may return names with dots, colons, slashes, etc.
-        # Sanitize here for the model-facing name (self.name) while
+        # LLM providers enforce ^[a-zA-Z0-9_-]+$ on tool names.
+        # mcp_name is validated in MCPClient.model_post_init;
+        # tool.name comes from the MCP server and may contain dots,
+        # colons, etc. — replace illegal chars with "x" (not "_")
+        # to avoid collisions with the "__" separator.
         # self._tool.name retains the original for server-side calls.
-        sanitized_mcp = re.sub(r"[^a-zA-Z0-9_-]", "_", mcp_name)
-        sanitized_tool = re.sub(r"[^a-zA-Z0-9_-]", "_", tool.name)
-        self.name = f"mcp__{sanitized_mcp}__{sanitized_tool}"
-        if sanitized_mcp != mcp_name or sanitized_tool != tool.name:
+        sanitized_tool = re.sub(r"[^a-zA-Z0-9_-]", "x", tool.name)
+        self.name = f"mcp__{mcp_name}__{sanitized_tool}"
+        if sanitized_tool != tool.name:
             logger.debug(
-                "MCP tool name sanitized: '%s.%s' -> '%s'.",
-                mcp_name,
+                "MCP tool name sanitized: '%s' -> '%s'.",
                 tool.name,
                 self.name,
             )
