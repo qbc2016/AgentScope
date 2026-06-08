@@ -7,7 +7,7 @@ from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List, Type
 from pydantic import BaseModel, Field
 
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
-from .._model_response import ChatResponse
+from .._model_response import ChatResponse, StructuredResponse
 from .._model_usage import ChatUsage
 from ...credential import OpenAICredential
 from ...formatter import FormatterBase, OpenAIChatFormatter
@@ -513,6 +513,42 @@ class OpenAIChatModel(ChatModelBase):
             resp_kwargs["id"] = response_id
 
         return ChatResponse(**resp_kwargs)
+
+    async def _call_api_with_structured_output(
+        self,
+        model_name: str,
+        messages: list[Msg],
+        structured_model: Type[BaseModel] | dict,
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> StructuredResponse:
+        """OpenAI-compatible override for structured output.
+
+        Some third-party providers that expose an OpenAI-compatible API (e.g.
+        DeepSeek via DashScope) reject forced ``tool_choice`` when thinking
+        mode is active.  When such a ``BadRequestError`` is encountered, this
+        method automatically retries with ``tool_choice="auto"``.
+        """
+        import openai
+
+        try:
+            return await super()._call_api_with_structured_output(
+                model_name=model_name,
+                messages=messages,
+                structured_model=structured_model,
+                tool_choice=tool_choice,
+                **kwargs,
+            )
+        except openai.BadRequestError as e:
+            if "tool_choice" not in str(e):
+                raise
+            return await super()._call_api_with_structured_output(
+                model_name=model_name,
+                messages=messages,
+                structured_model=structured_model,
+                tool_choice=ToolChoice(mode="auto"),
+                **kwargs,
+            )
 
     def _format_tools(
         self,
