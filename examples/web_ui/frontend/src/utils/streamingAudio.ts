@@ -159,6 +159,9 @@ class WavStreamPlayer {
 			this.header = header;
 			try {
 				this.ctx = new AudioContext({ sampleRate: header.sampleRate });
+				if (this.ctx.state === 'suspended') {
+					void this.ctx.resume();
+				}
 				this.nextStartTime = this.ctx.currentTime;
 			} catch {
 				this.failed = true;

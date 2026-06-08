@@ -154,6 +154,7 @@ export function useMessages(
 		setMsgs([]);
 		setError(null);
 		setStreaming(false);
+		audioManager?.disposeAll();
 
 		if (!agentId || !sessionId) return;
 
@@ -198,7 +199,7 @@ export function useMessages(
 			controller.abort();
 			abortRef.current = null;
 		};
-	}, [agentId, sessionId, scheduleUpdate, processEvent]);
+	}, [agentId, sessionId, scheduleUpdate, processEvent, audioManager]);
 
 	/**
 	 * Send a user message. Appends the message to the local list

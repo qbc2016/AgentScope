@@ -1,10 +1,24 @@
-import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from 'react';
+import {
+	createContext,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useSyncExternalStore,
+} from 'react';
 import type { ReactNode } from 'react';
 
 import { StreamingAudioManager } from '@/utils/streamingAudio';
 import type { StreamingAudioState } from '@/utils/streamingAudio';
 
 const AudioContext = createContext<StreamingAudioManager | null>(null);
+
+interface ReplayController {
+	play: (el: HTMLAudioElement) => void;
+	stop: () => void;
+}
+
+const ReplayContext = createContext<ReplayController | null>(null);
 
 /**
  * Provides a {@link StreamingAudioManager} to the component tree. The manager
@@ -16,7 +30,29 @@ const AudioContext = createContext<StreamingAudioManager | null>(null);
 export function AudioProvider({ children }: { children: ReactNode }) {
 	const manager = useMemo(() => new StreamingAudioManager(), []);
 	useEffect(() => () => manager.disposeAll(), [manager]);
-	return <AudioContext.Provider value={manager}>{children}</AudioContext.Provider>;
+
+	const currentRef = useRef<HTMLAudioElement | null>(null);
+	const replay: ReplayController = useMemo(
+		() => ({
+			play(el: HTMLAudioElement) {
+				if (currentRef.current && currentRef.current !== el) {
+					currentRef.current.pause();
+					currentRef.current.currentTime = 0;
+				}
+				currentRef.current = el;
+			},
+			stop() {
+				currentRef.current = null;
+			},
+		}),
+		[],
+	);
+
+	return (
+		<AudioContext.Provider value={manager}>
+			<ReplayContext.Provider value={replay}>{children}</ReplayContext.Provider>
+		</AudioContext.Provider>
+	);
 }
 
 /**
@@ -26,6 +62,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
  */
 export function useAudioManager(): StreamingAudioManager | null {
 	return useContext(AudioContext);
+}
+
+/**
+ * Access the replay controller that ensures only one audio element plays
+ * at a time across all message bubbles.
+ */
+export function useReplayController(): ReplayController | null {
+	return useContext(ReplayContext);
 }
 
 /**

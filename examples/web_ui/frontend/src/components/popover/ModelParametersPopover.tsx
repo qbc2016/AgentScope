@@ -1,4 +1,4 @@
-import { SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ChatModelConfig, ModelCard } from '@/api';
@@ -7,6 +7,7 @@ import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
@@ -158,10 +159,48 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 		);
 	}
 
-	// Suggested-string field: free text input backed by a ``<datalist>``.
-	// Differs from ``enum`` in that the user may type any value — the
-	// suggestions are convenience-only.
-	const datalistId = suggestionValues ? `${id}-suggestions` : undefined;
+	if (suggestionValues && !isNumber) {
+		const current = value !== undefined ? String(value) : '';
+		return (
+			<>
+				<Label htmlFor={id} className="whitespace-nowrap">
+					{label}
+					{required && <span className="text-destructive ml-0.5">*</span>}
+				</Label>
+				<div className="flex items-center gap-x-1">
+					<Input
+						id={id}
+						type="text"
+						value={current}
+						placeholder={prop.default !== undefined ? String(prop.default) : undefined}
+						onChange={(e) => onChange(e.target.value || undefined)}
+						className="flex-1"
+					/>
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button variant="ghost" size="icon-xs" className="shrink-0">
+								<ChevronDown className="size-3.5" />
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent
+							align="end"
+							className="max-h-60 overflow-y-auto"
+							onPointerDown={(e) => e.stopPropagation()}
+						>
+							{suggestionValues.map((opt) => (
+								<DropdownMenuItem
+									key={String(opt)}
+									onSelect={() => onChange(String(opt))}
+								>
+									{String(opt)}
+								</DropdownMenuItem>
+							))}
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
+			</>
+		);
+	}
 
 	return (
 		<>
@@ -177,7 +216,6 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 				min={prop.minimum}
 				max={prop.maximum}
 				step={isNumber && effectiveType === 'number' ? 'any' : undefined}
-				list={datalistId}
 				onChange={(e) => {
 					const raw = e.target.value;
 					if (isNumber) {
@@ -202,13 +240,6 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 					if (num !== Number(e.target.value)) onChange(num);
 				}}
 			/>
-			{suggestionValues && datalistId && (
-				<datalist id={datalistId}>
-					{suggestionValues.map((opt) => (
-						<option key={String(opt)} value={String(opt)} />
-					))}
-				</datalist>
-			)}
 		</>
 	);
 }
@@ -415,9 +446,7 @@ export function ModelParametersPopover({
 							</p>
 						) : (
 							<div
-								className="flex flex-col gap-y-3"
-								// Keep clicks/keys inside the form from
-								// closing the dropdown menu.
+								className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-3"
 								onPointerDown={(e) => e.stopPropagation()}
 								onKeyDown={(e) => e.stopPropagation()}
 							>
@@ -425,32 +454,25 @@ export function ModelParametersPopover({
 									if (entry.kind === 'scalar') {
 										const { key, prop } = entry;
 										return (
-											<div
+											<ScalarField
 												key={key}
-												className="grid grid-cols-[auto_1fr] items-center gap-x-3"
-											>
-												<ScalarField
-													id={`param-${key}`}
-													label={prop.title ?? key}
-													required={required.includes(key)}
-													prop={prop}
-													value={values[key]}
-													onChange={(v) => setScalar(key, v)}
-												/>
-											</div>
+												id={`param-${key}`}
+												label={prop.title ?? key}
+												required={required.includes(key)}
+												prop={prop}
+												value={values[key]}
+												onChange={(v) => setScalar(key, v)}
+											/>
 										);
 									}
 
 									const { key, prop, shape } = entry;
 									const parentValue =
 										(values[key] as Record<string, unknown> | undefined) ?? {};
-									// Use any ``default: {...}`` declared on the parent as the
-									// starting point for the merged child dict, so editing one
-									// child doesn't blow away unspecified sibling defaults.
 									const parentDefaults =
 										(prop.default as Record<string, unknown> | undefined) ?? {};
 									return (
-										<div key={key} className="flex flex-col gap-y-2">
+										<div key={key} className="col-span-2 flex flex-col gap-y-2">
 											<div className="text-xs font-medium text-muted-foreground">
 												{prop.title ?? key}
 											</div>
@@ -458,9 +480,6 @@ export function ModelParametersPopover({
 												{Object.entries(shape.properties).map(
 													([childKey, childProp]) => {
 														if (!getScalarType(childProp)) return null;
-														// Surface the parent's ``default`` as each child's
-														// placeholder when the child has none of its own,
-														// so users see the model-card defaults at a glance.
 														const propWithDefault =
 															childProp.default !== undefined
 																? childProp

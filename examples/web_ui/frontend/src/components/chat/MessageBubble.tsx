@@ -35,7 +35,7 @@ import {
 	CollapsibleTrigger,
 } from '@/components/ui/collapsible.tsx';
 import { Item, ItemContent } from '@/components/ui/item.tsx';
-import { useAudioBlock } from '@/context/AudioContext';
+import { useAudioBlock, useReplayController } from '@/context/AudioContext';
 import { useTranslation } from '@/i18n/useI18n';
 import { formatNumber, formatTime } from '@/utils/common';
 
@@ -165,6 +165,7 @@ function groupToolCalls(content: ContentBlock[]): ExtendedContentBlock[] {
 function AudioInlineControl({ block }: { block: DataBlock }) {
 	const { t } = useTranslation();
 	const audioState = useAudioBlock(block.id);
+	const replayController = useReplayController();
 	const audioRef = useRef<HTMLAudioElement | null>(null);
 	const [isPlaying, setIsPlaying] = useState(false);
 
@@ -221,6 +222,7 @@ function AudioInlineControl({ block }: { block: DataBlock }) {
 		const el = audioRef.current;
 		if (!el) return;
 		if (el.paused) {
+			replayController?.play(el);
 			try {
 				await el.play();
 			} catch (err) {
@@ -228,6 +230,7 @@ function AudioInlineControl({ block }: { block: DataBlock }) {
 			}
 		} else {
 			el.pause();
+			replayController?.stop();
 		}
 	};
 
