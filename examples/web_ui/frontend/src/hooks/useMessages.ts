@@ -103,6 +103,7 @@ export function useMessages(
 				return;
 			}
 			if (event.type === EventType.REPLY_START) {
+				audioManager?.stopAllPlayback();
 				const e = event as ReplyStartEvent;
 				const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
 				msgsRef.current = [...msgsRef.current, msg];

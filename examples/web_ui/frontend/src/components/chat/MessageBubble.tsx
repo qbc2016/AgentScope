@@ -195,6 +195,16 @@ function AudioInlineControl({ block }: { block: DataBlock }) {
 		el.load();
 	}, [src]);
 
+	// Pause when a newer reply interrupts this block's playback.
+	const interruptCount = audioState?.interruptCount ?? 0;
+	useEffect(() => {
+		if (interruptCount === 0) return;
+		const el = audioRef.current;
+		if (el && !el.paused) {
+			el.pause();
+		}
+	}, [interruptCount]);
+
 	if (isStreaming) {
 		return (
 			<AudioLines

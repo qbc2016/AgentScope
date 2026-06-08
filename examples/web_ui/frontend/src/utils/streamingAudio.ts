@@ -34,6 +34,8 @@ export interface StreamingAudioState {
 	url: string | null;
 	/** Cause for ``status === 'error'``. */
 	error?: string;
+	/** Incremented each time a newer reply interrupts this block. */
+	interruptCount: number;
 }
 
 type Listener = () => void;
@@ -145,6 +147,7 @@ class WavStreamPlayer {
 	private pending: Bytes = new Uint8Array(0);
 	private nextStartTime = 0;
 	private failed = false;
+	private deferredCloseTimer: ReturnType<typeof setTimeout> | null = null;
 
 	append(chunk: Bytes): void {
 		if (this.failed) return;
@@ -189,23 +192,29 @@ class WavStreamPlayer {
 	 * AudioContext only after the last queued buffer has finished playing.
 	 * Without this, ``end()`` calling ``dispose()`` would cut live playback
 	 * short by closing the context while sources are still scheduled.
+	 *
+	 * The AudioContext reference is kept on ``this.ctx`` so that
+	 * ``dispose()`` can still close it immediately if a newer reply
+	 * interrupts playback before the timer fires.
 	 */
 	finalize(): void {
 		if (!this.ctx || this.failed) {
 			this.dispose();
 			return;
 		}
-		const ctx = this.ctx;
-		const remainingMs = Math.max(0, this.nextStartTime - ctx.currentTime) * 1000;
-		setTimeout(() => {
-			void ctx.close().catch(() => undefined);
+		const remainingMs = Math.max(0, this.nextStartTime - this.ctx.currentTime) * 1000;
+		this.deferredCloseTimer = setTimeout(() => {
+			this.dispose();
 		}, remainingMs + 200);
-		this.ctx = null;
 		this.header = null;
 		this.pending = new Uint8Array(0);
 	}
 
 	dispose(): void {
+		if (this.deferredCloseTimer) {
+			clearTimeout(this.deferredCloseTimer);
+			this.deferredCloseTimer = null;
+		}
 		if (this.ctx) {
 			void this.ctx.close().catch(() => undefined);
 			this.ctx = null;
@@ -262,7 +271,7 @@ export class StreamingAudioManager {
 			chunks: [],
 			totalBytes: 0,
 			livePlayer,
-			state: { status: 'streaming', mediaType, url: null },
+			state: { status: 'streaming', mediaType, url: null, interruptCount: 0 },
 		});
 		this.emit(blockId);
 	}
@@ -297,9 +306,11 @@ export class StreamingAudioManager {
 
 		const hadLivePlayback = session.livePlayer !== null;
 		if (session.livePlayer) {
-			// Let queued PCM finish playing; AudioContext closes itself later.
+			// Let queued PCM finish playing; AudioContext closes via a
+			// deferred timer. The livePlayer reference is kept so that
+			// stopAllPlayback() can dispose() it immediately if a newer
+			// reply starts before the timer fires.
 			session.livePlayer.finalize();
-			session.livePlayer = null;
 		}
 
 		const blob = new Blob(session.chunks as BlobPart[], { type: session.mediaType });
@@ -308,7 +319,12 @@ export class StreamingAudioManager {
 		// Free the per-chunk buffers; the Blob owns the bytes from here on.
 		session.chunks = [];
 
-		session.state = { status: 'ready', mediaType: session.mediaType, url };
+		session.state = {
+			status: 'ready',
+			mediaType: session.mediaType,
+			url,
+			interruptCount: session.state.interruptCount,
+		};
 		this.emit(blockId);
 
 		if (!hadLivePlayback) {
@@ -317,6 +333,25 @@ export class StreamingAudioManager {
 			// can still hit play on the <audio controls> element.
 			const el = new Audio(url);
 			void el.play().catch(() => undefined);
+		}
+	}
+
+	/**
+	 * Stop all in-progress and replay audio. Called when a new reply
+	 * starts so previous audio doesn't overlap with the new one.
+	 * Blob URLs are preserved so the user can still manually replay.
+	 */
+	stopAllPlayback(): void {
+		for (const [blockId, session] of this.sessions) {
+			if (session.livePlayer) {
+				session.livePlayer.dispose();
+				session.livePlayer = null;
+			}
+			session.state = {
+				...session.state,
+				interruptCount: session.state.interruptCount + 1,
+			};
+			this.emit(blockId);
 		}
 	}
 
