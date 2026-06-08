@@ -72,10 +72,7 @@ function parseWavHeader(bytes: Bytes): WavHeader | null {
 	if (bytes.length < 44) return null;
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	// "RIFF"...."WAVE"
-	if (
-		view.getUint32(0, false) !== 0x52494646 ||
-		view.getUint32(8, false) !== 0x57415645
-	) {
+	if (view.getUint32(0, false) !== 0x52494646 || view.getUint32(8, false) !== 0x57415645) {
 		return null;
 	}
 
@@ -110,11 +107,7 @@ function parseWavHeader(bytes: Bytes): WavHeader | null {
  * Convert raw little-endian PCM into a Float32 AudioBuffer.
  * Supports 16-bit and 8-bit; falls back to silence for other depths.
  */
-function pcmToAudioBuffer(
-	ctx: AudioContext,
-	pcm: Bytes,
-	header: WavHeader,
-): AudioBuffer | null {
+function pcmToAudioBuffer(ctx: AudioContext, pcm: Bytes, header: WavHeader): AudioBuffer | null {
 	const { channels, bitsPerSample, sampleRate } = header;
 	const bytesPerSample = bitsPerSample / 8;
 	const frameSize = bytesPerSample * channels;

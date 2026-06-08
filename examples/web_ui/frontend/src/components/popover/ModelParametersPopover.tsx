@@ -136,7 +136,7 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 	}
 
 	if (enumValues) {
-		const current = value !== undefined ? String(value) : (prop.default as string) ?? '';
+		const current = value !== undefined ? String(value) : ((prop.default as string) ?? '');
 		return (
 			<>
 				<Label htmlFor={id} className="whitespace-nowrap">
@@ -485,14 +485,19 @@ export function ModelParametersPopover({
 																? childProp
 																: {
 																		...childProp,
-																		default: parentDefaults[childKey],
+																		default:
+																			parentDefaults[
+																				childKey
+																			],
 																	};
 														return (
 															<ScalarField
 																key={childKey}
 																id={`param-${key}-${childKey}`}
 																label={childProp.title ?? childKey}
-																required={shape.required.includes(childKey)}
+																required={shape.required.includes(
+																	childKey,
+																)}
 																prop={propWithDefault}
 																value={parentValue[childKey]}
 																onChange={(v) =>

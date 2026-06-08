@@ -475,8 +475,7 @@ export function MessageBubble({ message, onUserConfirm }: MessageBubbleProps) {
 
 	const blocks = groupToolCalls(message.content);
 	const audioBlocks = message.content.filter(
-		(b): b is DataBlock =>
-			b.type === 'data' && b.source.media_type.split('/')[0] === 'audio',
+		(b): b is DataBlock => b.type === 'data' && b.source.media_type.split('/')[0] === 'audio',
 	);
 	// Audio data blocks are rendered in the footer, so they shouldn't keep an
 	// otherwise-empty body bubble alive.

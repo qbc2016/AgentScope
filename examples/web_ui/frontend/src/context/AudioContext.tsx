@@ -1,11 +1,4 @@
-import {
-	createContext,
-	useContext,
-	useEffect,
-	useMemo,
-	useRef,
-	useSyncExternalStore,
-} from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 
 import { StreamingAudioManager } from '@/utils/streamingAudio';
