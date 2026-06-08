@@ -26,13 +26,10 @@ output_size: 65536
 parameter_overrides:
   max_tokens:
     maximum: 65536
-  # A handful of voices from the Qwen3.5-Omni / Qwen3.5-Omni-Realtime
-  # family surfaced as autocomplete suggestions; the full list is much
-  # larger and users may type any other voice name supported by the
-  # model. Source: https://help.aliyun.com/zh/model-studio/omni-voice-list
+  # Source: https://help.aliyun.com/zh/model-studio/omni-voice-list
   voice:
     default: Tina
-    suggestions:
+    enum:
       - Tina
       - Cherry
       - Ethan

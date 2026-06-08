@@ -8,12 +8,10 @@ import type {
 import {
 	ArrowDown,
 	ArrowUp,
-	AudioLines,
 	Bot,
 	CalendarClock,
 	CheckCircle,
 	ChevronDownIcon,
-	CirclePause,
 	CirclePlay,
 	Copy,
 	Loader2,
@@ -148,19 +146,62 @@ function groupToolCalls(content: ContentBlock[]): ExtendedContentBlock[] {
 	return result;
 }
 
+const AUDIO_WAVE_LINES: Array<{ x: number; y1: number; y2: number }> = [
+	{ x: 2, y1: 10, y2: 13 },
+	{ x: 6, y1: 6, y2: 17 },
+	{ x: 10, y1: 3, y2: 21 },
+	{ x: 14, y1: 8, y2: 15 },
+	{ x: 18, y1: 5, y2: 18 },
+	{ x: 22, y1: 10, y2: 13 },
+];
+
+function AudioWave({ isPlaying = true, className }: { isPlaying?: boolean; className?: string }) {
+	return (
+		<>
+			{isPlaying && (
+				<style>{`
+					@keyframes audioWave {
+						0%, 100% { transform: scaleY(1); }
+						50%      { transform: scaleY(0.3); }
+					}
+				`}</style>
+			)}
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				width="24"
+				height="24"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth={2}
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				className={className}
+			>
+				{AUDIO_WAVE_LINES.map(({ x, y1, y2 }, i) => (
+					<line
+						key={x}
+						x1={x}
+						x2={x}
+						y1={y1}
+						y2={y2}
+						style={{
+							transformOrigin: `${x}px 12px`,
+							animation: isPlaying
+								? `audioWave 0.8s ease-in-out ${i * 0.12}s infinite`
+								: 'none',
+						}}
+					/>
+				))}
+			</svg>
+		</>
+	);
+}
+
 /**
  * Inline audio control rendered *inside* the time/usage Badge so the play
  * icon visually merges into the same chip rather than floating as its own
  * pill.
- *
- * While the block is still being streamed by the assistant we show a pulsing
- * {@link AudioLines} icon — actual playback during that window is driven by
- * {@link useAudioBlock}'s live player. Once the stream finishes the manager
- * publishes an Object URL and we render a clickable Circle Play/Pause icon
- * for replay.
- *
- * For historical messages loaded from the server the block isn't tracked by
- * the manager — we fall back to a data URL built from the accumulated base64.
  */
 function AudioInlineControl({ block }: { block: DataBlock }) {
 	const { t } = useTranslation();
@@ -207,13 +248,7 @@ function AudioInlineControl({ block }: { block: DataBlock }) {
 	}, [interruptCount]);
 
 	if (isStreaming) {
-		return (
-			<AudioLines
-				data-icon="inline-start"
-				className="ml-1 animate-pulse"
-				aria-label={t('messageBubble.audioGenerating')}
-			/>
-		);
+		return <AudioWave isPlaying className="ml-1" />;
 	}
 
 	if (!src) return null;
@@ -234,7 +269,6 @@ function AudioInlineControl({ block }: { block: DataBlock }) {
 		}
 	};
 
-	const Icon = isPlaying ? CirclePause : CirclePlay;
 	return (
 		<>
 			<button
@@ -245,7 +279,11 @@ function AudioInlineControl({ block }: { block: DataBlock }) {
 				}
 				className="ml-1 inline-flex cursor-pointer items-center transition-opacity hover:opacity-70"
 			>
-				<Icon className="size-3" />
+				{isPlaying ? (
+					<AudioWave isPlaying className="size-3" />
+				) : (
+					<CirclePlay className="size-3" />
+				)}
 			</button>
 			<audio
 				ref={audioRef}

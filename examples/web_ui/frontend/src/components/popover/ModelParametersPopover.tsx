@@ -7,8 +7,9 @@ import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
@@ -17,14 +18,8 @@ import {
 } from '@/components/ui/dropdown-menu.tsx';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAvailableModels } from '@/hooks/useAvailableModels';
 import { useTranslation } from '@/i18n/useI18n';
 
@@ -38,18 +33,8 @@ interface ParameterProperty {
 	exclusiveMinimum?: number;
 	exclusiveMaximum?: number;
 	enum?: unknown[];
-	// Non-strict counterpart of ``enum``: render as a free-text input with
-	// these values surfaced as a ``<datalist>`` autocomplete. Use when the
-	// underlying field accepts any string (e.g. ``voice``) but a few common
-	// choices are worth one-click access.
-	suggestions?: unknown[];
-	properties?: Record<string, ParameterProperty>;
-	required?: string[];
 	anyOf?: ParameterProperty[];
-	$ref?: string;
 }
-
-const SCALAR_TYPES = new Set(['boolean', 'number', 'integer', 'string']);
 
 interface ParameterSchema {
 	title?: string;
@@ -59,48 +44,33 @@ interface ParameterSchema {
 	required?: string[];
 }
 
-interface Props {
-	/** Currently selected primary model — used to read the parameter schema. */
-	selectedModel: ChatModelConfig | null;
-	/** Model card describing the primary model's parameter schema. */
-	modelCard: ModelCard | null;
-	/** Called when the user edits the primary model's parameters. */
-	onChange: (parameters: Record<string, unknown>) => void;
-	/** Currently selected fallback model. `null` means no fallback configured. */
-	selectedFallbackModel: ChatModelConfig | null;
-	/** Called when the user picks a fallback model or clears the selection. */
-	onFallbackChange: (config: ChatModelConfig | null) => void;
+interface ResolvedType {
+	type: string;
+	enumValues: unknown[] | null;
 }
 
-/** Resolve a property's effective scalar type, ignoring ``null`` in ``anyOf``. */
-function getScalarType(prop: ParameterProperty): string | null {
-	const direct = prop.type;
-	if (direct && SCALAR_TYPES.has(direct)) return direct;
-	for (const variant of prop.anyOf ?? []) {
-		if (variant.type && variant.type !== 'null' && SCALAR_TYPES.has(variant.type)) {
-			return variant.type;
-		}
-	}
-	return null;
-}
-
-/** If ``prop`` (directly or via ``anyOf``) describes an object with nested
- *  ``properties``, return that shape; otherwise null. */
-function getObjectShape(
-	prop: ParameterProperty,
-): { properties: Record<string, ParameterProperty>; required: string[] } | null {
-	if (prop.type === 'object' && prop.properties) {
-		return { properties: prop.properties, required: prop.required ?? [] };
+/** Resolve a property's effective scalar type and enum values, looking
+ *  through ``anyOf`` and ignoring ``null`` variants. */
+function resolveType(prop: ParameterProperty): ResolvedType {
+	if (prop.type) {
+		return { type: prop.type, enumValues: prop.enum ?? null };
 	}
 	for (const variant of prop.anyOf ?? []) {
-		if (variant.type === 'object' && variant.properties) {
-			return { properties: variant.properties, required: variant.required ?? [] };
+		if (variant.type && variant.type !== 'null') {
+			return {
+				type: variant.type,
+				enumValues: variant.enum ?? prop.enum ?? null,
+			};
 		}
 	}
-	return null;
+	return { type: 'string', enumValues: null };
 }
 
-interface ScalarFieldProps {
+// ---------------------------------------------------------------------------
+// Field components
+// ---------------------------------------------------------------------------
+
+interface FieldProps {
 	id: string;
 	label: string;
 	required: boolean;
@@ -109,98 +79,59 @@ interface ScalarFieldProps {
 	onChange: (next: unknown) => void;
 }
 
-/** Renders one scalar (boolean / number / enum / suggested-string / string)
- *  parameter input. */
-function ScalarField({ id, label, required, prop, value, onChange }: ScalarFieldProps) {
-	const effectiveType = getScalarType(prop) ?? 'string';
-	const isBoolean = effectiveType === 'boolean';
-	const isNumber = effectiveType === 'number' || effectiveType === 'integer';
-	const enumValues = Array.isArray(prop.enum) ? (prop.enum as unknown[]) : null;
-	const suggestionValues = Array.isArray(prop.suggestions)
-		? (prop.suggestions as unknown[])
-		: null;
+function BooleanField({ id, label, prop, value, onChange }: FieldProps) {
+	return (
+		<>
+			<Label htmlFor={id} className="whitespace-nowrap">
+				{label}
+			</Label>
+			<Switch
+				id={id}
+				checked={value !== undefined ? !!value : !!prop.default}
+				onCheckedChange={(checked) => onChange(!!checked)}
+			/>
+		</>
+	);
+}
 
-	if (isBoolean) {
-		return (
-			<>
-				<Label htmlFor={id} className="whitespace-nowrap">
-					{label}
-				</Label>
-				<Switch
-					id={id}
-					checked={value !== undefined ? !!value : !!prop.default}
-					onCheckedChange={(checked) => onChange(!!checked)}
-				/>
-			</>
-		);
-	}
+function EnumField({ id, label, required, prop, value, onChange }: FieldProps) {
+	const enumValues = resolveType(prop).enumValues ?? [];
+	// TODO: experiment with using prop.description as placeholder text
+	const displayValue = value !== undefined && value !== null ? String(value) : '';
 
-	if (enumValues) {
-		const current = value !== undefined ? String(value) : ((prop.default as string) ?? '');
-		return (
-			<>
-				<Label htmlFor={id} className="whitespace-nowrap">
-					{label}
-					{required && <span className="text-destructive ml-0.5">*</span>}
-				</Label>
-				<Select value={current} onValueChange={(v) => onChange(v)}>
-					<SelectTrigger id={id} size="sm" className="w-full">
-						<SelectValue placeholder={String(prop.default ?? '')} />
-					</SelectTrigger>
-					<SelectContent>
+	return (
+		<>
+			<Label htmlFor={id} className="whitespace-nowrap">
+				{label}
+				{required && <span className="text-destructive ml-0.5">*</span>}
+			</Label>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<Button id={id} variant="outline" className="w-full justify-between gap-1">
+						<span className="truncate">{displayValue}</span>
+						<ChevronDown className="size-3.5 opacity-50 shrink-0" />
+					</Button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent
+					align="start"
+					className="max-h-60 overflow-y-auto"
+					onPointerDown={(e) => e.stopPropagation()}
+				>
+					<DropdownMenuRadioGroup value={displayValue} onValueChange={(v) => onChange(v)}>
 						{enumValues.map((opt) => (
-							<SelectItem key={String(opt)} value={String(opt)}>
+							<DropdownMenuRadioItem key={String(opt)} value={String(opt)}>
 								{String(opt)}
-							</SelectItem>
+							</DropdownMenuRadioItem>
 						))}
-					</SelectContent>
-				</Select>
-			</>
-		);
-	}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</>
+	);
+}
 
-	if (suggestionValues && !isNumber) {
-		const current = value !== undefined ? String(value) : '';
-		return (
-			<>
-				<Label htmlFor={id} className="whitespace-nowrap">
-					{label}
-					{required && <span className="text-destructive ml-0.5">*</span>}
-				</Label>
-				<div className="flex items-center gap-x-1">
-					<Input
-						id={id}
-						type="text"
-						value={current}
-						placeholder={prop.default !== undefined ? String(prop.default) : undefined}
-						onChange={(e) => onChange(e.target.value || undefined)}
-						className="flex-1"
-					/>
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button variant="ghost" size="icon-xs" className="shrink-0">
-								<ChevronDown className="size-3.5" />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent
-							align="end"
-							className="max-h-60 overflow-y-auto"
-							onPointerDown={(e) => e.stopPropagation()}
-						>
-							{suggestionValues.map((opt) => (
-								<DropdownMenuItem
-									key={String(opt)}
-									onSelect={() => onChange(String(opt))}
-								>
-									{String(opt)}
-								</DropdownMenuItem>
-							))}
-						</DropdownMenuContent>
-					</DropdownMenu>
-				</div>
-			</>
-		);
-	}
+function NumberField({ id, label, required, prop, value, onChange }: FieldProps) {
+	const { type: effectiveType } = resolveType(prop);
 
 	return (
 		<>
@@ -210,22 +141,18 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 			</Label>
 			<Input
 				id={id}
-				type={isNumber ? 'number' : 'text'}
+				type="number"
 				value={value !== undefined ? String(value) : ''}
-				placeholder={prop.default !== undefined ? String(prop.default) : undefined}
+				placeholder={prop.default != null ? String(prop.default) : undefined}
 				min={prop.minimum}
 				max={prop.maximum}
-				step={isNumber && effectiveType === 'number' ? 'any' : undefined}
+				step={effectiveType === 'number' ? 'any' : undefined}
 				onChange={(e) => {
 					const raw = e.target.value;
-					if (isNumber) {
-						onChange(raw === '' ? undefined : Number(raw));
-					} else {
-						onChange(raw);
-					}
+					onChange(raw === '' ? undefined : Number(raw));
 				}}
 				onBlur={(e) => {
-					if (!isNumber || e.target.value === '') return;
+					if (e.target.value === '') return;
 					let num = Number(e.target.value);
 					if (prop.minimum !== undefined && num < prop.minimum) num = prop.minimum;
 					if (prop.maximum !== undefined && num > prop.maximum) num = prop.maximum;
@@ -242,6 +169,41 @@ function ScalarField({ id, label, required, prop, value, onChange }: ScalarField
 			/>
 		</>
 	);
+}
+
+function StringField({ id, label, required, prop, value, onChange }: FieldProps) {
+	return (
+		<>
+			<Label htmlFor={id} className="whitespace-nowrap">
+				{label}
+				{required && <span className="text-destructive ml-0.5">*</span>}
+			</Label>
+			<Input
+				id={id}
+				type="text"
+				value={value !== undefined ? String(value) : ''}
+				placeholder={prop.default != null ? String(prop.default) : undefined}
+				onChange={(e) => onChange(e.target.value)}
+			/>
+		</>
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+interface Props {
+	/** Currently selected primary model — used to read the parameter schema. */
+	selectedModel: ChatModelConfig | null;
+	/** Model card describing the primary model's parameter schema. */
+	modelCard: ModelCard | null;
+	/** Called when the user edits the primary model's parameters. */
+	onChange: (parameters: Record<string, unknown>) => void;
+	/** Currently selected fallback model. `null` means no fallback configured. */
+	selectedFallbackModel: ChatModelConfig | null;
+	/** Called when the user picks a fallback model or clears the selection. */
+	onFallbackChange: (config: ChatModelConfig | null) => void;
 }
 
 /**
@@ -267,69 +229,22 @@ export function ModelParametersPopover({
 	const schema = modelCard?.parameter_schema as ParameterSchema | undefined;
 	const properties = schema?.properties ?? {};
 	const required = schema?.required ?? [];
-
-	// Classify each property as scalar | nested-object | unsupported. Anything
-	// unsupported (bare $ref with no inlined schema, arrays, etc.) is dropped
-	// so user keystrokes can't round-trip as an invalid string value.
-	type Entry =
-		| { kind: 'scalar'; key: string; prop: ParameterProperty }
-		| {
-				kind: 'object';
-				key: string;
-				prop: ParameterProperty;
-				shape: { properties: Record<string, ParameterProperty>; required: string[] };
-		  };
-	const entries: Entry[] = Object.entries(properties).flatMap(([key, prop]) => {
-		const shape = getObjectShape(prop);
-		if (shape) return [{ kind: 'object', key, prop, shape } as Entry];
-		if (getScalarType(prop)) return [{ kind: 'scalar', key, prop } as Entry];
-		return [];
-	});
+	const entries = Object.entries(properties);
 
 	useEffect(() => {
 		setValues(selectedModel?.parameters ?? {});
 	}, [selectedModel?.model]);
 
-	const commit = useCallback(
-		(next: Record<string, unknown>) => {
+	const handleChange = useCallback(
+		(key: string, value: unknown) => {
+			const next = { ...values, [key]: value };
+			if (value === '' || value === undefined) {
+				delete next[key];
+			}
 			setValues(next);
 			onChange(next);
 		},
-		[onChange],
-	);
-
-	const setScalar = useCallback(
-		(key: string, value: unknown) => {
-			const next = { ...values };
-			if (value === '' || value === undefined) delete next[key];
-			else next[key] = value;
-			commit(next);
-		},
-		[values, commit],
-	);
-
-	// Updates a single field inside a nested object value (e.g. ``audio.voice``).
-	// Drops the parent key entirely when no child fields remain set.
-	const setNested = useCallback(
-		(
-			parentKey: string,
-			childKey: string,
-			value: unknown,
-			parentDefaults: Record<string, unknown>,
-		) => {
-			const parent: Record<string, unknown> = {
-				...parentDefaults,
-				...((values[parentKey] as Record<string, unknown> | undefined) ?? {}),
-			};
-			if (value === '' || value === undefined) delete parent[childKey];
-			else parent[childKey] = value;
-
-			const next = { ...values };
-			if (Object.keys(parent).length === 0) delete next[parentKey];
-			else next[parentKey] = parent;
-			commit(next);
-		},
-		[values, commit],
+		[values, onChange],
 	);
 
 	const handleSelectFallback = (type: string, credentialId: string, model: string) => {
@@ -353,10 +268,6 @@ export function ModelParametersPopover({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="min-w-40">
 				{/* ----- Fallback model selection ----- */}
-				{/* The sub-trigger reflects the current fallback selection so the
-				    user can see the active model without drilling in. The label
-				    is truncated with an ellipsis to keep the trigger on one line
-				    when the model name is long. */}
 				<DropdownMenuSub>
 					<DropdownMenuSubTrigger>
 						<span className="truncate">
@@ -385,10 +296,6 @@ export function ModelParametersPopover({
 												selectedFallbackModel?.credential_id ===
 													credential.id &&
 												selectedFallbackModel?.model === m.name;
-											// Checkbox-style indicator: a check appears next
-											// to the active fallback. Toggling off the active
-											// item clears the selection (mirrors the explicit
-											// "No fallback" entry below).
 											return (
 												<DropdownMenuCheckboxItem
 													key={`${credential.id}-${m.name}`}
@@ -414,9 +321,6 @@ export function ModelParametersPopover({
 							))
 						)}
 						<DropdownMenuSeparator />
-						{/* "No fallback" is checked exactly when no fallback is set,
-						    making the list behave like a single-select group. Clicking
-						    it while already checked is a no-op. */}
 						<DropdownMenuCheckboxItem
 							checked={!selectedFallbackModel}
 							onCheckedChange={(checked) => {
@@ -450,70 +354,46 @@ export function ModelParametersPopover({
 								onPointerDown={(e) => e.stopPropagation()}
 								onKeyDown={(e) => e.stopPropagation()}
 							>
-								{entries.map((entry) => {
-									if (entry.kind === 'scalar') {
-										const { key, prop } = entry;
-										return (
-											<ScalarField
-												key={key}
-												id={`param-${key}`}
-												label={prop.title ?? key}
-												required={required.includes(key)}
-												prop={prop}
-												value={values[key]}
-												onChange={(v) => setScalar(key, v)}
-											/>
-										);
+								{entries.map(([key, prop]) => {
+									const { type: effectiveType, enumValues } = resolveType(prop);
+									const label = prop.title ?? key;
+									const isRequired = required.includes(key);
+									const fieldProps: FieldProps = {
+										id: `param-${key}`,
+										label,
+										required: isRequired,
+										prop,
+										value: values[key],
+										onChange: (v) => handleChange(key, v),
+									};
+
+									let field: React.ReactNode;
+									if (effectiveType === 'boolean') {
+										field = <BooleanField {...fieldProps} />;
+									} else if (enumValues) {
+										field = <EnumField {...fieldProps} />;
+									} else if (
+										effectiveType === 'number' ||
+										effectiveType === 'integer'
+									) {
+										field = <NumberField {...fieldProps} />;
+									} else {
+										field = <StringField {...fieldProps} />;
 									}
 
-									const { key, prop, shape } = entry;
-									const parentValue =
-										(values[key] as Record<string, unknown> | undefined) ?? {};
-									const parentDefaults =
-										(prop.default as Record<string, unknown> | undefined) ?? {};
 									return (
-										<div key={key} className="col-span-2 flex flex-col gap-y-2">
-											<div className="text-xs font-medium text-muted-foreground">
-												{prop.title ?? key}
-											</div>
-											<div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-3 pl-2">
-												{Object.entries(shape.properties).map(
-													([childKey, childProp]) => {
-														if (!getScalarType(childProp)) return null;
-														const propWithDefault =
-															childProp.default !== undefined
-																? childProp
-																: {
-																		...childProp,
-																		default:
-																			parentDefaults[
-																				childKey
-																			],
-																	};
-														return (
-															<ScalarField
-																key={childKey}
-																id={`param-${key}-${childKey}`}
-																label={childProp.title ?? childKey}
-																required={shape.required.includes(
-																	childKey,
-																)}
-																prop={propWithDefault}
-																value={parentValue[childKey]}
-																onChange={(v) =>
-																	setNested(
-																		key,
-																		childKey,
-																		v,
-																		parentDefaults,
-																	)
-																}
-															/>
-														);
-													},
-												)}
-											</div>
-										</div>
+										<Tooltip key={key}>
+											<TooltipTrigger asChild>
+												<div className="col-span-2 grid grid-cols-subgrid items-center">
+													{field}
+												</div>
+											</TooltipTrigger>
+											{prop.description && (
+												<TooltipContent side="left">
+													{prop.description}
+												</TooltipContent>
+											)}
+										</Tooltip>
 									);
 								})}
 							</div>

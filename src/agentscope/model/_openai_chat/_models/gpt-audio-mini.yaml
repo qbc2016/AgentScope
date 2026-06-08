@@ -19,13 +19,10 @@ parameter_overrides:
     maximum: 16384
   thinking_enable:
     hidden: true
-  # A handful of voices supported by gpt-audio-mini surfaced as
-  # autocomplete suggestions; users may type any other voice name
-  # supported by the model.
   # Source: https://platform.openai.com/docs/guides/text-to-speech
   voice:
     default: alloy
-    suggestions:
+    enum:
       - alloy
       - echo
       - nova
