@@ -19,6 +19,6 @@ export default defineConfig({
 		},
 	},
 	optimizeDeps: {
-		include: ['mime-types'],
+		include: ['mime-types', 'buffer'],
 	},
 });
