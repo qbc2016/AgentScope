@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """The OpenAI Chat Completions model implementation."""
+import warnings
 from collections import OrderedDict
 from datetime import datetime
 from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List, Type
@@ -542,6 +543,12 @@ class OpenAIChatModel(ChatModelBase):
         except openai.BadRequestError as e:
             if "tool_choice" not in str(e):
                 raise
+            # Thinking mode rejects forced tool_choice; fall back to auto
+            warnings.warn(
+                f"Forced tool_choice rejected by provider ({e}), "
+                "retrying with tool_choice='auto'.",
+                stacklevel=2,
+            )
             return await super()._call_api_with_structured_output(
                 model_name=model_name,
                 messages=messages,
