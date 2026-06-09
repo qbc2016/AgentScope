@@ -4,15 +4,15 @@ import { chatApi } from '@/api';
 import type { ChatRequest } from '@/api';
 
 /**
- * Fire-and-forget chat trigger.
+ * Chat trigger with request-lifecycle tracking.
  *
  * Sends a ``POST /chat/`` request that kicks off a chat run on the
  * backend. Events are **not** returned here — they arrive via the
  * session's SSE stream (``GET /sessions/{sid}/stream``), consumed by
- * :func:`useMessages`.
+ * ``useMessages``.
  *
- * This hook is a thin wrapper around ``chatApi.trigger``; it mainly
- * exists for parity with the previous ``useChat`` API shape.
+ * @returns Object with ``streaming`` (true while the POST is in-flight),
+ *   ``error``, and ``send``.
  */
 export function useChat() {
 	const [streaming, setStreaming] = useState(false);

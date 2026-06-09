@@ -10,7 +10,7 @@ export interface CredentialWithTTSModels {
 
 /**
  * Fetches all credentials and their available TTS models, grouped by provider type.
- * Providers that return no TTS models are included with an empty array.
+ * Credentials/providers that expose no TTS models are omitted.
  */
 export function useAvailableTTSModels() {
 	const [groups, setGroups] = useState<Record<string, CredentialWithTTSModels[]>>({});

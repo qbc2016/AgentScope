@@ -134,11 +134,11 @@ function TTSModelCardItem({ model }: { model: TTSModelCard }) {
 				)}
 				<div className="flex justify-between items-center text-[14px]">
 					<span className="text-muted-foreground">{t('credential.inputTypes')}</span>
-					<InputTypeBadges inputTypes={['text/plain']} />
+					<InputTypeBadges inputTypes={model.input_types} />
 				</div>
 				<div className="flex justify-between items-center text-[14px]">
 					<span className="text-muted-foreground">{t('credential.outputTypes')}</span>
-					<InputTypeBadges inputTypes={['audio/wav']} />
+					<InputTypeBadges inputTypes={model.output_types} />
 				</div>
 			</CardContent>
 		</Card>
