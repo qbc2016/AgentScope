@@ -1,22 +1,25 @@
 # -*- coding: utf-8 -*-
 """DashScope TTS model implementation using MultiModalConversation API."""
+import asyncio
 import base64
 import io
 import wave
+from datetime import datetime
 from typing import (
     Any,
-    Literal,
     AsyncGenerator,
     Generator,
+    Literal,
     TYPE_CHECKING,
 )
 
-from ._tts_base import TTSModelBase
-from ._tts_response import TTSResponse
-from .._utils._audio import _build_streaming_wav_header
-from ..credential import DashScopeCredential
-from ..message import Msg, DataBlock, Base64Source
-from ..types import JSONSerializableObject
+from pydantic import BaseModel, Field
+
+from .._tts_base import TTSModelBase
+from .._tts_response import TTSResponse, TTSUsage
+from ..._utils._audio import _build_streaming_wav_header
+from ...credential import DashScopeCredential
+from ...message import Msg, DataBlock, Base64Source
 
 if TYPE_CHECKING:
     from dashscope.api_entities.dashscope_response import (
@@ -32,6 +35,18 @@ _TTS_SAMPLE_RATE = 24000
 _TTS_CHANNELS = 1
 _TTS_BITS_PER_SAMPLE = 16
 _DEFAULT_MEDIA_TYPE = "audio/wav"
+_SENTINEL = object()
+
+
+def _parse_usage(usage: Any, elapsed: float) -> TTSUsage | None:
+    """Extract a TTSUsage from the DashScope usage object, or None."""
+    if usage is None:
+        return None
+    return TTSUsage(
+        input_tokens=getattr(usage, "input_tokens", 0) or 0,
+        output_tokens=getattr(usage, "output_tokens", 0) or 0,
+        time=elapsed,
+    )
 
 
 class DashScopeTTSModel(TTSModelBase):
@@ -39,6 +54,18 @@ class DashScopeTTSModel(TTSModelBase):
     API. For more details please see the `official document
     <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2879134>`_.
     """
+
+    class Parameters(BaseModel):
+        """Frontend-exposed parameters for DashScope TTS models."""
+
+        voice: str = Field(
+            default="Cherry",
+            title="Voice",
+            description="The voice to use for synthesis.",
+        )
+
+    type: Literal["dashscope_tts"] = "dashscope_tts"
+    """The type of the TTS model."""
 
     supports_streaming_input: bool = False
     """Whether the model supports streaming input. DashScope's standard TTS
@@ -48,17 +75,13 @@ class DashScopeTTSModel(TTSModelBase):
         self,
         credential: DashScopeCredential,
         model: str = "qwen3-tts-flash",
-        voice: Literal["Cherry", "Serena", "Ethan", "Chelsie"]
-        | str = "Cherry",
-        language_type: str = "Auto",
+        parameters: "DashScopeTTSModel.Parameters | None" = None,
         stream: bool = True,
-        generate_kwargs: dict[str, JSONSerializableObject] | None = None,
     ) -> None:
         """Initialize the DashScope TTS model.
 
-        .. note:: More details about the parameters, such as ``model``,
-         ``voice``, and ``language_type`` can be found in the
-         `official document
+        .. note:: More details about the parameters, such as ``model``
+         and ``voice``, can be found in the `official document
          <https://bailian.console.aliyun.com/?tab=doc#/doc/?type=model&url=2879134>`_.
 
         Args:
@@ -67,28 +90,22 @@ class DashScopeTTSModel(TTSModelBase):
             model (`str`, defaults to ``"qwen3-tts-flash"``):
                 The TTS model name. Supported models include
                 ``qwen3-tts-flash``, ``qwen-tts``, etc.
-            voice (`Literal["Cherry", "Serena", "Ethan", "Chelsie"] | str`, \
-            defaults to ``"Cherry"``):
-                The voice to use. Supported voices include ``"Cherry"``,
-                ``"Serena"``, ``"Ethan"``, ``"Chelsie"``, etc.
-            language_type (`str`, defaults to ``"Auto"``):
-                The language type. Should match the text language for
-                correct pronunciation and natural intonation.
+            parameters (`DashScopeTTSModel.Parameters | None`, defaults to \
+            `None`):
+                The TTS parameters (voice, language, etc.). When ``None``,
+                the default parameters will be used.
             stream (`bool`, defaults to `True`):
                 Whether to use streaming output. When `True`,
                 :meth:`synthesize` returns an async generator yielding
                 ``TTSResponse`` chunks; when `False`, it returns a single
                 aggregated ``TTSResponse``.
-            generate_kwargs (`dict[str, JSONSerializableObject] | None`, \
-            optional):
-                Additional keyword arguments passed through to the DashScope
-                TTS API (e.g. ``temperature``, ``seed``).
         """
-        super().__init__(credential=credential, model=model, stream=stream)
-
-        self.voice = voice
-        self.language_type = language_type
-        self.generate_kwargs = generate_kwargs or {}
+        super().__init__(
+            credential=credential,
+            model=model,
+            parameters=parameters,
+            stream=stream,
+        )
 
     async def synthesize(
         self,
@@ -115,26 +132,41 @@ class DashScopeTTSModel(TTSModelBase):
 
         import dashscope
 
-        response = dashscope.MultiModalConversation.call(
+        response = await asyncio.to_thread(
+            dashscope.MultiModalConversation.call,
             model=self.model,
             api_key=self.credential.api_key.get_secret_value(),
             text=text,
-            voice=self.voice,
-            language_type=self.language_type,
+            voice=self.parameters.voice,
             stream=True,
-            **self.generate_kwargs,
             **kwargs,
         )
 
         if self.stream:
             return self._parse_into_async_generator(response)
 
+        return await asyncio.to_thread(self._aggregate_sync, response)
+
+    @staticmethod
+    def _aggregate_sync(
+        response: Generator["MultiModalConversationResponse", None, None],
+    ) -> TTSResponse:
+        """Aggregate all streaming chunks into a single self-contained WAV.
+
+        Runs inside :func:`asyncio.to_thread` so the synchronous iteration
+        does not block the event loop.
+        """
+        start_datetime = datetime.now()
         audio_bytes = bytearray()
+        usage = None
         for chunk in response:
+            if chunk.usage is not None:
+                usage = chunk.usage
             if chunk.output is not None:
                 audio = chunk.output.audio
                 if audio and audio.data:
                     audio_bytes += base64.b64decode(audio.data)
+        elapsed = (datetime.now() - start_datetime).total_seconds()
 
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wav:
@@ -150,6 +182,7 @@ class DashScopeTTSModel(TTSModelBase):
                     media_type=_DEFAULT_MEDIA_TYPE,
                 ),
             ),
+            usage=_parse_usage(usage, elapsed),
         )
 
     @staticmethod
@@ -164,6 +197,10 @@ class DashScopeTTSModel(TTSModelBase):
         end-of-stream); subsequent chunks are raw PCM bytes appended to that
         open stream. The final response has ``is_last=True``.
 
+        Each ``next()`` call on the underlying synchronous generator is
+        dispatched via :func:`asyncio.to_thread` so the event loop is never
+        blocked while waiting for the next audio chunk from the API.
+
         Args:
             response (`Generator[MultiModalConversationResponse, None, None]`):
                 The streaming response from the DashScope TTS API.
@@ -175,7 +212,15 @@ class DashScopeTTSModel(TTSModelBase):
         """
         pending: TTSResponse | None = None
         header_sent = False
-        for chunk in response:
+        usage = None
+        start_datetime = datetime.now()
+        it = iter(response)
+        while True:
+            chunk = await asyncio.to_thread(lambda: next(it, _SENTINEL))
+            if chunk is _SENTINEL:
+                break
+            if chunk.usage is not None:
+                usage = chunk.usage
             if chunk.output is None:
                 continue
             audio = chunk.output.audio
@@ -207,9 +252,15 @@ class DashScopeTTSModel(TTSModelBase):
                 ),
                 is_last=False,
             )
+        elapsed = (datetime.now() - start_datetime).total_seconds()
 
         if pending is not None:
             pending.is_last = True
+            pending.usage = _parse_usage(usage, elapsed)
             yield pending
         else:
-            yield TTSResponse(content=None, is_last=True)
+            yield TTSResponse(
+                content=None,
+                is_last=True,
+                usage=_parse_usage(usage, elapsed),
+            )

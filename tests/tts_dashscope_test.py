@@ -40,10 +40,14 @@ def _make_msg(text: str = "Hello world") -> Msg:
     return Msg(name="user", role="user", content=[TextBlock(text=text)])
 
 
-def _make_api_chunk(data_bytes: bytes | None) -> MagicMock:
+def _make_api_chunk(
+    data_bytes: bytes | None,
+    usage: Any = None,
+) -> MagicMock:
     """Build a chunk shaped like what dashscope.MultiModalConversation
     yields. ``data_bytes=None`` represents a chunk with no output."""
     chunk = MagicMock()
+    chunk.usage = usage
     if data_bytes is None:
         chunk.output = None
         return chunk
@@ -53,12 +57,28 @@ def _make_api_chunk(data_bytes: bytes | None) -> MagicMock:
     return chunk
 
 
+def _make_usage(
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    characters: int = 0,
+) -> MagicMock:
+    """Build a usage object shaped like what the DashScope API returns."""
+    usage = MagicMock()
+    usage.input_tokens = input_tokens
+    usage.output_tokens = output_tokens
+    usage.characters = characters
+    return usage
+
+
 def _make_api_generator(chunks: list[bytes | None]) -> Any:
-    """Build a sync generator like ``MultiModalConversation.call`` returns."""
+    """Build a sync generator like ``MultiModalConversation.call`` returns.
+    The last chunk carries a usage object."""
 
     def _gen() -> Any:
-        for data in chunks:
-            yield _make_api_chunk(data)
+        for i, data in enumerate(chunks):
+            is_last = i == len(chunks) - 1
+            usage = _make_usage(characters=10) if is_last else None
+            yield _make_api_chunk(data, usage=usage)
 
     return _gen()
 
@@ -67,7 +87,7 @@ def _make_model(stream: bool = False) -> DashScopeTTSModel:
     return DashScopeTTSModel(
         credential=DashScopeCredential(api_key="test"),
         model="qwen3-tts-flash",
-        voice="Cherry",
+        parameters=DashScopeTTSModel.Parameters(voice="Cherry"),
         stream=stream,
     )
 
@@ -256,7 +276,7 @@ class TestDashScopeTTSModelStream(IsolatedAsyncioTestCase):
         self.assertEqual(payloads[1], b"BBBB")
         self.assertEqual(payloads[2], b"CCCC")
 
-        self.assertEqual(
+        self.assertListEqual(
             [c.is_last for c in chunks],
             [False, False, True],
         )

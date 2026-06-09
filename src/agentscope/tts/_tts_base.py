@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 """The TTS model base class."""
+import inspect
 from abc import abstractmethod
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
+from pydantic import BaseModel
+
+from ._tts_model_card import TTSModelCard
 from ._tts_response import TTSResponse
+from .._logging import logger
 from ..credential import CredentialBase
 from ..message import Msg
 
@@ -23,11 +29,18 @@ class TTSModelBase:
     :meth:`synthesize` blocks until the full speech has been synthesized.
     """
 
+    class Parameters(BaseModel):
+        """Base parameter schema for TTS models. Subclasses should override
+        this with provider-specific parameters."""
+
     credential: CredentialBase
     """The credential used to authenticate against the TTS provider."""
 
     model: str
     """The name of the TTS model."""
+
+    parameters: BaseModel
+    """The TTS model parameters."""
 
     stream: bool
     """Whether to use streaming output if supported by the model."""
@@ -39,7 +52,8 @@ class TTSModelBase:
         self,
         credential: CredentialBase,
         model: str,
-        stream: bool,
+        parameters: BaseModel | None = None,
+        stream: bool = True,
     ) -> None:
         """Initialize the TTS model base class.
 
@@ -48,11 +62,14 @@ class TTSModelBase:
                 The credential used to authenticate against the TTS provider.
             model (`str`):
                 The name of the TTS model.
-            stream (`bool`):
+            parameters (`BaseModel | None`, defaults to `None`):
+                The TTS model parameters.
+            stream (`bool`, defaults to `True`):
                 Whether to use streaming output if supported by the model.
         """
         self.credential = credential
         self.model = model
+        self.parameters = parameters or self.Parameters()
         self.stream = stream
 
     async def __aenter__(self) -> "TTSModelBase":
@@ -119,6 +136,48 @@ class TTSModelBase:
                 The TTSResponse containing the audio block.
         """
         return TTSResponse(content=None)
+
+    @classmethod
+    def list_models(
+        cls,
+        custom_yaml_dir: str | None = None,
+    ) -> list[TTSModelCard]:
+        """List candidate TTS models by scanning YAML model cards.
+
+        Args:
+            custom_yaml_dir (`str | None`):
+                The custom YAML directory. If ``None``, uses the ``_models``
+                directory next to the concrete subclass's source file.
+
+        Returns:
+            `list[TTSModelCard]`:
+                A list of TTS model cards.
+        """
+        if custom_yaml_dir is None:
+            subclass_file = Path(inspect.getfile(cls))
+            yaml_dir = subclass_file.parent / "_models"
+        else:
+            yaml_dir = Path(custom_yaml_dir)
+
+        yaml_files = list(yaml_dir.glob("*.yaml"))
+
+        model_cards = []
+        for yaml_file in yaml_files:
+            try:
+                card = TTSModelCard.from_yaml(
+                    yaml_path=str(yaml_file),
+                    parameter_class=cls.Parameters,
+                )
+                model_cards.append(card)
+            except Exception as e:
+                logger.warning(
+                    "Warning: Failed to load %s: %s",
+                    yaml_file,
+                    str(e),
+                )
+                continue
+
+        return model_cards
 
     @abstractmethod
     async def synthesize(

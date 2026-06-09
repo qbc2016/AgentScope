@@ -22,8 +22,10 @@ from ..middleware import (
     StateChangeMiddleware,
     ToolOffloadMiddleware,
 )
+from ...middleware import TTSMiddleware
 from .._types import AgentMiddlewareFactory, AgentToolFactory
 from ._model import get_model
+from ._tts_model import get_tts_model
 from ._toolkit import get_toolkit
 
 from ..._logging import logger
@@ -245,6 +247,18 @@ optional):
                     session_id,
                 ),
             )
+
+        # ----------------------------------------------------------------
+        # 3b. TTS middleware — inject when the session has a TTS config.
+        # ----------------------------------------------------------------
+        tts_cfg = session_record.config.tts_model_config
+        if tts_cfg is not None:
+            tts_model = await get_tts_model(
+                user_id,
+                tts_cfg,
+                self._storage,
+            )
+            middlewares.append(TTSMiddleware(tts_model))
 
         # ----------------------------------------------------------------
         # 4. Model + fallback (resolved from session's config).

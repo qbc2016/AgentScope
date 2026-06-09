@@ -8,6 +8,7 @@ from ._base import CredentialBase
 
 if TYPE_CHECKING:
     from ..model import ChatModelBase
+    from ..tts import TTSModelBase
 
 _DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
@@ -41,3 +42,10 @@ class DashScopeCredential(CredentialBase):
         from ..model import DashScopeChatModel
 
         return DashScopeChatModel
+
+    @classmethod
+    def get_tts_model_class(cls) -> Type["TTSModelBase"]:
+        """Return the DashScopeTTSModel class."""
+        from ..tts import DashScopeTTSModel
+
+        return DashScopeTTSModel

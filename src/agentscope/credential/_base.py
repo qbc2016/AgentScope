@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from ..model import ChatModelBase, ModelCard
+    from ..tts import TTSModelBase, TTSModelCard
 
 
 class CredentialBase(BaseModel):
@@ -35,6 +36,30 @@ class CredentialBase(BaseModel):
         raise NotImplementedError(
             f"{cls.__name__} must implement ``get_chat_model_class``.",
         )
+
+    @classmethod
+    def get_tts_model_class(cls) -> Type["TTSModelBase"] | None:
+        """Return the :class:`TTSModelBase` subclass that consumes this
+        credential, or ``None`` if this provider does not support TTS.
+
+        Returns:
+            `Type[TTSModelBase] | None`:
+                The TTS model class, or ``None``.
+        """
+        return None
+
+    @classmethod
+    def list_tts_models(cls) -> list["TTSModelCard"]:
+        """List the candidate TTS models available under this credential.
+
+        Returns:
+            `list[TTSModelCard]`:
+                A list of TTS model cards, or empty if TTS is not supported.
+        """
+        tts_cls = cls.get_tts_model_class()
+        if tts_cls is None:
+            return []
+        return tts_cls.list_models()
 
     @classmethod
     def list_models(cls) -> list["ModelCard"]:
