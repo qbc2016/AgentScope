@@ -23,7 +23,11 @@ from ..middleware import (
     ToolOffloadMiddleware,
 )
 from ...middleware import TTSMiddleware
-from .._types import AgentMiddlewareFactory, AgentToolFactory
+from .._types import (
+    AgentMiddlewareFactory,
+    AgentToolFactory,
+    SubAgentTemplate,
+)
 from ._model import get_model
 from ._tts_model import get_tts_model
 from ._toolkit import get_toolkit
@@ -62,6 +66,7 @@ class ChatService:
         message_bus: MessageBus,
         extra_agent_middlewares: AgentMiddlewareFactory | None = None,
         extra_agent_tools: AgentToolFactory | None = None,
+        sub_agent_templates: dict[str, SubAgentTemplate] | None = None,
     ) -> None:
         """Initialize chat service.
 
@@ -85,12 +90,18 @@ class ChatService:
                 replay + live fan-out (via :meth:`session_publish_event`),
                 and inbox delivery (via :class:`InboxMiddleware`).
             extra_agent_middlewares (`AgentMiddlewareFactory | None`, \
-optional):
+             optional):
                 Async factory invoked at every chat turn to produce
                 user/session-specific middlewares to attach to the agent.
             extra_agent_tools (`AgentToolFactory | None`, optional):
                 Async factory invoked at every chat turn to produce
                 user/session-specific tools to register in the toolkit.
+            sub_agent_templates (`dict[str, SubAgentTemplate] | None`, \
+             optional):
+                Sub-agent template registry, keyed by template type.
+                Passed through to :func:`get_toolkit` so that
+                ``AgentCreate`` can route to the appropriate template
+                when a ``subagent_type`` is specified.
         """
         self._storage = storage
         self._workspace_manager = workspace_manager
@@ -99,6 +110,7 @@ optional):
         self._message_bus = message_bus
         self._extra_agent_middlewares = extra_agent_middlewares
         self._extra_agent_tools = extra_agent_tools
+        self._sub_agent_templates = sub_agent_templates
 
     async def run(
         self,
@@ -217,6 +229,7 @@ optional):
             agent_record=agent_record,
             session_record=session_record,
             extra_factory=self._extra_agent_tools,
+            sub_agent_templates=self._sub_agent_templates,
         )
 
         # ----------------------------------------------------------------
