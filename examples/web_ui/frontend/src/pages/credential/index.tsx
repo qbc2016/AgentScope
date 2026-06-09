@@ -166,8 +166,14 @@ function DetailPanel({ credential, schema, onEdit, onDelete }: DetailPanelProps)
 		if (!type) return;
 		setModelsLoading(true);
 		Promise.all([
-			modelApi.list(type).then((res) => res.models).catch(() => [] as ModelCard[]),
-			ttsModelApi.list(type).then((res) => res.models).catch(() => [] as TTSModelCard[]),
+			modelApi
+				.list(type)
+				.then((res) => res.models)
+				.catch(() => [] as ModelCard[]),
+			ttsModelApi
+				.list(type)
+				.then((res) => res.models)
+				.catch(() => [] as TTSModelCard[]),
 		])
 			.then(([chatModels, tts]) => {
 				setModels(chatModels);

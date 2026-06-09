@@ -412,9 +412,7 @@ export function ModelParametersPopover({
 				{/* ----- TTS ----- */}
 				<DropdownMenuSub>
 					<DropdownMenuSubTrigger>
-						<span className="truncate">
-							{t('model-parameters.ttsLabel')}
-						</span>
+						<span className="truncate">{t('model-parameters.ttsLabel')}</span>
 					</DropdownMenuSubTrigger>
 					<DropdownMenuSubContent className="max-h-96 overflow-y-auto">
 						{Object.keys(ttsGroups).length === 0 ? (
@@ -431,10 +429,11 @@ export function ModelParametersPopover({
 									{items.flatMap(({ credential, models }) =>
 										models.map((m) => {
 											const isSelected =
-												selectedTTSModel?.credential_id ===
-													credential.id &&
+												selectedTTSModel?.credential_id === credential.id &&
 												selectedTTSModel?.model === m.name;
-											const mSchema = m.parameter_schema as ParameterSchema | undefined;
+											const mSchema = m.parameter_schema as
+												| ParameterSchema
+												| undefined;
 											const mProps = mSchema?.properties ?? {};
 											const mRequired = mSchema?.required ?? [];
 											const mEntries = Object.entries(mProps);
@@ -468,7 +467,11 @@ export function ModelParametersPopover({
 											return (
 												<DropdownMenuSub key={`${credential.id}-${m.name}`}>
 													<DropdownMenuSubTrigger>
-														<span className={isSelected ? 'font-medium' : ''}>
+														<span
+															className={
+																isSelected ? 'font-medium' : ''
+															}
+														>
 															{isSelected && '✓ '}
 															{m.label}
 														</span>
@@ -476,13 +479,19 @@ export function ModelParametersPopover({
 													<DropdownMenuSubContent className="w-72 max-h-96 overflow-y-auto p-3">
 														<div
 															className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-3"
-															onPointerDown={(e) => e.stopPropagation()}
+															onPointerDown={(e) =>
+																e.stopPropagation()
+															}
 															onKeyDown={(e) => e.stopPropagation()}
 														>
 															{mEntries.map(([key, prop]) => {
-																const { type: effectiveType, enumValues } = resolveType(prop);
+																const {
+																	type: effectiveType,
+																	enumValues,
+																} = resolveType(prop);
 																const label = prop.title ?? key;
-																const isReq = mRequired.includes(key);
+																const isReq =
+																	mRequired.includes(key);
 																const fieldProps: FieldProps = {
 																	id: `tts-${m.name}-${key}`,
 																	label,
@@ -490,13 +499,20 @@ export function ModelParametersPopover({
 																	prop,
 																	value: curParams[key],
 																	onChange: (v) => {
-																		const next = { ...curParams, [key]: v };
-																		if (v === '' || v === undefined) {
+																		const next = {
+																			...curParams,
+																			[key]: v,
+																		};
+																		if (
+																			v === '' ||
+																			v === undefined
+																		) {
 																			delete next[key];
 																		}
 																		onTTSChange({
 																			type,
-																			credential_id: credential.id,
+																			credential_id:
+																				credential.id,
 																			model: m.name,
 																			parameters: next,
 																		});
@@ -505,13 +521,32 @@ export function ModelParametersPopover({
 
 																let field: React.ReactNode;
 																if (effectiveType === 'boolean') {
-																	field = <BooleanField {...fieldProps} />;
+																	field = (
+																		<BooleanField
+																			{...fieldProps}
+																		/>
+																	);
 																} else if (enumValues) {
-																	field = <EnumField {...fieldProps} />;
-																} else if (effectiveType === 'number' || effectiveType === 'integer') {
-																	field = <NumberField {...fieldProps} />;
+																	field = (
+																		<EnumField
+																			{...fieldProps}
+																		/>
+																	);
+																} else if (
+																	effectiveType === 'number' ||
+																	effectiveType === 'integer'
+																) {
+																	field = (
+																		<NumberField
+																			{...fieldProps}
+																		/>
+																	);
 																} else {
-																	field = <StringField {...fieldProps} />;
+																	field = (
+																		<StringField
+																			{...fieldProps}
+																		/>
+																	);
 																}
 
 																return (
