@@ -71,6 +71,7 @@ class TTSMiddleware(MiddlewareBase):
                     if self.tts.supports_streaming_input and evt.delta:
                         tts_res = await self.tts.push(
                             Msg(
+                                id=evt.block_id,
                                 name=agent.name,
                                 content=[TextBlock(text=evt.delta)],
                                 role="assistant",

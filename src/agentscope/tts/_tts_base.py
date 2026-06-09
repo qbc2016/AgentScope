@@ -3,15 +3,17 @@
 import inspect
 from abc import abstractmethod
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from pydantic import BaseModel
 
-from ._tts_model_card import TTSModelCard
 from ._tts_response import TTSResponse
 from .._logging import logger
 from ..credential import CredentialBase
 from ..message import Msg
+
+if TYPE_CHECKING:
+    from ..model import ModelCard
 
 
 class TTSModelBase:
@@ -141,7 +143,7 @@ class TTSModelBase:
     def list_models(
         cls,
         custom_yaml_dir: str | None = None,
-    ) -> list[TTSModelCard]:
+    ) -> list["ModelCard"]:
         """List candidate TTS models by scanning YAML model cards.
 
         Args:
@@ -150,9 +152,11 @@ class TTSModelBase:
                 directory next to the concrete subclass's source file.
 
         Returns:
-            `list[TTSModelCard]`:
+            `list[ModelCard]`:
                 A list of TTS model cards.
         """
+        from ..model import ModelCard
+
         if custom_yaml_dir is None:
             subclass_file = Path(inspect.getfile(cls))
             yaml_dir = subclass_file.parent / "_models"
@@ -164,7 +168,7 @@ class TTSModelBase:
         model_cards = []
         for yaml_file in yaml_files:
             try:
-                card = TTSModelCard.from_yaml(
+                card = ModelCard.from_yaml(
                     yaml_path=str(yaml_file),
                     parameter_class=cls.Parameters,
                 )

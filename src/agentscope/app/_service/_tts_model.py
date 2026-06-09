@@ -41,7 +41,7 @@ async def get_tts_model(
     if tts_cls is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(f"Provider {config.type!r} does not support TTS models."),
+            detail=f"Provider {config.type!r} does not support TTS models.",
         )
 
     parameters = (

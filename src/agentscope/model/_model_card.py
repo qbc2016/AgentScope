@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 class ModelCard(BaseModel):
     """The model card class."""
 
-    type: Literal["chat_model"] = "chat_model"
+    type: Literal["chat_model", "tts_model"] = "chat_model"
     """The model card type."""
 
     name: str = Field(description="The name of the model")
@@ -48,18 +48,27 @@ class ModelCard(BaseModel):
     """The model supported output types."""
 
     context_size: int = Field(
+        default=0,
         title="Context size",
         description="The context size.",
-        gt=0,
+        ge=0,
     )
-    """The model context size."""
+    """The model context size. 0 for non-LLM models (e.g. TTS)."""
 
     output_size: int = Field(
+        default=0,
         title="Max output tokens",
         description="The maximum number of tokens.",
-        gt=0,
+        ge=0,
     )
-    """The model max output tokens."""
+    """The model max output tokens. 0 for non-LLM models (e.g. TTS)."""
+
+    voices: list[str] = Field(
+        default_factory=list,
+        description="The supported voices.",
+        title="Voices",
+    )
+    """The supported voice names (for TTS models)."""
 
     parameter_schema: dict
     """The parameters schema, which will be combined with the schema from the
@@ -96,6 +105,15 @@ class ModelCard(BaseModel):
         # Get base schema from parameter class
         base_schema = parameter_class.model_json_schema()
         properties = copy.deepcopy(base_schema.get("properties", {}))
+
+        # Auto-inject: populate voice enum from YAML voices list
+        voices = config.get("voices", [])
+        if voices and "voice" in properties:
+            properties["voice"] = {
+                **properties["voice"],
+                "default": voices[0],
+                "enum": voices,
+            }
 
         # Auto-filter: remove thinking parameters if not supported
         output_types = config.get("output_types", [])
@@ -138,10 +156,13 @@ class ModelCard(BaseModel):
                     }
 
         # Build final parameter schema
+        required = [
+            r for r in base_schema.get("required", []) if r in properties
+        ]
         final_schema = {
             "type": "object",
             "properties": properties,
-            "required": base_schema.get("required", []),
+            "required": required,
         }
 
         # Create ModelCard instance
@@ -152,8 +173,9 @@ class ModelCard(BaseModel):
             deprecated_at=config.get("deprecated_at"),
             input_types=config.get("input_types", ["text/plain"]),
             output_types=config.get("output_types", ["text/plain"]),
-            context_size=config["context_size"],
-            output_size=config["output_size"],
+            context_size=config.get("context_size", 0),
+            output_size=config.get("output_size", 0),
+            voices=config.get("voices", []),
             parameter_schema=final_schema,
             parameters_overrides=config.get("parameter_overrides", {}),
         )

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from ..model import ChatModelBase, ModelCard
-    from ..tts import TTSModelBase, TTSModelCard
+    from ..tts import TTSModelBase
 
 
 class CredentialBase(BaseModel):
@@ -49,11 +49,11 @@ class CredentialBase(BaseModel):
         return None
 
     @classmethod
-    def list_tts_models(cls) -> list["TTSModelCard"]:
+    def list_tts_models(cls) -> list["ModelCard"]:
         """List the candidate TTS models available under this credential.
 
         Returns:
-            `list[TTSModelCard]`:
+            `list[ModelCard]`:
                 A list of TTS model cards, or empty if TTS is not supported.
         """
         tts_cls = cls.get_tts_model_class()

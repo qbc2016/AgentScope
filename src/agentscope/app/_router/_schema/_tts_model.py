@@ -3,13 +3,13 @@
 
 from pydantic import BaseModel, Field
 
-from ....tts import TTSModelCard
+from ....model import ModelCard
 
 
 class ListTTSModelsResponse(BaseModel):
     """List the candidate TTS models response."""
 
-    models: list[TTSModelCard] = Field(
+    models: list[ModelCard] = Field(
         description="The candidate TTS models.",
     )
     total: int = Field(description="The total number of candidates.")
