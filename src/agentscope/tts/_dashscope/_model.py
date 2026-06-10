@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """DashScope TTS model implementation using MultiModalConversation API."""
-import asyncio
 import base64
 import io
 import wave
@@ -19,7 +18,7 @@ from .._tts_base import TTSModelBase
 from .._tts_response import TTSResponse, TTSUsage
 from ..._utils._audio import _build_streaming_wav_header
 from ...credential import DashScopeCredential
-from ...message import Msg, DataBlock, Base64Source
+from ...message import DataBlock, Base64Source
 
 if TYPE_CHECKING:
     from dashscope.api_entities.dashscope_response import (
@@ -67,9 +66,7 @@ class DashScopeTTSModel(TTSModelBase):
     type: Literal["dashscope_tts"] = "dashscope_tts"
     """The type of the TTS model."""
 
-    supports_streaming_input: bool = False
-    """Whether the model supports streaming input. DashScope's standard TTS
-    is non-realtime; for streaming-input TTS use the realtime variant."""
+    realtime: bool = False
 
     def __init__(
         self,
@@ -109,14 +106,14 @@ class DashScopeTTSModel(TTSModelBase):
 
     async def synthesize(
         self,
-        msg: Msg | None = None,
+        text: str | None = None,
         **kwargs: Any,
     ) -> TTSResponse | AsyncGenerator[TTSResponse, None]:
         """Call the DashScope TTS API to synthesize speech from text.
 
         Args:
-            msg (`Msg | None`, optional):
-                The message whose text will be synthesized.
+            text (`str | None`, optional):
+                The text to be synthesized.
             **kwargs (`Any`):
                 Additional keyword arguments to pass to the TTS API call.
 
@@ -125,15 +122,12 @@ class DashScopeTTSModel(TTSModelBase):
                 A single ``TTSResponse`` when ``stream=False``, or an async
                 generator yielding ``TTSResponse`` chunks when ``stream=True``.
         """
-        if msg is None:
+        if not text:
             return TTSResponse(content=None)
-
-        text = msg.get_text_content()
 
         import dashscope
 
-        response = await asyncio.to_thread(
-            dashscope.MultiModalConversation.call,
+        response = dashscope.MultiModalConversation.call(
             model=self.model,
             api_key=self.credential.api_key.get_secret_value(),
             text=text,
@@ -145,17 +139,13 @@ class DashScopeTTSModel(TTSModelBase):
         if self.stream:
             return self._parse_into_async_generator(response)
 
-        return await asyncio.to_thread(self._aggregate_sync, response)
+        return self._aggregate_sync(response)
 
     @staticmethod
     def _aggregate_sync(
         response: Generator["MultiModalConversationResponse", None, None],
     ) -> TTSResponse:
-        """Aggregate all streaming chunks into a single self-contained WAV.
-
-        Runs inside :func:`asyncio.to_thread` so the synchronous iteration
-        does not block the event loop.
-        """
+        """Aggregate all streaming chunks into a single self-contained WAV."""
         start_datetime = datetime.now()
         audio_bytes = bytearray()
         usage = None
@@ -197,10 +187,6 @@ class DashScopeTTSModel(TTSModelBase):
         end-of-stream); subsequent chunks are raw PCM bytes appended to that
         open stream. The final response has ``is_last=True``.
 
-        Each ``next()`` call on the underlying synchronous generator is
-        dispatched via :func:`asyncio.to_thread` so the event loop is never
-        blocked while waiting for the next audio chunk from the API.
-
         Args:
             response (`Generator[MultiModalConversationResponse, None, None]`):
                 The streaming response from the DashScope TTS API.
@@ -216,7 +202,7 @@ class DashScopeTTSModel(TTSModelBase):
         start_datetime = datetime.now()
         it = iter(response)
         while True:
-            chunk = await asyncio.to_thread(lambda: next(it, _SENTINEL))
+            chunk = next(it, _SENTINEL)
             if chunk is _SENTINEL:
                 break
             if chunk.usage is not None:

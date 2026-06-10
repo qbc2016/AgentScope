@@ -449,7 +449,7 @@ export interface TTSModelCard {
 	deprecated_at: string | null;
 	input_types: string[];
 	output_types: string[];
-	voices: string[];
+	realtime: boolean;
 	parameter_schema: Record<string, unknown>;
 	parameters_overrides: Record<string, Record<string, unknown>>;
 }

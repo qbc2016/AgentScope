@@ -44,8 +44,8 @@ class DashScopeCredential(CredentialBase):
         return DashScopeChatModel
 
     @classmethod
-    def get_tts_model_class(cls) -> Type["TTSModelBase"]:
-        """Return the DashScopeTTSModel class."""
-        from ..tts import DashScopeTTSModel
+    def get_tts_model_classes(cls) -> list[Type["TTSModelBase"]]:
+        """Return the DashScope TTS model classes."""
+        from ..tts import DashScopeRealtimeTTSModel, DashScopeTTSModel
 
-        return DashScopeTTSModel
+        return [DashScopeTTSModel, DashScopeRealtimeTTSModel]

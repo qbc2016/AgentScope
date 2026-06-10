@@ -1,7 +1,8 @@
-import { ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { ChatModelConfig, ModelCard, TTSModelConfig } from '@/api';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -460,21 +461,17 @@ export function ModelParametersPopover({
 														}}
 													>
 														{m.label}
+														{m.realtime && <Badge variant="outline" className="ml-1.5 text-[10px] px-1 py-0">Realtime</Badge>}
 													</DropdownMenuCheckboxItem>
 												);
 											}
 
 											return (
 												<DropdownMenuSub key={`${credential.id}-${m.name}`}>
-													<DropdownMenuSubTrigger>
-														<span
-															className={
-																isSelected ? 'font-medium' : ''
-															}
-														>
-															{isSelected && '✓ '}
-															{m.label}
-														</span>
+													<DropdownMenuSubTrigger inset>
+														{isSelected && <Check className="absolute left-2 size-4" />}
+														{m.label}
+														{m.realtime && <Badge variant="outline" className="ml-1.5 text-[10px] px-1 py-0">Realtime</Badge>}
 													</DropdownMenuSubTrigger>
 													<DropdownMenuSubContent className="w-72 max-h-96 overflow-y-auto p-3">
 														<div

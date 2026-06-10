@@ -16,6 +16,13 @@ from agentscope.message import Base64Source, DataBlock
 from agentscope.middleware import TTSMiddleware
 from agentscope.tts import TTSModelBase, TTSResponse
 
+_EXCLUDE = {"id", "created_at", "metadata"}
+
+
+def _dump(evt: Any) -> dict:
+    """Dump an event to a dict excluding auto-generated fields."""
+    return evt.model_dump(exclude=_EXCLUDE)
+
 
 def _make_tts_response(
     data: str,
@@ -48,7 +55,7 @@ class TestTTSMiddlewareNonRealtime(IsolatedAsyncioTestCase):
         audio_b64 = base64.b64encode(b"\x00\x01\x02").decode()
 
         tts = MagicMock(spec=TTSModelBase)
-        tts.supports_streaming_input = False
+        tts.realtime = False
         tts.__aenter__ = AsyncMock(return_value=tts)
         tts.__aexit__ = AsyncMock(return_value=None)
         tts.synthesize = AsyncMock(
@@ -77,35 +84,49 @@ class TestTTSMiddlewareNonRealtime(IsolatedAsyncioTestCase):
                 yield evt
 
         emitted = []
-        async for evt in middleware.on_reasoning(agent, {}, next_handler):
+        async for evt in middleware.on_reply(agent, {}, next_handler):
             emitted.append(evt)
 
         # Upstream events are passed through
-        self.assertIs(emitted[0], upstream_events[0])
-        self.assertIs(emitted[1], upstream_events[1])
-        self.assertIs(emitted[2], upstream_events[2])
+        self.assertEqual(
+            [_dump(e) for e in emitted[:3]],
+            [_dump(e) for e in upstream_events],
+        )
 
         # After TextBlockEnd: START + DELTA + END
-        self.assertIsInstance(emitted[3], DataBlockStartEvent)
-        self.assertEqual(emitted[3].media_type, "audio/wav")
+        block_id = emitted[3].block_id
+        self.assertEqual(
+            [_dump(e) for e in emitted[3:]],
+            [
+                {
+                    "type": "DATA_BLOCK_START",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_DELTA",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "data": audio_b64,
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_END",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                },
+            ],
+        )
 
-        self.assertIsInstance(emitted[4], DataBlockDeltaEvent)
-        self.assertEqual(emitted[4].data, audio_b64)
-        self.assertEqual(emitted[4].media_type, "audio/wav")
-
-        self.assertIsInstance(emitted[5], DataBlockEndEvent)
-        self.assertEqual(emitted[5].block_id, emitted[3].block_id)
-
-        # synthesize was called with a Msg containing the full text
-        tts.synthesize.assert_called_once()
-        msg_arg = tts.synthesize.call_args[0][0]
-        self.assertEqual(msg_arg.content[0].text, "Hello world")
+        # synthesize was called with the full text
+        tts.synthesize.assert_called_once_with("Hello world")
 
     async def test_empty_text_skips_synthesize(self) -> None:
         """When accumulated text is whitespace-only, synthesize is not called
         and no DATA_BLOCK events are emitted."""
         tts = MagicMock(spec=TTSModelBase)
-        tts.supports_streaming_input = False
+        tts.realtime = False
         tts.__aenter__ = AsyncMock(return_value=tts)
         tts.__aexit__ = AsyncMock(return_value=None)
         tts.synthesize = AsyncMock()
@@ -127,11 +148,14 @@ class TestTTSMiddlewareNonRealtime(IsolatedAsyncioTestCase):
                 yield evt
 
         emitted = []
-        async for evt in middleware.on_reasoning(agent, {}, next_handler):
+        async for evt in middleware.on_reply(agent, {}, next_handler):
             emitted.append(evt)
 
         # Only the upstream events are passed through
-        self.assertEqual(len(emitted), 2)
+        self.assertEqual(
+            [_dump(e) for e in emitted],
+            [_dump(e) for e in upstream_events],
+        )
         tts.synthesize.assert_not_called()
 
     async def test_streaming_output_multiple_chunks(self) -> None:
@@ -145,7 +169,7 @@ class TestTTSMiddlewareNonRealtime(IsolatedAsyncioTestCase):
             yield chunk2
 
         tts = MagicMock(spec=TTSModelBase)
-        tts.supports_streaming_input = False
+        tts.realtime = False
         tts.__aenter__ = AsyncMock(return_value=tts)
         tts.__aexit__ = AsyncMock(return_value=None)
         tts.synthesize = AsyncMock(return_value=synth_gen())
@@ -167,30 +191,42 @@ class TestTTSMiddlewareNonRealtime(IsolatedAsyncioTestCase):
                 yield evt
 
         emitted = []
-        async for evt in middleware.on_reasoning(agent, {}, next_handler):
+        async for evt in middleware.on_reply(agent, {}, next_handler):
             emitted.append(evt)
 
-        # Upstream pass-through + START + 2x DELTA + END = 2 + 4 = 6
-        data_events = [
-            e
-            for e in emitted
-            if isinstance(
-                e,
-                (DataBlockStartEvent, DataBlockDeltaEvent, DataBlockEndEvent),
-            )
-        ]
-        self.assertEqual(len(data_events), 4)
-        self.assertIsInstance(data_events[0], DataBlockStartEvent)
-        self.assertIsInstance(data_events[1], DataBlockDeltaEvent)
-        self.assertEqual(data_events[1].data, "AAAA")
-        self.assertIsInstance(data_events[2], DataBlockDeltaEvent)
-        self.assertEqual(data_events[2].data, "BBBB")
-        self.assertIsInstance(data_events[3], DataBlockEndEvent)
-
-        # All share the same block_id
+        # Upstream pass-through + START + 2x DELTA + END
+        data_events = emitted[2:]
         block_id = data_events[0].block_id
-        for e in data_events:
-            self.assertEqual(e.block_id, block_id)
+        self.assertEqual(
+            [_dump(e) for e in data_events],
+            [
+                {
+                    "type": "DATA_BLOCK_START",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_DELTA",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "data": "AAAA",
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_DELTA",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "data": "BBBB",
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_END",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                },
+            ],
+        )
 
 
 class TestTTSMiddlewareRealtime(IsolatedAsyncioTestCase):
@@ -203,7 +239,7 @@ class TestTTSMiddlewareRealtime(IsolatedAsyncioTestCase):
         drain_audio = _make_tts_response("DRAIN")
 
         tts = MagicMock(spec=TTSModelBase)
-        tts.supports_streaming_input = True
+        tts.realtime = True
         tts.__aenter__ = AsyncMock(return_value=tts)
         tts.__aexit__ = AsyncMock(return_value=None)
         tts.push = AsyncMock(return_value=push_audio)
@@ -226,14 +262,11 @@ class TestTTSMiddlewareRealtime(IsolatedAsyncioTestCase):
                 yield evt
 
         emitted = []
-        async for evt in middleware.on_reasoning(agent, {}, next_handler):
+        async for evt in middleware.on_reply(agent, {}, next_handler):
             emitted.append(evt)
 
         # push() called with the delta text
-        tts.push.assert_called_once()
-        push_msg = tts.push.call_args[0][0]
-        self.assertEqual(push_msg.id, "blk-1")
-        self.assertEqual(push_msg.content[0].text, "Hello")
+        tts.push.assert_called_once_with("Hello")
 
         # synthesize() called to drain
         tts.synthesize.assert_called_once()
@@ -247,11 +280,37 @@ class TestTTSMiddlewareRealtime(IsolatedAsyncioTestCase):
             )
         ]
         # START + DELTA(push) + DELTA(drain) + END
-        self.assertEqual(len(data_events), 4)
-        self.assertIsInstance(data_events[0], DataBlockStartEvent)
-        self.assertEqual(data_events[1].data, "PUSH1")
-        self.assertEqual(data_events[2].data, "DRAIN")
-        self.assertIsInstance(data_events[3], DataBlockEndEvent)
+        block_id = data_events[0].block_id
+        self.assertEqual(
+            [_dump(e) for e in data_events],
+            [
+                {
+                    "type": "DATA_BLOCK_START",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_DELTA",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "data": "PUSH1",
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_DELTA",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "data": "DRAIN",
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_END",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                },
+            ],
+        )
 
     async def test_push_returns_none_no_audio_emitted(self) -> None:
         """When push() returns empty content, no DATA_BLOCK events are emitted
@@ -260,7 +319,7 @@ class TestTTSMiddlewareRealtime(IsolatedAsyncioTestCase):
         drain_audio = _make_tts_response("FINAL")
 
         tts = MagicMock(spec=TTSModelBase)
-        tts.supports_streaming_input = True
+        tts.realtime = True
         tts.__aenter__ = AsyncMock(return_value=tts)
         tts.__aexit__ = AsyncMock(return_value=None)
         tts.push = AsyncMock(return_value=empty_response)
@@ -288,7 +347,7 @@ class TestTTSMiddlewareRealtime(IsolatedAsyncioTestCase):
                 yield evt
 
         emitted = []
-        async for evt in middleware.on_reasoning(agent, {}, next_handler):
+        async for evt in middleware.on_reply(agent, {}, next_handler):
             emitted.append(evt)
 
         # push called twice but produced no audio
@@ -303,7 +362,27 @@ class TestTTSMiddlewareRealtime(IsolatedAsyncioTestCase):
             )
         ]
         # Only drain produces: START + DELTA + END
-        self.assertEqual(len(data_events), 3)
-        self.assertIsInstance(data_events[0], DataBlockStartEvent)
-        self.assertEqual(data_events[1].data, "FINAL")
-        self.assertIsInstance(data_events[2], DataBlockEndEvent)
+        block_id = data_events[0].block_id
+        self.assertEqual(
+            [_dump(e) for e in data_events],
+            [
+                {
+                    "type": "DATA_BLOCK_START",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_DELTA",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                    "data": "FINAL",
+                    "media_type": "audio/wav",
+                },
+                {
+                    "type": "DATA_BLOCK_END",
+                    "reply_id": "reply-1",
+                    "block_id": block_id,
+                },
+            ],
+        )

@@ -10,10 +10,9 @@ from pydantic import BaseModel
 from ._tts_response import TTSResponse
 from .._logging import logger
 from ..credential import CredentialBase
-from ..message import Msg
 
 if TYPE_CHECKING:
-    from ..model import ModelCard
+    from ._tts_model_card import TTSModelCard
 
 
 class TTSModelBase:
@@ -21,7 +20,7 @@ class TTSModelBase:
 
     This base class provides a unified abstraction for both non-realtime and
     realtime (streaming-input) TTS models, governed by the
-    ``supports_streaming_input`` flag.
+    ``realtime`` flag.
 
     For non-realtime TTS models, only :meth:`synthesize` needs to be
     implemented. For realtime TTS models, the lifecycle is managed via the
@@ -47,8 +46,8 @@ class TTSModelBase:
     stream: bool
     """Whether to use streaming output if supported by the model."""
 
-    supports_streaming_input: bool = False
-    """Whether the TTS model class supports streaming input (realtime mode)."""
+    realtime: bool = False
+    """Whether the TTS model supports realtime (streaming-input) mode."""
 
     def __init__(
         self,
@@ -77,7 +76,7 @@ class TTSModelBase:
     async def __aenter__(self) -> "TTSModelBase":
         """Enter the async context manager and initialize resources if
         needed."""
-        if self.supports_streaming_input:
+        if self.realtime:
             await self.connect()
         return self
 
@@ -88,7 +87,7 @@ class TTSModelBase:
         traceback: Any,
     ) -> None:
         """Exit the async context manager and clean up resources if needed."""
-        if self.supports_streaming_input:
+        if self.realtime:
             await self.close()
 
     async def connect(self) -> None:
@@ -97,7 +96,7 @@ class TTSModelBase:
         .. note:: Only relevant for realtime TTS models — realtime subclasses
               must override this. The default is a no-op so that non-realtime
               models can ignore the lifecycle hooks; :meth:`__aenter__` only
-              calls it when ``supports_streaming_input`` is True.
+              calls it when ``realtime`` is True.
         """
         return
 
@@ -112,7 +111,7 @@ class TTSModelBase:
 
     async def push(  # pylint: disable=unused-argument
         self,
-        msg: Msg,
+        text: str,
         **kwargs: Any,
     ) -> TTSResponse:
         """Append text to be synthesized and return the received TTS response.
@@ -127,9 +126,8 @@ class TTSModelBase:
               :meth:`synthesize` directly and never reach this method.
 
         Args:
-            msg (`Msg`):
-                The message to be synthesized. The ``msg.id`` identifies the
-                streaming input request.
+            text (`str`):
+                The text chunk to be synthesized.
             **kwargs (`Any`):
                 Additional keyword arguments to pass to the TTS API call.
 
@@ -143,7 +141,7 @@ class TTSModelBase:
     def list_models(
         cls,
         custom_yaml_dir: str | None = None,
-    ) -> list["ModelCard"]:
+    ) -> list["TTSModelCard"]:
         """List candidate TTS models by scanning YAML model cards.
 
         Args:
@@ -152,10 +150,10 @@ class TTSModelBase:
                 directory next to the concrete subclass's source file.
 
         Returns:
-            `list[ModelCard]`:
+            `list[TTSModelCard]`:
                 A list of TTS model cards.
         """
-        from ..model import ModelCard
+        from ._tts_model_card import TTSModelCard
 
         if custom_yaml_dir is None:
             subclass_file = Path(inspect.getfile(cls))
@@ -168,10 +166,12 @@ class TTSModelBase:
         model_cards = []
         for yaml_file in yaml_files:
             try:
-                card = ModelCard.from_yaml(
+                card = TTSModelCard.from_yaml(
                     yaml_path=str(yaml_file),
                     parameter_class=cls.Parameters,
                 )
+                if card.realtime != cls.realtime:
+                    continue
                 model_cards.append(card)
             except Exception as e:
                 logger.warning(
@@ -186,7 +186,7 @@ class TTSModelBase:
     @abstractmethod
     async def synthesize(
         self,
-        msg: Msg | None = None,
+        text: str | None = None,
         **kwargs: Any,
     ) -> TTSResponse | AsyncGenerator[TTSResponse, None]:
         """Synthesize speech from the appended text. Different from
@@ -194,8 +194,8 @@ class TTSModelBase:
         synthesized.
 
         Args:
-            msg (`Msg | None`, defaults to `None`):
-                The message to be synthesized. If `None`, this method will
+            text (`str | None`, defaults to `None`):
+                The text to be synthesized. If `None`, this method will
                 wait for all previously pushed text to be synthesized and
                 return the last synthesized TTSResponse.
             **kwargs (`Any`):

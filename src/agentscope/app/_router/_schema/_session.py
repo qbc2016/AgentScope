@@ -76,7 +76,7 @@ class CreateSessionRequest(BaseModel):
     )
     tts_model_config: TTSModelConfig | None = Field(
         default=None,
-        description="TTS model configuration. " "Can be set later via PATCH.",
+        description="TTS model configuration. Can be set later via PATCH.",
     )
 
 

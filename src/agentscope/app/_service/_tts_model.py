@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """TTS model service: builds a TTSModelBase from stored credential + config."""
+from typing import Type
+
 from fastapi import HTTPException, status
 
 from ..storage import StorageBase, TTSModelConfig
@@ -37,13 +39,14 @@ async def get_tts_model(
         )
 
     credential = CredentialFactory.from_dict(credential_record.data)
-    tts_cls = credential.get_tts_model_class()
-    if tts_cls is None:
+    tts_classes = credential.get_tts_model_classes()
+    if not tts_classes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Provider {config.type!r} does not support TTS models.",
         )
 
+    tts_cls = _resolve_tts_class(tts_classes, config.model)
     parameters = (
         tts_cls.Parameters(**config.parameters) if config.parameters else None
     )
@@ -52,3 +55,14 @@ async def get_tts_model(
         model=config.model,
         parameters=parameters,
     )
+
+
+def _resolve_tts_class(
+    classes: list[Type[TTSModelBase]],
+    model: str,
+) -> Type[TTSModelBase]:
+    """Pick the TTS class that lists the given model name."""
+    for cls in classes:
+        if any(card.name == model for card in cls.list_models()):
+            return cls
+    return classes[0]

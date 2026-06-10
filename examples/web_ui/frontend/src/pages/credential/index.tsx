@@ -125,6 +125,11 @@ function TTSModelCardItem({ model }: { model: TTSModelCard }) {
 				>
 					{model.label || model.name}
 				</CardTitle>
+				{model.realtime && (
+					<CardAction>
+						<Badge variant="outline">Realtime</Badge>
+					</CardAction>
+				)}
 			</CardHeader>
 			<CardContent className="flex flex-col">
 				{model.status !== 'active' && (

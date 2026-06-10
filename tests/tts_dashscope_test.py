@@ -18,7 +18,6 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import MagicMock, patch
 
 from agentscope.credential import DashScopeCredential
-from agentscope.message import Msg, TextBlock
 from agentscope.tts import DashScopeTTSModel, TTSModelBase, TTSResponse
 
 
@@ -34,10 +33,6 @@ _WAV_HEADER_LEN = 44
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_msg(text: str = "Hello world") -> Msg:
-    return Msg(name="user", role="user", content=[TextBlock(text=text)])
 
 
 def _make_api_chunk(
@@ -103,18 +98,18 @@ class _DummyTTS(TTSModelBase):
 
     async def synthesize(
         self,
-        msg: Msg | None = None,
+        text: str | None = None,
         **kwargs: Any,
     ) -> TTSResponse | AsyncGenerator[TTSResponse, None]:
-        del msg, kwargs
+        del text, kwargs
         return TTSResponse(content=None)
 
 
 class _RealtimeDummyTTS(_DummyTTS):
     """Realtime-flavoured dummy to assert ``__aenter__`` drives the lifecycle
-    hooks when ``supports_streaming_input`` is True."""
+    hooks when ``realtime`` is True."""
 
-    supports_streaming_input = True
+    realtime = True
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -150,20 +145,19 @@ class TestTTSModelBaseDefaults(IsolatedAsyncioTestCase):
         """Default push returns an empty TTSResponse rather than raising,
         so a misuse on a non-realtime model degrades gracefully."""
         model = _make_dummy()
-        resp = await model.push(_make_msg("ignored"))
-        self.assertIsInstance(resp, TTSResponse)
+        resp = await model.push("ignored")
         self.assertIsNone(resp.content)
 
     async def test_aenter_skips_hooks_for_non_realtime(self) -> None:
         """``async with`` on a non-realtime model must not invoke connect/
-        close (gated by ``supports_streaming_input``)."""
+        close (gated by ``realtime``)."""
         model = _make_dummy(_DummyTTS)
         async with model as m:
             self.assertIs(m, model)
 
     async def test_aenter_invokes_hooks_for_realtime(self) -> None:
-        """For ``supports_streaming_input=True`` subclasses, connect/close
-        fire on enter/exit exactly once."""
+        """For ``realtime=True`` subclasses, connect/close fire on
+        enter/exit exactly once."""
         model = _make_dummy(_RealtimeDummyTTS)
         async with model:
             self.assertEqual(model.connect_calls, 1)
@@ -194,36 +188,50 @@ class TestDashScopeTTSModelNonStream(IsolatedAsyncioTestCase):
         )
         model = _make_model(stream=False)
 
-        result = await model.synthesize(_make_msg())
+        result = await model.synthesize("Hello world")
 
         self.assertIsInstance(result, TTSResponse)
-        self.assertEqual(
-            result.content.source.media_type,
-            _MEDIA_TYPE,
-        )
+        self.assertEqual(result.content.source.media_type, _MEDIA_TYPE)
         wav_bytes = base64.b64decode(result.content.source.data)
-        # The output is a self-contained WAV; the wave module must be able
-        # to parse the parameters we wrapped it with and recover the
-        # original concatenated PCM frames.
         with wave.open(io.BytesIO(wav_bytes), "rb") as wav:
-            self.assertEqual(wav.getframerate(), _TTS_SAMPLE_RATE)
-            self.assertEqual(wav.getnchannels(), _TTS_CHANNELS)
-            self.assertEqual(wav.getsampwidth(), _TTS_SAMPLE_WIDTH)
-            self.assertEqual(wav.readframes(wav.getnframes()), b"AAAABBBBCCCC")
+            self.assertEqual(
+                {
+                    "framerate": wav.getframerate(),
+                    "channels": wav.getnchannels(),
+                    "sampwidth": wav.getsampwidth(),
+                    "frames": wav.readframes(wav.getnframes()),
+                },
+                {
+                    "framerate": _TTS_SAMPLE_RATE,
+                    "channels": _TTS_CHANNELS,
+                    "sampwidth": _TTS_SAMPLE_WIDTH,
+                    "frames": b"AAAABBBBCCCC",
+                },
+            )
         self.assertTrue(result.is_last)
 
     @patch("dashscope.MultiModalConversation")
-    async def test_msg_none_short_circuits(
-        self,
-        mock_mmc: MagicMock,
-    ) -> None:
+    async def test_none_short_circuits(self, mock_mmc: MagicMock) -> None:
         """``synthesize(None)`` returns an empty response without touching
         the API."""
         model = _make_model(stream=False)
 
         result = await model.synthesize(None)
 
-        self.assertIsInstance(result, TTSResponse)
+        self.assertIsNone(result.content)
+        mock_mmc.call.assert_not_called()
+
+    @patch("dashscope.MultiModalConversation")
+    async def test_empty_string_short_circuits(
+        self,
+        mock_mmc: MagicMock,
+    ) -> None:
+        """``synthesize("")`` returns an empty response without touching
+        the API."""
+        model = _make_model(stream=False)
+
+        result = await model.synthesize("")
+
         self.assertIsNone(result.content)
         mock_mmc.call.assert_not_called()
 
@@ -235,7 +243,7 @@ class TestDashScopeTTSModelNonStream(IsolatedAsyncioTestCase):
         )
         model = _make_model(stream=False)
 
-        result = await model.synthesize(_make_msg())
+        result = await model.synthesize("Hello world")
 
         wav_bytes = base64.b64decode(result.content.source.data)
         self.assertEqual(_parse_wav_payload(wav_bytes), b"AAAABBBB")
@@ -263,7 +271,7 @@ class TestDashScopeTTSModelStream(IsolatedAsyncioTestCase):
         )
         model = _make_model(stream=True)
 
-        gen = await model.synthesize(_make_msg())
+        gen = await model.synthesize("Hello world")
         chunks = [c async for c in gen]
 
         payloads = [base64.b64decode(c.content.source.data) for c in chunks]
@@ -276,15 +284,14 @@ class TestDashScopeTTSModelStream(IsolatedAsyncioTestCase):
         self.assertEqual(payloads[1], b"BBBB")
         self.assertEqual(payloads[2], b"CCCC")
 
-        self.assertListEqual(
+        self.assertEqual(
             [c.is_last for c in chunks],
             [False, False, True],
         )
-        for chunk in chunks:
-            self.assertEqual(
-                chunk.content.source.media_type,
-                _MEDIA_TYPE,
-            )
+        self.assertEqual(
+            [c.content.source.media_type for c in chunks],
+            [_MEDIA_TYPE, _MEDIA_TYPE, _MEDIA_TYPE],
+        )
 
     @patch("dashscope.MultiModalConversation")
     async def test_single_chunk_marked_last(
@@ -296,7 +303,7 @@ class TestDashScopeTTSModelStream(IsolatedAsyncioTestCase):
         mock_mmc.call.return_value = _make_api_generator([b"ONLYCHUNK"])
         model = _make_model(stream=True)
 
-        gen = await model.synthesize(_make_msg())
+        gen = await model.synthesize("Hello world")
         chunks = [c async for c in gen]
 
         self.assertEqual(len(chunks), 1)
@@ -315,7 +322,7 @@ class TestDashScopeTTSModelStream(IsolatedAsyncioTestCase):
         mock_mmc.call.return_value = _make_api_generator([None, None])
         model = _make_model(stream=True)
 
-        gen = await model.synthesize(_make_msg())
+        gen = await model.synthesize("Hello world")
         chunks = [c async for c in gen]
 
         self.assertEqual(len(chunks), 1)
