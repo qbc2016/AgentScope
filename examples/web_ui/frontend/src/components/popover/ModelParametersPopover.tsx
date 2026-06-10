@@ -461,7 +461,14 @@ export function ModelParametersPopover({
 														}}
 													>
 														{m.label}
-														{m.realtime && <Badge variant="outline" className="ml-1.5 text-[10px] px-1 py-0">Realtime</Badge>}
+														{m.realtime && (
+															<Badge
+																variant="outline"
+																className="ml-1.5 text-[10px] px-1 py-0"
+															>
+																Realtime
+															</Badge>
+														)}
 													</DropdownMenuCheckboxItem>
 												);
 											}
@@ -469,9 +476,18 @@ export function ModelParametersPopover({
 											return (
 												<DropdownMenuSub key={`${credential.id}-${m.name}`}>
 													<DropdownMenuSubTrigger inset>
-														{isSelected && <Check className="absolute left-2 size-4" />}
+														{isSelected && (
+															<Check className="absolute left-2 size-4" />
+														)}
 														{m.label}
-														{m.realtime && <Badge variant="outline" className="ml-1.5 text-[10px] px-1 py-0">Realtime</Badge>}
+														{m.realtime && (
+															<Badge
+																variant="outline"
+																className="ml-1.5 text-[10px] px-1 py-0"
+															>
+																Realtime
+															</Badge>
+														)}
 													</DropdownMenuSubTrigger>
 													<DropdownMenuSubContent className="w-72 max-h-96 overflow-y-auto p-3">
 														<div
