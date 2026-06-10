@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field
 class TTSModelCard(BaseModel):
     """The model card class for TTS models."""
 
+    type: Literal["tts_model"] = "tts_model"
+    """The model card type discriminator."""
+
     name: str = Field(description="The name of the TTS model")
     """The model name."""
 

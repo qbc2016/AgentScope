@@ -2,7 +2,7 @@
 """Unit tests for TTSMiddleware."""
 import base64
 from typing import Any, AsyncGenerator
-from unittest.async_case import IsolatedAsyncioTestCase
+from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock
 
 from agentscope.event import (

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """DashScope Realtime TTS model implementation."""
+import asyncio
 import base64
 import threading
-import time
 from typing import Any, AsyncGenerator, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -71,9 +71,7 @@ def _make_callback_class() -> type["QwenTtsRealtimeCallback"]:
                     self.finish_event.set()
 
             except Exception:
-                import traceback
-
-                traceback.print_exc()
+                logger.exception("Error in TTS WebSocket callback")
                 self.finish_event.set()
 
         def on_close(self, close_status_code: int, close_msg: str) -> None:
@@ -148,7 +146,7 @@ def _make_callback_class() -> type["QwenTtsRealtimeCallback"]:
                 if self.chunk_event.is_set():
                     self.chunk_event.clear()
                 else:
-                    self.chunk_event.wait()
+                    await asyncio.to_thread(self.chunk_event.wait)
 
                 if self.finish_event.is_set():
                     continue
@@ -410,7 +408,9 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                 self._tts_client.commit()
                 self._tts_client.finish()
 
-                self._callback.finish_event.wait()
+                await asyncio.to_thread(
+                    self._callback.finish_event.wait,
+                )
 
                 if full_text and not self._callback.has_audio_data():
                     if attempt < self.max_retries - 1:
@@ -421,7 +421,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                             self.max_retries,
                             delay,
                         )
-                        time.sleep(delay)
+                        await asyncio.sleep(delay)
                         await self._reconnect()
                         unsent = full_text
                         delay *= 2
@@ -441,7 +441,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                         self.max_retries,
                         delay,
                     )
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
                     await self._reconnect()
                     unsent = full_text
                     delay *= 2
