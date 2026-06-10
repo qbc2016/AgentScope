@@ -250,8 +250,9 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         self._tts_client: QwenTtsRealtime | None = None
         self._callback: Any = None
         self._connected = False
-        self._first_send: bool = True
-        self._current_prefix: str = ""
+        self._cold_start_buffer: str = ""
+        self._cold_start_done: bool = False
+        self._accumulated_text: str = ""
 
     def _create_client(self) -> None:
         """Create a fresh TTS client and callback."""
@@ -297,8 +298,8 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         except Exception:
             pass
         self._connected = False
-        self._first_send = True
-        self._current_prefix = ""
+        self._cold_start_buffer = ""
+        self._cold_start_done = False
         await self.connect()
 
     async def push(
@@ -306,11 +307,11 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         text: str,
         **kwargs: Any,
     ) -> TTSResponse:
-        """Push a text chunk for incremental synthesis.
+        """Push an incremental text delta for realtime synthesis.
 
         Args:
             text (`str`):
-                The text chunk to be synthesized.
+                An incremental text chunk (delta) to append.
             **kwargs (`Any`):
                 Additional keyword arguments (unused).
 
@@ -328,26 +329,35 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
         if not text:
             return TTSResponse(content=None)
 
-        if self._first_send:
-            delta_to_send = text
-            if self.cold_start_length and len(text) < self.cold_start_length:
-                delta_to_send = ""
-            if (
-                delta_to_send
-                and self.cold_start_words
-                and len(delta_to_send.split()) < self.cold_start_words
-            ):
-                delta_to_send = ""
-        else:
-            delta_to_send = text.removeprefix(self._current_prefix)
+        self._accumulated_text += text
 
-        if delta_to_send:
+        if not self._cold_start_done:
+            self._cold_start_buffer += text
+            ready = True
+            if (
+                self.cold_start_length
+                and len(self._cold_start_buffer) < self.cold_start_length
+            ):
+                ready = False
+            if (
+                ready
+                and self.cold_start_words
+                and len(self._cold_start_buffer.split())
+                < self.cold_start_words
+            ):
+                ready = False
+            if ready:
+                try:
+                    self._tts_client.append_text(self._cold_start_buffer)
+                except WebSocketConnectionClosedException:
+                    return TTSResponse(content=None)
+                self._cold_start_buffer = ""
+                self._cold_start_done = True
+        else:
             try:
-                self._tts_client.append_text(delta_to_send)
+                self._tts_client.append_text(text)
             except WebSocketConnectionClosedException:
                 return TTSResponse(content=None)
-            self._current_prefix += delta_to_send
-            self._first_send = False
 
         return self._callback.get_audio_response(block=False)
 
@@ -358,14 +368,14 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
     ) -> TTSResponse | AsyncGenerator[TTSResponse, None]:
         """Finalize synthesis for the current utterance.
 
-        If text was previously pushed via :meth:`push`, this commits the
-        remaining text and waits for audio. If ``text`` is provided directly,
-        the full text is sent and synthesized in one shot.
+        If text was previously pushed via :meth:`push`, this flushes any
+        remaining buffered text, commits, and waits for audio. If ``text``
+        is provided, it is appended before committing.
 
         Args:
             text (`str | None`, defaults to `None`):
-                The text to synthesize. If ``None``, finalizes previously
-                pushed text.
+                Optional additional text to append before finalizing.
+                If ``None``, finalizes previously pushed text.
             **kwargs (`Any`):
                 Additional keyword arguments (unused).
 
@@ -381,21 +391,21 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                 "TTS model is not connected. Call `connect()` first.",
             )
 
-        if text is None:
-            delta_to_send = ""
-            full_text = self._current_prefix
-        else:
-            full_text = text
-            delta_to_send = full_text.removeprefix(self._current_prefix)
+        if text is not None:
+            self._accumulated_text += text
 
+        unsent = self._cold_start_buffer
+        if text is not None:
+            unsent += text
+        self._cold_start_buffer = ""
+
+        full_text = self._accumulated_text
         delay = self.retry_delay
 
         for attempt in range(self.max_retries):
             try:
-                if delta_to_send:
-                    self._tts_client.append_text(delta_to_send)
-                    self._current_prefix += delta_to_send
-                    self._first_send = False
+                if unsent:
+                    self._tts_client.append_text(unsent)
 
                 self._tts_client.commit()
                 self._tts_client.finish()
@@ -413,7 +423,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                         )
                         time.sleep(delay)
                         await self._reconnect()
-                        delta_to_send = full_text
+                        unsent = full_text
                         delay *= 2
                         continue
                     self._reset_state()
@@ -433,7 +443,7 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
                     )
                     time.sleep(delay)
                     await self._reconnect()
-                    delta_to_send = full_text
+                    unsent = full_text
                     delay *= 2
                 else:
                     self._reset_state()
@@ -448,5 +458,6 @@ class DashScopeRealtimeTTSModel(TTSModelBase):
 
     def _reset_state(self) -> None:
         """Reset per-utterance tracking state."""
-        self._first_send = True
-        self._current_prefix = ""
+        self._cold_start_buffer = ""
+        self._cold_start_done = False
+        self._accumulated_text = ""
