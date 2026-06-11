@@ -9,6 +9,7 @@ from ._session import (
     SessionConfig,
     ChatModelConfig,
     TTSModelConfig,
+    EmbeddingModelConfig,
     SessionSource,
 )
 from ._team import TeamRecord, TeamData
@@ -26,6 +27,7 @@ __all__ = [
     "SessionSource",
     "ChatModelConfig",
     "TTSModelConfig",
+    "EmbeddingModelConfig",
     "TeamData",
     "TeamRecord",
     "UserRecord",

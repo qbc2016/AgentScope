@@ -40,6 +40,7 @@ from ...event import (
     ExternalExecutionResultEvent,
 )
 from ...message import AssistantMsg, Msg, ToolCallState
+from ...permission import AdditionalWorkingDirectory
 
 
 class ChatService:
@@ -66,7 +67,8 @@ class ChatService:
         message_bus: MessageBus,
         extra_agent_middlewares: AgentMiddlewareFactory | None = None,
         extra_agent_tools: AgentToolFactory | None = None,
-        sub_agent_templates: dict[str, SubAgentTemplate] | None = None,
+        custom_subagent_templates: dict[str, SubAgentTemplate] | None = None,
+        custom_agent_cls: type[Agent] | None = None,
     ) -> None:
         """Initialize chat service.
 
@@ -96,12 +98,15 @@ class ChatService:
             extra_agent_tools (`AgentToolFactory | None`, optional):
                 Async factory invoked at every chat turn to produce
                 user/session-specific tools to register in the toolkit.
-            sub_agent_templates (`dict[str, SubAgentTemplate] | None`, \
+            custom_subagent_templates (`dict[str, SubAgentTemplate] | None`,\
              optional):
                 Sub-agent template registry, keyed by template type.
                 Passed through to :func:`get_toolkit` so that
                 ``AgentCreate`` can route to the appropriate template
                 when a ``subagent_type`` is specified.
+            custom_agent_cls (`type[Agent] | None`, optional):
+                Custom :class:`Agent` subclass for assembling agents.
+                Falls back to :class:`Agent` when ``None``.
         """
         self._storage = storage
         self._workspace_manager = workspace_manager
@@ -110,7 +115,8 @@ class ChatService:
         self._message_bus = message_bus
         self._extra_agent_middlewares = extra_agent_middlewares
         self._extra_agent_tools = extra_agent_tools
-        self._sub_agent_templates = sub_agent_templates
+        self._sub_agent_templates = custom_subagent_templates
+        self._agent_cls = custom_agent_cls or Agent
 
     async def run(
         self,
@@ -215,6 +221,18 @@ class ChatService:
             session_record.config.workspace_id,
         )
 
+        # Add workspace working directory to the permission context
+        if (
+            workspace.workdir
+            not in session_record.state.permission_context.working_directories
+        ):
+            session_record.state.permission_context.working_directories[
+                workspace.workdir
+            ] = AdditionalWorkingDirectory(
+                path=workspace.workdir,
+                source="session",
+            )
+
         # ----------------------------------------------------------------
         # 2. Toolkit (workspace tools + planning + TaskStop + schedule +
         # team + extras + skills + mcps).
@@ -296,7 +314,7 @@ class ChatService:
         # ----------------------------------------------------------------
         agent_state = session_record.state
         agent_state.session_id = session_id
-        agent = Agent(
+        agent = self._agent_cls(
             name=agent_record.data.name,
             system_prompt=agent_record.data.system_prompt,
             model=model,

@@ -17,6 +17,7 @@ from ._router import (
 from ._types import AgentMiddlewareFactory, AgentToolFactory, SubAgentTemplate
 from .message_bus import MessageBus
 from .storage import StorageBase
+from ..agent import Agent
 from ..credential import CredentialFactory, CredentialBase
 from .._version import __version__
 
@@ -38,7 +39,8 @@ def create_app(
     extra_middlewares: list[FastAPIMiddleware] | None = None,
     extra_agent_middlewares: AgentMiddlewareFactory | None = None,
     extra_agent_tools: AgentToolFactory | None = None,
-    sub_agent_templates: list[SubAgentTemplate] | None = None,
+    custom_subagent_templates: list[SubAgentTemplate] | None = None,
+    custom_agent_cls: Type[Agent] | None = None,
     title: str = "AgentScope",
     version: str = __version__,
 ) -> FastAPI:
@@ -107,7 +109,7 @@ def create_app(
             availability depends on the caller (per-tenant integrations,
             user-specific credentials).  The returned tools are added to
             the workspace-derived tools in the toolkit's ``"basic"`` group.
-        sub_agent_templates (`list[SubAgentTemplate] | None`, optional):
+        custom_subagent_templates (`list[SubAgentTemplate] | None`, optional):
             Reusable blueprints for sub-agent creation within teams.
             Each template defines a sub-agent *type* (e.g. ``"researcher"``,
             ``"coder"``) with pre-configured system prompt, context config,
@@ -116,6 +118,10 @@ def create_app(
             ``subagent_type`` parameter so the leader agent can route to
             the appropriate template.  See
             :class:`~agentscope.app._types.SubAgentTemplate` for details.
+        custom_agent_cls (`Type[Agent] | None`, optional):
+            A custom :class:`~agentscope.agent.Agent` subclass to use
+            when assembling agents.  When ``None`` (default), the
+            built-in :class:`~agentscope.agent.Agent` is used.
         title (`str`, defaults to ``"AgentScope"``):
             OpenAPI title shown in the docs UI.
         version (`str`, defaults to the package version):
@@ -138,7 +144,11 @@ def create_app(
     app.state.workspace_manager = workspace_manager
     app.state.extra_agent_middlewares = extra_agent_middlewares
     app.state.extra_agent_tools = extra_agent_tools
-    templates = sub_agent_templates or []
+    app.state.custom_agent_cls = custom_agent_cls
+
+    # Validate custom sub-agent templates for duplicate types and store in
+    #  app.state
+    templates = custom_subagent_templates or []
     seen_types: set[str] = set()
     duplicates: set[str] = set()
     for t in templates:
@@ -149,7 +159,7 @@ def create_app(
         raise ValueError(
             f"Duplicate sub_agent_template type(s): {duplicates}",
         )
-    app.state.sub_agent_templates = {t.type: t for t in templates}
+    app.state.custom_subagent_templates = {t.type: t for t in templates}
 
     # Built-in routers
     for router in (

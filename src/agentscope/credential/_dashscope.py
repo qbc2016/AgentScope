@@ -7,6 +7,7 @@ from pydantic import ConfigDict, Field, SecretStr
 from ._base import CredentialBase
 
 if TYPE_CHECKING:
+    from ..embedding import EmbeddingModelBase
     from ..model import ChatModelBase
     from ..tts import TTSModelBase
 
@@ -49,3 +50,10 @@ class DashScopeCredential(CredentialBase):
         from ..tts import DashScopeRealtimeTTSModel, DashScopeTTSModel
 
         return [DashScopeTTSModel, DashScopeRealtimeTTSModel]
+
+    @classmethod
+    def get_embedding_model_class(cls) -> Type["EmbeddingModelBase"]:
+        """Return the DashScopeEmbeddingModel class."""
+        from ..embedding import DashScopeEmbeddingModel
+
+        return DashScopeEmbeddingModel
