@@ -289,6 +289,7 @@
 		"parametersLabel": "参数",
 		"ttsLabel": "语音合成",
 		"ttsEmpty": "暂无可用的语音合成模型。",
+		"ttsParameters": "参数设置",
 		"noTts": "不使用语音合成"
 	},
 	"setup": {
