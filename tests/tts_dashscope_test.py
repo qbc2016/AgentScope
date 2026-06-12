@@ -570,6 +570,135 @@ class TestDashScopeRealtimeTTSModel(  # pylint: disable=too-many-public-methods
                 with self.assertRaises(RuntimeError):
                     await model.synthesize(text="Hello")
 
+    # -- callback --
+
+    async def test_get_audio_chunks_prepends_header_without_prior_push(
+        self,
+    ) -> None:
+        """get_audio_chunks() prepends a WAV header when push() has not
+        yet consumed any bytes (_consumed == 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._realtime_model import (
+                _make_callback_class,
+            )
+
+            callback_cls = _make_callback_class()
+            cb = callback_cls()
+
+            audio_b64 = base64.b64encode(b"ALLPCM").decode()
+            cb.on_event({"type": "response.audio.delta", "delta": audio_b64})
+            cb.on_event({"type": "session.finished"})
+
+            chunks = [c async for c in cb.get_audio_chunks()]
+            raw_payloads = [
+                base64.b64decode(c.content.source.data)
+                for c in chunks
+                if c.content is not None
+            ]
+
+            self.assertTrue(len(raw_payloads) > 0)
+            self.assertTrue(raw_payloads[0].startswith(b"RIFF"))
+            self.assertTrue(raw_payloads[0].endswith(b"ALLPCM"))
+
+    async def test_get_audio_chunks_skips_header_after_partial_push(
+        self,
+    ) -> None:
+        """get_audio_chunks() does NOT prepend a second WAV header when
+        push() already consumed and sent the first chunk with a header
+        (_consumed > 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._realtime_model import (
+                _make_callback_class,
+            )
+
+            callback_cls = _make_callback_class()
+            cb = callback_cls()
+
+            # Simulate push() consuming the first chunk (with WAV header)
+            first_b64 = base64.b64encode(b"FIRSTPCM").decode()
+            cb.on_event(
+                {"type": "response.audio.delta", "delta": first_b64},
+            )
+            first_resp = cb.get_audio_response(block=False)
+            self.assertIsNotNone(first_resp.content)
+            self.assertGreater(cb._consumed, 0)
+
+            # More data arrives and session finishes
+            more_b64 = base64.b64encode(b"MOREPCM").decode()
+            cb.on_event(
+                {"type": "response.audio.delta", "delta": more_b64},
+            )
+            cb.on_event({"type": "session.finished"})
+
+            chunks = [c async for c in cb.get_audio_chunks()]
+            raw_payloads = [
+                base64.b64decode(c.content.source.data)
+                for c in chunks
+                if c.content is not None
+            ]
+
+            self.assertTrue(len(raw_payloads) > 0)
+            # No second RIFF header should appear mid-stream
+            self.assertFalse(raw_payloads[0].startswith(b"RIFF"))
+            self.assertEqual(raw_payloads[0], b"MOREPCM")
+
+    async def test_get_audio_response_includes_header_without_prior_push(
+        self,
+    ) -> None:
+        """get_audio_response() prepends a WAV header when no data has been
+        consumed yet (_consumed == 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._realtime_model import (
+                _make_callback_class,
+            )
+
+            callback_cls = _make_callback_class()
+            cb = callback_cls()
+
+            audio_b64 = base64.b64encode(b"ALLPCM").decode()
+            cb.on_event({"type": "response.audio.delta", "delta": audio_b64})
+            cb.on_event({"type": "session.finished"})
+
+            resp = cb.get_audio_response(block=True)
+            raw = base64.b64decode(resp.content.source.data)
+
+            self.assertTrue(raw.startswith(b"RIFF"))
+            self.assertTrue(raw.endswith(b"ALLPCM"))
+
+    async def test_get_audio_response_skips_header_after_partial_push(
+        self,
+    ) -> None:
+        """get_audio_response() does NOT prepend a second WAV header when
+        push() already consumed and sent the first chunk with a header
+        (_consumed > 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._realtime_model import (
+                _make_callback_class,
+            )
+
+            callback_cls = _make_callback_class()
+            cb = callback_cls()
+
+            first_b64 = base64.b64encode(b"FIRSTPCM").decode()
+            cb.on_event(
+                {"type": "response.audio.delta", "delta": first_b64},
+            )
+            first_resp = cb.get_audio_response(block=False)
+            self.assertIsNotNone(first_resp.content)
+            self.assertGreater(cb._consumed, 0)
+
+            more_b64 = base64.b64encode(b"MOREPCM").decode()
+            cb.on_event(
+                {"type": "response.audio.delta", "delta": more_b64},
+            )
+            cb.on_event({"type": "session.finished"})
+
+            resp = cb.get_audio_response(block=True)
+            raw = base64.b64decode(resp.content.source.data)
+
+            self.assertFalse(raw.startswith(b"RIFF"))
+            self.assertEqual(raw, b"MOREPCM")
+
 
 # ---------------------------------------------------------------------------
 # DashScopeCosyVoiceRealtimeTTSModel — realtime push / synthesize lifecycle
@@ -982,6 +1111,119 @@ class TestDashScopeCosyVoiceRealtimeTTSModel(
             self.assertTrue(delta.startswith(b"RIFF"))
             self.assertIn(b"WAVE", delta[:12])
             self.assertTrue(delta.endswith(b"PCMPCM"))
+
+    async def test_get_audio_chunks_prepends_header_without_prior_push(
+        self,
+    ) -> None:
+        """get_audio_chunks() prepends a WAV header when push() has not
+        yet consumed any bytes (_consumed == 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._cosyvoice_realtime_model import (
+                _make_cosyvoice_callback_class,
+            )
+
+            callback_cls = _make_cosyvoice_callback_class()
+            cb = callback_cls()
+
+            cb.on_data(b"ALLPCM")
+            cb.on_complete()
+
+            chunks = [c async for c in cb.get_audio_chunks()]
+            raw_payloads = [
+                base64.b64decode(c.content.source.data)
+                for c in chunks
+                if c.content is not None
+            ]
+
+            self.assertTrue(len(raw_payloads) > 0)
+            self.assertTrue(raw_payloads[0].startswith(b"RIFF"))
+            self.assertTrue(raw_payloads[0].endswith(b"ALLPCM"))
+
+    async def test_get_audio_chunks_skips_header_after_partial_push(
+        self,
+    ) -> None:
+        """get_audio_chunks() does NOT prepend a second WAV header when
+        push() already consumed and sent the first chunk with a header
+        (_consumed > 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._cosyvoice_realtime_model import (
+                _make_cosyvoice_callback_class,
+            )
+
+            callback_cls = _make_cosyvoice_callback_class()
+            cb = callback_cls()
+
+            # Simulate push() consuming the first chunk (with WAV header)
+            cb.on_data(b"FIRSTPCM")
+            first_resp = cb.get_audio_response(block=False)
+            self.assertIsNotNone(first_resp.content)
+            self.assertGreater(cb._consumed, 0)
+
+            # More data arrives and synthesis completes
+            cb.on_data(b"MOREPCM")
+            cb.on_complete()
+
+            chunks = [c async for c in cb.get_audio_chunks()]
+            raw_payloads = [
+                base64.b64decode(c.content.source.data)
+                for c in chunks
+                if c.content is not None
+            ]
+
+            self.assertTrue(len(raw_payloads) > 0)
+            # No second RIFF header should appear mid-stream
+            self.assertFalse(raw_payloads[0].startswith(b"RIFF"))
+            self.assertEqual(raw_payloads[0], b"MOREPCM")
+
+    async def test_get_audio_response_includes_header_without_prior_push(
+        self,
+    ) -> None:
+        """get_audio_response() prepends a WAV header when no data has been
+        consumed yet (_consumed == 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._cosyvoice_realtime_model import (
+                _make_cosyvoice_callback_class,
+            )
+
+            callback_cls = _make_cosyvoice_callback_class()
+            cb = callback_cls()
+
+            cb.on_data(b"ALLPCM")
+            cb.on_complete()
+
+            resp = cb.get_audio_response(block=True)
+            raw = base64.b64decode(resp.content.source.data)
+
+            self.assertTrue(raw.startswith(b"RIFF"))
+            self.assertTrue(raw.endswith(b"ALLPCM"))
+
+    async def test_get_audio_response_skips_header_after_partial_push(
+        self,
+    ) -> None:
+        """get_audio_response() does NOT prepend a second WAV header when
+        push() already consumed and sent the first chunk with a header
+        (_consumed > 0)."""
+        with patch.dict("sys.modules", self.mock_modules):
+            from agentscope.tts._dashscope._cosyvoice_realtime_model import (
+                _make_cosyvoice_callback_class,
+            )
+
+            callback_cls = _make_cosyvoice_callback_class()
+            cb = callback_cls()
+
+            cb.on_data(b"FIRSTPCM")
+            first_resp = cb.get_audio_response(block=False)
+            self.assertIsNotNone(first_resp.content)
+            self.assertGreater(cb._consumed, 0)
+
+            cb.on_data(b"MOREPCM")
+            cb.on_complete()
+
+            resp = cb.get_audio_response(block=True)
+            raw = base64.b64decode(resp.content.source.data)
+
+            self.assertFalse(raw.startswith(b"RIFF"))
+            self.assertEqual(raw, b"MOREPCM")
 
     async def test_callback_reset(self) -> None:
         """reset() clears all state."""

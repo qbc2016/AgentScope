@@ -38,6 +38,8 @@ def _make_cosyvoice_callback_class() -> type["ResultCallback"]:
         and exposes incremental deltas."""
 
         def __init__(self) -> None:
+            """Initialize callback with audio buffer and synchronization
+            events."""
             super().__init__()
             self.chunk_event = threading.Event()
             self.finish_event = threading.Event()
@@ -49,6 +51,7 @@ def _make_cosyvoice_callback_class() -> type["ResultCallback"]:
             self._pcm_bytes = bytearray()
             self._consumed = 0
             self.finish_event.clear()
+            self.chunk_event.clear()
 
         def on_data(self, data: bytes) -> None:
             """Handle incoming PCM audio data."""
@@ -105,7 +108,7 @@ def _make_cosyvoice_callback_class() -> type["ResultCallback"]:
 
         async def get_audio_chunks(self) -> AsyncGenerator[TTSResponse, None]:
             """Yield incremental WAV audio chunks as they arrive."""
-            header_sent = False
+            header_sent = self._consumed > 0
             while True:
                 if self.finish_event.is_set():
                     delta = self._take_delta(header=not header_sent)
@@ -500,7 +503,9 @@ class DashScopeCosyVoiceRealtimeTTSModel(TTSModelBase):
         if self.stream:
             return self._callback.get_audio_chunks()
 
-        return self._callback.get_audio_response(block=True)
+        response = self._callback.get_audio_response(block=True)
+        self._callback.reset()
+        return response
 
     def _reset_state(self) -> None:
         """Reset per-utterance tracking state."""
