@@ -224,6 +224,27 @@ class RealtimeModelBase:
             await self._websocket.close()
             self._websocket = None
 
+    async def send_raw(self, payload: str) -> None:
+        """Send a raw JSON string directly over the WebSocket.
+
+        This is a low-level escape hatch used by the agent layer to send
+        protocol messages (e.g. ``response.create``) that don't map
+        to a :class:`DataBlock`, :class:`TextBlock`, or
+        :class:`ToolResultBlock`.
+
+        Args:
+            payload (`str`):
+                A JSON-encoded string to send on the WebSocket.
+
+        Raises:
+            `RuntimeError`: If the WebSocket is not connected.
+        """
+        if self._websocket is None:
+            raise RuntimeError(
+                "WebSocket is not connected. Call `connect` first.",
+            )
+        await self._websocket.send(payload)
+
     async def _receive_loop(self, outgoing_queue: Queue) -> None:
         """Drain the WebSocket; push parsed events to ``outgoing_queue``."""
         assert self._websocket is not None

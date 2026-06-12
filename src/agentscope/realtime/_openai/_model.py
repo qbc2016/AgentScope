@@ -436,17 +436,16 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 call_id = data.get("call_id", "")
                 if not delta or not call_id:
                     return None
-                accumulated = (
+                self._tool_args_accumulator[call_id] = (
                     self._tool_args_accumulator.get(call_id, "") + delta
                 )
-                self._tool_args_accumulator[call_id] = accumulated
                 return ModelEvents.ModelResponseToolCallDeltaEvent(
                     response_id=self._response_id,
                     item_id=data.get("item_id", ""),
                     tool_call=ToolCallBlock(
                         id=call_id,
                         name=data.get("name", ""),
-                        input=accumulated,
+                        input=delta,
                     ),
                 )
             case "response.function_call_arguments.done":

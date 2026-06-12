@@ -90,5 +90,19 @@ export function useRealtimeSession(
 		}
 	}, []);
 
-	return { connected, sendAudio, error };
+	/**
+	 * Send a tool-call user-confirmation via the WebSocket.
+	 *
+	 * The backend ``_upstream`` handler routes ``user_confirm`` frames
+	 * to ``RealtimeAgent.handle_user_confirm()``, which resolves the
+	 * pending permission future so tool execution can proceed.
+	 */
+	const sendConfirm = useCallback((data: Record<string, unknown>) => {
+		const ws = wsRef.current;
+		if (ws && ws.readyState === WebSocket.OPEN) {
+			ws.send(JSON.stringify({ type: 'user_confirm', data }));
+		}
+	}, []);
+
+	return { connected, sendAudio, sendConfirm, error };
 }

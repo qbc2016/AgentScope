@@ -13,7 +13,7 @@ from .._base import RealtimeModelBase
 from .._events import AudioFormat, ModelEvents
 from ..._logging import logger
 from ...credential import DashScopeCredential
-from ...message import DataBlock, TextBlock, ToolResultBlock
+from ...message import DataBlock, TextBlock, ToolCallBlock, ToolResultBlock
 
 
 _DASHSCOPE_WS_URL = (
@@ -44,8 +44,8 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             await model.disconnect()
 
     .. note::
-        - Tool use is not yet supported by the DashScope realtime API
-          (as of 2026-02), so :attr:`support_tools` is ``False``.
+        - Tool use is supported by the Qwen3.5-Omni-Realtime models
+          via the standard DashScope realtime WebSocket protocol.
         - VAD is server-side (``server_vad``) by default.
     """
 
@@ -85,9 +85,10 @@ class DashScopeRealtimeModel(RealtimeModelBase):
     support_input_modalities: list[str] = ["audio", "image", "text"]
     """The DashScope realtime API accepts audio, image, and text input."""
 
-    support_tools: bool = False
-    """The DashScope Realtime API does not yet support tools (as of
-    2026-02)."""
+    support_tools: bool = True
+    """Whether the model supports function-call tools.  Determined
+    dynamically from the model name at construction time; only the
+    ``qwen3.5-omni-*-realtime`` family currently supports tools."""
 
     def __init__(
         self,
@@ -113,6 +114,9 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         self.credential = credential
         self.parameters = parameters or self.Parameters()
 
+        # Only qwen3.5-omni-*-realtime models support function calling
+        self.support_tools = "qwen3.5-omni" in model_name.lower()
+
         self.voice = self.parameters.voice
         self.enable_input_audio_transcription = (
             self.parameters.enable_input_audio_transcription
@@ -137,6 +141,14 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         # correlated when the API frame omits it.
         self._response_id: str = ""
 
+        # Per-call accumulator for function-call argument deltas, keyed by
+        # call_id.  DashScope streams arguments as JSON-string fragments
+        # which must be concatenated before they can be parsed.
+        self._tool_args_accumulator: dict[str, str] = {}
+        # Map call_id → function name, populated from whichever event
+        # (delta or done) first carries the name.
+        self._tool_name_map: dict[str, str] = {}
+
     # ------------------------------------------------------------------
     # Session config
     # ------------------------------------------------------------------
@@ -153,19 +165,15 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             instructions (`str`):
                 System instructions.
             tools (`list[dict] | None`):
-                Ignored — DashScope realtime does not support tools yet.
+                Standard agentscope tool JSON schemas (each wrapping a
+                ``function`` block).  They are included as-is in the
+                session config for the DashScope Realtime API.
             **kwargs (`Any`):
                 Extra session fields merged into the payload.
 
         Returns:
             `dict`: The ``session.update`` message.
         """
-        if tools:
-            logger.warning(
-                "DashScopeRealtimeModel: tools are not supported by the "
-                "DashScope realtime API yet; they will be ignored.",
-            )
-
         session_config: dict[str, Any] = {
             "instructions": instructions,
             "modalities": ["audio", "text"],
@@ -184,6 +192,9 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             session_config["input_audio_transcription"] = {
                 "model": self.input_transcription_model,
             }
+
+        if tools:
+            session_config["tools"] = tools
 
         return {"type": "session.update", "session": session_config}
 
@@ -237,9 +248,10 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             )
 
         elif isinstance(data, ToolResultBlock):
-            logger.warning(
-                "DashScopeRealtimeModel: tool results are not yet "
-                "supported by the DashScope realtime API; skipping.",
+            payload = self._encode_tool_result(data)
+            logger.info(
+                "DashScope sending tool result: %s",
+                payload[:500] if payload else "(empty)",
             )
 
         else:
@@ -286,6 +298,42 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 "type": "input_image_url.append",
                 "image_url": str(block.source.url),
             },
+        )
+
+    @staticmethod
+    def _encode_tool_result(block: ToolResultBlock) -> str:
+        """Encode a ``ToolResultBlock`` as a ``function_call_output`` item.
+
+        The DashScope realtime protocol expects
+        ``conversation.item.create`` with a ``function_call_output``
+        payload.  The subsequent ``response.create`` is issued by the
+        agent layer after all tool results have been sent.
+        """
+        if isinstance(block.output, str):
+            output_str = block.output
+        else:
+            parts: list[str] = []
+            for entry in block.output:
+                if isinstance(entry, TextBlock):
+                    parts.append(entry.text)
+                else:
+                    logger.debug(
+                        "DashScopeRealtimeModel: dropping non-text tool "
+                        "result block of type %r in function_call_output.",
+                        type(entry).__name__,
+                    )
+            output_str = "".join(parts)
+
+        return json.dumps(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": block.id,
+                    "output": output_str,
+                },
+            },
+            ensure_ascii=False,
         )
 
     # ------------------------------------------------------------------
@@ -379,6 +427,87 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 return ModelEvents.ModelInputTranscriptionDoneEvent(
                     item_id=data.get("item_id", ""),
                     transcript=transcript,
+                )
+
+            # ---- Function-call: item tracking ----
+            case "response.output_item.added":
+                item = data.get("item", {})
+                if item.get("type") == "function_call":
+                    call_id = item.get("call_id", "")
+                    func_name = item.get("name", "")
+                    if call_id and func_name:
+                        self._tool_name_map[call_id] = func_name
+                        logger.info(
+                            "DashScope output_item.added: "
+                            "call_id=%s, name=%s",
+                            call_id,
+                            func_name,
+                        )
+                return None
+            case "response.output_item.done":
+                item = data.get("item", {})
+                if item.get("type") == "function_call":
+                    call_id = item.get("call_id", "")
+                    func_name = item.get("name", "")
+                    if call_id and func_name:
+                        self._tool_name_map[call_id] = func_name
+                return None
+
+            # ---- Function-call: argument streaming ----
+            case "response.function_call_arguments.delta":
+                logger.debug(
+                    "DashScope raw function_call delta: %s",
+                    json.dumps(data, ensure_ascii=False)[:500],
+                )
+                delta = data.get("delta", "")
+                call_id = data.get("call_id", "")
+                func_name = data.get("name", "")
+                if not delta or not call_id:
+                    return None
+                self._tool_args_accumulator[call_id] = (
+                    self._tool_args_accumulator.get(call_id, "") + delta
+                )
+                # Track the function name from whichever delta carries it
+                if func_name:
+                    self._tool_name_map[call_id] = func_name
+                return ModelEvents.ModelResponseToolCallDeltaEvent(
+                    response_id=self._response_id,
+                    item_id=data.get("item_id", ""),
+                    tool_call=ToolCallBlock(
+                        id=call_id,
+                        name=self._tool_name_map.get(call_id, func_name),
+                        input=delta,
+                    ),
+                )
+            case "response.function_call_arguments.done":
+                call_id = data.get("call_id", "")
+                func_name = data.get("name", "")
+                arguments = self._tool_args_accumulator.pop(
+                    call_id,
+                    data.get("arguments", ""),
+                )
+                if func_name:
+                    self._tool_name_map[call_id] = func_name
+                resolved_name = self._tool_name_map.pop(
+                    call_id,
+                    func_name,
+                )
+                logger.info(
+                    "DashScope function_call_arguments.done: "
+                    "call_id=%s, name=%r, resolved=%r, args=%s",
+                    call_id,
+                    func_name,
+                    resolved_name,
+                    arguments[:200] if arguments else "(empty)",
+                )
+                return ModelEvents.ModelResponseToolCallDoneEvent(
+                    response_id=self._response_id,
+                    item_id=data.get("item_id", ""),
+                    tool_call=ToolCallBlock(
+                        id=call_id,
+                        name=resolved_name,
+                        input=arguments,
+                    ),
                 )
 
             # ---- VAD ----

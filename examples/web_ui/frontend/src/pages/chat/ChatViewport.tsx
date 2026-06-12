@@ -1,3 +1,5 @@
+import { EventType } from '@agentscope-ai/agentscope/event';
+import type { ToolCallBlock } from '@agentscope-ai/agentscope/message';
 import type { TaskContext } from '@agentscope-ai/agentscope/state';
 import { Mic, MicOff, Toolbox } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -104,7 +106,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 	const [voiceMode, setVoiceMode] = useState(false);
 	const [micEnabled, setMicEnabled] = useState(true);
 
-	const { connected: realtimeConnected, sendAudio } = useRealtimeSession(
+	const { connected: realtimeConnected, sendAudio, sendConfirm } = useRealtimeSession(
 		agentId,
 		sessionId,
 		voiceMode,
@@ -113,6 +115,35 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 	const { active: micActive } = useMicrophone(
 		sendAudio,
 		voiceMode && realtimeConnected && micEnabled,
+	);
+
+	// In voice mode, route tool-call confirmations through the WebSocket
+	// so RealtimeAgent.handle_user_confirm() resolves the pending future.
+	// Also apply the event locally via processEvent for immediate UI update.
+	const handleUserConfirm = useCallback(
+		async (
+			toolCall: ToolCallBlock,
+			confirm: boolean,
+			replyId: string,
+			rules?: ToolCallBlock['suggested_rules'],
+		) => {
+			if (voiceMode && realtimeConnected) {
+				const event = {
+					type: EventType.USER_CONFIRM_RESULT,
+					id: crypto.randomUUID(),
+					created_at: new Date().toISOString(),
+					reply_id: replyId,
+					confirm_results: [
+						{ confirmed: confirm, tool_call: toolCall, rules: rules ?? null },
+					],
+				};
+				sendConfirm(event);
+				processEvent(event as never);
+			} else {
+				await onUserConfirm(toolCall, confirm, replyId, rules);
+			}
+		},
+		[voiceMode, realtimeConnected, sendConfirm, processEvent, onUserConfirm],
 	);
 
 	const handleToggleVoiceMode = useCallback(() => {
@@ -396,7 +427,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 							sending={streaming}
 							disabled={selectedModel === null}
 							onSend={send}
-							onUserConfirm={onUserConfirm}
+							onUserConfirm={handleUserConfirm}
 							voiceMode={voiceMode}
 							micActive={micActive}
 							realtimeConnected={realtimeConnected}

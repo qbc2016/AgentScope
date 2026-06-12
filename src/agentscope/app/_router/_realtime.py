@@ -14,6 +14,9 @@ create a :class:`RealtimeAgent`, and run two concurrent tasks:
   also published to the message bus so the SSE stream stays in sync.
   User transcriptions and assistant replies are persisted to the
   session's message store so they survive page refreshes.
+
+The :class:`RealtimeAgent` handles tool execution internally when a
+:class:`~agentscope.tool.Toolkit` is provided.
 """
 import asyncio
 import json
@@ -23,12 +26,14 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from .._service._realtime_model import get_realtime_model
 from ..message_bus import MessageBus
 from ..storage import StorageBase
+from ..workspace_manager._base import WorkspaceManagerBase
 from ..._logging import logger
 from ...event import (
     ModelCallEndEvent,
     ReplyEndEvent,
     ReplyStartEvent,
     TextBlockDeltaEvent,
+    UserConfirmResultEvent,
     UserInputTranscriptionEvent,
 )
 from ...message import (
@@ -40,6 +45,7 @@ from ...message import (
     UserMsg,
 )
 from ...realtime import RealtimeAgent
+from ...tool import Toolkit
 
 realtime_router = APIRouter(
     prefix="/realtime",
@@ -47,6 +53,38 @@ realtime_router = APIRouter(
 )
 
 _active_sessions: dict[str, WebSocket] = {}
+
+
+async def _build_realtime_toolkit(
+    workspace_manager: WorkspaceManagerBase,
+    user_id: str,
+    agent_id: str,
+    session_id: str,
+    workspace_id: str,
+) -> Toolkit | None:
+    """Build a lightweight :class:`Toolkit` for realtime tool execution.
+
+    Returns ``None`` if the workspace cannot be resolved (e.g. no
+    workspace configured).
+    """
+    try:
+        workspace = await workspace_manager.get_workspace(
+            user_id,
+            agent_id,
+            session_id,
+            workspace_id,
+        )
+        tools = await workspace.list_tools()
+        if not tools:
+            return None
+        return Toolkit(tools=tools)
+    except Exception:
+        logger.debug(
+            "Could not build realtime toolkit for session %s",
+            session_id,
+            exc_info=True,
+        )
+        return None
 
 
 @realtime_router.websocket("/{session_id}")
@@ -64,6 +102,9 @@ async def realtime_ws(
     """
     storage: StorageBase = websocket.app.state.storage
     message_bus: MessageBus = websocket.app.state.message_bus
+    workspace_manager: WorkspaceManagerBase = (
+        websocket.app.state.workspace_manager
+    )
 
     # ---- Validate ownership ----
     session_record = await storage.get_session(
@@ -103,16 +144,46 @@ async def realtime_ws(
         await websocket.close(code=4000, reason=str(e))
         return
 
+    # ---- Build toolkit for tool execution ----
+    toolkit: Toolkit | None = None
+    if model.support_tools:
+        workspace_id = session_record.config.workspace_id or agent_id
+        toolkit = await _build_realtime_toolkit(
+            workspace_manager,
+            user_id,
+            agent_id,
+            session_id,
+            workspace_id,
+        )
+        if toolkit is None:
+            logger.info(
+                "Realtime session %s: model supports tools but no "
+                "workspace tools found (workspace_id=%s).",
+                session_id,
+                workspace_id,
+            )
+    else:
+        logger.debug(
+            "Realtime session %s: model %s does not support tools.",
+            session_id,
+            model.model_name,
+        )
+
     # ---- Accept connection ----
     await websocket.accept()
     _active_sessions[session_id] = websocket
 
-    # ---- Create agent ----
+    # ---- Create agent (reuse persisted state for context continuity) ----
+    agent_state = session_record.state
+    agent_state.session_id = session_id
+
     agent = RealtimeAgent(
         name=agent_record.data.name,
         model=model,
         instructions=agent_record.data.system_prompt,
         session_id=session_id,
+        toolkit=toolkit,
+        state=agent_state,
     )
 
     try:
@@ -160,6 +231,21 @@ async def realtime_ws(
         )
     finally:
         await agent.disconnect()
+        # Persist the updated state so context survives reconnection
+        # and is available when switching to text chat mode.
+        try:
+            await storage.update_session_state(
+                user_id=user_id,
+                agent_id=agent_id,
+                session_id=session_id,
+                state=agent.state,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to persist realtime agent state for session %s",
+                session_id,
+                exc_info=True,
+            )
         _active_sessions.pop(session_id, None)
 
 
@@ -168,7 +254,15 @@ async def _upstream(
     agent: RealtimeAgent,
     input_sample_rate: int,
 ) -> None:
-    """Read audio frames from the browser and forward to the agent."""
+    """Read frames from the browser and forward to the agent.
+
+    Supported frame types:
+
+    - ``audio`` — base64 PCM audio forwarded via ``agent.send()``.
+    - ``user_confirm`` — tool-call confirmation forwarded to
+      ``agent.handle_user_confirm()`` so the pending permission
+      future is resolved.
+    """
     while True:
         raw = await websocket.receive_text()
         try:
@@ -176,7 +270,9 @@ async def _upstream(
         except json.JSONDecodeError:
             continue
 
-        if frame.get("type") == "audio":
+        frame_type = frame.get("type")
+
+        if frame_type == "audio":
             data = frame.get("data", "")
             if data:
                 await agent.send(
@@ -186,6 +282,16 @@ async def _upstream(
                             media_type=f"audio/pcm;rate={input_sample_rate}",
                         ),
                     ),
+                )
+
+        elif frame_type == "user_confirm":
+            try:
+                event = UserConfirmResultEvent(**frame.get("data", {}))
+                agent.handle_user_confirm(event)
+            except Exception:
+                logger.warning(
+                    "Failed to process user_confirm frame",
+                    exc_info=True,
                 )
 
 
@@ -200,8 +306,11 @@ async def _downstream(
     agent_name: str,
 ) -> None:
     """Forward agent events to the browser, publish to the bus, and
-    persist user/assistant messages to the session's message store."""
+    persist user/assistant messages to the session's message store.
 
+    Tool execution is handled internally by the :class:`RealtimeAgent`
+    when a toolkit is configured.
+    """
     reply_id: str | None = None
     reply_name: str = agent_name
     reply_text_parts: list[str] = []
@@ -216,7 +325,7 @@ async def _downstream(
             return
         await message_bus.session_publish_event(session_id, payload)
 
-        # ---- Persist messages ----
+        # ---- Persist messages to storage ----
         if isinstance(event, UserInputTranscriptionEvent):
             if event.transcript:
                 msg = UserMsg(name="user", content=event.transcript)
@@ -234,7 +343,7 @@ async def _downstream(
             reply_name = event.name
             reply_text_parts = []
             reply_usage = None
-            reply_created_at = event.created_at.isoformat()
+            reply_created_at = event.created_at
 
         elif isinstance(event, TextBlockDeltaEvent):
             reply_text_parts.append(event.delta)
@@ -256,7 +365,7 @@ async def _downstream(
                     content=content,
                     id=reply_id,
                     created_at=reply_created_at,
-                    finished_at=event.created_at.isoformat(),
+                    finished_at=event.created_at,
                     usage=reply_usage,
                 )
                 try:

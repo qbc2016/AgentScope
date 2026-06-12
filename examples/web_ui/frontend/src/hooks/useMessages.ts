@@ -170,6 +170,15 @@ export function useMessages(
 				currentReplyRef.current = null;
 			} else if (currentReplyRef.current) {
 				appendEvent(currentReplyRef.current, event);
+			} else if ('reply_id' in event) {
+				// Late-arriving events (e.g. tool results from realtime
+				// sessions that arrive after REPLY_END). Find the target
+				// message by reply_id so the result is appended correctly.
+				const replyId = (event as { reply_id: string }).reply_id;
+				const msg = msgsRef.current.find((m) => m.id === replyId);
+				if (msg) {
+					appendEvent(msg, event);
+				}
 			}
 
 			// Route streaming audio DataBlocks to the audio manager. They still
