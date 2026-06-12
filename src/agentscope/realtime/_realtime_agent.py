@@ -15,11 +15,15 @@ results back, similar to the reasoning-acting loop in
 import asyncio
 import uuid
 from asyncio import Queue
-from typing import AsyncGenerator, Any, TYPE_CHECKING, cast
+from typing import AsyncGenerator, Any
 
 from ._base import RealtimeModelBase
 from ._events import ModelEvents
 from .._logging import logger
+from .._utils._common import _json_loads_with_repair
+from ..message import AssistantMsg, UserMsg
+from ..tool import ToolChunk, ToolResponse, Toolkit
+from ..state import AgentState
 from ..event import (
     AgentEvent,
     ConfirmResult,
@@ -53,10 +57,6 @@ from ..message import (
     ToolResultState,
 )
 from ..permission import PermissionBehavior, PermissionEngine
-
-if TYPE_CHECKING:
-    from ..state import AgentState
-    from ..tool import Toolkit
 
 
 class RealtimeAgent:
@@ -96,7 +96,7 @@ class RealtimeAgent:
         model: RealtimeModelBase,
         instructions: str,
         session_id: str | None = None,
-        toolkit: "Toolkit | None" = None,
+        toolkit: Toolkit | None = None,
         state: "AgentState | None" = None,
     ) -> None:
         """Initialize the realtime agent.
@@ -120,7 +120,6 @@ class RealtimeAgent:
                 The agent state for storing conversation context and
                 tool execution state. A new state is created if omitted.
         """
-        from ..state import AgentState
 
         self.name = name
         self.model = model
@@ -247,7 +246,6 @@ class RealtimeAgent:
         User transcriptions and assistant text replies are appended to
         ``self.state.context`` so they can be persisted or inspected.
         """
-        from ..message import AssistantMsg, UserMsg
 
         reply_text_parts: dict[str, list[str]] = {}
 
@@ -410,11 +408,8 @@ class RealtimeAgent:
         4. If ``DENY`` — emit an error tool result.
         5. If ``ALLOW`` — execute via the toolkit and stream result events.
         """
-        from .._utils._common import _json_loads_with_repair
-        from ..tool._response import ToolChunk as ToolChunkType
-        from ..tool._response import ToolResponse
 
-        assert self.toolkit is not None  # noqa: S101
+        assert self.toolkit is not None
 
         reply_id = self.state.reply_id
         tool_call = ToolCallBlock(
@@ -525,7 +520,7 @@ class RealtimeAgent:
                             result_parts.append(block.text)
                     final_state = chunk.state
                     break
-                if isinstance(chunk, ToolChunkType):
+                if isinstance(chunk, ToolChunk):
                     for block in chunk.content:
                         if isinstance(block, TextBlock):
                             result_parts.append(block.text)
@@ -711,7 +706,7 @@ class RealtimeAgent:
         if isinstance(evt, ModelEvents.ModelResponseAudioDeltaEvent):
             reply_id = evt.response_id
             media_type = f"{evt.format.type};rate={evt.format.rate}"
-            out = cast(list[AgentEvent], [])
+            out = []
             out.extend(self._ensure_reply_started(reply_id))
             block_id = self._audio_blocks.get(reply_id)
             if block_id is None:
@@ -743,7 +738,7 @@ class RealtimeAgent:
             ModelEvents.ModelResponseAudioTranscriptDeltaEvent,
         ):
             reply_id = evt.response_id
-            out = cast(list[AgentEvent], [])
+            out = []
             out.extend(self._ensure_reply_started(reply_id))
             block_id = self._text_blocks.get(reply_id)
             if block_id is None:
@@ -773,7 +768,7 @@ class RealtimeAgent:
         if isinstance(evt, ModelEvents.ModelResponseToolCallDeltaEvent):
             reply_id = evt.response_id
             call_id = evt.tool_call.id
-            out = cast(list[AgentEvent], [])
+            out = []
             out.extend(self._ensure_reply_started(reply_id))
             if call_id not in self._tool_call_blocks:
                 self._tool_call_blocks[call_id] = reply_id
@@ -804,7 +799,7 @@ class RealtimeAgent:
         if isinstance(evt, ModelEvents.ModelResponseToolCallDoneEvent):
             reply_id = evt.response_id
             call_id = evt.tool_call.id
-            out = cast(list[AgentEvent], [])
+            out = []
             out.extend(self._ensure_reply_started(reply_id))
             if call_id not in self._tool_call_blocks:
                 self._tool_call_blocks[call_id] = reply_id
