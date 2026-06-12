@@ -133,6 +133,127 @@ function pcmToAudioBuffer(ctx: AudioContext, pcm: Bytes, header: WavHeader): Aud
 	return buffer;
 }
 
+/** Parse ``audio/pcm;rate=24000`` into a sample rate, or ``null``. */
+function parsePcmMediaType(mediaType: string): number | null {
+	const match = mediaType.match(/^audio\/pcm.*rate=(\d+)/);
+	return match ? parseInt(match[1], 10) : null;
+}
+
+/** Live PCM playback for headerless PCM streams (e.g. DashScope realtime). */
+class PcmStreamPlayer {
+	private ctx: AudioContext | null = null;
+	private nextStartTime = 0;
+	private failed = false;
+	private deferredCloseTimer: ReturnType<typeof setTimeout> | null = null;
+	private readonly sampleRate: number;
+	private readonly channels = 1;
+	private readonly bitsPerSample = 16;
+	private pending: Bytes = new Uint8Array(0);
+
+	constructor(sampleRate: number) {
+		this.sampleRate = sampleRate;
+	}
+
+	append(chunk: Bytes): void {
+		if (this.failed) return;
+		this.pending = concatBytes(this.pending, chunk);
+
+		if (!this.ctx) {
+			try {
+				this.ctx = new AudioContext({ sampleRate: this.sampleRate });
+				if (this.ctx.state === 'suspended') {
+					void this.ctx.resume();
+				}
+				this.nextStartTime = this.ctx.currentTime;
+			} catch {
+				this.failed = true;
+				return;
+			}
+		}
+
+		const frameSize = (this.bitsPerSample / 8) * this.channels;
+		const playableBytes = Math.floor(this.pending.length / frameSize) * frameSize;
+		if (playableBytes === 0) return;
+
+		const toPlay = this.pending.slice(0, playableBytes);
+		this.pending = this.pending.slice(playableBytes);
+
+		const header: WavHeader = {
+			sampleRate: this.sampleRate,
+			channels: this.channels,
+			bitsPerSample: this.bitsPerSample,
+			dataOffset: 0,
+		};
+		const audioBuffer = pcmToAudioBuffer(this.ctx, toPlay, header);
+		if (!audioBuffer) return;
+
+		const source = this.ctx.createBufferSource();
+		source.buffer = audioBuffer;
+		source.connect(this.ctx.destination);
+		const startAt = Math.max(this.nextStartTime, this.ctx.currentTime);
+		source.start(startAt);
+		this.nextStartTime = startAt + audioBuffer.duration;
+	}
+
+	finalize(): void {
+		if (!this.ctx || this.failed) {
+			this.dispose();
+			return;
+		}
+		const remainingMs = Math.max(0, this.nextStartTime - this.ctx.currentTime) * 1000;
+		this.deferredCloseTimer = setTimeout(() => {
+			this.dispose();
+		}, remainingMs + 200);
+		this.pending = new Uint8Array(0);
+	}
+
+	dispose(): void {
+		if (this.deferredCloseTimer) {
+			clearTimeout(this.deferredCloseTimer);
+			this.deferredCloseTimer = null;
+		}
+		if (this.ctx) {
+			void this.ctx.close().catch(() => undefined);
+			this.ctx = null;
+		}
+		this.pending = new Uint8Array(0);
+	}
+}
+
+/**
+ * Build a minimal WAV header for raw PCM data so that ``<audio>`` elements
+ * can play the resulting Blob.
+ */
+function buildWavHeader(pcmByteLength: number, sampleRate: number, channels = 1, bitsPerSample = 16): Uint8Array {
+	const headerSize = 44;
+	const dataChunkSize = pcmByteLength;
+	const fileSize = headerSize - 8 + dataChunkSize;
+	const byteRate = sampleRate * channels * (bitsPerSample / 8);
+	const blockAlign = channels * (bitsPerSample / 8);
+
+	const buffer = new ArrayBuffer(headerSize);
+	const view = new DataView(buffer);
+
+	// RIFF header
+	view.setUint32(0, 0x52494646, false); // "RIFF"
+	view.setUint32(4, fileSize, true);
+	view.setUint32(8, 0x57415645, false); // "WAVE"
+	// fmt chunk
+	view.setUint32(12, 0x666d7420, false); // "fmt "
+	view.setUint32(16, 16, true); // chunk size
+	view.setUint16(20, 1, true); // PCM format
+	view.setUint16(22, channels, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, byteRate, true);
+	view.setUint16(32, blockAlign, true);
+	view.setUint16(34, bitsPerSample, true);
+	// data chunk
+	view.setUint32(36, 0x64617461, false); // "data"
+	view.setUint32(40, dataChunkSize, true);
+
+	return new Uint8Array(buffer);
+}
+
 /** Live PCM playback for an in-progress WAV stream. */
 class WavStreamPlayer {
 	private ctx: AudioContext | null = null;
@@ -224,7 +345,7 @@ interface Session {
 	mediaType: string;
 	chunks: Bytes[];
 	totalBytes: number;
-	livePlayer: WavStreamPlayer | null;
+	livePlayer: WavStreamPlayer | PcmStreamPlayer | null;
 	/** True if a live player was created at start — survives dispose. */
 	hadLivePlayer: boolean;
 	state: StreamingAudioState;
@@ -263,7 +384,15 @@ export class StreamingAudioManager {
 	/** Called on DATA_BLOCK_START for an audio block. */
 	start(blockId: string, mediaType: string): void {
 		if (this.sessions.has(blockId)) return;
-		const livePlayer = mediaType === 'audio/wav' ? new WavStreamPlayer() : null;
+		let livePlayer: WavStreamPlayer | PcmStreamPlayer | null = null;
+		if (mediaType === 'audio/wav') {
+			livePlayer = new WavStreamPlayer();
+		} else {
+			const pcmRate = parsePcmMediaType(mediaType);
+			if (pcmRate) {
+				livePlayer = new PcmStreamPlayer(pcmRate);
+			}
+		}
 		this.sessions.set(blockId, {
 			mediaType,
 			chunks: [],
@@ -312,7 +441,15 @@ export class StreamingAudioManager {
 			session.livePlayer.finalize();
 		}
 
-		const blob = new Blob(session.chunks as BlobPart[], { type: session.mediaType });
+		let blob: Blob;
+		const pcmRate = parsePcmMediaType(session.mediaType);
+		if (pcmRate) {
+			const pcmBlob = new Blob(session.chunks as BlobPart[]);
+			const wavHeader = buildWavHeader(session.totalBytes, pcmRate);
+			blob = new Blob([wavHeader, pcmBlob], { type: 'audio/wav' });
+		} else {
+			blob = new Blob(session.chunks as BlobPart[], { type: session.mediaType });
+		}
 		const url = URL.createObjectURL(blob);
 
 		// Free the per-chunk buffers; the Blob owns the bytes from here on.

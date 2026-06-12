@@ -1,5 +1,5 @@
 import type { TaskContext } from '@agentscope-ai/agentscope/state';
-import { Toolbox } from 'lucide-react';
+import { Mic, MicOff, Toolbox } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ChatModelConfig, TTSModelConfig } from '@/api';
@@ -11,9 +11,12 @@ import { WorkspaceDrawer } from '@/components/drawer/WorkspaceDrawer.tsx';
 import { ModelParametersPopover } from '@/components/popover/ModelParametersPopover';
 import { LlmSelect } from '@/components/select/LlmSelect';
 import { PermissionModeSelect } from '@/components/select/PermissionModeSelect.tsx';
+import { RealtimeModelSelect } from '@/components/select/RealtimeModelSelect';
 import { Button } from '@/components/ui/button';
 import { useAvailableModels } from '@/hooks/useAvailableModels';
+import { useMicrophone } from '@/hooks/useMicrophone';
 import { useMessages } from '@/hooks/useMessages';
+import { useRealtimeSession } from '@/hooks/useRealtimeSession';
 import { useSessions } from '@/hooks/useSessions';
 import { useWorkspace } from '@/hooks/useWorkspace.ts';
 
@@ -77,6 +80,9 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		null,
 	);
 	const [selectedTTSModel, setSelectedTTSModel] = useState<TTSModelConfig | null>(null);
+	const [selectedRealtimeModel, setSelectedRealtimeModel] = useState<ChatModelConfig | null>(
+		null,
+	);
 	const [selectedPermissionMode, setSelectedPermissionMode] = useState<string>('default');
 	const [credentialOpen, setCredentialOpen] = useState(false);
 	const [credentialRefetchTrigger, setCredentialRefetchTrigger] = useState(0);
@@ -89,10 +95,36 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		// TODO: handle permission_context updates when permission UI is built
 	}, []);
 
-	const { msgs, streaming, send, onUserConfirm } = useMessages(agentId, sessionId, {
+	const { msgs, streaming, send, onUserConfirm, processEvent } = useMessages(agentId, sessionId, {
 		onTeamUpdated: handleTeamUpdated,
 		onStateUpdated: handleStateUpdated,
 	});
+
+	// ── Voice mode ────────────────────────────────────────────────
+	const [voiceMode, setVoiceMode] = useState(false);
+	const [micEnabled, setMicEnabled] = useState(true);
+
+	const { connected: realtimeConnected, sendAudio } = useRealtimeSession(
+		agentId,
+		sessionId,
+		voiceMode,
+		processEvent,
+	);
+	const { active: micActive } = useMicrophone(
+		sendAudio,
+		voiceMode && realtimeConnected && micEnabled,
+	);
+
+	const handleToggleVoiceMode = useCallback(() => {
+		setVoiceMode((prev) => {
+			if (!prev) setMicEnabled(true);
+			return !prev;
+		});
+	}, []);
+
+	const handleToggleMic = useCallback(() => {
+		setMicEnabled((prev) => !prev);
+	}, []);
 	const {
 		mcps,
 		loading: mcpsLoading,
@@ -129,7 +161,16 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		setSelectedModel(null);
 		setSelectedFallbackModel(null);
 		setSelectedTTSModel(null);
+		setSelectedRealtimeModel(null);
+		setVoiceMode(false);
 	}, [sessionId]);
+
+	// Auto-disable voice mode when the realtime model is cleared.
+	useEffect(() => {
+		if (!selectedRealtimeModel) {
+			setVoiceMode(false);
+		}
+	}, [selectedRealtimeModel]);
 
 	const selectedModelCard = useMemo(() => {
 		if (!selectedModel) return null;
@@ -218,6 +259,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 
 		setSelectedFallbackModel(view.session.config.fallback_chat_model_config ?? null);
 		setSelectedTTSModel(view.session.config.tts_model_config ?? null);
+		setSelectedRealtimeModel(view.session.config.realtime_model_config ?? null);
 	}, [view, groups, sessionId, agentId]);
 
 	// Sync selectedPermissionMode when the session changes. Same
@@ -281,6 +323,13 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		await refetchSessions();
 	};
 
+	const handleRealtimeChange = async (config: ChatModelConfig | null) => {
+		if (!sessionId || !agentId) return;
+		setSelectedRealtimeModel(config);
+		await sessionApi.update(sessionId, agentId, { realtime_model_config: config });
+		await refetchSessions();
+	};
+
 	/**
 	 * Persist a permission-mode change.
 	 *
@@ -314,8 +363,21 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 								selectedTTSModel={selectedTTSModel}
 								onTTSChange={handleTTSChange}
 							/>
+							<RealtimeModelSelect
+								value={selectedRealtimeModel}
+								onChange={handleRealtimeChange}
+							/>
 						</div>
 						<div id="tour-permission-mode" className="flex flex-row gap-x-2">
+							<Button
+								size="icon-sm"
+								variant={voiceMode ? 'default' : 'ghost'}
+								onClick={handleToggleVoiceMode}
+								disabled={!sessionId || streaming || !selectedRealtimeModel}
+								aria-label="Voice mode"
+							>
+								{voiceMode ? <Mic className="size-4" /> : <MicOff className="size-4" />}
+							</Button>
 							<PermissionModeSelect
 								value={selectedPermissionMode}
 								disabled={!sessionId}
@@ -335,6 +397,10 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 							disabled={selectedModel === null}
 							onSend={send}
 							onUserConfirm={onUserConfirm}
+							voiceMode={voiceMode}
+							micActive={micActive}
+							realtimeConnected={realtimeConnected}
+							onToggleMic={handleToggleMic}
 							allowedInputTypes={(selectedModelCard?.input_types ?? []).filter(
 								(t) =>
 									/^(image|video|audio|text)\/.+/.test(t) ||

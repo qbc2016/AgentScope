@@ -73,6 +73,7 @@ export function useMessages(
 	const currentReplyRef = useRef<Msg | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
 	const rafRef = useRef<number | null>(null);
+	const seenEventIds = useRef<Set<string>>(new Set());
 
 	const audioManager = useAudioManager();
 
@@ -88,9 +89,61 @@ export function useMessages(
 		});
 	}, []);
 
-	/** Apply a single AgentEvent to the in-progress reply. */
+	/**
+	 * Apply a single AgentEvent to the in-progress reply.
+	 *
+	 * Exported so that ``useRealtimeSession`` can feed WebSocket events
+	 * through the same pipeline (audio manager, message list, streaming
+	 * state) without duplicating logic.
+	 */
 	const processEvent = useCallback(
 		(event: AgentEvent) => {
+			if (event.id && seenEventIds.current.has(event.id)) return;
+			if (event.id) {
+				seenEventIds.current.add(event.id);
+				if (seenEventIds.current.size > 2000) {
+					const entries = [...seenEventIds.current];
+					seenEventIds.current = new Set(entries.slice(-1000));
+				}
+			}
+
+			const t = event.type as string;
+
+			// Show the user's speech as a chat message once transcribed.
+			// The transcription often arrives *after* the model has already
+			// started replying, so we insert it right before the current
+			// in-progress reply to preserve chronological order.
+			if (t === 'USER_INPUT_TRANSCRIPTION') {
+				const transcript = (event as unknown as { transcript: string }).transcript;
+				if (transcript) {
+					const userMsg = UserMsg({ name: 'user', content: [{ id: crypto.randomUUID(), type: 'text', text: transcript }] });
+					const cur = currentReplyRef.current;
+					if (cur) {
+						const idx = msgsRef.current.findIndex((m) => m.id === cur.id);
+						if (idx >= 0) {
+							const copy = [...msgsRef.current];
+							copy.splice(idx, 0, userMsg);
+							msgsRef.current = copy;
+						} else {
+							msgsRef.current = [...msgsRef.current, userMsg];
+						}
+					} else {
+						msgsRef.current = [...msgsRef.current, userMsg];
+					}
+					scheduleUpdate();
+				}
+				return;
+			}
+
+			// Stop audio playback when the user starts speaking (barge-in).
+			if (t === 'USER_INPUT_AUDIO_START') {
+				audioManager?.stopAllPlayback();
+				return;
+			}
+
+			if (t === 'USER_INPUT_AUDIO_END') {
+				return;
+			}
 			// Custom events are service-layer notifications, not agent
 			// reply content — route them to callbacks and skip appendEvent.
 			if (event.type === EventType.CUSTOM) {
@@ -105,7 +158,7 @@ export function useMessages(
 			if (event.type === EventType.REPLY_START) {
 				audioManager?.stopAllPlayback();
 				const e = event as ReplyStartEvent;
-				const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
+				const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [], created_at: e.created_at });
 				msgsRef.current = [...msgsRef.current, msg];
 				currentReplyRef.current = msg;
 				setStreaming(true);
@@ -151,6 +204,7 @@ export function useMessages(
 	useEffect(() => {
 		msgsRef.current = [];
 		currentReplyRef.current = null;
+		seenEventIds.current = new Set();
 		setMsgs([]);
 		setError(null);
 		setStreaming(false);
@@ -280,5 +334,5 @@ export function useMessages(
 		abortRef.current?.abort();
 	}, []);
 
-	return { msgs, loading, streaming, error, send, onUserConfirm, abort };
+	return { msgs, loading, streaming, error, send, onUserConfirm, abort, processEvent };
 }
