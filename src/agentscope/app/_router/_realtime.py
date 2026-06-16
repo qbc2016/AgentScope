@@ -246,6 +246,18 @@ async def realtime_ws(
                 session_id,
                 exc_info=True,
             )
+        # Trim the replay log so that SSE subscribers reconnecting
+        # after the realtime session ends see a clean slate instead
+        # of replaying stale audio/text events (which would cause
+        # duplicate message rendering and unwanted audio autoplay).
+        try:
+            await message_bus.session_trim_events(session_id)
+        except Exception:
+            logger.warning(
+                "Failed to trim replay log for realtime session %s",
+                session_id,
+                exc_info=True,
+            )
         _active_sessions.pop(session_id, None)
 
 

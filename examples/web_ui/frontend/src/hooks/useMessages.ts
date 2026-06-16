@@ -158,6 +158,14 @@ export function useMessages(
 			if (event.type === EventType.REPLY_START) {
 				audioManager?.stopAllPlayback();
 				const e = event as ReplyStartEvent;
+				// Guard against replayed events from the message bus replay
+				// log (e.g. when a realtime session's log was not trimmed):
+				// if history already contains a message with this reply_id,
+				// skip the event so we don't add a duplicate to the list.
+				const existing = msgsRef.current.find((m) => m.id === e.reply_id);
+				if (existing) {
+					return;
+				}
 				const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [], created_at: e.created_at });
 				msgsRef.current = [...msgsRef.current, msg];
 				currentReplyRef.current = msg;
@@ -189,17 +197,19 @@ export function useMessages(
 				if (event.type === EventType.DATA_BLOCK_START) {
 					const e = event as DataBlockStartEvent;
 					if (e.media_type.startsWith('audio/')) {
+						// Only start audio if this is a new event (not already processed)
 						audioManager.start(e.block_id, e.media_type);
 					}
 				} else if (event.type === EventType.DATA_BLOCK_DELTA) {
 					const e = event as DataBlockDeltaEvent;
 					if (e.media_type.startsWith('audio/')) {
+						// Only append if this is a new event (not already processed)
 						audioManager.append(e.block_id, e.data);
 					}
 				} else if (event.type === EventType.DATA_BLOCK_END) {
 					const e = event as DataBlockEndEvent;
-					// `end` is a no-op when the block isn't being tracked, so
-					// we can call it unconditionally.
+					// Only call end if this is a new event (not already processed),
+					// to prevent re-playing audio that has already finished
 					audioManager.end(e.block_id);
 				}
 			}
@@ -213,7 +223,13 @@ export function useMessages(
 	useEffect(() => {
 		msgsRef.current = [];
 		currentReplyRef.current = null;
-		seenEventIds.current = new Set();
+		// Only reset seenEventIds if this is a truly new session or we need a clean state
+		// For reconnecting to existing sessions, we want to avoid re-processing events
+		// Clear old entries occasionally to prevent memory leaks
+		if (seenEventIds.current.size > 2000) {
+			const entries = [...seenEventIds.current];
+			seenEventIds.current = new Set(entries.slice(-1000));
+		}
 		setMsgs([]);
 		setError(null);
 		setStreaming(false);

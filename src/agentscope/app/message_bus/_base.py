@@ -422,9 +422,27 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
                 # the chat run is responsible for persisting the
                 # complete Msg to storage before releasing the lock,
                 # so the log is no longer needed by any subscriber.
-                await self.log_trim(
-                    self._SESSION_EVENTS_KEY.format(sid=session_id),
-                )
+                await self.session_trim_events(session_id)
+
+    async def session_trim_events(self, session_id: str) -> None:
+        """Trim the session events replay log.
+
+        Clears the in-flight event buffer so that SSE subscribers
+        connecting after a run (chat or realtime) see a clean slate
+        rather than replaying stale events from the completed run.
+
+        Called automatically by :meth:`session_run` on exit. Also
+        called explicitly by the realtime WebSocket handler when the
+        connection closes, since realtime sessions bypass
+        :meth:`session_run`.
+
+        Args:
+            session_id (`str`):
+                The session whose replay log should be cleared.
+        """
+        await self.log_trim(
+            self._SESSION_EVENTS_KEY.format(sid=session_id),
+        )
 
     async def session_is_running(self, session_id: str) -> bool:
         """Return whether some process is currently running this session.
