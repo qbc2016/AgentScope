@@ -350,35 +350,27 @@ class DashScopeCosyVoiceRealtimeTTSModel(TTSModelBase):
 
         self._accumulated_text += text
 
-        if not self._cold_start_done:
+        if self._cold_start_done:
+            text_to_send = text
+        else:
             self._cold_start_buffer += text
-            ready = True
             if (
                 self.cold_start_length
                 and len(self._cold_start_buffer) < self.cold_start_length
-            ):
-                ready = False
-            if (
-                ready
-                and self.cold_start_words
+            ) or (
+                self.cold_start_words
                 and len(self._cold_start_buffer.split())
                 < self.cold_start_words
             ):
-                ready = False
-            if ready:
-                try:
-                    self._synthesizer.streaming_call(
-                        self._cold_start_buffer,
-                    )
-                except Exception:
-                    return TTSResponse(content=None)
-                self._cold_start_buffer = ""
-                self._cold_start_done = True
-        else:
-            try:
-                self._synthesizer.streaming_call(text)
-            except Exception:
-                return TTSResponse(content=None)
+                return self._callback.get_audio_response(block=False)
+            text_to_send = self._cold_start_buffer
+            self._cold_start_buffer = ""
+            self._cold_start_done = True
+
+        try:
+            self._synthesizer.streaming_call(text_to_send)
+        except Exception:
+            return TTSResponse(content=None)
 
         return self._callback.get_audio_response(block=False)
 
@@ -420,92 +412,84 @@ class DashScopeCosyVoiceRealtimeTTSModel(TTSModelBase):
         full_text = self._accumulated_text
         delay = self.retry_delay
 
-        if not full_text and not unsent:
-            self._reset_state()
-            if self.stream:
+        try:
+            if not full_text and not unsent:
+                return TTSResponse(content=None)
 
-                async def _empty() -> AsyncGenerator[TTSResponse, None]:
-                    yield TTSResponse(content=None, is_last=True)
+            for attempt in range(self.max_retries):
+                try:
+                    if unsent:
+                        self._synthesizer.streaming_call(unsent)
 
-                return _empty()
-            return TTSResponse(content=None)
+                    self._synthesizer.streaming_complete()
 
-        for attempt in range(self.max_retries):
-            try:
-                if unsent:
-                    self._synthesizer.streaming_call(unsent)
-
-                self._synthesizer.streaming_complete()
-
-                finished = await asyncio.to_thread(
-                    self._callback.finish_event.wait,
-                    30,
-                )
-
-                if not finished:
-                    logger.warning(
-                        "CosyVoice TTS: timed out waiting for synthesis "
-                        "completion (30s)",
-                    )
-                    if attempt < self.max_retries - 1:
-                        await asyncio.sleep(delay)
-                        await self._reconnect()
-                        unsent = full_text
-                        delay *= 2
-                        continue
-                    self._reset_state()
-                    raise RuntimeError(
-                        "CosyVoice TTS synthesis timed out after 30s",
+                    finished = await asyncio.to_thread(
+                        self._callback.finish_event.wait,
+                        30,
                     )
 
-                if full_text and not self._callback.has_audio_data():
+                    if not finished:
+                        logger.warning(
+                            "CosyVoice TTS: timed out waiting for synthesis "
+                            "completion (30s)",
+                        )
+                        if attempt < self.max_retries - 1:
+                            await asyncio.sleep(delay)
+                            await self._reconnect()
+                            unsent = full_text
+                            delay *= 2
+                            continue
+                        raise RuntimeError(
+                            "CosyVoice TTS synthesis timed out after 30s",
+                        )
+
+                    if full_text and not self._callback.has_audio_data():
+                        if attempt < self.max_retries - 1:
+                            logger.warning(
+                                "CosyVoice TTS: no audio received, retrying "
+                                "(%d/%d) in %.1fs...",
+                                attempt + 1,
+                                self.max_retries,
+                                delay,
+                            )
+                            await asyncio.sleep(delay)
+                            await self._reconnect()
+                            unsent = full_text
+                            delay *= 2
+                            continue
+                        raise RuntimeError(
+                            f"CosyVoice TTS synthesis failed: no audio after "
+                            f"{self.max_retries} attempts",
+                        )
+                    break
+
+                except RuntimeError:
+                    raise
+                except Exception as e:
                     if attempt < self.max_retries - 1:
                         logger.warning(
-                            "CosyVoice TTS: no audio received, retrying "
-                            "(%d/%d) in %.1fs...",
+                            "CosyVoice TTS error, retrying (%d/%d) in "
+                            "%.1fs: %s",
                             attempt + 1,
                             self.max_retries,
                             delay,
+                            e,
                         )
                         await asyncio.sleep(delay)
                         await self._reconnect()
                         unsent = full_text
                         delay *= 2
-                        continue
-                    self._reset_state()
-                    raise RuntimeError(
-                        f"CosyVoice TTS synthesis failed: no audio after "
-                        f"{self.max_retries} attempts",
-                    )
-                break
+                    else:
+                        raise
 
-            except RuntimeError:
-                raise
-            except Exception as e:
-                if attempt < self.max_retries - 1:
-                    logger.warning(
-                        "CosyVoice TTS error, retrying (%d/%d) in %.1fs: %s",
-                        attempt + 1,
-                        self.max_retries,
-                        delay,
-                        e,
-                    )
-                    await asyncio.sleep(delay)
-                    await self._reconnect()
-                    unsent = full_text
-                    delay *= 2
-                else:
-                    self._reset_state()
-                    raise
+            if self.stream:
+                return self._callback.get_audio_chunks()
 
-        self._reset_state()
-
-        if self.stream:
-            return self._callback.get_audio_chunks()
-
-        response = self._callback.get_audio_response(block=True)
-        self._callback.reset()
-        return response
+            response = self._callback.get_audio_response(block=True)
+            self._callback.reset()
+            return response
+        finally:
+            self._reset_state()
 
     def _reset_state(self) -> None:
         """Reset per-utterance tracking state."""
