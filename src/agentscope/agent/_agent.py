@@ -2441,19 +2441,20 @@ class Agent:
             # Go on using the existing text block id to generate delta events
             yield TextBlockDeltaEvent(
                 reply_id=self.state.reply_id,
-                block_id=block_ids["text"],
-                delta="".join([_.text for _ in text_blocks]),
+                block_id=block_ids["thinking"],
             )
+            block_ids["thinking"] = None
 
-        elif block_ids.get("text") and not data_blocks:
+        if block_ids.get("text") and not text_blocks and not data_blocks:
             yield TextBlockEndEvent(
                 reply_id=self.state.reply_id,
                 block_id=block_ids["text"],
             )
             block_ids["text"] = None
 
-        # Same reasoning as the text block above — keep the thinking
-        # stream open across data-only chunks.
+        # Step 2: Open/continue the thinking stream (before text, so that a
+        # chunk carrying both ThinkingBlock and TextBlock emits thinking
+        # events first).
         if thinking_blocks:
             # Generate a new thinking block id and start event
             if not block_ids.get("thinking"):
@@ -2469,12 +2470,22 @@ class Agent:
                 delta="".join([_.thinking for _ in thinking_blocks]),
             )
 
-        elif block_ids.get("thinking") and not data_blocks:
-            yield ThinkingBlockEndEvent(
+        # Step 3: Open/continue the text stream.
+        if text_blocks:
+            # If the current chunk has text blocks but no text block id,
+            # start with a start event
+            if not block_ids.get("text"):
+                block_ids["text"] = _generate_id()
+                yield TextBlockStartEvent(
+                    reply_id=self.state.reply_id,
+                    block_id=block_ids["text"],
+                )
+            # Go on using the existing text block id to generate delta events
+            yield TextBlockDeltaEvent(
                 reply_id=self.state.reply_id,
-                block_id=block_ids["thinking"],
+                block_id=block_ids["text"],
+                delta="".join([_.text for _ in text_blocks]),
             )
-            block_ids["thinking"] = None
 
         # Handle the tool calls that exist in the current chunk
         for tool_call in tool_call_blocks:
