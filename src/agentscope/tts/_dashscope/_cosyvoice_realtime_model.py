@@ -414,6 +414,15 @@ class DashScopeCosyVoiceRealtimeTTSModel(TTSModelBase):
 
         try:
             if not full_text and not unsent:
+                if self.stream:
+
+                    async def _empty_gen() -> AsyncGenerator[
+                        TTSResponse,
+                        None,
+                    ]:
+                        yield TTSResponse(content=None)
+
+                    return _empty_gen()
                 return TTSResponse(content=None)
 
             for attempt in range(self.max_retries):
