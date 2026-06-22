@@ -15,6 +15,7 @@ import { LlmSelect } from '@/components/select/LlmSelect';
 import { PermissionModeSelect } from '@/components/select/PermissionModeSelect.tsx';
 import { RealtimeModelSelect } from '@/components/select/RealtimeModelSelect';
 import { Button } from '@/components/ui/button';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 import { useAvailableModels } from '@/hooks/useAvailableModels';
 import { useMicrophone } from '@/hooks/useMicrophone';
 import { useMessages } from '@/hooks/useMessages';
@@ -379,6 +380,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 				<div className="flex flex-col flex-1 min-h-0 p-2">
 					<div className="flex flex-row gap-x-2 justify-between">
 						<div id="tour-llm-select" className="flex flex-row items-center gap-x-1">
+							<SidebarTrigger className="md:hidden" />
 							<LlmSelect
 								value={selectedModel}
 								onChange={handleLlmChange}
