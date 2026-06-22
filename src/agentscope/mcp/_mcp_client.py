@@ -8,7 +8,9 @@ import httpx
 import mcp.types
 from mcp import ClientSession, stdio_client, StdioServerParameters
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import (
+    streamablehttp_client as streamable_http_client,
+)
 from pydantic import Field, BaseModel, PrivateAttr
 
 from ._config import StdioMCPConfig, HttpMCPConfig

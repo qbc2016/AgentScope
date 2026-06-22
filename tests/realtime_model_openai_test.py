@@ -47,11 +47,20 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         ]
         config = model._build_session_config("Hello", tools)
         self.assertEqual(config["type"], "session.update")
-        rt_tools = config["session"]["tools"]
-        self.assertEqual(len(rt_tools), 1)
-        self.assertEqual(rt_tools[0]["type"], "function")
-        self.assertEqual(rt_tools[0]["name"], "Echo")
-        self.assertNotIn("function", rt_tools[0])
+        self.assertEqual(
+            config["session"]["tools"],
+            [
+                {
+                    "type": "function",
+                    "name": "Echo",
+                    "description": "Echoes input",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                    },
+                },
+            ],
+        )
 
     async def test_config_without_tools(self) -> None:
         """session.update config omits tools key when tools is None."""
@@ -63,11 +72,9 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         """session.update config includes whisper transcription model."""
         model = _make_model()
         config = model._build_session_config("Hi", None)
-        audio_input = config["session"]["audio"]["input"]
-        self.assertIn("transcription", audio_input)
         self.assertEqual(
-            audio_input["transcription"]["model"],
-            "whisper-1",
+            config["session"]["audio"]["input"]["transcription"],
+            {"model": "whisper-1"},
         )
 
     async def test_config_voice(self) -> None:
@@ -75,8 +82,8 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         model = _make_model()
         config = model._build_session_config("Hi", None)
         self.assertEqual(
-            config["session"]["audio"]["output"]["voice"],
-            "alloy",
+            config["session"]["audio"]["output"],
+            {"voice": "alloy"},
         )
 
 
@@ -101,11 +108,17 @@ class FormatToolkitSchemaTest(IsolatedAsyncioTestCase):
             },
         ]
         result = OpenAIRealtimeModel._format_toolkit_schema(schemas)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["type"], "function")
-        self.assertEqual(result[0]["name"], "Bash")
-        self.assertEqual(result[0]["description"], "Run bash")
-        self.assertNotIn("function", result[0])
+        self.assertEqual(
+            result,
+            [
+                {
+                    "type": "function",
+                    "name": "Bash",
+                    "description": "Run bash",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            ],
+        )
 
     async def test_multiple_tools(self) -> None:
         """_format_toolkit_schema flattens multiple Chat Completions tools."""
@@ -114,9 +127,13 @@ class FormatToolkitSchemaTest(IsolatedAsyncioTestCase):
             {"type": "function", "function": {"name": "B"}},
         ]
         result = OpenAIRealtimeModel._format_toolkit_schema(schemas)
-        self.assertEqual(len(result), 2)
-        names = {r["name"] for r in result}
-        self.assertEqual(names, {"A", "B"})
+        self.assertEqual(
+            result,
+            [
+                {"type": "function", "name": "A"},
+                {"type": "function", "name": "B"},
+            ],
+        )
 
 
 # ------------------------------------------------------------------ #
@@ -131,10 +148,17 @@ class ToolResultEncodingTest(IsolatedAsyncioTestCase):
         """_encode_tool_result returns valid JSON for string output."""
         block = ToolResultBlock(id="call_1", name="Echo", output="hello")
         payload = json.loads(OpenAIRealtimeModel._encode_tool_result(block))
-        self.assertEqual(payload["type"], "conversation.item.create")
-        self.assertEqual(payload["item"]["type"], "function_call_output")
-        self.assertEqual(payload["item"]["call_id"], "call_1")
-        self.assertEqual(payload["item"]["output"], "hello")
+        self.assertEqual(
+            payload,
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "hello",
+                },
+            },
+        )
 
     async def test_list_output_concatenates_text(self) -> None:
         """_encode_tool_result joins TextBlock list into a string."""
@@ -144,7 +168,17 @@ class ToolResultEncodingTest(IsolatedAsyncioTestCase):
             output=[TextBlock(text="a"), TextBlock(text="b")],
         )
         payload = json.loads(OpenAIRealtimeModel._encode_tool_result(block))
-        self.assertEqual(payload["item"]["output"], "ab")
+        self.assertEqual(
+            payload,
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "ab",
+                },
+            },
+        )
 
 
 # ------------------------------------------------------------------ #

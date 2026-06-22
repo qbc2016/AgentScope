@@ -62,8 +62,14 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         config = model._build_session_config("Hi", None)
         session = config["session"]
         self.assertIn("voice", session)
-        self.assertIn("turn_detection", session)
-        self.assertEqual(session["turn_detection"]["type"], "server_vad")
+        self.assertEqual(
+            session["turn_detection"],
+            {
+                "type": "server_vad",
+                "threshold": 0.5,
+                "silence_duration_ms": 800,
+            },
+        )
 
 
 # ------------------------------------------------------------------ #
@@ -78,10 +84,17 @@ class ToolResultEncodingTest(IsolatedAsyncioTestCase):
         """_encode_tool_result returns valid JSON for string output."""
         block = ToolResultBlock(id="call_1", name="Echo", output="hello")
         payload = json.loads(DashScopeRealtimeModel._encode_tool_result(block))
-        self.assertEqual(payload["type"], "conversation.item.create")
-        self.assertEqual(payload["item"]["type"], "function_call_output")
-        self.assertEqual(payload["item"]["call_id"], "call_1")
-        self.assertEqual(payload["item"]["output"], "hello")
+        self.assertEqual(
+            payload,
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "hello",
+                },
+            },
+        )
 
     async def test_list_output_concatenates_text(self) -> None:
         """_encode_tool_result joins TextBlock list into a string."""
@@ -91,7 +104,17 @@ class ToolResultEncodingTest(IsolatedAsyncioTestCase):
             output=[TextBlock(text="part1"), TextBlock(text="part2")],
         )
         payload = json.loads(DashScopeRealtimeModel._encode_tool_result(block))
-        self.assertEqual(payload["item"]["output"], "part1part2")
+        self.assertEqual(
+            payload,
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "part1part2",
+                },
+            },
+        )
 
 
 # ------------------------------------------------------------------ #
