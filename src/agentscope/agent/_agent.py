@@ -103,9 +103,9 @@ class Agent:
         state: AgentState | None = None,
         offloader: Offloader | None = None,
         # The agent configurations
-        model_config: ModelConfig = ModelConfig(),
-        context_config: ContextConfig = ContextConfig(),
-        react_config: ReActConfig = ReActConfig(),
+        model_config: ModelConfig | None = None,
+        context_config: ContextConfig | None = None,
+        react_config: ReActConfig | None = None,
     ) -> None:
         """Initialize the agent class in AgentScope.
 
@@ -144,9 +144,9 @@ class Agent:
         self.model = model
         self.state = state or AgentState()
 
-        self.model_config = model_config
-        self.context_config = context_config
-        self.react_config = react_config
+        self.model_config = model_config or ModelConfig()
+        self.context_config = context_config or ContextConfig()
+        self.react_config = react_config or ReActConfig()
 
         # The permission engine
         self._engine = PermissionEngine(self.state.permission_context)

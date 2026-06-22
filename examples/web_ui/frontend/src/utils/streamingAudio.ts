@@ -229,7 +229,7 @@ function buildWavHeader(
 	sampleRate: number,
 	channels = 1,
 	bitsPerSample = 16,
-): Uint8Array {
+): Uint8Array<ArrayBuffer> {
 	const headerSize = 44;
 	const dataChunkSize = pcmByteLength;
 	const fileSize = headerSize - 8 + dataChunkSize;
