@@ -861,11 +861,6 @@ class TestAnthropicFormatter(IsolatedAsyncioTestCase):
                         name="get_weather",
                         input='{"city": "Guangzhou"}',
                     ),
-                ],
-            ),
-            AssistantMsg(
-                name="tool",
-                content=[
                     ToolResultBlock(
                         id="call_01",
                         name="get_weather",
