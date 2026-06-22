@@ -30,6 +30,7 @@ from ..event import (
     DataBlockDeltaEvent,
     DataBlockEndEvent,
     DataBlockStartEvent,
+    HintBlockEvent,
     ModelCallEndEvent,
     ModelCallStartEvent,
     ReplyEndEvent,
@@ -157,6 +158,7 @@ class RealtimeAgent:
     # ------------------------------------------------------------------
 
     async def __aenter__(self) -> "RealtimeAgent":
+        """Enter the async context manager, connecting the session."""
         await self.connect()
         return self
 
@@ -166,20 +168,31 @@ class RealtimeAgent:
         exc: Exception | None,
         tb: Any,
     ) -> None:
+        """Exit the async context manager, disconnecting the session."""
         await self.disconnect()
 
     async def connect(self) -> None:
-        """Open the underlying realtime model session."""
+        """Open the underlying realtime model session.
+
+        If the agent state carries a ``session_handle`` from a previous
+        connection, it is forwarded to the model so that providers that
+        support session resumption (e.g. Gemini) can restore context.
+        """
         if self._connected:
             return
 
         if self.toolkit is not None:
             self._tool_schemas = await self.toolkit.get_tool_schemas()
 
+        connect_kwargs: dict[str, Any] = {}
+        if self.state.session_handle:
+            connect_kwargs["session_handle"] = self.state.session_handle
+
         await self.model.connect(
             outgoing_queue=self._model_queue,
             instructions=self.instructions,
             tools=self._tool_schemas,
+            **connect_kwargs,
         )
         self._connected = True
 
@@ -245,6 +258,11 @@ class RealtimeAgent:
 
         User transcriptions and assistant text replies are appended to
         ``self.state.context`` so they can be persisted or inspected.
+
+        Yields:
+            `AgentEvent`: Translated agent events (reply lifecycle,
+                data blocks, text blocks, tool calls, user transcriptions,
+                etc.) in chronological order.
         """
 
         reply_text_parts: dict[str, list[str]] = {}
@@ -283,10 +301,23 @@ class RealtimeAgent:
                 if model_waiter in done:
                     try:
                         model_evt = model_waiter.result()
-                        events_to_yield.extend(self._translate(model_evt))
                     except asyncio.CancelledError:
                         return
                     model_waiter = None
+
+                    # Sentinel from _receive_loop: session ended.
+                    if isinstance(
+                        model_evt,
+                        ModelEvents.ModelSessionEndedEvent,
+                    ):
+                        logger.info(
+                            "RealtimeAgent: model session ended "
+                            "(reason=%s), stopping event_stream",
+                            model_evt.reason,
+                        )
+                        return
+
+                    events_to_yield.extend(self._translate(model_evt))
 
                 for agent_evt in events_to_yield:
                     yield agent_evt
@@ -380,11 +411,8 @@ class RealtimeAgent:
                 "triggering response.create",
                 len(calls),
             )
-            await self.model.send_raw(
-                '{"type": "response.create", '
-                '"response": {"modalities": ["text", "audio"]}}',
-            )
-            logger.info("RealtimeAgent: response.create sent successfully")
+            await self.model.request_response()
+            logger.info("RealtimeAgent: request_response sent successfully")
         except Exception:
             logger.error(
                 "RealtimeAgent: error in _execute_pending_tool_calls",
@@ -631,7 +659,16 @@ class RealtimeAgent:
         self,
         evt: ModelEvents.EventBase,
     ) -> list[AgentEvent]:
-        """Map one ``ModelEvents.*`` instance into 0..N ``AgentEvent``s."""
+        """Map one ``ModelEvents.*`` instance into 0..N ``AgentEvent``s.
+
+        Args:
+            evt (`ModelEvents.EventBase`):
+                A single model-layer event from the receive queue.
+
+        Returns:
+            `list[AgentEvent]`: Zero or more translated agent events
+                to yield to the consumer.
+        """
         sid = self.session_id
 
         # ---- Session ----
@@ -833,6 +870,14 @@ class RealtimeAgent:
             self._tool_call_blocks.pop(call_id, None)
             return out
 
+        # ---- Session resumption ----
+        if isinstance(evt, ModelEvents.ModelSessionResumptionEvent):
+            self.state.session_handle = evt.handle
+            logger.debug(
+                "RealtimeAgent: session resumption handle updated",
+            )
+            return []
+
         # ---- Error ----
         if isinstance(evt, ModelEvents.ModelErrorEvent):
             logger.error(
@@ -841,7 +886,23 @@ class RealtimeAgent:
                 evt.code,
                 evt.message,
             )
-            return []
+            # Surface the error to the client as a HintBlock so users
+            # can see what went wrong without checking server logs.
+            reply_id = self.state.reply_id or ""
+            events: list[AgentEvent] = self._ensure_reply_started(
+                reply_id or uuid.uuid4().hex,
+            )
+            events.append(
+                HintBlockEvent(
+                    session_id=self.session_id,
+                    reply_id=reply_id or self.state.reply_id or "",
+                    block_id=uuid.uuid4().hex,
+                    source="system",
+                    hint=f"[Model Error] {evt.error_type}/{evt.code}: "
+                    f"{evt.message}",
+                ),
+            )
+            return events
 
         logger.debug(
             "RealtimeAgent: unhandled model event %s",
@@ -855,8 +916,18 @@ class RealtimeAgent:
 
     def _ensure_reply_started(self, reply_id: str) -> list[AgentEvent]:
         """Emit ``ReplyStartEvent`` + ``ModelCallStartEvent`` for *reply_id*
-        if we haven't done so yet.  This covers providers (e.g. ElevenLabs)
-        that never send an explicit ``response.created`` frame."""
+        if we haven't done so yet.
+
+        This covers providers (e.g. ElevenLabs) that never send an
+        explicit ``response.created`` frame.
+
+        Args:
+            reply_id (`str`): The response/reply identifier.
+
+        Returns:
+            `list[AgentEvent]`: A pair of start events on first call for
+                a given *reply_id*, or empty on subsequent calls.
+        """
         if reply_id in self._started_responses:
             return []
         self._started_responses.add(reply_id)
@@ -873,6 +944,15 @@ class RealtimeAgent:
         ]
 
     def _close_audio_block(self, reply_id: str) -> list[AgentEvent]:
+        """Emit ``DataBlockEndEvent`` for the open audio block (if any).
+
+        Args:
+            reply_id (`str`): The reply ID whose audio block to close.
+
+        Returns:
+            `list[AgentEvent]`: A list with one ``DataBlockEndEvent``,
+                or empty if no open audio block existed for *reply_id*.
+        """
         block_id = self._audio_blocks.pop(reply_id, None)
         self._audio_media_types.pop(reply_id, None)
         if block_id is None:
@@ -880,6 +960,15 @@ class RealtimeAgent:
         return [DataBlockEndEvent(reply_id=reply_id, block_id=block_id)]
 
     def _close_text_block(self, reply_id: str) -> list[AgentEvent]:
+        """Emit ``TextBlockEndEvent`` for the open text block (if any).
+
+        Args:
+            reply_id (`str`): The reply ID whose text block to close.
+
+        Returns:
+            `list[AgentEvent]`: A list with one ``TextBlockEndEvent``,
+                or empty if no open text block existed for *reply_id*.
+        """
         block_id = self._text_blocks.pop(reply_id, None)
         if block_id is None:
             return []

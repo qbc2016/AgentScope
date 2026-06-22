@@ -610,8 +610,7 @@ export function ModelParametersPopover({
 						</DropdownMenuCheckboxItem>
 					</DropdownMenuSubContent>
 				</DropdownMenuSub>
-
-				</DropdownMenuContent>
+			</DropdownMenuContent>
 		</DropdownMenu>
 	);
 }

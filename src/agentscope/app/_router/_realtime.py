@@ -29,10 +29,8 @@ from ..storage import StorageBase
 from ..workspace_manager._base import WorkspaceManagerBase
 from ..._logging import logger
 from ...event import (
-    ModelCallEndEvent,
-    ReplyEndEvent,
     ReplyStartEvent,
-    TextBlockDeltaEvent,
+    ReplyEndEvent,
     UserConfirmResultEvent,
     UserInputTranscriptionEvent,
 )
@@ -40,8 +38,8 @@ from ...message import (
     AssistantMsg,
     Base64Source,
     DataBlock,
+    Msg,
     TextBlock,
-    Usage,
     UserMsg,
 )
 from ...realtime import RealtimeAgent
@@ -53,6 +51,7 @@ realtime_router = APIRouter(
 )
 
 _active_sessions: dict[str, WebSocket] = {}
+_session_connect_lock: asyncio.Lock = asyncio.Lock()
 
 
 async def _build_realtime_toolkit(
@@ -64,8 +63,21 @@ async def _build_realtime_toolkit(
 ) -> Toolkit | None:
     """Build a lightweight :class:`Toolkit` for realtime tool execution.
 
-    Returns ``None`` if the workspace cannot be resolved (e.g. no
-    workspace configured).
+    Args:
+        workspace_manager (`WorkspaceManagerBase`):
+            The workspace manager instance.
+        user_id (`str`):
+            The authenticated user id.
+        agent_id (`str`):
+            The agent id for workspace scoping.
+        session_id (`str`):
+            The session id for workspace scoping.
+        workspace_id (`str`):
+            The workspace identifier to resolve.
+
+    Returns:
+        `Toolkit | None`: A toolkit with workspace tools, or ``None``
+            if the workspace cannot be resolved.
     """
     try:
         workspace = await workspace_manager.get_workspace(
@@ -96,9 +108,23 @@ async def realtime_ws(
 ) -> None:
     """Bidirectional audio bridge for a realtime session.
 
+    Manages the full WebSocket lifecycle: validates ownership, resolves
+    the realtime model, creates a :class:`RealtimeAgent`, and runs
+    concurrent upstream/downstream tasks until one side disconnects.
+
     Browsers cannot set custom headers on WebSocket connections, so
     ``user_id`` is passed as a query parameter (same security posture
     as the temporary ``X-User-ID`` header used elsewhere).
+
+    Args:
+        websocket (`WebSocket`):
+            The incoming WebSocket connection from the browser.
+        session_id (`str`):
+            Path parameter — the session to connect.
+        agent_id (`str`):
+            Query parameter — the agent that owns the session.
+        user_id (`str`):
+            Query parameter — the authenticated user.
     """
     storage: StorageBase = websocket.app.state.storage
     message_bus: MessageBus = websocket.app.state.message_bus
@@ -122,16 +148,20 @@ async def realtime_ws(
         return
 
     # ---- Prevent duplicate connections ----
-    if session_id in _active_sessions:
-        await websocket.close(
-            code=4009,
-            reason="Realtime session already active.",
-        )
-        return
+    async with _session_connect_lock:
+        if session_id in _active_sessions:
+            await websocket.close(
+                code=4009,
+                reason="Realtime session already active.",
+            )
+            return
+        # Reserve the slot early to prevent races during model setup.
+        _active_sessions[session_id] = websocket  # type: ignore[assignment]
 
     # ---- Resolve realtime model ----
     model_cfg = session_record.config.realtime_model_config
     if not model_cfg:
+        _active_sessions.pop(session_id, None)
         await websocket.close(
             code=4000,
             reason="No realtime model configured on this session.",
@@ -141,6 +171,7 @@ async def realtime_ws(
     try:
         model = await get_realtime_model(user_id, model_cfg, storage)
     except Exception as e:
+        _active_sessions.pop(session_id, None)
         await websocket.close(code=4000, reason=str(e))
         return
 
@@ -171,7 +202,18 @@ async def realtime_ws(
 
     # ---- Accept connection ----
     await websocket.accept()
-    _active_sessions[session_id] = websocket
+
+    # Trim stale replay-log events from any previous connection.
+    # Without this, SSE subscribers would replay old audio/text events
+    # causing unwanted audio autoplay on session switch.
+    try:
+        await message_bus.session_trim_events(session_id)
+    except Exception:
+        logger.warning(
+            "Failed to trim stale replay log on connect for session %s",
+            session_id,
+            exc_info=True,
+        )
 
     # ---- Create agent (reuse persisted state for context continuity) ----
     agent_state = session_record.state
@@ -190,7 +232,14 @@ async def realtime_ws(
         await agent.connect()
 
         upstream_task = asyncio.create_task(
-            _upstream(websocket, agent, model.input_sample_rate),
+            _upstream(
+                websocket,
+                agent,
+                model.input_sample_rate,
+                storage,
+                user_id,
+                session_id,
+            ),
             name=f"rt-upstream:{session_id}",
         )
         downstream_task = asyncio.create_task(
@@ -212,6 +261,8 @@ async def realtime_ws(
         )
         for task in pending:
             task.cancel()
+        # Await cancelled tasks to suppress "exception never retrieved"
+        await asyncio.gather(*pending, return_exceptions=True)
         for task in done:
             if task.exception() and not isinstance(
                 task.exception(),
@@ -265,15 +316,34 @@ async def _upstream(
     websocket: WebSocket,
     agent: RealtimeAgent,
     input_sample_rate: int,
+    storage: StorageBase,
+    user_id: str,
+    session_id: str,
 ) -> None:
     """Read frames from the browser and forward to the agent.
 
     Supported frame types:
 
     - ``audio`` — base64 PCM audio forwarded via ``agent.send()``.
+    - ``content`` — text and/or data blocks (images, files) sent as
+      a user message. Persisted to storage and forwarded to the agent.
     - ``user_confirm`` — tool-call confirmation forwarded to
       ``agent.handle_user_confirm()`` so the pending permission
       future is resolved.
+
+    Args:
+        websocket (`WebSocket`):
+            The active WebSocket connection from the browser.
+        agent (`RealtimeAgent`):
+            The agent to forward content to.
+        input_sample_rate (`int`):
+            Expected PCM sample rate (used for media_type tagging).
+        storage (`StorageBase`):
+            Storage for persisting user messages.
+        user_id (`str`):
+            The authenticated user id.
+        session_id (`str`):
+            The session id for message persistence.
     """
     while True:
         raw = await websocket.receive_text()
@@ -296,6 +366,48 @@ async def _upstream(
                     ),
                 )
 
+        elif frame_type == "content":
+            blocks = frame.get("blocks", [])
+            if not blocks:
+                continue
+
+            content_blocks: list = []
+            for blk in blocks:
+                blk_type = blk.get("type")
+                if blk_type == "text":
+                    tb = TextBlock(text=blk.get("text", ""))
+                    content_blocks.append(tb)
+                    await agent.send(tb)
+                elif blk_type == "data":
+                    src = blk.get("source", {})
+                    db = DataBlock(
+                        source=Base64Source(
+                            data=src.get("data", ""),
+                            media_type=src.get("media_type", ""),
+                        ),
+                        name=blk.get("name"),
+                    )
+                    content_blocks.append(db)
+                    await agent.send(db)
+
+            if content_blocks:
+                msg = UserMsg(
+                    name="user",
+                    content=content_blocks,
+                )
+                try:
+                    await storage.upsert_message(
+                        user_id,
+                        session_id,
+                        msg,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to persist user content for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
         elif frame_type == "user_confirm":
             try:
                 event = UserConfirmResultEvent(**frame.get("data", {}))
@@ -315,83 +427,137 @@ async def _downstream(
     user_id: str,
     session_id: str,
     *,
-    agent_name: str,
+    agent_name: str,  # pylint: disable=unused-argument
 ) -> None:
     """Forward agent events to the browser, publish to the bus, and
     persist user/assistant messages to the session's message store.
 
+    Uses :meth:`Msg.append_event` — the same method the regular chat
+    path uses — so that all content blocks (text, audio DataBlocks,
+    tool calls, etc.) are accumulated and persisted together.  This
+    ensures audio replay buttons survive session switches and page
+    refreshes.
+
     Tool execution is handled internally by the :class:`RealtimeAgent`
     when a toolkit is configured.
+
+    Args:
+        websocket (`WebSocket`):
+            The active WebSocket connection to the browser.
+        agent (`RealtimeAgent`):
+            The agent whose event stream to consume.
+        message_bus (`MessageBus`):
+            Bus for publishing events to SSE subscribers.
+        storage (`StorageBase`):
+            Storage for persisting messages.
+        user_id (`str`):
+            The authenticated user id.
+        session_id (`str`):
+            The session id for message persistence.
+        agent_name (`str`):
+            The agent display name (reserved for future use).
     """
-    reply_id: str | None = None
-    reply_name: str = agent_name
-    reply_text_parts: list[str] = []
-    reply_usage: Usage | None = None
-    reply_created_at: str | None = None
+    reply_msg: Msg | None = None
+    # Track completed replies so post-ReplyEnd events (tool results,
+    # confirmations) can still be appended and persisted.
+    completed_replies: dict[str, Msg] = {}
 
-    async for event in agent.event_stream():
-        payload = event.model_dump(mode="json")
-        try:
-            await websocket.send_json(payload)
-        except (WebSocketDisconnect, RuntimeError):
-            return
-        await message_bus.session_publish_event(session_id, payload)
+    try:
+        async for event in agent.event_stream():
+            payload = event.model_dump(mode="json")
+            try:
+                await websocket.send_json(payload)
+            except (WebSocketDisconnect, RuntimeError):
+                return
+            await message_bus.session_publish_event(session_id, payload)
 
-        # ---- Persist messages to storage ----
-        if isinstance(event, UserInputTranscriptionEvent):
-            if event.transcript:
-                msg = UserMsg(name="user", content=event.transcript)
-                try:
-                    await storage.upsert_message(user_id, session_id, msg)
-                except Exception:
-                    logger.warning(
-                        "Failed to persist user transcript for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
+            # ---- Persist messages to storage ----
+            if isinstance(event, UserInputTranscriptionEvent):
+                if event.transcript:
+                    msg = UserMsg(name="user", content=event.transcript)
+                    try:
+                        await storage.upsert_message(
+                            user_id,
+                            session_id,
+                            msg,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to persist user transcript for "
+                            "session %s",
+                            session_id,
+                            exc_info=True,
+                        )
 
-        elif isinstance(event, ReplyStartEvent):
-            reply_id = event.reply_id
-            reply_name = event.name
-            reply_text_parts = []
-            reply_usage = None
-            reply_created_at = event.created_at
-
-        elif isinstance(event, TextBlockDeltaEvent):
-            reply_text_parts.append(event.delta)
-
-        elif isinstance(event, ModelCallEndEvent):
-            reply_usage = Usage(
-                input_tokens=event.input_tokens,
-                output_tokens=event.output_tokens,
-            )
-
-        elif isinstance(event, ReplyEndEvent):
-            if reply_id is not None:
-                text = "".join(reply_text_parts)
-                content: list[TextBlock] = (
-                    [TextBlock(text=text)] if text else []
+            elif isinstance(event, ReplyStartEvent):
+                reply_msg = AssistantMsg(
+                    name=event.name,
+                    content=[],
+                    id=event.reply_id,
+                    created_at=event.created_at,
                 )
-                msg = AssistantMsg(
-                    name=reply_name,
-                    content=content,
-                    id=reply_id,
-                    created_at=reply_created_at,
-                    finished_at=event.created_at,
-                    usage=reply_usage,
-                )
-                try:
-                    await storage.upsert_message(
+
+            elif isinstance(event, ReplyEndEvent):
+                if reply_msg is not None:
+                    reply_msg.append_event(event)
+                    try:
+                        await storage.upsert_message(
+                            user_id,
+                            session_id,
+                            reply_msg,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to persist assistant reply for "
+                            "session %s",
+                            session_id,
+                            exc_info=True,
+                        )
+                    completed_replies[reply_msg.id] = reply_msg
+                    reply_msg = None
+
+            elif reply_msg is not None:
+                reply_msg.append_event(event)
+
+            else:
+                # Post-ReplyEnd events (tool results, confirmations)
+                # target a completed reply by reply_id.
+                reply_id = getattr(event, "reply_id", None)
+                if reply_id and reply_id in completed_replies:
+                    target = completed_replies[reply_id]
+                    target.append_event(event)
+                    try:
+                        await storage.upsert_message(
+                            user_id,
+                            session_id,
+                            target,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to persist post-reply event for "
+                            "session %s",
+                            session_id,
+                            exc_info=True,
+                        )
+    finally:
+        # Persist any in-progress reply that didn't receive a
+        # ReplyEndEvent before the session ended (e.g. WebSocket
+        # disconnect during the response, or cancellation).  Without
+        # this, audio accumulated during the reply is lost and
+        # historical playback shows no audio for that message.
+        if reply_msg is not None and reply_msg.content:
+            try:
+                await asyncio.shield(
+                    storage.upsert_message(
                         user_id,
                         session_id,
-                        msg,
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to persist assistant reply for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
-                reply_id = None
-                reply_text_parts = []
-                reply_usage = None
+                        reply_msg,
+                    ),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to persist in-progress reply on disconnect "
+                    "for session %s",
+                    session_id,
+                    exc_info=True,
+                )

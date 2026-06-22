@@ -35,8 +35,11 @@ export interface ReActConfig {
 
 // ─── Agent ────────────────────────────────────────────────────────────────────
 
+export type AgentType = 'chat' | 'realtime';
+
 export interface AgentData {
 	id: string;
+	agent_type: AgentType;
 	name: string;
 	system_prompt: string;
 	context_config: ContextConfig;
@@ -49,6 +52,7 @@ export interface AgentRecord extends RecordBase {
 }
 
 export interface CreateAgentRequest {
+	agent_type?: AgentType;
 	name: string;
 	system_prompt?: string;
 	context_config?: ContextConfig;
@@ -60,6 +64,7 @@ export interface CreateAgentResponse {
 }
 
 export interface UpdateAgentRequest {
+	agent_type?: AgentType;
 	name?: string;
 	system_prompt?: string;
 	context_config?: ContextConfig;

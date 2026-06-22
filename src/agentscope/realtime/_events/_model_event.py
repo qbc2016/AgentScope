@@ -47,6 +47,9 @@ class ModelEventType(str, Enum):
     MODEL_INPUT_STARTED = "model_input_started"
     MODEL_INPUT_DONE = "model_input_done"
 
+    # ============ Session resumption (Gemini) ============
+    MODEL_SESSION_RESUMPTION = "model_session_resumption"
+
     # ============ Error ============
     MODEL_ERROR = "model_error"
 
@@ -214,6 +217,22 @@ class ModelEvents:
         type: Literal[
             ModelEventType.MODEL_INPUT_DONE
         ] = ModelEventType.MODEL_INPUT_DONE
+
+    # ---------------- Session resumption ----------------
+
+    class ModelSessionResumptionEvent(EventBase):
+        """A session resumption handle update from the API.
+
+        Currently only the Gemini Live API supports this: the server
+        periodically sends a ``sessionResumptionUpdate`` carrying a
+        ``new_handle`` that the client should store and pass back on
+        the next ``connect()`` to restore context.
+        """
+
+        handle: str
+        type: Literal[
+            ModelEventType.MODEL_SESSION_RESUMPTION
+        ] = ModelEventType.MODEL_SESSION_RESUMPTION
 
     # ---------------- Error ----------------
 

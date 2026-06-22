@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from ._events import ModelEvents
 from ._model_card import RealtimeModelCard
+from .._logging import logger
 from ..message import DataBlock, TextBlock, ToolResultBlock
 
 if TYPE_CHECKING:
@@ -165,6 +166,16 @@ class RealtimeModelBase:
                 unrecognised or carries no useful state.
         """
 
+    async def request_response(self) -> None:
+        """Explicitly request the model to generate a response.
+
+        Called when non-text content (e.g. images) is sent without
+        accompanying text that would otherwise implicitly trigger a
+        response.  Models that auto-respond (e.g. Gemini) can leave the
+        default no-op; models that require an explicit trigger (e.g.
+        DashScope) should override.
+        """
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -246,16 +257,43 @@ class RealtimeModelBase:
         await self._websocket.send(payload)
 
     async def _receive_loop(self, outgoing_queue: Queue) -> None:
-        """Drain the WebSocket; push parsed events to ``outgoing_queue``."""
-        assert self._websocket is not None
-        async for message in self._websocket:
-            if isinstance(message, bytes):
-                message = message.decode("utf-8")
+        """Drain the WebSocket; push parsed events to ``outgoing_queue``.
 
-            events = await self.parse_api_message(message)
-            if events is None:
-                continue
-            if isinstance(events, ModelEvents.EventBase):
-                events = [events]
-            for event in events:
-                await outgoing_queue.put(event)
+        On loop exit (WebSocket close or parse error), a
+        :class:`ModelSessionEndedEvent` sentinel is enqueued so that
+        consumers (e.g. the agent's event_stream) can detect session
+        termination instead of blocking indefinitely.
+        """
+        assert self._websocket is not None
+        try:
+            async for message in self._websocket:
+                if isinstance(message, bytes):
+                    message = message.decode("utf-8")
+
+                try:
+                    events = await self.parse_api_message(message)
+                except Exception:
+                    logger.error(
+                        "RealtimeModel: parse_api_message failed",
+                        exc_info=True,
+                    )
+                    continue
+
+                if events is None:
+                    continue
+                if isinstance(events, ModelEvents.EventBase):
+                    events = [events]
+                for event in events:
+                    await outgoing_queue.put(event)
+        except Exception:
+            logger.error(
+                "RealtimeModel: _receive_loop exited with error",
+                exc_info=True,
+            )
+        finally:
+            await outgoing_queue.put(
+                ModelEvents.ModelSessionEndedEvent(
+                    session_id="",
+                    reason="WebSocket connection closed",
+                ),
+            )

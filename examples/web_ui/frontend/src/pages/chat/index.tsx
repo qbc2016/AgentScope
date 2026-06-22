@@ -1,8 +1,10 @@
 import {
+	AudioLines,
 	BotMessageSquare,
 	CalendarClock,
 	Ellipsis,
 	MessageSquareDashed,
+	MessageSquareText,
 	Pencil,
 	Plus,
 	Settings2,
@@ -12,7 +14,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { ChatViewport } from './ChatViewport';
-import type { SessionRecord } from '@/api';
+import type { AgentType, SessionRecord } from '@/api';
 import { AgentDialog } from '@/components/dialog/AgentDialog';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { EditAgentDialog } from '@/components/dialog/EditAgentDialog';
@@ -131,6 +133,10 @@ const ChatPageInner = () => {
 		focusedMember && focusedMember.session_id
 			? focusedMember.session_id
 			: (urlSessionId ?? null);
+	const effectiveAgentType: AgentType =
+		focusedMember && focusedMember.session_id
+			? (focusedMember.agent.data.agent_type ?? 'chat')
+			: (selectedAgent?.data.agent_type ?? 'chat');
 
 	// Redirect: URL is missing an agent → pick the first one and rewrite
 	// the URL in-place (replace so we don't pollute history).
@@ -162,14 +168,23 @@ const ChatPageInner = () => {
 	const handleCreateSession = async () => {
 		if (!urlAgentId) return;
 		const seedConfig = currentView?.session.config ?? sessions[0]?.session.config;
+		const agentType = selectedAgent?.data.agent_type ?? 'chat';
 		const res = await createSession({
 			agent_id: urlAgentId,
-			...(seedConfig?.chat_model_config
-				? { chat_model_config: seedConfig.chat_model_config }
-				: {}),
-			...(seedConfig?.fallback_chat_model_config
-				? { fallback_chat_model_config: seedConfig.fallback_chat_model_config }
-				: {}),
+			...(agentType === 'realtime'
+				? {
+						...(seedConfig?.realtime_model_config
+							? { realtime_model_config: seedConfig.realtime_model_config }
+							: {}),
+					}
+				: {
+						...(seedConfig?.chat_model_config
+							? { chat_model_config: seedConfig.chat_model_config }
+							: {}),
+						...(seedConfig?.fallback_chat_model_config
+							? { fallback_chat_model_config: seedConfig.fallback_chat_model_config }
+							: {}),
+					}),
 		});
 		navigate(`/chat/${urlAgentId}/${res.session_id}`);
 	};
@@ -237,7 +252,14 @@ const ChatPageInner = () => {
 									) : (
 										agents.map((agent) => (
 											<SelectItem key={agent.id} value={agent.id}>
-												{agent.data.name}
+												<span className="flex items-center gap-1.5">
+													{agent.data.agent_type === 'realtime' ? (
+														<AudioLines className="size-3.5 shrink-0" />
+													) : (
+														<MessageSquareText className="size-3.5 shrink-0" />
+													)}
+													{agent.data.name}
+												</span>
 											</SelectItem>
 										))
 									)}
@@ -384,6 +406,7 @@ const ChatPageInner = () => {
 				<ChatViewport
 					agentId={effectiveAgentId}
 					sessionId={effectiveSessionId}
+					agentType={effectiveAgentType}
 					onTeamUpdated={refetchSessions}
 				/>
 			</div>

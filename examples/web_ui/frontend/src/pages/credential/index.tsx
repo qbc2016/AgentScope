@@ -2,7 +2,13 @@ import { Eye, EyeOff, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
 import { credentialApi, modelApi, ttsModelApi, realtimeModelApi } from '@/api';
-import type { CredentialRecord, CredentialSchema, ModelCard, TTSModelCard, RealtimeModelCard } from '@/api';
+import type {
+	CredentialRecord,
+	CredentialSchema,
+	ModelCard,
+	TTSModelCard,
+	RealtimeModelCard,
+} from '@/api';
 import { InputTypeBadges } from '@/components/badge/InputTypeBadges';
 import { CreateCredentialDialog } from '@/components/dialog/CreateCredentialDialog';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';

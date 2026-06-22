@@ -45,7 +45,8 @@ interface ParameterSchema {
 function resolveType(prop: ParameterProperty): { type: string; enumValues: unknown[] | null } {
 	if (prop.type) return { type: prop.type, enumValues: prop.enum ?? null };
 	for (const v of prop.anyOf ?? []) {
-		if (v.type && v.type !== 'null') return { type: v.type, enumValues: v.enum ?? prop.enum ?? null };
+		if (v.type && v.type !== 'null')
+			return { type: v.type, enumValues: v.enum ?? prop.enum ?? null };
 	}
 	return { type: 'string', enumValues: null };
 }
@@ -92,9 +93,9 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button variant="outline" size="sm" className="justify-between gap-1">
+				<Button variant="outline" size="sm" className="w-48 justify-between gap-1">
 					<span className="truncate">{displayLabel}</span>
-					<ChevronDown className="size-3.5 opacity-50" />
+					<ChevronDown className="size-3.5 opacity-50 shrink-0" />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="min-w-48 max-h-96 overflow-y-auto">
@@ -132,23 +133,30 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 					))
 				)}
 
-				{/* Parameter editing sub-menu */}
-				{value && selectedCard && (() => {
-					const mSchema = selectedCard.parameter_schema as ParameterSchema | undefined;
-					const mProps = mSchema?.properties ?? {};
-					const mRequired = mSchema?.required ?? [];
-					const mEntries = Object.entries(mProps);
-					if (mEntries.length === 0) return null;
-					const curParams = value.parameters ?? {};
+				{/* Parameter editing sub-menu — always rendered to avoid layout shift */}
+				<DropdownMenuSeparator />
+				<DropdownMenuSub>
+					<DropdownMenuSubTrigger disabled={!value || !selectedCard}>
+						{t('model-parameters.parametersLabel')}
+					</DropdownMenuSubTrigger>
+					{value &&
+						selectedCard &&
+						(() => {
+							const mSchema = selectedCard.parameter_schema as
+								| ParameterSchema
+								| undefined;
+							const mProps = mSchema?.properties ?? {};
+							const mRequired = mSchema?.required ?? [];
+							const mEntries = Object.entries(mProps);
+							if (mEntries.length === 0) return null;
+							const curParams = value.parameters ?? {};
 
-					return (
-						<>
-							<DropdownMenuSeparator />
-							<DropdownMenuSub>
-								<DropdownMenuSubTrigger>
-									{t('model-parameters.parametersLabel')}
-								</DropdownMenuSubTrigger>
-								<DropdownMenuSubContent className="w-72 max-h-96 overflow-y-auto p-3">
+							return (
+								<DropdownMenuSubContent
+									className="w-80 max-h-96 overflow-y-auto p-3"
+									sideOffset={2}
+									alignOffset={-4}
+								>
 									<div className="mb-3">
 										<p className="text-sm font-medium">
 											{t('model-parameters.title')}
@@ -163,7 +171,8 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 										onKeyDown={(e) => e.stopPropagation()}
 									>
 										{mEntries.map(([key, prop]) => {
-											const { type: effectiveType, enumValues } = resolveType(prop);
+											const { type: effectiveType, enumValues } =
+												resolveType(prop);
 											const label = prop.title ?? key;
 											const isReq = mRequired.includes(key);
 
@@ -179,41 +188,75 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 											if (effectiveType === 'boolean') {
 												field = (
 													<>
-														<Label htmlFor={fieldId} className="whitespace-nowrap">
+														<Label
+															htmlFor={fieldId}
+															className="whitespace-nowrap"
+														>
 															{label}
 														</Label>
 														<Switch
 															id={fieldId}
-															checked={curParams[key] !== undefined ? !!curParams[key] : !!prop.default}
-															onCheckedChange={(checked) => handleParamChange(!!checked)}
+															checked={
+																curParams[key] !== undefined
+																	? !!curParams[key]
+																	: !!prop.default
+															}
+															onCheckedChange={(checked) =>
+																handleParamChange(!!checked)
+															}
 														/>
 													</>
 												);
 											} else if (enumValues) {
-												const displayValue = curParams[key] !== undefined && curParams[key] !== null
-													? String(curParams[key])
-													: '';
+												const displayValue =
+													curParams[key] !== undefined &&
+													curParams[key] !== null
+														? String(curParams[key])
+														: '';
 												field = (
 													<>
-														<Label htmlFor={fieldId} className="whitespace-nowrap">
+														<Label
+															htmlFor={fieldId}
+															className="whitespace-nowrap"
+														>
 															{label}
-															{isReq && <span className="text-destructive ml-0.5">*</span>}
+															{isReq && (
+																<span className="text-destructive ml-0.5">
+																	*
+																</span>
+															)}
 														</Label>
 														<DropdownMenu>
 															<DropdownMenuTrigger asChild>
-																<Button id={fieldId} variant="outline" className="w-full justify-between gap-1">
-																	<span className="truncate">{displayValue}</span>
+																<Button
+																	id={fieldId}
+																	variant="outline"
+																	className="w-full justify-between gap-1"
+																>
+																	<span className="truncate">
+																		{displayValue}
+																	</span>
 																	<ChevronDown className="size-3.5 opacity-50 shrink-0" />
 																</Button>
 															</DropdownMenuTrigger>
 															<DropdownMenuContent
 																align="start"
 																className="max-h-60 overflow-y-auto"
-																onPointerDown={(e) => e.stopPropagation()}
+																onPointerDown={(e) =>
+																	e.stopPropagation()
+																}
 															>
-																<DropdownMenuRadioGroup value={displayValue} onValueChange={(v) => handleParamChange(v)}>
+																<DropdownMenuRadioGroup
+																	value={displayValue}
+																	onValueChange={(v) =>
+																		handleParamChange(v)
+																	}
+																>
 																	{enumValues.map((opt) => (
-																		<DropdownMenuRadioItem key={String(opt)} value={String(opt)}>
+																		<DropdownMenuRadioItem
+																			key={String(opt)}
+																			value={String(opt)}
+																		>
 																			{String(opt)}
 																		</DropdownMenuRadioItem>
 																	))}
@@ -222,24 +265,50 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 														</DropdownMenu>
 													</>
 												);
-											} else if (effectiveType === 'number' || effectiveType === 'integer') {
+											} else if (
+												effectiveType === 'number' ||
+												effectiveType === 'integer'
+											) {
 												field = (
 													<>
-														<Label htmlFor={fieldId} className="whitespace-nowrap">
+														<Label
+															htmlFor={fieldId}
+															className="whitespace-nowrap"
+														>
 															{label}
-															{isReq && <span className="text-destructive ml-0.5">*</span>}
+															{isReq && (
+																<span className="text-destructive ml-0.5">
+																	*
+																</span>
+															)}
 														</Label>
 														<Input
 															id={fieldId}
 															type="number"
-															value={curParams[key] !== undefined ? String(curParams[key]) : ''}
-															placeholder={prop.default != null ? String(prop.default) : undefined}
+															value={
+																curParams[key] !== undefined
+																	? String(curParams[key])
+																	: ''
+															}
+															placeholder={
+																prop.default != null
+																	? String(prop.default)
+																	: undefined
+															}
 															min={prop.minimum}
 															max={prop.maximum}
-															step={effectiveType === 'number' ? 'any' : undefined}
+															step={
+																effectiveType === 'number'
+																	? 'any'
+																	: undefined
+															}
 															onChange={(e) => {
 																const raw = e.target.value;
-																handleParamChange(raw === '' ? undefined : Number(raw));
+																handleParamChange(
+																	raw === ''
+																		? undefined
+																		: Number(raw),
+																);
 															}}
 														/>
 													</>
@@ -247,16 +316,33 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 											} else {
 												field = (
 													<>
-														<Label htmlFor={fieldId} className="whitespace-nowrap">
+														<Label
+															htmlFor={fieldId}
+															className="whitespace-nowrap"
+														>
 															{label}
-															{isReq && <span className="text-destructive ml-0.5">*</span>}
+															{isReq && (
+																<span className="text-destructive ml-0.5">
+																	*
+																</span>
+															)}
 														</Label>
 														<Input
 															id={fieldId}
 															type="text"
-															value={curParams[key] !== undefined ? String(curParams[key]) : ''}
-															placeholder={prop.default != null ? String(prop.default) : undefined}
-															onChange={(e) => handleParamChange(e.target.value)}
+															value={
+																curParams[key] !== undefined
+																	? String(curParams[key])
+																	: ''
+															}
+															placeholder={
+																prop.default != null
+																	? String(prop.default)
+																	: undefined
+															}
+															onChange={(e) =>
+																handleParamChange(e.target.value)
+															}
 														/>
 													</>
 												);
@@ -270,7 +356,10 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 														</div>
 													</TooltipTrigger>
 													{prop.description && (
-														<TooltipContent side="left">
+														<TooltipContent
+															side="left"
+															className="max-w-64"
+														>
 															{prop.description}
 														</TooltipContent>
 													)}
@@ -279,23 +368,21 @@ export function RealtimeModelSelect({ value, onChange }: Props) {
 										})}
 									</div>
 								</DropdownMenuSubContent>
-							</DropdownMenuSub>
-						</>
-					);
-				})()}
+							);
+						})()}
+				</DropdownMenuSub>
 
-				{value && (
-					<>
-						<DropdownMenuSeparator />
-						<DropdownMenuCheckboxItem
-							checked={false}
-							onSelect={(e) => e.preventDefault()}
-							onCheckedChange={() => onChange(null)}
-						>
-							{t('model-parameters.noRealtime')}
-						</DropdownMenuCheckboxItem>
-					</>
-				)}
+				<DropdownMenuSeparator />
+				<DropdownMenuItem
+					disabled={!value}
+					onSelect={(e) => {
+						e.preventDefault();
+						onChange(null);
+					}}
+				>
+					<Ban className="size-4 mr-2 opacity-60" />
+					{t('model-parameters.noRealtime')}
+				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

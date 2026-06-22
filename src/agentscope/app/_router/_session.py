@@ -488,6 +488,10 @@ async def stream_session_events(
         ):
             yield f"data: {json.dumps(event)}\n\n"
 
+        # Signal replay completion so clients can distinguish replay
+        # from live events (e.g. to suppress audio autoplay).
+        yield f"data: {json.dumps({'type': 'REPLAY_DONE'})}\n\n"
+
         # 2. Live subscribe via a background feeder task that pushes
         #    events into a queue. The main loop reads from the queue
         #    with a timeout so we can interleave heartbeat frames.

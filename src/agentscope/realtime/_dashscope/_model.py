@@ -4,6 +4,7 @@
 Implements the DashScope Realtime WebSocket API (Qwen Omni Realtime).
 See: https://help.aliyun.com/zh/model-studio/qwen-omni-realtime
 """
+import asyncio
 import json
 from typing import Any, Literal
 
@@ -149,9 +150,21 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         # (delta or done) first carries the name.
         self._tool_name_map: dict[str, str] = {}
 
+        # Background task that repeatedly sends the latest image at ~1fps
+        # until the next VAD commit (speech_stopped).  DashScope's image
+        # buffer is designed for video-stream frames; a single append may
+        # be consumed/cleared before the user speaks.
+        self._image_resend_task: asyncio.Task | None = None
+        self._image_resend_payload: str | None = None
+
     # ------------------------------------------------------------------
     # Session config
     # ------------------------------------------------------------------
+
+    async def disconnect(self) -> None:
+        """Close the session and cancel image-resend tasks."""
+        self._stop_image_resend()
+        await super().disconnect()
 
     def _build_session_config(
         self,
@@ -230,7 +243,36 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             if major == "audio":
                 payload = self._encode_audio(data)
             elif major == "image":
-                payload = self._encode_image(data)
+                if data.source.type == "base64":
+                    payload = self._encode_image(data)
+                else:
+                    payload = await asyncio.to_thread(
+                        self._encode_image,
+                        data,
+                    )
+                b64_len = (
+                    len(data.source.data)
+                    if data.source.type == "base64"
+                    else 0
+                )
+                logger.info(
+                    "DashScopeRealtimeModel: sending image "
+                    "media_type=%r base64_len=%d",
+                    media_type,
+                    b64_len,
+                )
+                await self._websocket.send(payload)
+                # Start a background task that re-sends the image at ~1fps.
+                # DashScope's image buffer is frame-oriented (designed for
+                # video streams) — a single append may not persist until the
+                # next VAD commit.  Continuous re-sending ensures the frame
+                # is present in the buffer when speech_stopped fires.
+                self._stop_image_resend()
+                self._image_resend_payload = payload
+                self._image_resend_task = asyncio.create_task(
+                    self._resend_image_loop(),
+                )
+                payload = None
             else:
                 logger.warning(
                     "DashScopeRealtimeModel: unsupported DataBlock "
@@ -263,6 +305,59 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         if payload is not None:
             await self._websocket.send(payload)
 
+    # ------------------------------------------------------------------
+    # Image resend helpers (VAD mode)
+    # ------------------------------------------------------------------
+
+    async def _resend_image_loop(self) -> None:
+        """Re-send the latest image frame at ~1fps until cancelled.
+
+        DashScope recommends sending images at 1 frame/second for video
+        scenarios.  For static images in VAD mode, this ensures the frame
+        persists in the server's image buffer until the next auto-commit
+        (triggered by speech_stopped).
+        """
+        from websockets import State
+
+        try:
+            while True:
+                await asyncio.sleep(1.0)
+                payload = self._image_resend_payload
+                if payload is None:
+                    break
+                if (
+                    self._websocket is None
+                    or self._websocket.state != State.OPEN
+                ):
+                    break
+                try:
+                    await self._websocket.send(payload)
+                except Exception:
+                    break
+        except asyncio.CancelledError:
+            pass
+
+    def _stop_image_resend(self) -> None:
+        """Cancel any active image-resend background task."""
+        self._image_resend_payload = None
+        if self._image_resend_task is not None:
+            self._image_resend_task.cancel()
+            self._image_resend_task = None
+
+    async def request_response(self) -> None:
+        """Send ``response.create`` to trigger model generation.
+
+        DashScope requires an explicit trigger after tool results are sent
+        or when non-audio content needs a response in server_vad mode.
+        """
+        payload = json.dumps(
+            {
+                "type": "response.create",
+                "response": {"modalities": ["text", "audio"]},
+            },
+        )
+        await self._websocket.send(payload)
+
     @staticmethod
     def _encode_audio(block: DataBlock) -> str:
         """Encode an audio ``DataBlock`` as ``input_audio_buffer.append``.
@@ -284,19 +379,40 @@ class DashScopeRealtimeModel(RealtimeModelBase):
 
     @staticmethod
     def _encode_image(block: DataBlock) -> str:
-        """Encode an image ``DataBlock`` as ``input_image_buffer.append``."""
+        """Encode an image ``DataBlock`` as ``input_image_buffer.append``.
+
+        DashScope constraints:
+          - Image must be JPEG format (JPG/JPEG only).
+          - Base64-encoded size must not exceed 256KB.
+          - Audio data must have been sent at least once before
+            sending images.
+          - Raw base64 (no data URL prefix).
+
+        If the source is a URL (file:// or http(s)://), the image is
+        fetched/read and base64-encoded automatically.
+        """
+        import base64 as b64_mod
+
         if block.source.type == "base64":
-            return json.dumps(
-                {
-                    "type": "input_image_buffer.append",
-                    "image": block.source.data,
-                },
-            )
-        # URL source
+            data = block.source.data
+        else:
+            # URL source — resolve to base64
+            url_str = str(block.source.url)
+            if url_str.startswith("file://"):
+                local_path = url_str.removeprefix("file://")
+                with open(local_path, "rb") as f:
+                    data = b64_mod.b64encode(f.read()).decode("utf-8")
+            else:
+                import requests
+
+                resp = requests.get(url_str, timeout=30)
+                resp.raise_for_status()
+                data = b64_mod.b64encode(resp.content).decode("utf-8")
+
         return json.dumps(
             {
-                "type": "input_image_url.append",
-                "image_url": str(block.source.url),
+                "type": "input_image_buffer.append",
+                "image": data,
             },
         )
 
@@ -345,7 +461,17 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         self,
         message: str,
     ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
-        """Translate a DashScope WebSocket frame into model event(s)."""
+        """Translate a DashScope WebSocket frame into model event(s).
+
+        Args:
+            message (`str`):
+                A single decoded text frame from the DashScope WebSocket.
+
+        Returns:
+            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
+                Parsed event(s), or ``None`` if the frame carries no
+                actionable state.
+        """
         try:
             data = json.loads(message)
         except json.JSONDecodeError:
@@ -517,6 +643,9 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                     audio_start_ms=data.get("audio_start_ms", 0),
                 )
             case "input_audio_buffer.speech_stopped":
+                # Stop re-sending the image — VAD is about to auto-commit
+                # the audio + image buffers together.
+                self._stop_image_resend()
                 return ModelEvents.ModelInputDoneEvent(
                     item_id=data.get("item_id", ""),
                     audio_end_ms=data.get("audio_end_ms", 0),

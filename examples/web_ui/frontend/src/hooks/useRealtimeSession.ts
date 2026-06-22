@@ -1,4 +1,5 @@
 import type { AgentEvent } from '@agentscope-ai/agentscope/event';
+import type { ContentBlock } from '@agentscope-ai/agentscope/message';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getBaseUrl, getUserId } from '@/api/client';
@@ -14,19 +15,19 @@ import { getBaseUrl, getUserId } from '@/api/client';
  * changes.
  *
  * Exposes ``sendAudio(base64)`` for upstream audio from
- * ``useMicrophone``.
+ * ``useMicrophone`` and ``sendContent(blocks)`` for text/image input.
  *
  * @param agentId - The agent that owns the session.
  * @param sessionId - The session to connect.
  * @param enabled - Whether the WebSocket should be open.
  * @param processEvent - Event handler (shared with useMessages).
- * @returns Connection state + upstream sender.
+ * @returns Connection state + upstream senders.
  */
 export function useRealtimeSession(
 	agentId: string | null,
 	sessionId: string | null,
 	enabled: boolean,
-	processEvent: ((event: AgentEvent) => void) | null,
+	processEvent: ((event: AgentEvent, routeAudio?: boolean) => void) | null,
 ) {
 	const [connected, setConnected] = useState(false);
 	const [error, setError] = useState<Error | null>(null);
@@ -43,42 +44,67 @@ export function useRealtimeSession(
 			return;
 		}
 
+		let cancelled = false;
+		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+		let retryCount = 0;
+		const MAX_RETRIES = 5;
+
 		const baseUrl = getBaseUrl();
 		const userId = getUserId();
-
-		// Convert http(s):// to ws(s)://
 		const wsBase = baseUrl.replace(/^http/, 'ws');
 		const url = `${wsBase}/realtime/${sessionId}?agent_id=${encodeURIComponent(agentId)}&user_id=${encodeURIComponent(userId)}`;
 
-		const ws = new WebSocket(url);
-		wsRef.current = ws;
+		function connect() {
+			if (cancelled) return;
 
-		ws.onopen = () => {
-			setConnected(true);
-			setError(null);
-		};
+			const ws = new WebSocket(url);
+			wsRef.current = ws;
 
-		ws.onmessage = (event: MessageEvent) => {
-			try {
-				const data = JSON.parse(event.data as string) as AgentEvent;
-				processEventRef.current?.(data);
-			} catch {
-				// skip malformed frames
-			}
-		};
+			ws.onopen = () => {
+				if (cancelled) {
+					ws.close();
+					return;
+				}
+				retryCount = 0;
+				setConnected(true);
+				setError(null);
+			};
 
-		ws.onerror = () => {
-			setError(new Error('WebSocket connection error'));
-		};
+			ws.onmessage = (event: MessageEvent) => {
+				try {
+					const data = JSON.parse(event.data as string) as AgentEvent;
+					processEventRef.current?.(data, true);
+				} catch {
+					// skip malformed frames
+				}
+			};
 
-		ws.onclose = () => {
-			setConnected(false);
-			wsRef.current = null;
-		};
+			ws.onerror = () => {
+				if (!cancelled) setError(new Error('WebSocket connection error'));
+			};
+
+			ws.onclose = () => {
+				if (cancelled) return;
+				setConnected(false);
+				wsRef.current = null;
+				// Exponential backoff reconnect
+				if (retryCount < MAX_RETRIES) {
+					const delay = Math.min(1000 * 2 ** retryCount, 16000);
+					retryCount++;
+					reconnectTimer = setTimeout(connect, delay);
+				}
+			};
+		}
+
+		connect();
 
 		return () => {
-			ws.close();
-			wsRef.current = null;
+			cancelled = true;
+			if (reconnectTimer) clearTimeout(reconnectTimer);
+			if (wsRef.current) {
+				wsRef.current.close();
+				wsRef.current = null;
+			}
 			setConnected(false);
 		};
 	}, [enabled, agentId, sessionId]);
@@ -104,5 +130,14 @@ export function useRealtimeSession(
 		}
 	}, []);
 
-	return { connected, sendAudio, sendConfirm, error };
+	/** Send text/data content blocks through the WebSocket for the
+	 *  realtime agent to process. */
+	const sendContent = useCallback((blocks: ContentBlock[]) => {
+		const ws = wsRef.current;
+		if (ws && ws.readyState === WebSocket.OPEN) {
+			ws.send(JSON.stringify({ type: 'content', blocks }));
+		}
+	}, []);
+
+	return { connected, sendAudio, sendConfirm, sendContent, error };
 }

@@ -118,6 +118,12 @@
 		"trigger": "创建 Agent"
 	},
 	"agent-form": {
+		"type": {
+			"legend": "Agent 类型",
+			"description": "选择要创建的 Agent 类型。",
+			"chat": "文本对话 Agent",
+			"realtime": "实时语音 Agent"
+		},
 		"identity": {
 			"legend": "Agent 身份",
 			"description": "定义此 Agent 行为的名称和指令。",

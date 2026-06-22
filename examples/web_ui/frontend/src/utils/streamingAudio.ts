@@ -224,7 +224,12 @@ class PcmStreamPlayer {
  * Build a minimal WAV header for raw PCM data so that ``<audio>`` elements
  * can play the resulting Blob.
  */
-function buildWavHeader(pcmByteLength: number, sampleRate: number, channels = 1, bitsPerSample = 16): Uint8Array {
+function buildWavHeader(
+	pcmByteLength: number,
+	sampleRate: number,
+	channels = 1,
+	bitsPerSample = 16,
+): Uint8Array {
 	const headerSize = 44;
 	const dataChunkSize = pcmByteLength;
 	const fileSize = headerSize - 8 + dataChunkSize;
@@ -364,6 +369,35 @@ export class StreamingAudioManager {
 		this.listeners.get(blockId)?.forEach((fn) => fn());
 	}
 
+	/**
+	 * Transition a streaming session to 'ready' by building a Blob URL
+	 * from chunks accumulated so far. Used when playback is interrupted
+	 * so the user immediately gets a play button for partial audio.
+	 */
+	private _promoteToReady(blockId: string, session: Session): void {
+		let url: string | null = null;
+		if (session.totalBytes > 0) {
+			const pcmRate = parsePcmMediaType(session.mediaType);
+			if (pcmRate) {
+				const pcmBlob = new Blob(session.chunks as BlobPart[]);
+				const wavHeader = buildWavHeader(session.totalBytes, pcmRate);
+				url = URL.createObjectURL(new Blob([wavHeader, pcmBlob], { type: 'audio/wav' }));
+			} else {
+				url = URL.createObjectURL(
+					new Blob(session.chunks as BlobPart[], { type: session.mediaType }),
+				);
+			}
+			session.chunks = [];
+		}
+		session.state = {
+			status: 'ready',
+			mediaType: session.mediaType,
+			url,
+			interruptCount: session.state.interruptCount + 1,
+		};
+		this.emit(blockId);
+	}
+
 	subscribe(blockId: string, fn: Listener): () => void {
 		let set = this.listeners.get(blockId);
 		if (!set) {
@@ -431,6 +465,7 @@ export class StreamingAudioManager {
 	end(blockId: string): void {
 		const session = this.sessions.get(blockId);
 		if (!session) return;
+		if (session.state.status === 'ready') return;
 
 		const hadLivePlayback = session.hadLivePlayer;
 		if (session.livePlayer) {
@@ -473,17 +508,16 @@ export class StreamingAudioManager {
 	}
 
 	/**
-	 * Stop live streaming playback only (WavStreamPlayers). Does not
-	 * touch replay ``<audio>`` elements or bump ``interruptCount``.
-	 * Called by the replay controller so that clicking play on a past
-	 * audio block silences any in-progress streaming audio without
-	 * interfering with the element that's about to start playing.
+	 * Stop live streaming playback and promote interrupted sessions to
+	 * 'ready' so the play button appears immediately. Called by the
+	 * replay controller when clicking play on a past audio block.
 	 */
 	stopLivePlayback(): void {
-		for (const session of this.sessions.values()) {
+		for (const [blockId, session] of this.sessions) {
 			if (session.livePlayer) {
 				session.livePlayer.dispose();
 				session.livePlayer = null;
+				this._promoteToReady(blockId, session);
 			}
 		}
 	}
@@ -499,11 +533,15 @@ export class StreamingAudioManager {
 				session.livePlayer.dispose();
 				session.livePlayer = null;
 			}
-			session.state = {
-				...session.state,
-				interruptCount: session.state.interruptCount + 1,
-			};
-			this.emit(blockId);
+			if (session.state.status === 'streaming') {
+				this._promoteToReady(blockId, session);
+			} else {
+				session.state = {
+					...session.state,
+					interruptCount: session.state.interruptCount + 1,
+				};
+				this.emit(blockId);
+			}
 		}
 	}
 

@@ -3,7 +3,6 @@ import React from 'react';
 import { useRef, useEffect } from 'react';
 
 import { EmptyMessage } from './Empty';
-import { VoiceModeInput } from './VoiceModeInput';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { TextInput } from '@/components/chat/TextInput.tsx';
 import { cn } from '@/lib/utils';
@@ -25,14 +24,8 @@ interface ChatContentProps {
 	allowedInputTypes: string[];
 	/** @see TextInputProps.fileProcessor */
 	fileProcessor: (file: File) => Promise<ContentBlock | null>;
-	/** When true, renders VoiceModeInput instead of TextInput. */
-	voiceMode?: boolean;
-	/** Whether the microphone is actively streaming. */
-	micActive?: boolean;
-	/** Whether the realtime WebSocket is connected. */
-	realtimeConnected?: boolean;
-	/** Toggle mic mute/unmute within voice mode. */
-	onToggleMic?: () => void;
+	/** @see TextInputProps.allowFilesOnly */
+	allowFilesOnly?: boolean;
 }
 
 const ChatContentComponent: React.FC<ChatContentProps> = ({
@@ -45,10 +38,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	className,
 	allowedInputTypes,
 	fileProcessor,
-	voiceMode = false,
-	micActive = false,
-	realtimeConnected = false,
-	onToggleMic,
+	allowFilesOnly,
 }) => {
 	const scrollAreaRef = useRef<HTMLDivElement>(null);
 	const prevMsgCountRef = useRef<number>(0);
@@ -113,23 +103,15 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 					)}
 				</div>
 			</div>
-			{voiceMode ? (
-				<VoiceModeInput
-					className="min-w-full max-w-full w-full"
-					micActive={micActive}
-					connected={realtimeConnected}
-					onToggleMic={onToggleMic ?? (() => {})}
-				/>
-			) : (
-				<TextInput
-					className="min-w-full max-w-full w-full"
-					onSend={onSend}
-					disabled={disabled}
-					autoComplete={autoComplete}
-					allowedInputTypes={allowedInputTypes}
-					fileProcessor={fileProcessor}
-				/>
-			)}
+			<TextInput
+				className="min-w-full max-w-full w-full"
+				onSend={onSend}
+				disabled={disabled}
+				autoComplete={autoComplete}
+				allowedInputTypes={allowedInputTypes}
+				fileProcessor={fileProcessor}
+				allowFilesOnly={allowFilesOnly}
+			/>
 		</div>
 	);
 };

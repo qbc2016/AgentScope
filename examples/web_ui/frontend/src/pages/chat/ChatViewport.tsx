@@ -1,10 +1,11 @@
 import { EventType } from '@agentscope-ai/agentscope/event';
-import type { ToolCallBlock } from '@agentscope-ai/agentscope/message';
+import type { ContentBlock, ToolCallBlock } from '@agentscope-ai/agentscope/message';
+import { UserMsg } from '@agentscope-ai/agentscope/message';
 import type { TaskContext } from '@agentscope-ai/agentscope/state';
 import { Mic, MicOff, Toolbox } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ChatModelConfig, TTSModelConfig } from '@/api';
+import type { AgentType, ChatModelConfig, TTSModelConfig } from '@/api';
 import { sessionApi } from '@/api';
 import { ChatContent } from '@/components/chat/ChatContent.tsx';
 import { TaskPanel } from '@/components/chat/TaskPanel';
@@ -17,11 +18,40 @@ import { RealtimeModelSelect } from '@/components/select/RealtimeModelSelect';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { useAvailableModels } from '@/hooks/useAvailableModels';
-import { useMicrophone } from '@/hooks/useMicrophone';
+import { useAvailableRealtimeModels } from '@/hooks/useAvailableRealtimeModels';
 import { useMessages } from '@/hooks/useMessages';
+import { useMicrophone } from '@/hooks/useMicrophone';
 import { useRealtimeSession } from '@/hooks/useRealtimeSession';
 import { useSessions } from '@/hooks/useSessions';
 import { useWorkspace } from '@/hooks/useWorkspace.ts';
+
+const WILDCARD_EXPANSIONS: Record<string, string[]> = {
+	'image/*': ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+	'video/*': ['video/mp4', 'video/webm'],
+	'audio/*': ['audio/wav', 'audio/mp3', 'audio/ogg', 'audio/webm'],
+};
+
+/** Expand wildcard MIME types (e.g. ``image/*``) into concrete types
+ *  that can be matched against file inputs, and filter to types the
+ *  file picker recognises. */
+function expandWildcardTypes(types: string[]): string[] {
+	const result: string[] = [];
+	for (const t of types) {
+		const expanded = WILDCARD_EXPANSIONS[t];
+		if (expanded) {
+			result.push(...expanded);
+		} else if (
+			/^(image|video|audio|text)\/.+/.test(t) ||
+			t === 'application/pdf' ||
+			t.startsWith('application/vnd.') ||
+			t.startsWith('application/msword') ||
+			t.startsWith('application/vnd.openxmlformats')
+		) {
+			result.push(t);
+		}
+	}
+	return result;
+}
 
 interface ChatViewportProps {
 	/**
@@ -35,6 +65,11 @@ interface ChatViewportProps {
 	 * workspace drive every control rendered here.
 	 */
 	sessionId: string | null;
+	/**
+	 * The type of the current agent. Controls which model selectors
+	 * and input modes are shown.
+	 */
+	agentType: AgentType;
 	/**
 	 * Optional hook invoked when a team membership change arrives on
 	 * this viewport's SSE stream. The outer page owns the session list
@@ -64,9 +99,10 @@ interface ChatViewportProps {
  *   session is selected yet.
  * @returns The right-side main JSX of the chat page.
  */
-export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewportProps) {
+export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: ChatViewportProps) {
 	const { sessions, refetch: refetchSessions } = useSessions(agentId);
 	const { groups } = useAvailableModels();
+	const { groups: realtimeGroups } = useAvailableRealtimeModels();
 
 	// When the viewport agent differs from the outer page's selected
 	// agent (i.e. user drilled into a team member), `refetchSessions`
@@ -98,25 +134,31 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		// TODO: handle permission_context updates when permission UI is built
 	}, []);
 
-	const { msgs, streaming, send, onUserConfirm, processEvent } = useMessages(agentId, sessionId, {
-		onTeamUpdated: handleTeamUpdated,
-		onStateUpdated: handleStateUpdated,
-	});
-
 	// ── Voice mode ────────────────────────────────────────────────
 	const [voiceMode, setVoiceMode] = useState(false);
 	const [micEnabled, setMicEnabled] = useState(true);
+	const voiceModeRef = useRef(voiceMode);
+	useEffect(() => {
+		voiceModeRef.current = voiceMode;
+	}, [voiceMode]);
 
-	const { connected: realtimeConnected, sendAudio, sendConfirm } = useRealtimeSession(
+	const { msgs, streaming, send, onUserConfirm, processEvent, appendLocalMsg } = useMessages(
 		agentId,
 		sessionId,
-		voiceMode,
-		processEvent,
+		{
+			onTeamUpdated: handleTeamUpdated,
+			onStateUpdated: handleStateUpdated,
+			voiceModeRef,
+		},
 	);
-	const { active: micActive } = useMicrophone(
+
+	const {
+		connected: realtimeConnected,
 		sendAudio,
-		voiceMode && realtimeConnected && micEnabled,
-	);
+		sendConfirm,
+		sendContent,
+	} = useRealtimeSession(agentId, sessionId, voiceMode, processEvent);
+	useMicrophone(sendAudio, voiceMode && realtimeConnected && micEnabled);
 
 	// In voice mode, route tool-call confirmations through the WebSocket
 	// so RealtimeAgent.handle_user_confirm() resolves the pending future.
@@ -147,6 +189,21 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		[voiceMode, realtimeConnected, sendConfirm, processEvent, onUserConfirm],
 	);
 
+	/** Send handler: routes through WebSocket when voice mode is
+	 *  active, otherwise falls back to the HTTP/SSE chat path. */
+	const handleSend = useCallback(
+		(content: ContentBlock[]) => {
+			if (voiceMode && realtimeConnected) {
+				const userMsg = UserMsg({ name: 'user', content });
+				appendLocalMsg(userMsg);
+				sendContent(content);
+			} else {
+				send(content);
+			}
+		},
+		[voiceMode, realtimeConnected, appendLocalMsg, sendContent, send],
+	);
+
 	const handleToggleVoiceMode = useCallback(() => {
 		setVoiceMode((prev) => {
 			if (!prev) setMicEnabled(true);
@@ -154,9 +211,6 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		});
 	}, []);
 
-	const handleToggleMic = useCallback(() => {
-		setMicEnabled((prev) => !prev);
-	}, []);
 	const {
 		mcps,
 		loading: mcpsLoading,
@@ -215,6 +269,17 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		return null;
 	}, [groups, selectedModel?.type, selectedModel?.model]);
 
+	const selectedRealtimeModelCard = useMemo(() => {
+		if (!selectedRealtimeModel) return null;
+		const items = realtimeGroups[selectedRealtimeModel.type];
+		if (!items) return null;
+		for (const { models } of items) {
+			const card = models.find((m) => m.name === selectedRealtimeModel.model);
+			if (card) return card;
+		}
+		return null;
+	}, [realtimeGroups, selectedRealtimeModel?.type, selectedRealtimeModel?.model]);
+
 	/**
 	 * Pick the first model the available-models endpoint surfaces, used
 	 * as a sensible default when the current session has no model
@@ -259,9 +324,9 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 	}, [view]);
 
 	// Sync selectedModel + selectedFallbackModel from the session
-	// record. If the session has no model configured yet, auto-pick
-	// the first available one and persist it back so subsequent
-	// reasoning has a model to call.
+	// record. For chat agents, auto-pick the first available model
+	// if none is configured. For realtime agents, skip auto-picking
+	// a chat model (they use realtime models instead).
 	//
 	// Important: skip while `view` is still loading. Otherwise the
 	// in-flight window between "agentId changed" and "useSessions
@@ -274,7 +339,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 
 		if (sessionModel) {
 			setSelectedModel(sessionModel);
-		} else {
+		} else if (agentType === 'chat') {
 			const firstModel = getFirstAvailableModel();
 			if (firstModel) {
 				setSelectedModel(firstModel);
@@ -287,12 +352,14 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 			} else {
 				setSelectedModel(null);
 			}
+		} else {
+			setSelectedModel(null);
 		}
 
 		setSelectedFallbackModel(view.session.config.fallback_chat_model_config ?? null);
 		setSelectedTTSModel(view.session.config.tts_model_config ?? null);
 		setSelectedRealtimeModel(view.session.config.realtime_model_config ?? null);
-	}, [view, groups, sessionId, agentId]);
+	}, [view, groups, sessionId, agentId, agentType]);
 
 	// Sync selectedPermissionMode when the session changes. Same
 	// loading-window guard as above — don't reset the displayed mode
@@ -381,36 +448,48 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 					<div className="flex flex-row gap-x-2 justify-between">
 						<div id="tour-llm-select" className="flex flex-row items-center gap-x-1">
 							<SidebarTrigger className="md:hidden" />
-							<LlmSelect
-								value={selectedModel}
-								onChange={handleLlmChange}
-								onAddCredential={() => setCredentialOpen(true)}
-								refetchTrigger={credentialRefetchTrigger}
-							/>
-							<ModelParametersPopover
-								selectedModel={selectedModel}
-								modelCard={selectedModelCard}
-								onChange={handleParametersChange}
-								selectedFallbackModel={selectedFallbackModel}
-								onFallbackChange={handleFallbackChange}
-								selectedTTSModel={selectedTTSModel}
-								onTTSChange={handleTTSChange}
-							/>
-							<RealtimeModelSelect
-								value={selectedRealtimeModel}
-								onChange={handleRealtimeChange}
-							/>
+							{agentType === 'chat' && (
+								<>
+									<LlmSelect
+										value={selectedModel}
+										onChange={handleLlmChange}
+										onAddCredential={() => setCredentialOpen(true)}
+										refetchTrigger={credentialRefetchTrigger}
+									/>
+									<ModelParametersPopover
+										selectedModel={selectedModel}
+										modelCard={selectedModelCard}
+										onChange={handleParametersChange}
+										selectedFallbackModel={selectedFallbackModel}
+										onFallbackChange={handleFallbackChange}
+										selectedTTSModel={selectedTTSModel}
+										onTTSChange={handleTTSChange}
+									/>
+								</>
+							)}
+							{agentType === 'realtime' && (
+								<RealtimeModelSelect
+									value={selectedRealtimeModel}
+									onChange={handleRealtimeChange}
+								/>
+							)}
 						</div>
 						<div id="tour-permission-mode" className="flex flex-row gap-x-2">
-							<Button
-								size="icon-sm"
-								variant={voiceMode ? 'default' : 'ghost'}
-								onClick={handleToggleVoiceMode}
-								disabled={!sessionId || streaming || !selectedRealtimeModel}
-								aria-label="Voice mode"
-							>
-								{voiceMode ? <Mic className="size-4" /> : <MicOff className="size-4" />}
-							</Button>
+							{agentType === 'realtime' && (
+								<Button
+									size="icon-sm"
+									variant={voiceMode ? 'default' : 'ghost'}
+									onClick={handleToggleVoiceMode}
+									disabled={!sessionId || streaming || !selectedRealtimeModel}
+									aria-label="Voice mode"
+								>
+									{voiceMode ? (
+										<Mic className="size-4" />
+									) : (
+										<MicOff className="size-4" />
+									)}
+								</Button>
+							)}
 							<PermissionModeSelect
 								value={selectedPermissionMode}
 								disabled={!sessionId}
@@ -427,24 +506,26 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 							className={'max-w-[var(--chat-content-w)] w-full'}
 							msgs={msgs}
 							sending={streaming}
-							disabled={selectedModel === null}
-							onSend={send}
+							disabled={
+								agentType === 'realtime'
+									? selectedRealtimeModel === null
+									: selectedModel === null
+							}
+							onSend={handleSend}
 							onUserConfirm={handleUserConfirm}
-							voiceMode={voiceMode}
-							micActive={micActive}
-							realtimeConnected={realtimeConnected}
-							onToggleMic={handleToggleMic}
-							allowedInputTypes={(selectedModelCard?.input_types ?? []).filter(
-								(t) =>
-									/^(image|video|audio|text)\/.+/.test(t) ||
-									t === 'application/pdf' ||
-									t.startsWith('application/vnd.') ||
-									t.startsWith('application/msword') ||
-									t.startsWith('application/vnd.openxmlformats'),
+							allowFilesOnly={agentType === 'realtime'}
+							allowedInputTypes={expandWildcardTypes(
+								(agentType === 'realtime'
+									? selectedRealtimeModelCard?.input_types
+									: selectedModelCard?.input_types) ?? [],
 							)}
 							fileProcessor={async (file) => {
 								const filePath = (file as File & { path?: string }).path;
-								if (filePath) {
+								// When voice mode is active, content goes through the
+								// WebSocket. Use base64 so the backend can forward
+								// the data directly to the model without resolving
+								// file:// URLs.
+								if (filePath && !voiceMode) {
 									return {
 										id: crypto.randomUUID(),
 										type: 'data' as const,

@@ -269,6 +269,11 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         if payload is not None:
             await self._websocket.send(payload)
 
+        # Text items don't auto-trigger a response in server_vad mode
+        # (VAD only responds to audio). Send response.create explicitly.
+        if isinstance(data, TextBlock):
+            await self.request_response()
+
     @staticmethod
     def _encode_audio(block: DataBlock) -> str:
         """Encode an audio ``DataBlock`` as ``input_audio_buffer.append``.
@@ -345,6 +350,15 @@ class OpenAIRealtimeModel(RealtimeModelBase):
     # Incoming frame parsing
     # ------------------------------------------------------------------
 
+    async def request_response(self) -> None:
+        """Send ``response.create`` to trigger model generation.
+
+        OpenAI requires an explicit trigger after tool results or text items
+        to initiate a response in server_vad mode.
+        """
+        payload = json.dumps({"type": "response.create"})
+        await self._websocket.send(payload)
+
     # pylint: disable=too-many-return-statements
     async def parse_api_message(
         self,
@@ -356,6 +370,15 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         :attr:`_tool_args_accumulator`; the accumulated raw JSON string is
         carried on ``ToolCallBlock.input`` for the agent to parse and
         validate against the tool schema.
+
+        Args:
+            message (`str`):
+                A single decoded text frame from the OpenAI WebSocket.
+
+        Returns:
+            `ModelEvents.EventBase | list[ModelEvents.EventBase] | None`:
+                Parsed event(s), or ``None`` if the frame carries no
+                actionable state.
         """
         try:
             data = json.loads(message)

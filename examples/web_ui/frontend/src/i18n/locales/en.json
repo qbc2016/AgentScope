@@ -118,6 +118,12 @@
 		"trigger": "Create agent"
 	},
 	"agent-form": {
+		"type": {
+			"legend": "Agent Type",
+			"description": "Choose the type of agent to create.",
+			"chat": "Chat Agent",
+			"realtime": "Realtime Voice Agent"
+		},
 		"identity": {
 			"legend": "Agent Identity",
 			"description": "Name and instructions that define this agent's behaviour.",
