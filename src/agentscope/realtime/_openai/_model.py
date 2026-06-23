@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """The OpenAI realtime model class.
 
-Implements the OpenAI Realtime WebSocket API (e.g. ``gpt-4o-realtime``).
+Implements the OpenAI Realtime WebSocket API (e.g. ``gpt-realtime-1.5``).
 See: https://platform.openai.com/docs/guides/realtime
 """
 import json
@@ -37,7 +37,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             from agentscope.realtime import OpenAIRealtimeModel
 
             model = OpenAIRealtimeModel(
-                model_name="gpt-4o-realtime-preview",
+                model_name="gpt-realtime-1.5",
                 credential=OpenAICredential(api_key=...),
             )
             queue: Queue = Queue()
@@ -96,7 +96,7 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         Args:
             model_name (`str`):
                 The OpenAI realtime model, e.g.
-                ``"gpt-4o-realtime-preview"``.
+                ``"gpt-realtime-1.5"``.
             credential (`OpenAICredential`):
                 The OpenAI credential used for ``Authorization``.
             parameters (`OpenAIRealtimeModel.Parameters | None`, defaults \

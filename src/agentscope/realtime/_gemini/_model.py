@@ -44,7 +44,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             from agentscope.realtime import GeminiRealtimeModel
 
             model = GeminiRealtimeModel(
-                model_name="gemini-2.5-flash-native-audio-preview",
+                model_name="gemini-2.5-flash-preview-native-audio-dialog",
                 credential=GeminiCredential(api_key=...),
             )
             queue: Queue = Queue()
@@ -132,7 +132,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         Args:
             model_name (`str`):
                 The Gemini realtime model, e.g.
-                ``"gemini-2.5-flash-native-audio-preview"``.
+                ``"gemini-2.5-flash-preview-native-audio-dialog"``.
             credential (`GeminiCredential`):
                 The Gemini credential containing the API key.
             parameters (`GeminiRealtimeModel.Parameters | None`, defaults \

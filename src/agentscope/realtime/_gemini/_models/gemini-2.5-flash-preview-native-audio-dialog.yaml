@@ -1,6 +1,6 @@
 type: realtime_model
-name: gemini-2.5-flash-native-audio-preview
-label: Gemini 2.5 Flash Native Audio
+name: gemini-2.5-flash-preview-native-audio-dialog
+label: Gemini 2.5 Flash Native Audio Dialog
 status: active
 
 input_types:
