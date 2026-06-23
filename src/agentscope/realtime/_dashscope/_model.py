@@ -282,6 +282,15 @@ class DashScopeRealtimeModel(RealtimeModelBase):
                 )
 
         elif isinstance(data, TextBlock):
+            if self._response_id:
+                logger.debug(
+                    "DashScopeRealtimeModel: cancelling response"
+                    " %s before creating new one",
+                    self._response_id,
+                )
+                await self._websocket.send(
+                    json.dumps({"type": "response.cancel"}),
+                )
             payload = json.dumps(
                 {
                     "type": "response.create",
@@ -350,7 +359,18 @@ class DashScopeRealtimeModel(RealtimeModelBase):
 
         DashScope requires an explicit trigger after tool results are sent
         or when non-audio content needs a response in server_vad mode.
+        If a response is already in progress, cancels it first to avoid
+        ``invalid_request_error`` errors.
         """
+        if self._response_id:
+            logger.debug(
+                "DashScopeRealtimeModel: cancelling response %s "
+                "before creating new one",
+                self._response_id,
+            )
+            await self._websocket.send(
+                json.dumps({"type": "response.cancel"}),
+            )
         payload = json.dumps(
             {
                 "type": "response.create",
