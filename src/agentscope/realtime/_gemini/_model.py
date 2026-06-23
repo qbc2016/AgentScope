@@ -659,6 +659,12 @@ class GeminiRealtimeModel(RealtimeModelBase):
             if "inlineData" in part:
                 inline_data = part["inlineData"]
                 mime_type = inline_data.get("mimeType", "")
+                logger.debug(
+                    "GeminiRealtimeModel: inlineData mimeType=%s "
+                    "dataLen=%d",
+                    mime_type,
+                    len(inline_data.get("data", "")),
+                )
                 if not mime_type.startswith("audio/"):
                     continue
                 audio_data = inline_data.get("data", "")
