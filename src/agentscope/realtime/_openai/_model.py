@@ -127,7 +127,6 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             "Authorization": (
                 f"Bearer {self.credential.api_key.get_secret_value()}"
             ),
-            "OpenAI-Beta": "realtime=v1",
         }
 
         # Track current response_id so audio/transcript deltas can be

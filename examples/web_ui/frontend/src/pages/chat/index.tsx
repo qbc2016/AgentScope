@@ -148,8 +148,12 @@ const ChatPageInner = () => {
 
 	// Redirect: URL has an agent but no session, or its sessionId no
 	// longer exists for this agent → pick the first available session.
+	// Guard: only redirect when sessions actually belong to the current
+	// agent — useSessions clears via useEffect (async), so stale sessions
+	// from the previous agent may still be present on the first render.
 	useEffect(() => {
 		if (!urlAgentId || sessions.length === 0) return;
+		if (sessions[0].session.agent_id !== urlAgentId) return;
 		const matches = urlSessionId && sessions.some((v) => v.session.id === urlSessionId);
 		if (matches) return;
 		navigate(`/chat/${urlAgentId}/${sessions[0].session.id}`, { replace: true });

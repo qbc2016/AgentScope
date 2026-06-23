@@ -229,6 +229,8 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # Context window compression: enables sessions longer than the
         # default 15-min audio / 2-min video limit by auto-pruning old turns.
+        # NOTE: contextWindowCompression is a top-level field in the setup
+        # message, NOT nested inside generationConfig.
         if self.parameters.enable_context_compression:
             sliding_window: dict[str, Any] = {}
             if self.parameters.context_compression_target_tokens is not None:
@@ -240,7 +242,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 compression[
                     "triggerTokens"
                 ] = self.parameters.context_compression_trigger_tokens
-            generation_config["contextWindowCompression"] = compression
+            session_config["contextWindowCompression"] = compression
 
         session_config["generationConfig"] = generation_config
 
