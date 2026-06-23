@@ -16,7 +16,7 @@ from agentscope.credential import OpenAICredential
 
 def _make_model() -> "OpenAIRealtimeModel":
     return OpenAIRealtimeModel(
-        model_name="gpt-4o-realtime-preview",
+        model_name="gpt-realtime-1.5",
         credential=OpenAICredential(api_key="sk-test"),
     )
 

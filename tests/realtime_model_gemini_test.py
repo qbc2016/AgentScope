@@ -22,7 +22,7 @@ from agentscope.credential import GeminiCredential
 
 def _make_model() -> "GeminiRealtimeModel":
     return GeminiRealtimeModel(
-        model_name="gemini-2.5-flash-native-audio-preview",
+        model_name="gemini-2.5-flash-preview-native-audio-dialog",
         credential=GeminiCredential(api_key="fake-api-key"),
     )
 
@@ -49,7 +49,7 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         config = model._build_session_config("Hi", None)
         self.assertEqual(
             config["setup"]["model"],
-            "models/gemini-2.5-flash-native-audio-preview",
+            "models/gemini-2.5-flash-preview-native-audio-dialog",
         )
 
     async def test_config_includes_system_instruction(self) -> None:
@@ -131,7 +131,7 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
     ) -> None:
         """inputAudioTranscription is absent when the flag is disabled."""
         model = GeminiRealtimeModel(
-            model_name="gemini-2.5-flash-native-audio-preview",
+            model_name="gemini-2.5-flash-preview-native-audio-dialog",
             credential=GeminiCredential(api_key="fake-api-key"),
             parameters=GeminiRealtimeModel.Parameters(
                 enable_input_audio_transcription=False,
@@ -143,11 +143,14 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
     async def test_config_includes_context_compression_by_default(
         self,
     ) -> None:
-        """generationConfig.contextWindowCompression is present by default."""
+        """contextWindowCompression is a top-level setup field by default."""
         model = _make_model()
         config = model._build_session_config("Hi", None)
-        gen_cfg = config["setup"]["generationConfig"]
-        self.assertIn("contextWindowCompression", gen_cfg)
+        self.assertIn("contextWindowCompression", config["setup"])
+        self.assertNotIn(
+            "contextWindowCompression",
+            config["setup"]["generationConfig"],
+        )
 
     async def test_config_session_resumption_empty_by_default(self) -> None:
         """sessionResumption is an empty dict when no handle is provided."""

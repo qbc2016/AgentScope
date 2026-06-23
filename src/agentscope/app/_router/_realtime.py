@@ -32,6 +32,8 @@ from ...event import (
     ReplyStartEvent,
     ReplyEndEvent,
     UserConfirmResultEvent,
+    UserInputAudioEndEvent,
+    UserInputAudioStartEvent,
     UserInputTranscriptionEvent,
 )
 from ...message import (
@@ -495,6 +497,12 @@ async def _downstream(
                             session_id,
                             exc_info=True,
                         )
+
+            elif isinstance(
+                event,
+                (UserInputAudioStartEvent, UserInputAudioEndEvent),
+            ):
+                pass
 
             elif isinstance(event, ReplyStartEvent):
                 reply_msg = AssistantMsg(

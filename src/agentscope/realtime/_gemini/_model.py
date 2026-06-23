@@ -27,7 +27,7 @@ from ...message import (
 
 _GEMINI_WS_URL = (
     "wss://generativelanguage.googleapis.com/ws/"
-    "google.ai.generativelanguage.v1alpha.GenerativeService."
+    "google.ai.generativelanguage.v1beta.GenerativeService."
     "BidiGenerateContent?key={api_key}"
 )
 
