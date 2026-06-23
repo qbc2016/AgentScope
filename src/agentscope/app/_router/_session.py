@@ -24,7 +24,7 @@ from ._schema import (
     TeamMemberView,
     UpdateSessionRequest,
 )
-from ..message_bus import MessageBus
+from ..message_bus import MessageBus, MessageBusKeys
 from .._service import SessionService, SessionProjection, SubagentHitlProjector
 from ..storage import (
     AgentRecord,
@@ -184,7 +184,9 @@ async def list_sessions(
         views.append(
             SessionView(
                 session=session,
-                is_running=await message_bus.session_is_running(session.id),
+                is_running=await message_bus.is_locked(
+                    MessageBusKeys.session_lock(session.id),
+                ),
                 team=team_detail,
             ),
         )
@@ -423,7 +425,9 @@ async def list_messages(
     )
     return ListMessagesResponse(
         messages=messages,
-        is_running=await message_bus.session_is_running(session_id),
+        is_running=await message_bus.is_locked(
+            MessageBusKeys.session_lock(session_id),
+        ),
     )
 
 
@@ -540,8 +544,9 @@ async def stream_session_events(
 
     async def _sse_generator() -> AsyncGenerator[str, None]:
         # 1. Replay buffered events from the current run (if any).
-        for _entry_id, event in await message_bus.session_read_events(
-            session_id,
+        for _entry_id, event in await message_bus.log_read(
+            MessageBusKeys.session_events(session_id),
+            max_count=MessageBusKeys.SESSION_REPLAY_MAX_LEN,
         ):
             yield f"data: {json.dumps(event)}\n\n"
 
@@ -602,10 +607,12 @@ async def stream_session_events(
             (which in practice only happens if the bus shuts down).
             """
             try:
-                async for evt in message_bus.session_subscribe_events(
-                    session_id,
+                async for evt in message_bus.subscribe(
+                    MessageBusKeys.session_events(session_id),
                 ):
-                    await queue.put(evt)
+                    await queue.put(
+                        {k: v for k, v in evt.items() if k != "_entry_id"},
+                    )
             except asyncio.CancelledError:
                 pass
             finally:
