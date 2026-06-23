@@ -29,6 +29,9 @@ from ..storage import StorageBase
 from ..workspace_manager._base import WorkspaceManagerBase
 from ..._logging import logger
 from ...event import (
+    DataBlockDeltaEvent,
+    DataBlockEndEvent,
+    DataBlockStartEvent,
     ReplyStartEvent,
     ReplyEndEvent,
     UserConfirmResultEvent,
@@ -470,6 +473,9 @@ async def _downstream(
     # Track completed replies so post-ReplyEnd events (tool results,
     # confirmations) can still be appended and persisted.
     completed_replies: dict[str, Msg] = {}
+    # Audio diagnostic counters per block_id
+    _audio_block_chunks: dict[str, int] = {}
+    _audio_block_bytes: dict[str, int] = {}
 
     try:
         async for event in agent.event_stream():
@@ -479,6 +485,30 @@ async def _downstream(
             except (WebSocketDisconnect, RuntimeError):
                 return
             await message_bus.session_publish_event(session_id, payload)
+
+            # Audio diagnostic logging
+            if isinstance(event, DataBlockStartEvent):
+                if event.media_type.startswith("audio/"):
+                    _audio_block_chunks[event.block_id] = 0
+                    _audio_block_bytes[event.block_id] = 0
+                    logger.debug(
+                        "Audio block START: block_id=%s media=%s",
+                        event.block_id[:8],
+                        event.media_type,
+                    )
+            elif isinstance(event, DataBlockDeltaEvent):
+                if event.block_id in _audio_block_chunks:
+                    _audio_block_chunks[event.block_id] += 1
+                    _audio_block_bytes[event.block_id] += len(event.data)
+            elif isinstance(event, DataBlockEndEvent):
+                if event.block_id in _audio_block_chunks:
+                    logger.info(
+                        "Audio block END: block_id=%s chunks=%d "
+                        "b64_chars=%d",
+                        event.block_id[:8],
+                        _audio_block_chunks[event.block_id],
+                        _audio_block_bytes[event.block_id],
+                    )
 
             # ---- Persist messages to storage ----
             if isinstance(event, UserInputTranscriptionEvent):

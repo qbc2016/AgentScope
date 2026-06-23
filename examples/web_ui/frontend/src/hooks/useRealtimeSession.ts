@@ -3,6 +3,7 @@ import type { ContentBlock } from '@agentscope-ai/agentscope/message';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getBaseUrl, getUserId } from '@/api/client';
+import { warmUpAudioContext } from '@/utils/streamingAudio';
 
 /**
  * Manages a WebSocket connection to the backend's realtime endpoint
@@ -68,6 +69,7 @@ export function useRealtimeSession(
 				retryCount = 0;
 				setConnected(true);
 				setError(null);
+				warmUpAudioContext();
 			};
 
 			ws.onmessage = (event: MessageEvent) => {
