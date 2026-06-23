@@ -432,6 +432,7 @@ export class StreamingAudioManager {
 				livePlayer = new PcmStreamPlayer(pcmRate);
 			}
 		}
+		console.debug('[StreamingAudio] start block=%s mediaType=%s livePlayer=%s', blockId.slice(0, 8), mediaType, livePlayer ? 'yes' : 'no');
 		this.sessions.set(blockId, {
 			mediaType,
 			chunks: [],
@@ -470,7 +471,11 @@ export class StreamingAudioManager {
 	end(blockId: string): void {
 		const session = this.sessions.get(blockId);
 		if (!session) return;
-		if (session.state.status === 'ready') return;
+		if (session.state.status === 'ready') {
+			console.debug('[StreamingAudio] end block=%s SKIPPED (already ready), chunks=%d totalBytes=%d', blockId.slice(0, 8), session.chunks.length, session.totalBytes);
+			return;
+		}
+		console.debug('[StreamingAudio] end block=%s chunks=%d totalBytes=%d', blockId.slice(0, 8), session.chunks.length, session.totalBytes);
 
 		const hadLivePlayback = session.hadLivePlayer;
 		if (session.livePlayer) {
@@ -534,6 +539,9 @@ export class StreamingAudioManager {
 	 */
 	stopAllPlayback(): void {
 		for (const [blockId, session] of this.sessions) {
+			if (session.state.status === 'streaming') {
+				console.debug('[StreamingAudio] stopAllPlayback interrupting block=%s chunks=%d totalBytes=%d', blockId.slice(0, 8), session.chunks.length, session.totalBytes);
+			}
 			if (session.livePlayer) {
 				session.livePlayer.dispose();
 				session.livePlayer = null;

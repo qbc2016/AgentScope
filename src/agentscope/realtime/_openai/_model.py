@@ -374,17 +374,19 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         """Send ``response.create`` to trigger model generation.
 
         OpenAI requires an explicit trigger after tool results or text items
-        to initiate a response in server_vad mode.  Skips if a response is
-        already in progress to avoid
+        to initiate a response in server_vad mode.  If a response is already
+        in progress, cancels it first to avoid
         ``conversation_already_has_active_response`` errors.
         """
         if self._response_id:
             logger.debug(
-                "OpenAIRealtimeModel: skipping response.create; "
-                "response %s still in progress",
+                "OpenAIRealtimeModel: cancelling response %s "
+                "before creating new one",
                 self._response_id,
             )
-            return
+            await self._websocket.send(
+                json.dumps({"type": "response.cancel"}),
+            )
         payload = json.dumps({"type": "response.create"})
         await self._websocket.send(payload)
 
@@ -445,6 +447,14 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 )
                 self._response_id = ""
                 return evt
+            case "response.cancelled":
+                response_id = data.get("response_id", "") or self._response_id
+                self._response_id = ""
+                return ModelEvents.ModelResponseDoneEvent(
+                    response_id=response_id,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
 
             # ---- Audio ----
             case "response.output_audio.delta":

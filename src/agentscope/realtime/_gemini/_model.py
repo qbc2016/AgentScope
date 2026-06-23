@@ -499,12 +499,24 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # ---- Server content ----
         if "serverContent" in data:
-            result = self._parse_server_content(data["serverContent"])
+            sc = data["serverContent"]
+            keys = list(sc.keys())
+            result = self._parse_server_content(sc)
             if result is not None:
-                count = len(result) if isinstance(result, list) else 1
+                evts = result if isinstance(result, list) else [result]
+                audio_bytes = 0
+                for e in evts:
+                    if isinstance(
+                        e,
+                        ModelEvents.ModelResponseAudioDeltaEvent,
+                    ):
+                        audio_bytes += len(e.delta)
                 logger.debug(
-                    "GeminiRealtimeModel: serverContent → %d event(s)",
-                    count,
+                    "GeminiRealtimeModel: serverContent keys=%s → "
+                    "%d event(s), audio_b64_bytes=%d",
+                    keys,
+                    len(evts),
+                    audio_bytes,
                 )
             return result
 
