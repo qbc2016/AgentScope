@@ -22,7 +22,7 @@ from agentscope.credential import GeminiCredential
 
 def _make_model() -> "GeminiRealtimeModel":
     return GeminiRealtimeModel(
-        model_name="gemini-2.5-flash-preview-native-audio-dialog",
+        model_name="gemini-2.5-flash-native-audio-preview-12-2025",
         credential=GeminiCredential(api_key="fake-api-key"),
     )
 
@@ -49,7 +49,7 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         config = model._build_session_config("Hi", None)
         self.assertEqual(
             config["setup"]["model"],
-            "models/gemini-2.5-flash-preview-native-audio-dialog",
+            "models/gemini-2.5-flash-native-audio-preview-12-2025",
         )
 
     async def test_config_includes_system_instruction(self) -> None:
@@ -131,7 +131,7 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
     ) -> None:
         """inputAudioTranscription is absent when the flag is disabled."""
         model = GeminiRealtimeModel(
-            model_name="gemini-2.5-flash-preview-native-audio-dialog",
+            model_name="gemini-2.5-flash-native-audio-preview-12-2025",
             credential=GeminiCredential(api_key="fake-api-key"),
             parameters=GeminiRealtimeModel.Parameters(
                 enable_input_audio_transcription=False,

@@ -44,7 +44,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             from agentscope.realtime import GeminiRealtimeModel
 
             model = GeminiRealtimeModel(
-                model_name="gemini-2.5-flash-preview-native-audio-dialog",
+                model_name="gemini-2.5-flash-native-audio-preview-12-2025",
                 credential=GeminiCredential(api_key=...),
             )
             queue: Queue = Queue()
@@ -132,7 +132,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
         Args:
             model_name (`str`):
                 The Gemini realtime model, e.g.
-                ``"gemini-2.5-flash-preview-native-audio-dialog"``.
+                ``"gemini-2.5-flash-native-audio-preview-12-2025"``.
             credential (`GeminiCredential`):
                 The Gemini credential containing the API key.
             parameters (`GeminiRealtimeModel.Parameters | None`, defaults \
@@ -550,7 +550,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
     def _parse_server_content(
         self,
         server_content: dict,
-    ) -> ModelEvents.EventBase | None:
+    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
         """Parse a ``serverContent`` message from the Gemini API."""
         # Model turn (audio / text response)
         if "modelTurn" in server_content:
@@ -606,12 +606,13 @@ class GeminiRealtimeModel(RealtimeModelBase):
     def _parse_model_turn(
         self,
         model_turn: dict,
-    ) -> ModelEvents.EventBase | None:
+    ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
         """Parse a ``modelTurn`` within ``serverContent``."""
         parts = model_turn.get("parts", [])
         if not parts:
             return None
 
+        events: list[ModelEvents.EventBase] = []
         for part in parts:
             # Audio data
             if "inlineData" in part:
@@ -623,28 +624,34 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 if not audio_data:
                     continue
                 response_id = self._ensure_response_id()
-                return ModelEvents.ModelResponseAudioDeltaEvent(
-                    response_id=response_id,
-                    item_id="",
-                    delta=audio_data,
-                    format=AudioFormat(
-                        type="audio/pcm",
-                        rate=self.output_sample_rate,
+                events.append(
+                    ModelEvents.ModelResponseAudioDeltaEvent(
+                        response_id=response_id,
+                        item_id="",
+                        delta=audio_data,
+                        format=AudioFormat(
+                            type="audio/pcm",
+                            rate=self.output_sample_rate,
+                        ),
                     ),
                 )
 
             # Text data
-            if "text" in part:
+            elif "text" in part:
                 text_data = part["text"]
                 if text_data:
                     response_id = self._ensure_response_id()
-                    return ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
-                        response_id=response_id,
-                        delta=text_data,
-                        item_id="",
+                    events.append(
+                        ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
+                            response_id=response_id,
+                            delta=text_data,
+                            item_id="",
+                        ),
                     )
 
-        return None
+        if not events:
+            return None
+        return events[0] if len(events) == 1 else events
 
     def _parse_tool_call(
         self,
