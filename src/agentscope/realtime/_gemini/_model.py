@@ -209,16 +209,16 @@ class GeminiRealtimeModel(RealtimeModelBase):
             "systemInstruction": {
                 "parts": [{"text": instructions}],
             },
-            "outputAudioTranscription": {},
         }
-
-        if self.enable_input_audio_transcription:
-            session_config["inputAudioTranscription"] = {}
 
         generation_config: dict[str, Any] = {
             "responseModalities": ["AUDIO"],
+            "outputAudioTranscription": {},
             **kwargs,
         }
+
+        if self.enable_input_audio_transcription:
+            generation_config["inputAudioTranscription"] = {}
 
         if self.voice:
             generation_config["speechConfig"] = {
@@ -499,7 +499,14 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # ---- Server content ----
         if "serverContent" in data:
-            return self._parse_server_content(data["serverContent"])
+            result = self._parse_server_content(data["serverContent"])
+            if result is not None:
+                count = len(result) if isinstance(result, list) else 1
+                logger.debug(
+                    "GeminiRealtimeModel: serverContent → %d event(s)",
+                    count,
+                )
+            return result
 
         # ---- Tool call ----
         if "toolCall" in data:
@@ -551,38 +558,56 @@ class GeminiRealtimeModel(RealtimeModelBase):
         self,
         server_content: dict,
     ) -> ModelEvents.EventBase | list[ModelEvents.EventBase] | None:
-        """Parse a ``serverContent`` message from the Gemini API."""
+        """Parse a ``serverContent`` message from the Gemini API.
+
+        Gemini 3.1+ may include multiple fields in a single serverContent
+        (e.g. modelTurn + outputTranscription), so we collect all events
+        before returning.
+        """
+        events: list[ModelEvents.EventBase] = []
+
         # Model turn (audio / text response)
         if "modelTurn" in server_content:
-            return self._parse_model_turn(server_content["modelTurn"])
+            result = self._parse_model_turn(server_content["modelTurn"])
+            if result is not None:
+                if isinstance(result, list):
+                    events.extend(result)
+                else:
+                    events.append(result)
 
-        # Output transcription
+        # Output transcription (may coexist with modelTurn in 3.1+)
         if "outputTranscription" in server_content:
             text = server_content["outputTranscription"].get("text", "")
             if text:
-                return ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
-                    response_id=self._response_id or "",
-                    delta=text,
-                    item_id="",
+                events.append(
+                    ModelEvents.ModelResponseAudioTranscriptDeltaEvent(
+                        response_id=self._response_id or "",
+                        delta=text,
+                        item_id="",
+                    ),
                 )
 
         # Input transcription
         if "inputTranscription" in server_content:
             text = server_content["inputTranscription"].get("text", "")
             if text:
-                return ModelEvents.ModelInputTranscriptionDoneEvent(
-                    transcript=text,
-                    item_id="",
+                events.append(
+                    ModelEvents.ModelInputTranscriptionDoneEvent(
+                        transcript=text,
+                        item_id="",
+                    ),
                 )
 
         # Generation complete
         if "generationComplete" in server_content:
             response_id = self._response_id or ""
             self._response_id = None
-            return ModelEvents.ModelResponseDoneEvent(
-                response_id=response_id,
-                input_tokens=0,
-                output_tokens=0,
+            events.append(
+                ModelEvents.ModelResponseDoneEvent(
+                    response_id=response_id,
+                    input_tokens=0,
+                    output_tokens=0,
+                ),
             )
 
         # Turn complete
@@ -591,17 +616,21 @@ class GeminiRealtimeModel(RealtimeModelBase):
             if self._response_id:
                 response_id = self._response_id
                 self._response_id = None
-                return ModelEvents.ModelResponseDoneEvent(
-                    response_id=response_id,
-                    input_tokens=0,
-                    output_tokens=0,
+                events.append(
+                    ModelEvents.ModelResponseDoneEvent(
+                        response_id=response_id,
+                        input_tokens=0,
+                        output_tokens=0,
+                    ),
                 )
 
         # Interrupted
         if "interrupted" in server_content:
             logger.debug("Gemini: response interrupted")
 
-        return None
+        if not events:
+            return None
+        return events[0] if len(events) == 1 else events
 
     def _parse_model_turn(
         self,

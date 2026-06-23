@@ -163,6 +163,8 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         Returns:
             `dict`: The ``session.update`` message.
         """
+        kwargs.pop("session_handle", None)
+
         session_config: dict[str, Any] = {
             "type": "realtime",
             "output_modalities": ["audio"],
@@ -354,8 +356,17 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         """Send ``response.create`` to trigger model generation.
 
         OpenAI requires an explicit trigger after tool results or text items
-        to initiate a response in server_vad mode.
+        to initiate a response in server_vad mode.  Skips if a response is
+        already in progress to avoid
+        ``conversation_already_has_active_response`` errors.
         """
+        if self._response_id:
+            logger.debug(
+                "OpenAIRealtimeModel: skipping response.create; "
+                "response %s still in progress",
+                self._response_id,
+            )
+            return
         payload = json.dumps({"type": "response.create"})
         await self._websocket.send(payload)
 

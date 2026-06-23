@@ -43,7 +43,12 @@ type Listener = () => void;
 type Bytes = Uint8Array<ArrayBufferLike>;
 
 function base64ToBytes(b64: string): Bytes {
-	const binary = atob(b64);
+	// Normalize URL-safe base64 (RFC 4648 §5) to standard base64.
+	let std = b64.replace(/-/g, '+').replace(/_/g, '/');
+	const pad = std.length % 4;
+	if (pad) std += '='.repeat(4 - pad);
+
+	const binary = atob(std);
 	const bytes = new Uint8Array(binary.length);
 	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 	return bytes;
