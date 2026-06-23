@@ -209,16 +209,16 @@ class GeminiRealtimeModel(RealtimeModelBase):
             "systemInstruction": {
                 "parts": [{"text": instructions}],
             },
-        }
-
-        generation_config: dict[str, Any] = {
-            "responseModalities": ["AUDIO"],
             "outputAudioTranscription": {},
-            **kwargs,
         }
 
         if self.enable_input_audio_transcription:
-            generation_config["inputAudioTranscription"] = {}
+            session_config["inputAudioTranscription"] = {}
+
+        generation_config: dict[str, Any] = {
+            "responseModalities": ["AUDIO"],
+            **kwargs,
+        }
 
         if self.voice:
             generation_config["speechConfig"] = {

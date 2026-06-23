@@ -118,25 +118,29 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
             },
         )
 
-    async def test_config_includes_output_transcription_in_generation_config(
+    async def test_config_includes_output_transcription_at_setup_level(
         self,
     ) -> None:
-        """outputAudioTranscription is inside generationConfig."""
+        """outputAudioTranscription is a top-level setup field."""
         model = _make_model()
         config = model._build_session_config("Hi", None)
-        gen_cfg = config["setup"]["generationConfig"]
-        self.assertIn("outputAudioTranscription", gen_cfg)
-        self.assertNotIn("outputAudioTranscription", config["setup"])
+        self.assertIn("outputAudioTranscription", config["setup"])
+        self.assertNotIn(
+            "outputAudioTranscription",
+            config["setup"]["generationConfig"],
+        )
 
-    async def test_config_includes_input_transcription_in_generation_config(
+    async def test_config_includes_input_transcription_at_setup_level(
         self,
     ) -> None:
-        """inputAudioTranscription is inside generationConfig when enabled."""
+        """inputAudioTranscription is a top-level setup field when enabled."""
         model = _make_model()
         config = model._build_session_config("Hi", None)
-        gen_cfg = config["setup"]["generationConfig"]
-        self.assertIn("inputAudioTranscription", gen_cfg)
-        self.assertNotIn("inputAudioTranscription", config["setup"])
+        self.assertIn("inputAudioTranscription", config["setup"])
+        self.assertNotIn(
+            "inputAudioTranscription",
+            config["setup"]["generationConfig"],
+        )
 
     async def test_config_omits_input_transcription_when_disabled(
         self,
@@ -150,8 +154,7 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
             ),
         )
         config = model._build_session_config("Hi", None)
-        gen_cfg = config["setup"]["generationConfig"]
-        self.assertNotIn("inputAudioTranscription", gen_cfg)
+        self.assertNotIn("inputAudioTranscription", config["setup"])
 
     async def test_config_includes_context_compression_by_default(
         self,
