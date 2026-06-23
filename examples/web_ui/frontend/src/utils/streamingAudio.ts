@@ -44,7 +44,10 @@ type Bytes = Uint8Array<ArrayBufferLike>;
 
 function base64ToBytes(b64: string): Bytes {
 	// Strip whitespace, normalize URL-safe base64 (RFC 4648 §5).
-	let std = b64.replace(/[\s\r\n]/g, '').replace(/-/g, '+').replace(/_/g, '/');
+	let std = b64
+		.replace(/[\s\r\n]/g, '')
+		.replace(/-/g, '+')
+		.replace(/_/g, '/');
 	const pad = std.length % 4;
 	if (pad) std += '='.repeat(4 - pad);
 
@@ -144,27 +147,6 @@ function parsePcmMediaType(mediaType: string): number | null {
 	return match ? parseInt(match[1], 10) : null;
 }
 
-/** Shared AudioContext instance for PCM live playback (avoids suspension). */
-let sharedPcmContext: AudioContext | null = null;
-
-/** Warm up the shared AudioContext — call during a user gesture. */
-export function warmUpAudioContext(): void {
-	if (sharedPcmContext && sharedPcmContext.state !== 'closed') {
-		if (sharedPcmContext.state === 'suspended') {
-			void sharedPcmContext.resume();
-		}
-		return;
-	}
-	try {
-		sharedPcmContext = new AudioContext({ sampleRate: 24000 });
-		if (sharedPcmContext.state === 'suspended') {
-			void sharedPcmContext.resume();
-		}
-	} catch {
-		// Silently ignore — fallback to per-player context
-	}
-}
-
 /** Live PCM playback for headerless PCM streams (e.g. DashScope realtime). */
 class PcmStreamPlayer {
 	private ctx: AudioContext | null = null;
@@ -186,11 +168,7 @@ class PcmStreamPlayer {
 
 		if (!this.ctx) {
 			try {
-				if (sharedPcmContext && sharedPcmContext.state !== 'closed' && sharedPcmContext.sampleRate === this.sampleRate) {
-					this.ctx = sharedPcmContext;
-				} else {
-					this.ctx = new AudioContext({ sampleRate: this.sampleRate });
-				}
+				this.ctx = new AudioContext({ sampleRate: this.sampleRate });
 				if (this.ctx.state === 'suspended') {
 					void this.ctx.resume();
 				}
@@ -242,10 +220,10 @@ class PcmStreamPlayer {
 			clearTimeout(this.deferredCloseTimer);
 			this.deferredCloseTimer = null;
 		}
-		if (this.ctx && this.ctx !== sharedPcmContext) {
+		if (this.ctx) {
 			void this.ctx.close().catch(() => undefined);
+			this.ctx = null;
 		}
-		this.ctx = null;
 		this.pending = new Uint8Array(0);
 	}
 }
@@ -457,7 +435,6 @@ export class StreamingAudioManager {
 				livePlayer = new PcmStreamPlayer(pcmRate);
 			}
 		}
-		console.debug('[StreamingAudio] start block=%s mediaType=%s livePlayer=%s', blockId.slice(0, 8), mediaType, livePlayer ? 'yes' : 'no');
 		this.sessions.set(blockId, {
 			mediaType,
 			chunks: [],
@@ -476,11 +453,9 @@ export class StreamingAudioManager {
 		let bytes: Uint8Array;
 		try {
 			bytes = base64ToBytes(data);
-		} catch (err) {
-			console.error('[StreamingAudio] base64 decode error block=%s dataLen=%d', blockId.slice(0, 8), data.length, err);
+		} catch {
 			return;
 		}
-		if (bytes.length === 0) return;
 		session.chunks.push(bytes);
 		session.totalBytes += bytes.length;
 		session.livePlayer?.append(bytes);
@@ -498,11 +473,7 @@ export class StreamingAudioManager {
 	end(blockId: string): void {
 		const session = this.sessions.get(blockId);
 		if (!session) return;
-		if (session.state.status === 'ready') {
-			console.debug('[StreamingAudio] end block=%s SKIPPED (already ready), chunks=%d totalBytes=%d', blockId.slice(0, 8), session.chunks.length, session.totalBytes);
-			return;
-		}
-		console.debug('[StreamingAudio] end block=%s chunks=%d totalBytes=%d', blockId.slice(0, 8), session.chunks.length, session.totalBytes);
+		if (session.state.status === 'ready') return;
 
 		const hadLivePlayback = session.hadLivePlayer;
 		if (session.livePlayer) {
@@ -566,9 +537,6 @@ export class StreamingAudioManager {
 	 */
 	stopAllPlayback(): void {
 		for (const [blockId, session] of this.sessions) {
-			if (session.state.status === 'streaming') {
-				console.debug('[StreamingAudio] stopAllPlayback interrupting block=%s chunks=%d totalBytes=%d', blockId.slice(0, 8), session.chunks.length, session.totalBytes);
-			}
 			if (session.livePlayer) {
 				session.livePlayer.dispose();
 				session.livePlayer = null;

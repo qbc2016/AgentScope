@@ -499,26 +499,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # ---- Server content ----
         if "serverContent" in data:
-            sc = data["serverContent"]
-            keys = list(sc.keys())
-            result = self._parse_server_content(sc)
-            if result is not None:
-                evts = result if isinstance(result, list) else [result]
-                audio_bytes = 0
-                for e in evts:
-                    if isinstance(
-                        e,
-                        ModelEvents.ModelResponseAudioDeltaEvent,
-                    ):
-                        audio_bytes += len(e.delta)
-                logger.debug(
-                    "GeminiRealtimeModel: serverContent keys=%s → "
-                    "%d event(s), audio_b64_bytes=%d",
-                    keys,
-                    len(evts),
-                    audio_bytes,
-                )
-            return result
+            return self._parse_server_content(data["serverContent"])
 
         # ---- Tool call ----
         if "toolCall" in data:
@@ -624,7 +605,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # Turn complete
         if "turnComplete" in server_content:
-            logger.debug("Gemini: turnComplete received")
             if self._response_id:
                 response_id = self._response_id
                 self._response_id = None
@@ -638,7 +618,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # Interrupted
         if "interrupted" in server_content:
-            logger.debug("Gemini: response interrupted")
+            pass
 
         if not events:
             return None
@@ -659,12 +639,6 @@ class GeminiRealtimeModel(RealtimeModelBase):
             if "inlineData" in part:
                 inline_data = part["inlineData"]
                 mime_type = inline_data.get("mimeType", "")
-                logger.debug(
-                    "GeminiRealtimeModel: inlineData mimeType=%s "
-                    "dataLen=%d",
-                    mime_type,
-                    len(inline_data.get("data", "")),
-                )
                 if not mime_type.startswith("audio/"):
                     continue
                 audio_data = inline_data.get("data", "")

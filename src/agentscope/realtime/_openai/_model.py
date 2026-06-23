@@ -448,7 +448,8 @@ class OpenAIRealtimeModel(RealtimeModelBase):
                 self._response_id = ""
                 return evt
             case "response.cancelled":
-                response_id = data.get("response_id", "") or self._response_id
+                response = data.get("response", {})
+                response_id = response.get("id", "") or self._response_id
                 self._response_id = ""
                 return ModelEvents.ModelResponseDoneEvent(
                     response_id=response_id,

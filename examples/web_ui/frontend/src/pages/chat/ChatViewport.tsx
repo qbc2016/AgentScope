@@ -6,7 +6,6 @@ import { Mic, MicOff, Toolbox } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { AgentType, ChatModelConfig, TTSModelConfig } from '@/api';
-import { warmUpAudioContext } from '@/utils/streamingAudio';
 import { sessionApi } from '@/api';
 import { ChatContent } from '@/components/chat/ChatContent.tsx';
 import { SubagentHitlCard } from '@/components/chat/SubagentHitlCard';
@@ -213,10 +212,7 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 
 	const handleToggleVoiceMode = useCallback(() => {
 		setVoiceMode((prev) => {
-			if (!prev) {
-				setMicEnabled(true);
-				warmUpAudioContext();
-			}
+			if (!prev) setMicEnabled(true);
 			return !prev;
 		});
 	}, []);

@@ -297,10 +297,6 @@ class RealtimeModelBase:
         self._websocket = await websockets.connect(
             self.websocket_url,
             additional_headers=self.websocket_headers,
-            max_size=10 * 1024 * 1024,  # 10 MB
-            ping_interval=30,
-            ping_timeout=60,
-            close_timeout=30,
         )
 
         self._incoming_task = asyncio.create_task(
