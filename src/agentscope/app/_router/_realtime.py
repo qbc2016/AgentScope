@@ -50,6 +50,11 @@ realtime_router = APIRouter(
     tags=["realtime"],
 )
 
+# The frontend mic always captures 16-bit mono PCM at this fixed rate.
+# Used to tag incoming audio so the model layer can resample if its
+# expected input rate differs (e.g. OpenAI expects 24 kHz).
+_FRONTEND_CAPTURE_RATE = 16000
+
 _active_sessions: dict[str, WebSocket] = {}
 _session_connect_lock: asyncio.Lock = asyncio.Lock()
 
@@ -235,7 +240,7 @@ async def realtime_ws(
             _upstream(
                 websocket,
                 agent,
-                model.input_sample_rate,
+                _FRONTEND_CAPTURE_RATE,
                 storage,
                 user_id,
                 session_id,
@@ -315,7 +320,7 @@ async def realtime_ws(
 async def _upstream(
     websocket: WebSocket,
     agent: RealtimeAgent,
-    input_sample_rate: int,
+    capture_sample_rate: int,
     storage: StorageBase,
     user_id: str,
     session_id: str,
@@ -336,8 +341,10 @@ async def _upstream(
             The active WebSocket connection from the browser.
         agent (`RealtimeAgent`):
             The agent to forward content to.
-        input_sample_rate (`int`):
-            Expected PCM sample rate (used for media_type tagging).
+        capture_sample_rate (`int`):
+            The actual PCM sample rate of the frontend microphone
+            capture (used for media_type tagging).  The model layer
+            will resample if its expected input rate differs.
         storage (`StorageBase`):
             Storage for persisting user messages.
         user_id (`str`):
@@ -361,7 +368,7 @@ async def _upstream(
                     DataBlock(
                         source=Base64Source(
                             data=data,
-                            media_type=f"audio/pcm;rate={input_sample_rate}",
+                            media_type=f"audio/pcm;rate={capture_sample_rate}",
                         ),
                     ),
                 )

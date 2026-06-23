@@ -241,6 +241,7 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             media_type = data.source.media_type
             major = media_type.split("/", 1)[0]
             if major == "audio":
+                data = self._resample_audio_if_needed(data)
                 payload = self._encode_audio(data)
             elif major == "image":
                 if data.source.type == "base64":

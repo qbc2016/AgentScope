@@ -308,6 +308,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             media_type = data.source.media_type
             major = media_type.split("/", 1)[0]
             if major == "audio":
+                data = self._resample_audio_if_needed(data)
                 payload = self._encode_audio(data)
             elif major == "image":
                 if data.source.type == "base64":
@@ -339,11 +340,14 @@ class GeminiRealtimeModel(RealtimeModelBase):
         if payload is not None:
             await self._websocket.send(payload)
 
-    def _encode_audio(self, block: DataBlock) -> str:
+    @staticmethod
+    def _encode_audio(block: DataBlock) -> str:
         """Encode an audio ``DataBlock`` as a Gemini ``realtimeInput``.
 
         The Gemini Live API requires the MIME type to include the sample
-        rate (e.g. ``audio/pcm;rate=16000``).
+        rate (e.g. ``audio/pcm;rate=16000``).  The rate is read from the
+        block's own ``media_type`` so that any upstream resampling is
+        correctly reflected.
         """
         if not isinstance(block.source, Base64Source):
             raise ValueError(
@@ -353,9 +357,7 @@ class GeminiRealtimeModel(RealtimeModelBase):
             {
                 "realtimeInput": {
                     "audio": {
-                        "mimeType": (
-                            f"audio/pcm;rate={self.input_sample_rate}"
-                        ),
+                        "mimeType": block.source.media_type,
                         "data": block.source.data,
                     },
                 },

@@ -429,6 +429,10 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 
 	const handleRealtimeChange = async (config: ChatModelConfig | null) => {
 		if (!sessionId || !agentId) return;
+		// Close the active voice session so the stale WebSocket (bound to
+		// the old model) is torn down.  The user can re-enable voice mode
+		// to start a fresh session with the new model.
+		setVoiceMode(false);
 		setSelectedRealtimeModel(config);
 		await sessionApi.update(sessionId, agentId, { realtime_model_config: config });
 		await refetchSessions();
