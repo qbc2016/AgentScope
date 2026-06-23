@@ -69,12 +69,12 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         self.assertNotIn("tools", config["session"])
 
     async def test_config_includes_transcription_when_enabled(self) -> None:
-        """session.update config includes whisper transcription model."""
+        """session.update config includes transcription model and language."""
         model = _make_model()
         config = model._build_session_config("Hi", None)
         self.assertEqual(
             config["session"]["audio"]["input"]["transcription"],
-            {"model": "whisper-1"},
+            {"model": "gpt-realtime-whisper", "language": "zh"},
         )
 
     async def test_config_voice(self) -> None:

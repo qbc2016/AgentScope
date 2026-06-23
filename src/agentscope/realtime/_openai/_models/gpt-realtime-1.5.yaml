@@ -21,3 +21,6 @@ parameter_overrides:
     hidden: true
   input_transcription_model:
     hidden: true
+  input_transcription_language:
+    title: "语音识别语言"
+    description: "语音识别的语言提示 (如 'zh' 中文, 'en' 英语)。留空为自动检测。"

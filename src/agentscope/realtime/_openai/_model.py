@@ -70,10 +70,18 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         )
 
         input_transcription_model: str = Field(
-            default="whisper-1",
+            default="gpt-realtime-whisper",
             title="Transcription Model",
             description="The transcription model used when transcription "
             "is enabled.",
+        )
+
+        input_transcription_language: str = Field(
+            default="zh",
+            title="Transcription Language",
+            description="ISO-639-1 language hint for input audio "
+            "transcription (e.g. 'zh', 'en'). When empty, the model "
+            "auto-detects the language.",
         )
 
     type: Literal["openai_realtime"] = "openai_realtime"
@@ -115,6 +123,9 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         )
         self.input_transcription_model = (
             self.parameters.input_transcription_model
+        )
+        self.input_transcription_language = (
+            self.parameters.input_transcription_language
         )
 
         # The OpenAI realtime API uses 24 kHz mono PCM for both input
@@ -184,9 +195,16 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         }
 
         if self.enable_input_audio_transcription:
-            session_config["audio"]["input"]["transcription"] = {
+            transcription_cfg: dict[str, Any] = {
                 "model": self.input_transcription_model,
             }
+            if self.input_transcription_language:
+                transcription_cfg[
+                    "language"
+                ] = self.input_transcription_language
+            session_config["audio"]["input"][
+                "transcription"
+            ] = transcription_cfg
 
         if tools:
             session_config["tools"] = self._format_toolkit_schema(tools)
