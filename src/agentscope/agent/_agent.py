@@ -1452,6 +1452,7 @@ class Agent:
                 if isinstance(chunk, ToolResponse):
                     tool_result_block = ToolResultBlock(
                         id=tool_call.id,
+                        call_id=getattr(tool_call, "call_id", None),
                         name=tool_call.name,
                         output=[TextBlock(text=chunk.content)]
                         if isinstance(chunk.content, str)
@@ -1671,6 +1672,7 @@ class Agent:
             [
                 ToolResultBlock(
                     id=tool_call.id,
+                    call_id=getattr(tool_call, "call_id", None),
                     name=tool_call.name,
                     output=message,
                     state=state,
@@ -1963,12 +1965,14 @@ class Agent:
         # Create new ToolResultBlock instances for reserved and offload
         reserved_tool_result = ToolResultBlock(
             id=tool_result.id,
+            call_id=tool_result.call_id,
             name=tool_result.name,
             output=reserved_blocks,
             state=tool_result.state,
         )
         offload_tool_result = ToolResultBlock(
             id=tool_result.id,
+            call_id=tool_result.call_id,
             name=tool_result.name,
             output=offload_blocks,
             state=tool_result.state,

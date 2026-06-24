@@ -923,6 +923,7 @@ class TestLocalWorkspaceWithAgent(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": "1",
+                        "call_id": None,
                         "name": "long_result_tool",
                         "output": [
                             {

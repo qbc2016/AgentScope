@@ -446,6 +446,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
+                        "call_id": None,
                         "name": self.sequential_tool_name,
                         "output": [
                             {
@@ -780,6 +781,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
+                        "call_id": None,
                         "name": self.sequential_tool_name,
                         "output": [
                             {
@@ -794,6 +796,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
+                        "call_id": None,
                         "name": self.sequential_tool_name,
                         "output": [
                             {
@@ -1132,6 +1135,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
+                        "call_id": None,
                         "name": self.concurrent_tool_name,
                         "output": [
                             {
@@ -1146,6 +1150,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
+                        "call_id": None,
                         "name": self.concurrent_tool_name,
                         "output": [
                             {

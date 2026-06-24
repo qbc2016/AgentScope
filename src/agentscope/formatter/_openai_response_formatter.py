@@ -277,7 +277,7 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                     items.append(
                         {
                             "type": "function_call_output",
-                            "call_id": block.id,
+                            "call_id": block.call_id or block.id,
                             "output": textual_output,
                         },
                     )

@@ -177,6 +177,11 @@ class ToolResultBlock(BaseModel):
     """The type of the tool result block, which is always 'tool_result'."""
     id: str
     """The unique identifier of the tool result block."""
+    call_id: str | None = None
+    """The call identifier for the OpenAI Responses API. When present,
+    the formatter uses this instead of ``id`` for the
+    ``function_call_output.call_id`` field. For providers with a single ID
+    (Chat Completions, DashScope, etc.) this is ``None``."""
     name: str
     """The name of the tool."""
     output: str | List[TextBlock | DataBlock]
