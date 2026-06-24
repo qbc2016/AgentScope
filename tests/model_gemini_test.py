@@ -15,10 +15,8 @@ from utils import AnyString
 
 from agentscope.message import TextBlock, ToolCallBlock, ThinkingBlock
 from agentscope.model import GeminiChatModel
-from agentscope.model._gemini._model import (
-    _flatten_json_schema,
-    _sanitize_schema_for_gemini,
-)
+from agentscope.model._gemini._model import _sanitize_schema_for_gemini
+from agentscope.tool._utils import _flatten_json_schema
 from agentscope.credential import GeminiCredential
 from agentscope.tool import ToolChoice
 

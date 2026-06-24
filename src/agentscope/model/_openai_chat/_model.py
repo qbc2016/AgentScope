@@ -26,6 +26,7 @@ from ...message import (
     Base64Source,
 )
 from ...tool import ToolChoice
+from ...tool._utils import _flatten_json_schema
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletion
@@ -657,6 +658,10 @@ class OpenAIChatModel(ChatModelBase):
         (str) the model is forced to call exactly that tool without needing to
         filter the list, preserving prompt-cache efficiency.
 
+        Tool parameter schemas are flattened (``$ref`` / ``$defs`` resolved
+        inline) so that providers which do not support JSON Schema references
+        (e.g. GLM-5.x via OpenCode Go) receive a self-contained schema.
+
         Args:
             tools (`list[dict] | None`, optional):
                 The raw tool schemas.
@@ -673,6 +678,9 @@ class OpenAIChatModel(ChatModelBase):
                 allowed = set(tool_choice.tools)
                 tools = [t for t in tools if t["function"]["name"] in allowed]
 
+        if tools:
+            tools = self._flatten_tool_schemas(tools)
+
         if not tool_choice:
             return tools, None
 
@@ -682,3 +690,24 @@ class OpenAIChatModel(ChatModelBase):
             return tools, {"type": "function", "function": {"name": mode}}
 
         return tools, mode
+
+    @staticmethod
+    def _flatten_tool_schemas(
+        tools: list[dict],
+    ) -> list[dict]:
+        """Inline ``$ref`` / ``$defs`` in each tool's parameter schema."""
+        result = []
+        for tool in tools:
+            func = tool.get("function")
+            if not isinstance(func, dict):
+                result.append(tool)
+                continue
+            params = func.get("parameters")
+            if not isinstance(params, dict):
+                result.append(tool)
+                continue
+            flat = _flatten_json_schema(params)
+            if flat is not params:
+                tool = {**tool, "function": {**func, "parameters": flat}}
+            result.append(tool)
+        return result
