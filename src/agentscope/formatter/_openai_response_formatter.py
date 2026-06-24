@@ -124,10 +124,14 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
             content_parts: list[dict] = []
             function_calls: list[dict] = []
 
+            text_type = (
+                "output_text" if msg.role == "assistant" else "input_text"
+            )
+
             for block in msg.get_content_blocks():
                 if isinstance(block, TextBlock):
                     content_parts.append(
-                        {"type": "input_text", "text": block.text},
+                        {"type": text_type, "text": block.text},
                     )
 
                 elif isinstance(block, DataBlock):

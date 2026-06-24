@@ -145,7 +145,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 "role": "assistant",
                 "content": [
                     {
-                        "type": "input_text",
+                        "type": "output_text",
                         "text": "The capital of France is Paris.",
                     },
                 ],
@@ -163,7 +163,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 "role": "assistant",
                 "content": [
                     {
-                        "type": "input_text",
+                        "type": "output_text",
                         "text": "The capital of Germany is Berlin.",
                     },
                 ],
@@ -193,7 +193,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 "role": "assistant",
                 "content": [
                     {
-                        "type": "input_text",
+                        "type": "output_text",
                         "text": "The capital of Japan is Tokyo.",
                     },
                 ],
@@ -223,7 +223,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             "role": "assistant",
             "content": [
                 {
-                    "type": "input_text",
+                    "type": "output_text",
                     "text": "The capital of Japan is Tokyo.",
                 },
             ],
@@ -358,7 +358,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "input_text", "text": "reply"},
+                        {"type": "output_text", "text": "reply"},
                     ],
                 },
             ],
@@ -393,7 +393,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "input_text", "text": "reply"},
+                        {"type": "output_text", "text": "reply"},
                     ],
                 },
             ],
@@ -489,7 +489,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                     "role": "assistant",
                     "content": [
                         {
-                            "type": "input_text",
+                            "type": "output_text",
                             "text": "Here is the map of Tokyo.",
                         },
                     ],
@@ -622,7 +622,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "input_text", "text": "text_1"},
+                        {"type": "output_text", "text": "text_1"},
                     ],
                 },
                 {
@@ -652,7 +652,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "input_text", "text": "text_2"},
+                        {"type": "output_text", "text": "text_2"},
                     ],
                 },
                 {
@@ -682,7 +682,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 {
                     "role": "assistant",
                     "content": [
-                        {"type": "input_text", "text": "text_3"},
+                        {"type": "output_text", "text": "text_3"},
                     ],
                 },
             ],
@@ -709,7 +709,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                     "role": "assistant",
                     "content": [
                         {
-                            "type": "input_text",
+                            "type": "output_text",
                             "text": "Let me think about that.",
                         },
                     ],
@@ -727,7 +727,7 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                     "role": "assistant",
                     "content": [
                         {
-                            "type": "input_text",
+                            "type": "output_text",
                             "text": "Here is my answer.",
                         },
                     ],
