@@ -786,7 +786,6 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
-                        "call_id": None,
                         "output": [
                             {
                                 "type": "text",
@@ -801,7 +800,6 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
-                        "call_id": None,
                         "output": [
                             {
                                 "type": "text",
@@ -1029,7 +1027,6 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
-                        "call_id": None,
                         "output": [
                             {
                                 "type": "text",
@@ -1044,7 +1041,6 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
-                        "call_id": None,
                         "output": [
                             {
                                 "type": "text",
@@ -1318,7 +1314,6 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
-                        "call_id": None,
                         "name": "mock_sequential_tool",
                         "state": "success",
                         "output": [
@@ -1333,7 +1328,6 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
-                        "call_id": None,
                         "name": "mock_concurrent_tool",
                         "state": "success",
                         "output": [
@@ -1348,7 +1342,6 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     {
                         "type": "tool_result",
                         "id": AnyString(),
-                        "call_id": None,
                         "name": "mock_concurrent_tool",
                         "state": "success",
                         "output": [

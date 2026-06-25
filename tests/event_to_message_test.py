@@ -132,7 +132,6 @@ def _trb(tc_id: str, name: str, output: Any, state: str) -> dict:
     return {
         "type": "tool_result",
         "id": tc_id,
-        "call_id": None,
         "name": name,
         "output": output,
         "state": state,

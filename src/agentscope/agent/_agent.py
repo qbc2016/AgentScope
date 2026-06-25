@@ -1452,13 +1452,18 @@ class Agent:
                 if isinstance(chunk, ToolResponse):
                     tool_result_block = ToolResultBlock(
                         id=tool_call.id,
-                        call_id=getattr(tool_call, "call_id", None),
                         name=tool_call.name,
                         output=[TextBlock(text=chunk.content)]
                         if isinstance(chunk.content, str)
                         else chunk.content,
                         state=chunk.state,
                         metadata=chunk.metadata,
+                        **(
+                            {"call_id": _cid}
+                            if (_cid := getattr(tool_call, "call_id", None))
+                            is not None
+                            else {}
+                        ),
                     )
 
                     # ========================================================
@@ -1672,10 +1677,15 @@ class Agent:
             [
                 ToolResultBlock(
                     id=tool_call.id,
-                    call_id=getattr(tool_call, "call_id", None),
                     name=tool_call.name,
                     output=message,
                     state=state,
+                    **(
+                        {"call_id": _cid}
+                        if (_cid := getattr(tool_call, "call_id", None))
+                        is not None
+                        else {}
+                    ),
                 ),
             ],
         )
@@ -1965,17 +1975,25 @@ class Agent:
         # Create new ToolResultBlock instances for reserved and offload
         reserved_tool_result = ToolResultBlock(
             id=tool_result.id,
-            call_id=tool_result.call_id,
             name=tool_result.name,
             output=reserved_blocks,
             state=tool_result.state,
+            **(
+                {"call_id": _cid}
+                if (_cid := getattr(tool_result, "call_id", None)) is not None
+                else {}
+            ),
         )
         offload_tool_result = ToolResultBlock(
             id=tool_result.id,
-            call_id=tool_result.call_id,
             name=tool_result.name,
             output=offload_blocks,
             state=tool_result.state,
+            **(
+                {"call_id": _cid}
+                if (_cid := getattr(tool_result, "call_id", None)) is not None
+                else {}
+            ),
         )
 
         return reserved_tool_result, offload_tool_result

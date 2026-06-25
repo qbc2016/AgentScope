@@ -169,19 +169,18 @@ class ToolResultState(StrEnum):
 
 
 class ToolResultBlock(BaseModel):
-    """The tool result block."""
+    """The tool result block.
 
-    model_config = ConfigDict(use_enum_values=True)
+    Allows extra provider-specific fields (e.g. the OpenAI Responses API's
+    ``call_id``) via ``extra="allow"`` without requiring subclassing.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="allow")
 
     type: Literal["tool_result"] = "tool_result"
     """The type of the tool result block, which is always 'tool_result'."""
     id: str
     """The unique identifier of the tool result block."""
-    call_id: str | None = None
-    """The call identifier for the OpenAI Responses API. When present,
-    the formatter uses this instead of ``id`` for the
-    ``function_call_output.call_id`` field. For providers with a single ID
-    (Chat Completions, DashScope, etc.) this is ``None``."""
     name: str
     """The name of the tool."""
     output: str | List[TextBlock | DataBlock]
