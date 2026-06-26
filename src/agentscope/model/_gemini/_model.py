@@ -7,7 +7,7 @@ from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List, Type
 
 from pydantic import BaseModel, Field
 
-from ..._utils._common import _generate_id
+from ..._utils._common import _generate_id, _flatten_json_schema
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
 from .._model_response import ChatResponse
 from .._model_usage import ChatUsage
@@ -15,7 +15,6 @@ from ...credential import GeminiCredential
 from ...formatter import FormatterBase, GeminiChatFormatter
 from ...message import Msg, ThinkingBlock, ToolCallBlock, TextBlock
 from ...tool import ToolChoice
-from ...tool._utils import _flatten_json_schema
 
 if TYPE_CHECKING:
     from google.genai.types import GenerateContentResponse

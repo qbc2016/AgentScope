@@ -11,7 +11,7 @@ from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List, Type
 from pydantic import BaseModel, Field
 
 from ..._utils._audio import _build_streaming_wav_header
-from ..._utils._common import _generate_id
+from ..._utils._common import _generate_id, _flatten_json_schema
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
 from .._model_response import ChatResponse, StructuredResponse
 from .._model_usage import ChatUsage
@@ -26,7 +26,6 @@ from ...message import (
     Base64Source,
 )
 from ...tool import ToolChoice
-from ...tool._utils import _flatten_json_schema
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletion
@@ -695,7 +694,21 @@ class OpenAIChatModel(ChatModelBase):
     def _flatten_tool_schemas(
         tools: list[dict],
     ) -> list[dict]:
-        """Inline ``$ref`` / ``$defs`` in each tool's parameter schema."""
+        """Inline ``$ref`` / ``$defs`` in each tool's parameter schema.
+
+        Args:
+            tools (`list[dict]`):
+                The list of tool dicts, each with a ``"function"`` key
+                containing the tool name, description and ``"parameters"``
+                JSON schema.
+
+        Returns:
+            `list[dict]`:
+                A new list where each tool's ``parameters`` schema has all
+                local ``$ref`` / ``$defs`` resolved inline.  Tools whose
+                schema contained no references are returned unchanged (same
+                object identity).
+        """
         result = []
         for tool in tools:
             func = tool.get("function")
