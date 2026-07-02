@@ -2479,17 +2479,20 @@ class Agent:
         # both text and thinking streams alive so the frontend doesn't
         # fragment one logical stream into many separate bubbles.
         if thinking_blocks:
+            # Generate a new thinking block id and start event
             if not block_ids.get("thinking"):
                 block_ids["thinking"] = _generate_id()
                 yield ThinkingBlockStartEvent(
                     reply_id=self.state.reply_id,
                     block_id=block_ids["thinking"],
                 )
+            # Generate the thinking delta event with the existing id
             yield ThinkingBlockDeltaEvent(
                 reply_id=self.state.reply_id,
                 block_id=block_ids["thinking"],
                 delta="".join([_.thinking for _ in thinking_blocks]),
             )
+
         elif block_ids.get("thinking") and not data_blocks:
             yield ThinkingBlockEndEvent(
                 reply_id=self.state.reply_id,
