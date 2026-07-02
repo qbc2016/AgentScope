@@ -2421,12 +2421,7 @@ class Agent:
             elif isinstance(block, DataBlock):
                 data_blocks.append(block)
 
-        # Step 1: Close any open blocks whose modality is absent in this
-        # chunk.  This must happen BEFORE opening or continuing any other
-        # modality so that, at the reasoning→answer boundary, the
-        # ThinkingBlockEndEvent is emitted before the first
-        # TextBlockStartEvent / TextBlockDeltaEvent — not after.
-        #
+        # Handle the thinking stream: close or continue/open.
         # We only auto-close when the chunk also carries no data blocks;
         # a data-only chunk (e.g. an omni-style audio PCM delta) must keep
         # both text and thinking streams alive so the frontend doesn't
@@ -2441,43 +2436,35 @@ class Agent:
                 block_id=block_ids["thinking"],
             )
             block_ids["thinking"] = None
-
-        if block_ids.get("text") and not text_blocks and not data_blocks:
-            yield TextBlockEndEvent(
-                reply_id=self.state.reply_id,
-                block_id=block_ids["text"],
-            )
-            block_ids["text"] = None
-
-        # Step 2: Open/continue the thinking stream (before text, so that a
-        # chunk carrying both ThinkingBlock and TextBlock emits thinking
-        # events first).
-        if thinking_blocks:
-            # Generate a new thinking block id and start event
+        elif thinking_blocks:
             if not block_ids.get("thinking"):
                 block_ids["thinking"] = _generate_id()
                 yield ThinkingBlockStartEvent(
                     reply_id=self.state.reply_id,
                     block_id=block_ids["thinking"],
                 )
-            # Generate the thinking delta event with the existing id
             yield ThinkingBlockDeltaEvent(
                 reply_id=self.state.reply_id,
                 block_id=block_ids["thinking"],
                 delta="".join([_.thinking for _ in thinking_blocks]),
             )
 
-        # Step 3: Open/continue the text stream.
-        if text_blocks:
-            # If the current chunk has text blocks but no text block id,
-            # start with a start event
+        # Handle the text stream: close or continue/open (after thinking,
+        # so that at the reasoning→answer boundary ThinkingBlockEndEvent is
+        # emitted before the first TextBlockStartEvent).
+        if block_ids.get("text") and not text_blocks and not data_blocks:
+            yield TextBlockEndEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_ids["text"],
+            )
+            block_ids["text"] = None
+        elif text_blocks:
             if not block_ids.get("text"):
                 block_ids["text"] = _generate_id()
                 yield TextBlockStartEvent(
                     reply_id=self.state.reply_id,
                     block_id=block_ids["text"],
                 )
-            # Go on using the existing text block id to generate delta events
             yield TextBlockDeltaEvent(
                 reply_id=self.state.reply_id,
                 block_id=block_ids["text"],
