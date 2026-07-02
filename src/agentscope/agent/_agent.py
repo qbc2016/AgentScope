@@ -2473,22 +2473,12 @@ class Agent:
             elif isinstance(block, DataBlock):
                 data_blocks.append(block)
 
-        # Handle the thinking stream: close or continue/open.
+        # Handle the thinking stream: continue/open or close.
         # We only auto-close when the chunk also carries no data blocks;
         # a data-only chunk (e.g. an omni-style audio PCM delta) must keep
         # both text and thinking streams alive so the frontend doesn't
         # fragment one logical stream into many separate bubbles.
-        if (
-            block_ids.get("thinking")
-            and not thinking_blocks
-            and not data_blocks
-        ):
-            yield ThinkingBlockEndEvent(
-                reply_id=self.state.reply_id,
-                block_id=block_ids["thinking"],
-            )
-            block_ids["thinking"] = None
-        elif thinking_blocks:
+        if thinking_blocks:
             if not block_ids.get("thinking"):
                 block_ids["thinking"] = _generate_id()
                 yield ThinkingBlockStartEvent(
@@ -2500,17 +2490,17 @@ class Agent:
                 block_id=block_ids["thinking"],
                 delta="".join([_.thinking for _ in thinking_blocks]),
             )
-
-        # Handle the text stream: close or continue/open (after thinking,
-        # so that at the reasoning→answer boundary ThinkingBlockEndEvent is
-        # emitted before the first TextBlockStartEvent).
-        if block_ids.get("text") and not text_blocks and not data_blocks:
-            yield TextBlockEndEvent(
+        elif block_ids.get("thinking") and not data_blocks:
+            yield ThinkingBlockEndEvent(
                 reply_id=self.state.reply_id,
-                block_id=block_ids["text"],
+                block_id=block_ids["thinking"],
             )
-            block_ids["text"] = None
-        elif text_blocks:
+            block_ids["thinking"] = None
+
+        # Handle the text stream: continue/open or close.  Placed after
+        # thinking so that a chunk carrying both ThinkingBlock and TextBlock
+        # emits thinking events first.
+        if text_blocks:
             if not block_ids.get("text"):
                 block_ids["text"] = _generate_id()
                 yield TextBlockStartEvent(
@@ -2522,6 +2512,12 @@ class Agent:
                 block_id=block_ids["text"],
                 delta="".join([_.text for _ in text_blocks]),
             )
+        elif block_ids.get("text") and not data_blocks:
+            yield TextBlockEndEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_ids["text"],
+            )
+            block_ids["text"] = None
 
         # Handle the tool calls that exist in the current chunk
         for tool_call in tool_call_blocks:
