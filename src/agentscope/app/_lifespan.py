@@ -199,6 +199,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             session_mapper=session_mapper,
             channel_storage=channel_storage,
             config=channel_config,
+            type_registry=channel_type_registry,
         )
         app.state.channel_manager = channel_manager
         app.state.channel_type_registry = channel_type_registry

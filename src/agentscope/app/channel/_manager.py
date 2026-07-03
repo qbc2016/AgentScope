@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
 """ChannelManager — lifecycle and dynamic management of channel instances.
 
 Owns the ChannelGateway, handles start/stop/add/remove/update of
@@ -19,8 +18,9 @@ from ._base import ChannelBase
 from ._config import ChannelConfig
 from ._gateway import ChannelGateway
 from ._errors import DuplicateBotError
+from ._registry import ChannelTypeRegistry
 from ._session_mapper import SessionMapperBase
-from ._storage import ChannelRecord, ChannelStorageBase
+from ._repository import ChannelRecord, ChannelStorageBase
 from ..message_bus import MessageBus
 from ..storage import StorageBase
 from .._service import ChatService
@@ -48,11 +48,13 @@ class ChannelManager:
         session_mapper: SessionMapperBase,
         channel_storage: ChannelStorageBase,
         config: ChannelConfig,
+        type_registry: ChannelTypeRegistry | None = None,
     ) -> None:
         self._channel_storage = channel_storage
         self._session_mapper = session_mapper
         self._message_bus = message_bus
         self._config = config
+        self._type_registry = type_registry or ChannelTypeRegistry()
         self._channel_tasks: dict[str, asyncio.Task] = {}
         self._lifecycle_task: asyncio.Task | None = None
         self._node_id = _gen_node_id()
@@ -73,6 +75,16 @@ class ChannelManager:
     def gateway(self) -> ChannelGateway:
         """Expose the gateway for direct event dispatch (testing)."""
         return self._gateway
+
+    @property
+    def channel_storage(self) -> ChannelStorageBase:
+        """Public access to channel storage for read operations."""
+        return self._channel_storage
+
+    @property
+    def session_mapper(self) -> SessionMapperBase:
+        """Public access to session mapper for read operations."""
+        return self._session_mapper
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:
@@ -97,7 +109,7 @@ class ChannelManager:
                 *self._channel_tasks.values(),
                 return_exceptions=True,
             )
-            for channel in list(self._gateway._channels.values()):
+            for channel in self._gateway.iter_channels():
                 try:
                     await channel.on_stop()
                 except Exception:
@@ -308,7 +320,7 @@ class ChannelManager:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
-        channel = self._gateway._channels.get(channel_id)
+        channel = self._gateway.get_channel(channel_id)
         if channel:
             try:
                 await channel.on_stop()
@@ -321,44 +333,13 @@ class ChannelManager:
         logger.info("Channel '%s' stopped.", channel_id)
 
     def _create_channel_instance(self, record: ChannelRecord) -> ChannelBase:
-        """Instantiate the appropriate channel class from record type."""
-        credentials = record.credentials
-        if record.channel_type == "feishu":
-            from .feishu import FeishuChannel
+        """Instantiate the appropriate channel class from record type.
 
-            return FeishuChannel(
-                channel_id=record.channel_id,
-                app_id=credentials["app_id"],
-                app_secret=credentials["app_secret"],
-                **record.config,
-            )
-        elif record.channel_type == "discord":
-            from .discord import DiscordChannel
-
-            return DiscordChannel(
-                channel_id=record.channel_id,
-                bot_token=credentials["bot_token"],
-            )
-        elif record.channel_type == "dingtalk":
-            from .dingtalk import DingTalkChannel
-
-            return DingTalkChannel(
-                channel_id=record.channel_id,
-                client_id=credentials["client_id"],
-                client_secret=credentials["client_secret"],
-                **record.config,
-            )
-        elif record.channel_type == "wecom":
-            from .wecom import WeChatWorkChannel
-
-            return WeChatWorkChannel(
-                channel_id=record.channel_id,
-                corp_id=credentials["corp_id"],
-                agent_id=credentials["agent_id"],
-                secret=credentials["secret"],
-                **record.config,
-            )
-        else:
-            raise ValueError(
-                f"Unknown channel type: {record.channel_type}",
-            )
+        Delegates to the ChannelTypeRegistry factory if available.
+        """
+        return self._type_registry.create_channel(
+            channel_type=record.channel_type,
+            channel_id=record.channel_id,
+            credentials=record.credentials,
+            config=record.config,
+        )

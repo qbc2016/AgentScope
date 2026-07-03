@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """Channel configuration persistence — abstract base + implementations."""
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
 from ..storage._model._channel import ChannelRecord
 from ..storage._model._channel import ChannelRoutingRule as RoutingRule
 from ..storage import StorageBase
+from ._errors import ChannelNotFoundError
 
 __all__ = [
     "ChannelRecord",
@@ -84,7 +86,9 @@ class InMemoryChannelStorage(ChannelStorageBase):
         channel_id: str,
         updates: dict,
     ) -> ChannelRecord:
-        record = self._store[channel_id]
+        record = self._store.get(channel_id)
+        if record is None:
+            raise ChannelNotFoundError(channel_id)
         updated = record.model_copy(update=updates)
         self._store[channel_id] = updated
         return updated
@@ -111,17 +115,32 @@ class StorageBackedChannelStorage(ChannelStorageBase):
     The ChannelManager is a global service that manages channels across
     all tenants, so:
     - ``list_channels()`` uses ``storage.list_all_channels()`` (global view)
-    - ``get_channel()`` looks up the record globally via the bot ID index
-      or iterates the global list
+    - ``get_channel()`` uses a local channel_id→user_id cache for O(1) lookup
     - Write operations use ``record.tenant_user_id`` as the user scope
     """
 
-    def __init__(self, storage: "StorageBase") -> None:
+    def __init__(self, storage: StorageBase) -> None:
         self._storage = storage
+        # Per-process cache: channel_id → tenant_user_id. Enables O(1) lookup
+        # after the first access. In multi-node clusters, cross-node updates
+        # may cause one extra cache-miss round-trip before the cache is
+        # refreshed — this is acceptable for the channel management use case.
+        self._user_id_cache: dict[str, str] = {}
 
     async def get_channel(self, channel_id: str) -> ChannelRecord | None:
+        cached_user_id = self._user_id_cache.get(channel_id)
+        if cached_user_id is not None:
+            record = await self._storage.get_channel(
+                cached_user_id,
+                channel_id,
+            )
+            if record is not None:
+                return record
+            del self._user_id_cache[channel_id]
+
         records = await self._storage.list_all_channels()
         for r in records:
+            self._user_id_cache[r.channel_id] = r.tenant_user_id or "system"
             if r.channel_id == channel_id:
                 return r
         return None
@@ -138,6 +157,7 @@ class StorageBackedChannelStorage(ChannelStorageBase):
     async def save_channel(self, record: ChannelRecord) -> None:
         user_id = record.tenant_user_id or "system"
         await self._storage.upsert_channel(user_id, record)
+        self._user_id_cache[record.channel_id] = user_id
 
     async def update_channel(
         self,
@@ -146,10 +166,11 @@ class StorageBackedChannelStorage(ChannelStorageBase):
     ) -> ChannelRecord:
         existing = await self.get_channel(channel_id)
         if existing is None:
-            raise KeyError(channel_id)
+            raise ChannelNotFoundError(channel_id)
         updated = existing.model_copy(update=updates)
         user_id = updated.tenant_user_id or "system"
         await self._storage.upsert_channel(user_id, updated)
+        self._user_id_cache[channel_id] = user_id
         return updated
 
     async def delete_channel(self, channel_id: str) -> None:
@@ -158,6 +179,7 @@ class StorageBackedChannelStorage(ChannelStorageBase):
             return
         user_id = existing.tenant_user_id or "system"
         await self._storage.delete_channel(user_id, channel_id)
+        self._user_id_cache.pop(channel_id, None)
 
     async def get_by_platform_bot_id(
         self,

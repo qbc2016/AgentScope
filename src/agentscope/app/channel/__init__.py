@@ -14,7 +14,7 @@ Public API:
     - ChannelConfig: module-level configuration
 """
 from ._base import ChannelBase, ChannelCapability, ChannelEvent
-from ._config import ChannelConfig
+from ._config import ChannelConfig, DefaultSessionConfig
 from ._errors import (
     ChannelConnectionError,
     ChannelError,
@@ -31,7 +31,7 @@ from ._session_mapper import (
     SessionMapperBase,
     SessionMappingRecord,
 )
-from ._storage import (
+from ._repository import (
     ChannelRecord,
     ChannelStorageBase,
     InMemoryChannelStorage,
@@ -53,6 +53,7 @@ __all__ = [
     "ChannelStorageBase",
     "ChannelTypeRegistry",
     "ChannelTypeSchema",
+    "DefaultSessionConfig",
     "DuplicateBotError",
     "InMemoryChannelStorage",
     "InMemorySessionMapper",

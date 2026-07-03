@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
 """Channel HTTP API routes.
 
 Endpoints:
@@ -23,8 +22,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..deps import get_current_user_id
-from ._errors import DuplicateBotError
-from ._storage import ChannelRecord, RoutingRule
+from ._errors import ChannelNotFoundError, DuplicateBotError
+from ._repository import ChannelRecord, RoutingRule
 from ._manager import ChannelManager
 from ._registry import ChannelTypeRegistry
 
@@ -45,6 +44,7 @@ class CreateChannelRequest(BaseModel):
     credentials: dict
     default_agent_id: str
     chat_model_config: dict | None = None
+    fallback_chat_model_config: dict | None = None
     routing_rules: list[RoutingRule] = Field(default_factory=list)
     dm_scope: str = "PER_CHAT"
     permission_mode: str = "dont_ask"
@@ -59,6 +59,7 @@ class UpdateChannelRequest(BaseModel):
 
     default_agent_id: str | None = None
     chat_model_config: dict | None = None
+    fallback_chat_model_config: dict | None = None
     routing_rules: list[RoutingRule] | None = None
     dm_scope: str | None = None
     permission_mode: str | None = None
@@ -85,6 +86,7 @@ class ChannelResponse(BaseModel):
     platform_bot_id: str
     default_agent_id: str
     chat_model_config: dict | None
+    fallback_chat_model_config: dict | None = None
     routing_rules: list[RoutingRule]
     dm_scope: str
     permission_mode: str
@@ -111,6 +113,7 @@ def _to_response(record: ChannelRecord) -> ChannelResponse:
         platform_bot_id=record.platform_bot_id,
         default_agent_id=record.default_agent_id,
         chat_model_config=record.chat_model_config,
+        fallback_chat_model_config=record.fallback_chat_model_config,
         routing_rules=record.routing_rules,
         dm_scope=record.dm_scope,
         permission_mode=record.permission_mode,
@@ -162,7 +165,7 @@ async def list_channels(
     manager: ChannelManager = Depends(_get_channel_manager),
 ) -> list[ChannelResponse]:
     """List all registered channels."""
-    records = await manager._channel_storage.list_channels()
+    records = await manager.channel_storage.list_channels()
     return [_to_response(r) for r in records]
 
 
@@ -198,6 +201,7 @@ async def create_channel(
         credentials=body.credentials,
         default_agent_id=body.default_agent_id,
         chat_model_config=body.chat_model_config,
+        fallback_chat_model_config=body.fallback_chat_model_config,
         routing_rules=body.routing_rules,
         dm_scope=body.dm_scope,
         permission_mode=body.permission_mode,
@@ -225,7 +229,7 @@ async def get_channel(
     manager: ChannelManager = Depends(_get_channel_manager),
 ) -> ChannelResponse:
     """Get channel details by id."""
-    record = await manager._channel_storage.get_channel(channel_id)
+    record = await manager.channel_storage.get_channel(channel_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -241,7 +245,7 @@ async def update_channel(
     manager: ChannelManager = Depends(_get_channel_manager),
 ) -> ChannelResponse:
     """Update channel configuration."""
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -250,10 +254,10 @@ async def update_channel(
 
     try:
         record = await manager.update_channel(channel_id, updates)
-    except KeyError as e:
+    except ChannelNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
+            detail=str(e),
         ) from e
 
     return _to_response(record)
@@ -279,10 +283,10 @@ async def enable_channel(
     """Enable a disabled channel."""
     try:
         await manager.enable_channel(channel_id)
-    except KeyError as e:
+    except ChannelNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
+            detail=str(e),
         ) from e
     return {"status": "enabled"}
 
@@ -295,10 +299,10 @@ async def disable_channel(
     """Disable and stop a running channel."""
     try:
         await manager.disable_channel(channel_id)
-    except KeyError as e:
+    except ChannelNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
+            detail=str(e),
         ) from e
     return {"status": "disabled"}
 
@@ -318,7 +322,7 @@ async def test_channel(
     manager: ChannelManager = Depends(_get_channel_manager),
 ) -> dict:
     """Test channel connection (placeholder)."""
-    record = await manager._channel_storage.get_channel(channel_id)
+    record = await manager.channel_storage.get_channel(channel_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -336,7 +340,7 @@ async def list_bindings(
     manager: ChannelManager = Depends(_get_channel_manager),
 ) -> list[BindingResponse]:
     """List routing rules for a channel."""
-    record = await manager._channel_storage.get_channel(channel_id)
+    record = await manager.channel_storage.get_channel(channel_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -364,7 +368,7 @@ async def add_binding(
     manager: ChannelManager = Depends(_get_channel_manager),
 ) -> BindingResponse:
     """Add a routing rule to a channel."""
-    record = await manager._channel_storage.get_channel(channel_id)
+    record = await manager.channel_storage.get_channel(channel_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -378,10 +382,16 @@ async def add_binding(
         priority=body.priority,
     )
     updated_rules = list(record.routing_rules) + [new_rule]
-    await manager._channel_storage.update_channel(
-        channel_id,
-        {"routing_rules": updated_rules},
-    )
+    try:
+        await manager.update_channel(
+            channel_id,
+            {"routing_rules": updated_rules},
+        )
+    except ChannelNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
     idx = len(updated_rules) - 1
     return BindingResponse(
@@ -403,7 +413,7 @@ async def delete_binding(
     manager: ChannelManager = Depends(_get_channel_manager),
 ) -> None:
     """Remove a routing rule by index."""
-    record = await manager._channel_storage.get_channel(channel_id)
+    record = await manager.channel_storage.get_channel(channel_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -418,29 +428,68 @@ async def delete_binding(
         )
 
     rules.pop(binding_idx)
-    await manager._channel_storage.update_channel(
-        channel_id,
-        {"routing_rules": rules},
-    )
+    try:
+        await manager.update_channel(
+            channel_id,
+            {"routing_rules": rules},
+        )
+    except ChannelNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
 
 @channel_router.get("/{channel_id}/chat_ids")
 async def list_chat_ids(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
-) -> list[str]:
+) -> list[dict]:
     """List known chat_ids for a channel.
 
-    Returns all chat_ids that have been seen by this channel's gateway
-    (recorded on each incoming event).
+    Combines two sources:
+    1. Chat_ids recorded from incoming messages (passive).
+    2. Bot's chat list fetched from the platform API (active).
+
+    Returns a list of {chat_id, name?, source} dicts.
     """
-    record = await manager._channel_storage.get_channel(channel_id)
+    record = await manager.channel_storage.get_channel(channel_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Channel '{channel_id}' not found.",
         )
 
-    return await manager._session_mapper.list_seen_chat_ids(
+    seen_ids = await manager.session_mapper.list_seen_chat_ids(
         channel_id,
     )
+
+    results: list[dict] = []
+
+    # Fetch from platform API (may include name)
+    bot_chats = await manager.gateway.list_bot_chats(channel_id)
+    platform_ids = set()
+    for chat in bot_chats:
+        cid = chat.get("chat_id", "")
+        if cid:
+            platform_ids.add(cid)
+            results.append(
+                {
+                    "chat_id": cid,
+                    "name": chat.get("name", ""),
+                    "source": "platform",
+                },
+            )
+
+    # Add any seen chat_ids not already from platform
+    for cid in seen_ids:
+        if cid not in platform_ids:
+            results.append(
+                {
+                    "chat_id": cid,
+                    "name": "",
+                    "source": "recorded",
+                },
+            )
+
+    return results

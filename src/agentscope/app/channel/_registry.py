@@ -1,8 +1,16 @@
 # -*- coding: utf-8 -*-
 """Channel type registry — maps channel_type names to metadata and
 JSON Schema definitions for frontend form generation."""
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, Callable, TYPE_CHECKING
+
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from ._base import ChannelBase
+
+ChannelFactory = Callable[..., "ChannelBase"]
 
 
 class ChannelTypeSchema(BaseModel):
@@ -32,11 +40,53 @@ class ChannelTypeRegistry:
 
     def __init__(self) -> None:
         self._types: dict[str, ChannelTypeSchema] = {}
+        self._factories: dict[str, ChannelFactory] = {}
         self._register_builtin_types()
 
-    def register(self, schema: ChannelTypeSchema) -> None:
-        """Register a new channel type."""
+    def register(
+        self,
+        schema: ChannelTypeSchema,
+        factory: ChannelFactory | None = None,
+    ) -> None:
+        """Register a new channel type with optional factory function."""
         self._types[schema.channel_type] = schema
+        if factory is not None:
+            self._factories[schema.channel_type] = factory
+
+    def register_factory(
+        self,
+        channel_type: str,
+        factory: ChannelFactory,
+    ) -> None:
+        """Register a factory function for an existing channel type."""
+        self._factories[channel_type] = factory
+
+    def create_channel(
+        self,
+        channel_type: str,
+        channel_id: str,
+        credentials: dict,
+        config: dict,
+    ) -> ChannelBase:
+        """Create a channel instance using the registered factory.
+
+        Raises ValueError if no factory is registered for the type.
+        """
+        factory = self._factories.get(channel_type)
+        if factory is None:
+            raise ValueError(
+                f"No factory registered for channel type '{channel_type}'. "
+                f"Use registry.register(schema, factory=...) to register.",
+            )
+        return factory(
+            channel_id=channel_id,
+            credentials=credentials,
+            config=config,
+        )
+
+    def has_factory(self, channel_type: str) -> bool:
+        """Check if a factory is registered for the given type."""
+        return channel_type in self._factories
 
     def get(self, channel_type: str) -> ChannelTypeSchema | None:
         """Get schema for a channel type."""
@@ -190,3 +240,69 @@ class ChannelTypeRegistry:
                 platform_bot_id_field="corp_id",
             ),
         )
+
+        self._register_builtin_factories()
+
+    def _register_builtin_factories(self) -> None:
+        """Register factory functions for built-in channel types."""
+
+        def _feishu_factory(
+            channel_id: str,
+            credentials: dict,
+            config: dict,
+        ) -> ChannelBase:
+            from .feishu import FeishuChannel
+
+            return FeishuChannel(
+                channel_id=channel_id,
+                app_id=credentials["app_id"],
+                app_secret=credentials["app_secret"],
+                **config,
+            )
+
+        def _discord_factory(
+            channel_id: str,
+            credentials: dict,
+            config: dict,
+        ) -> ChannelBase:
+            from .discord import DiscordChannel
+
+            return DiscordChannel(
+                channel_id=channel_id,
+                bot_token=credentials["bot_token"],
+                **config,
+            )
+
+        def _dingtalk_factory(
+            channel_id: str,
+            credentials: dict,
+            config: dict,
+        ) -> ChannelBase:
+            from .dingtalk import DingTalkChannel
+
+            return DingTalkChannel(
+                channel_id=channel_id,
+                client_id=credentials["client_id"],
+                client_secret=credentials["client_secret"],
+                **config,
+            )
+
+        def _wecom_factory(
+            channel_id: str,
+            credentials: dict,
+            config: dict,
+        ) -> ChannelBase:
+            from .wecom import WeChatWorkChannel
+
+            return WeChatWorkChannel(
+                channel_id=channel_id,
+                corp_id=credentials["corp_id"],
+                agent_id=credentials["agent_id"],
+                secret=credentials["secret"],
+                **config,
+            )
+
+        self.register_factory("feishu", _feishu_factory)
+        self.register_factory("discord", _discord_factory)
+        self.register_factory("dingtalk", _dingtalk_factory)
+        self.register_factory("wecom", _wecom_factory)

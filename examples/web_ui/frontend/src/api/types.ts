@@ -710,6 +710,7 @@ export interface ChannelRecord {
 	platform_bot_id: string;
 	default_agent_id: string;
 	chat_model_config: ChatModelConfig | null;
+	fallback_chat_model_config: ChatModelConfig | null;
 	routing_rules: RoutingRule[];
 	dm_scope: DmScope;
 	permission_mode: PermissionMode;
@@ -725,6 +726,7 @@ export interface CreateChannelRequest {
 	credentials: Record<string, unknown>;
 	default_agent_id: string;
 	chat_model_config?: ChatModelConfig | null;
+	fallback_chat_model_config?: ChatModelConfig | null;
 	routing_rules?: RoutingRule[];
 	dm_scope?: DmScope;
 	permission_mode?: PermissionMode;
@@ -737,6 +739,7 @@ export interface CreateChannelRequest {
 export interface UpdateChannelRequest {
 	default_agent_id?: string;
 	chat_model_config?: ChatModelConfig | null;
+	fallback_chat_model_config?: ChatModelConfig | null;
 	routing_rules?: RoutingRule[];
 	dm_scope?: DmScope;
 	permission_mode?: PermissionMode;
@@ -749,16 +752,13 @@ export interface UpdateChannelRequest {
 export interface ChannelTypeSchema {
 	channel_type: string;
 	display_name: string;
-	credential_schema: Record<string, unknown>;
+	credentials_schema: Record<string, unknown>;
 	config_schema: Record<string, unknown>;
 }
 
 export interface ChannelStatusResponse {
-	channel_id: string;
-	enabled: boolean;
-	connected: boolean;
-	uptime_seconds: number | null;
-	error: string | null;
+	status: 'running' | 'stopped' | 'error';
+	error?: string | null;
 }
 
 // ─── TTS ──────────────────────────────────────────────────────────────────────

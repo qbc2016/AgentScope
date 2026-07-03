@@ -202,10 +202,10 @@ interface Props {
 	modelCard: ModelCard | null;
 	/** Called when the user edits the primary model's parameters. */
 	onChange: (parameters: Record<string, unknown>) => void;
-	/** Currently selected fallback model. `null` means no fallback configured. */
-	selectedFallbackModel: ChatModelConfig | null;
+	/** Currently selected fallback model. `null` means no fallback configured. `undefined` hides the section. */
+	selectedFallbackModel?: ChatModelConfig | null;
 	/** Called when the user picks a fallback model or clears the selection. */
-	onFallbackChange: (config: ChatModelConfig | null) => void;
+	onFallbackChange?: (config: ChatModelConfig | null) => void;
 	/** Currently selected TTS model. `null` means TTS is disabled. `undefined` hides the TTS section entirely. */
 	selectedTTSModel?: TTSModelConfig | null;
 	/** Called when the user picks a TTS model+voice or disables TTS. */
@@ -257,7 +257,7 @@ export function ModelParametersPopover({
 	);
 
 	const handleSelectFallback = (type: string, credentialId: string, model: string) => {
-		onFallbackChange({
+		onFallbackChange?.({
 			type,
 			credential_id: credentialId,
 			model,
@@ -277,69 +277,71 @@ export function ModelParametersPopover({
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="min-w-40">
 				{/* ----- Fallback model selection ----- */}
-				<DropdownMenuSub>
-					<DropdownMenuSubTrigger>
-						<span className="truncate">
-							{selectedFallbackModel
-								? t('model-parameters.fallbackLabelWithModel', {
-										model: selectedFallbackModel.model,
-									})
-								: t('model-parameters.fallbackLabel')}
-						</span>
-					</DropdownMenuSubTrigger>
-					<DropdownMenuSubContent className="max-h-72 overflow-y-auto">
-						{!hasFallbackOptions ? (
-							<div className="px-2 py-3 text-center text-sm text-muted-foreground">
-								<p>{t('llm-select.empty.title')}</p>
-							</div>
-						) : (
-							Object.entries(groups).map(([type, items], idx) => (
-								<div key={type}>
-									{idx > 0 && <DropdownMenuSeparator />}
-									<DropdownMenuLabel>
-										{type.replace(/_credential$/, '')}
-									</DropdownMenuLabel>
-									{items.flatMap(({ credential, models }) =>
-										models.map((m) => {
-											const isSelected =
-												selectedFallbackModel?.credential_id ===
-													credential.id &&
-												selectedFallbackModel?.model === m.name;
-											return (
-												<DropdownMenuCheckboxItem
-													key={`${credential.id}-${m.name}`}
-													checked={isSelected}
-													onCheckedChange={(checked) => {
-														if (checked) {
-															handleSelectFallback(
-																type,
-																credential.id,
-																m.name,
-															);
-														} else {
-															onFallbackChange(null);
-														}
-													}}
-												>
-													{m.label}
-												</DropdownMenuCheckboxItem>
-											);
-										}),
-									)}
+				{onFallbackChange !== undefined && (
+					<DropdownMenuSub>
+						<DropdownMenuSubTrigger>
+							<span className="truncate">
+								{selectedFallbackModel
+									? t('model-parameters.fallbackLabelWithModel', {
+											model: selectedFallbackModel.model,
+										})
+									: t('model-parameters.fallbackLabel')}
+							</span>
+						</DropdownMenuSubTrigger>
+						<DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+							{!hasFallbackOptions ? (
+								<div className="px-2 py-3 text-center text-sm text-muted-foreground">
+									<p>{t('llm-select.empty.title')}</p>
 								</div>
-							))
-						)}
-						<DropdownMenuSeparator />
-						<DropdownMenuCheckboxItem
-							checked={!selectedFallbackModel}
-							onCheckedChange={(checked) => {
-								if (checked) onFallbackChange(null);
-							}}
-						>
-							{t('llm-select.noFallback')}
-						</DropdownMenuCheckboxItem>
-					</DropdownMenuSubContent>
-				</DropdownMenuSub>
+							) : (
+								Object.entries(groups).map(([type, items], idx) => (
+									<div key={type}>
+										{idx > 0 && <DropdownMenuSeparator />}
+										<DropdownMenuLabel>
+											{type.replace(/_credential$/, '')}
+										</DropdownMenuLabel>
+										{items.flatMap(({ credential, models }) =>
+											models.map((m) => {
+												const isSelected =
+													selectedFallbackModel?.credential_id ===
+														credential.id &&
+													selectedFallbackModel?.model === m.name;
+												return (
+													<DropdownMenuCheckboxItem
+														key={`${credential.id}-${m.name}`}
+														checked={isSelected}
+														onCheckedChange={(checked) => {
+															if (checked) {
+																handleSelectFallback(
+																	type,
+																	credential.id,
+																	m.name,
+																);
+															} else {
+																onFallbackChange(null);
+															}
+														}}
+													>
+														{m.label}
+													</DropdownMenuCheckboxItem>
+												);
+											}),
+										)}
+									</div>
+								))
+							)}
+							<DropdownMenuSeparator />
+							<DropdownMenuCheckboxItem
+								checked={!selectedFallbackModel}
+								onCheckedChange={(checked) => {
+									if (checked) onFallbackChange(null);
+								}}
+							>
+								{t('llm-select.noFallback')}
+							</DropdownMenuCheckboxItem>
+						</DropdownMenuSubContent>
+					</DropdownMenuSub>
+				)}
 
 				{/* ----- Primary model parameters ----- */}
 				<DropdownMenuSub>

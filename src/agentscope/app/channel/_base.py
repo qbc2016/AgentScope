@@ -81,6 +81,13 @@ class ChannelBase(ABC):
 
         Returns ``None`` to indicate the event should be ignored.
         Must extract ``chat_id`` into ``metadata["chat_id"]``.
+
+        For channels using SDK/WebSocket callbacks (e.g. Feishu long-connection
+        mode), events bypass this method entirely and are normalized in a
+        separate internal hook (e.g. ``_normalize_sdk_event``). In that case,
+        this method may return None unconditionally. It is retained in the
+        interface to support HTTP-webhook-based channels where raw JSON
+        payloads are POSTed to the server.
         """
 
     @abstractmethod
@@ -121,7 +128,7 @@ class ChannelBase(ABC):
         Subclasses should override to provide platform-specific formatting.
         Default returns a plain-text fallback.
         """
-        return f"[工具审批] {tool_name}: {tool_input_summary[:200]}"
+        return f"[Tool Approval] {tool_name}: {tool_input_summary[:200]}"
 
     def build_resolved_card(
         self,
@@ -159,7 +166,7 @@ class ChannelBase(ABC):
         Default implementation returns an immediately-failed future
         (channel does not support interactive approvals).
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
         fut.set_result(None)
         return fut
@@ -177,6 +184,14 @@ class ChannelBase(ABC):
 
     async def on_stop(self) -> None:
         """Release connection resources."""
+
+    async def list_bot_chats(self) -> list[dict]:
+        """Fetch the list of chats/groups the bot is in from the platform.
+
+        Returns a list of dicts with at least 'chat_id' and 'name' keys.
+        Default: empty (platform doesn't support or not implemented).
+        """
+        return []
 
     def set_gateway(self, gateway: ChannelGateway) -> None:
         """Inject the gateway reference for dispatching events."""

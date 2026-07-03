@@ -14,8 +14,9 @@ from datetime import datetime
 from ..._logging import logger
 from ..message_bus import MessageBusKeys, MessageBus
 from ._base import ChannelBase, ChannelEvent
+from ._config import DefaultSessionConfig
 from ._session_mapper import SessionMapperBase, SessionMappingRecord
-from ._storage import ChannelRecord, ChannelStorageBase
+from ._repository import ChannelRecord, ChannelStorageBase
 from ..storage import StorageBase
 from .._service import ChatService
 from .._manager import ChatRunRegistry
@@ -39,7 +40,7 @@ class ChannelGateway:
         chat_run_registry: ChatRunRegistry,
         mapper: SessionMapperBase,
         channel_storage: ChannelStorageBase,
-        session_config: dict,
+        session_config: DefaultSessionConfig,
         response_timeout: float = 60.0,
         concurrent_users_limit: int = 1000,
     ) -> None:
@@ -62,6 +63,21 @@ class ChannelGateway:
         """Unregister a channel instance."""
         self._channels.pop(channel_id, None)
 
+    def get_channel(self, channel_id: str) -> ChannelBase | None:
+        """Return a registered channel instance by id, or None."""
+        return self._channels.get(channel_id)
+
+    def iter_channels(self) -> list[ChannelBase]:
+        """Return all registered channel instances."""
+        return list(self._channels.values())
+
+    async def list_bot_chats(self, channel_id: str) -> list[dict]:
+        """Fetch the bot's chat list from the platform for a channel."""
+        channel = self._channels.get(channel_id)
+        if channel is None:
+            return []
+        return await channel.list_bot_chats()
+
     # ── Public entry point ──
 
     async def handle_event(self, event: ChannelEvent) -> None:
@@ -69,6 +85,13 @@ class ChannelGateway:
 
         The distributed lock (via MessageBus.acquire_lock) ensures that
         events for the same user are serialized even across cluster nodes.
+
+        Note on TTL: The lock TTL is set to `response_timeout` as a
+        best-effort first-pass guard. For approval flows that may exceed
+        this duration (max_confirms × approval_timeout), the underlying
+        heartbeat mechanism extends the lock while the holder is alive.
+        If the lock expires (e.g., process crash), `_trigger_with_409_retry`
+        provides a secondary serialization guarantee at the session level.
         """
         user_key = f"{event.channel_id}:{event.channel_user_id}"
         lock_key = f"{_LOCK_PREFIX}{user_key}"
@@ -77,7 +100,7 @@ class ChannelGateway:
             try:
                 async with self._bus.acquire_lock(
                     lock_key,
-                    ttl_secs=int(self._timeout) + 150,
+                    ttl_secs=int(self._timeout),
                 ):
                     await self._process_event(event)
             except (asyncio.TimeoutError, TimeoutError):
@@ -89,7 +112,7 @@ class ChannelGateway:
                 if channel:
                     await channel.send_response(
                         event,
-                        "⚠️ 消息处理队列已满，请稍后再试",
+                        "⚠️ Too many requests, please try again later.",
                     )
             except Exception:
                 logger.exception(
@@ -100,7 +123,7 @@ class ChannelGateway:
                 if channel:
                     await channel.send_response(
                         event,
-                        "❌ 服务异常，请稍后重试",
+                        "❌ Service error, please try again later.",
                     )
 
     # ── Core processing flow ──
@@ -169,22 +192,20 @@ class ChannelGateway:
                 event.channel_user_id,
                 session_id,
             )
-            if channel:
-                await channel.send_response(
-                    event,
-                    "⏳ Agent 处理超时，请稍后重试",
-                )
+            await channel.send_response(
+                event,
+                "⏳ Agent response timed out, please try again later.",
+            )
 
         except Exception as e:
             logger.exception("_process_event failed: %s", e)
-            if channel:
-                await channel.send_response(
-                    event,
-                    "❌ 服务异常，请稍后重试",
-                )
+            await channel.send_response(
+                event,
+                "❌ Service error, please try again later.",
+            )
 
         finally:
-            if reaction_id and channel:
+            if reaction_id:
                 await channel.remove_reaction(event, reaction_id)
 
     async def _run_and_collect(
@@ -258,7 +279,10 @@ class ChannelGateway:
                         timeout=3.0,
                     )
                 except (asyncio.TimeoutError, TimeoutError):
-                    return "❌ Agent 处理异常，请检查 Agent 配置是否正确"
+                    return (
+                        "❌ Agent encountered an error. Please check the "
+                        "agent configuration."
+                    )
             else:
                 collect_task.cancel()
                 raise TimeoutError("No response within timeout")
@@ -306,14 +330,14 @@ class ChannelGateway:
 
             if approved is None:
                 collect_task.cancel()
-                all_text_parts.append("\n⌛ 工具审批超时，已中止。")
+                all_text_parts.append("\n⌛ Tool approval timed out, aborted.")
                 break
 
             # Both approve and deny trigger a resume (agent processes
             # the result either way). Continue collecting to see the
             # agent's next output (may be text or another tool call).
             if not approved:
-                all_text_parts.append("\n🚫 用户拒绝了工具执行。")
+                all_text_parts.append("\n🚫 User rejected tool execution.")
 
             logger.info(
                 "Approval %s (round %d), waiting for resumed run...",
@@ -329,7 +353,7 @@ class ChannelGateway:
             confirms_count,
             len(result),
         )
-        return result or "（agent 未返回文本内容）"
+        return result or "(Agent returned no text content)"
 
     async def _handle_approval(
         self,
@@ -359,7 +383,7 @@ class ChannelGateway:
             return None
 
         first_call = tool_calls[0]
-        tool_name = first_call.get("name", "未知工具")
+        tool_name = first_call.get("name", "unknown_tool")
         tool_input = first_call.get("input", "")
         request_id = confirm_data.get("id", "")
 
@@ -398,6 +422,8 @@ class ChannelGateway:
                 timeout=approval_timeout,
             )
         except (asyncio.TimeoutError, TimeoutError):
+            # Clean up the pending approval to prevent memory leak
+            channel.resolve_approval(request_id, False)
             # Update card to show timeout
             await channel.update_card(
                 card_msg_id,
@@ -491,7 +517,7 @@ class ChannelGateway:
         # Resolve chat_model_config: per-channel > global default
         model_cfg_dict = (
             channel_record.chat_model_config
-            or self._session_config.get("chat_model_config")
+            or self._session_config.chat_model_config
         )
         if not model_cfg_dict:
             raise RuntimeError(
@@ -499,6 +525,12 @@ class ChannelGateway:
                 "and no global default is configured. Cannot create session.",
             )
         chat_model_config = ChatModelConfig(**model_cfg_dict)
+
+        # Resolve fallback model config (optional)
+        fallback_cfg_dict = channel_record.fallback_chat_model_config
+        fallback_chat_model_config = (
+            ChatModelConfig(**fallback_cfg_dict) if fallback_cfg_dict else None
+        )
 
         session_name = f"channel:{event.channel_id}:{mapper_key}"
 
@@ -538,8 +570,9 @@ class ChannelGateway:
                 return agentscope_user_id, sess.id
 
         session_config = SessionConfig(
-            workspace_id=self._session_config.get("workspace_id", "default"),
+            workspace_id=self._session_config.workspace_id,
             chat_model_config=chat_model_config,
+            fallback_chat_model_config=fallback_chat_model_config,
             name=session_name,
         )
 
@@ -705,9 +738,28 @@ class ChannelGateway:
         early failures (e.g. agent not found).
         """
         from ...message import UserMsg
+        from ...message._block import TextBlock, DataBlock, Base64Source
 
         deadline = asyncio.get_running_loop().time() + max_wait
         backoff = 1.0
+
+        # Build message content: text + optional image attachments
+        msg_content: str | list = event.message
+        if event.attachments:
+            blocks: list[TextBlock | DataBlock] = []
+            for att in event.attachments:
+                if att.get("source_type") == "base64" and att.get("data"):
+                    blocks.append(
+                        DataBlock(
+                            source=Base64Source(
+                                data=att["data"],
+                                media_type=att.get("media_type", "image/png"),
+                            ),
+                        ),
+                    )
+            if blocks:
+                blocks.append(TextBlock(text=event.message))
+                msg_content = blocks
 
         while True:
             coro = self._chat_service.run(
@@ -716,7 +768,7 @@ class ChannelGateway:
                 agent_id=agent_id,
                 input_msg=UserMsg(
                     name=event.channel_user_id,
-                    content=event.message,
+                    content=msg_content,
                 ),
             )
             try:
@@ -819,7 +871,7 @@ class ChannelGateway:
                 text_parts.append("\n\n")
             elif evt_type == "TOOL_CALL_START":
                 tool_name = evt.get("tool_call_name", "")
-                text_parts.append(f"\n🔧 调用工具: {tool_name}\n")
+                text_parts.append(f"\n🔧 Calling tool: {tool_name}\n")
             elif evt_type == "TOOL_RESULT_TEXT_DELTA":
                 text_parts.append(evt.get("delta", ""))
             elif evt_type == "TOOL_RESULT_END":
@@ -833,7 +885,7 @@ class ChannelGateway:
                 )
                 break
             elif evt_type == "EXCEED_MAX_ITERS":
-                text_parts.append("\n⚠️ 已达最大推理轮数")
+                text_parts.append("\n⚠️ Maximum reasoning rounds reached.")
                 break
             elif evt_type == "REQUIRE_USER_CONFIRM":
                 confirm_data = evt

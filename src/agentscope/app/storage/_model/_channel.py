@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """The channel storage model."""
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+DmScope = Literal["MAIN", "PER_PEER", "PER_CHAT", "PER_CHANNEL_PEER"]
+PermissionModeType = Literal["dont_ask", "bypass", "default"]
 
 
 class ChannelRoutingRule(BaseModel):
@@ -39,12 +43,15 @@ class ChannelRecord(BaseModel):
     chat_model_config: dict[str, Any] | None = None
     """Model configuration for channel-created sessions."""
 
+    fallback_chat_model_config: dict[str, Any] | None = None
+    """Fallback model configuration. Used when the primary model fails."""
+
     routing_rules: list[ChannelRoutingRule] = Field(default_factory=list)
 
-    dm_scope: str = "PER_PEER"
+    dm_scope: DmScope = "PER_PEER"
     """Session isolation strategy."""
 
-    permission_mode: str = "dont_ask"
+    permission_mode: PermissionModeType = "dont_ask"
     """Permission mode for channel sessions."""
 
     enabled: bool = True

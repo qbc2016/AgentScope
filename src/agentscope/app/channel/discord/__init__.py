@@ -2,7 +2,7 @@
 """Discord channel adapter (not yet implemented)."""
 from typing import Any
 
-from .._base import ChannelBase
+from .._base import ChannelBase, ChannelEvent
 
 
 class DiscordChannel(ChannelBase):
@@ -21,10 +21,10 @@ class DiscordChannel(ChannelBase):
     async def start_listening(self) -> None:
         raise NotImplementedError
 
-    async def normalize(  # type: ignore[override]
+    async def normalize(
         self,
         raw_payload: dict,
-    ) -> None:
+    ) -> ChannelEvent | None:
         raise NotImplementedError
 
     async def send_response(self, event: Any, response: str) -> None:

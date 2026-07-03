@@ -508,6 +508,12 @@ class ChatService:
                     # Emit a synthetic REPLY_START so SSE subscribers
                     # (frontend, channel gateway) can detect the
                     # continuation without requiring special handling.
+                    #
+                    # IMPORTANT: The frontend SSE handler must NOT clear
+                    # its accumulated message buffer upon receiving a
+                    # REPLY_START with the same reply_id as the current
+                    # message. This event signals a continuation (e.g.
+                    # after an approval flow), not a fresh reply.
                     continuation_start = ReplyStartEvent(
                         session_id=session_id,
                         reply_id=agent.state.reply_id,

@@ -166,8 +166,7 @@ class MessageBusSessionMapper(SessionMapperBase):
         import json
 
         ns = self._namespace(channel_id)
-        all_fields = await self._bus.registry_getall(ns)
-        raw = all_fields.get(mapper_key)
+        raw = await self._bus.registry_get(ns, mapper_key)
         if raw is None:
             return None
         record_data = json.loads(raw)
