@@ -23,6 +23,26 @@ from .._manager import ChatRunRegistry
 
 _LOCK_PREFIX = "agentscope:channel:user_lock:"
 
+_TOOL_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "TOOL_CALL_START",
+        "TOOL_CALL_DELTA",
+        "TOOL_CALL_END",
+        "TOOL_RESULT_START",
+        "TOOL_RESULT_TEXT_DELTA",
+        "TOOL_RESULT_DATA_DELTA",
+        "TOOL_RESULT_END",
+    },
+)
+
+_THINKING_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "THINKING_BLOCK_START",
+        "THINKING_BLOCK_DELTA",
+        "THINKING_BLOCK_END",
+    },
+)
+
 
 class ChannelGateway:
     """Core orchestration engine for channel events.
@@ -136,6 +156,7 @@ class ChannelGateway:
 
         session_id = "unknown"
         reaction_id: str | None = None
+        response_sent = False
         try:
             # Step 0: Add a "processing" reaction to acknowledge receipt
             reaction_id = await channel.add_reaction(event, "OnIt")
@@ -180,6 +201,7 @@ class ChannelGateway:
 
             # Step 7: Send back to channel
             await channel.send_response(event, response)
+            response_sent = True
 
             # Step 8: Remove the "processing" reaction
             if reaction_id:
@@ -199,14 +221,18 @@ class ChannelGateway:
 
         except Exception as e:
             logger.exception("_process_event failed: %s", e)
-            await channel.send_response(
-                event,
-                "❌ Service error, please try again later.",
-            )
+            if not response_sent:
+                await channel.send_response(
+                    event,
+                    "❌ Service error, please try again later.",
+                )
 
         finally:
             if reaction_id:
-                await channel.remove_reaction(event, reaction_id)
+                try:
+                    await channel.remove_reaction(event, reaction_id)
+                except Exception:
+                    pass
 
     async def _run_and_collect(
         self,
@@ -268,11 +294,30 @@ class ChannelGateway:
 
             if not done:
                 collect_task.cancel()
+                if run_task is not None:
+                    run_task.cancel()
                 raise TimeoutError("No response within timeout")
 
             if collect_task in done:
                 text, confirm_data = collect_task.result()
+                # Clean up run_task
+                if run_task is not None:
+                    if not run_task.done():
+                        run_task.cancel()
+                    elif not run_task.cancelled():
+                        exc = run_task.exception()
+                        if exc is not None:
+                            logger.error("Agent run task failed: %s", exc)
             elif run_task and run_task in done:
+                # Log run_task exception if any
+                if (
+                    not run_task.cancelled()
+                    and run_task.exception() is not None
+                ):
+                    logger.error(
+                        "Agent run task failed: %s",
+                        run_task.exception(),
+                    )
                 try:
                     text, confirm_data = await asyncio.wait_for(
                         collect_task,
@@ -285,6 +330,8 @@ class ChannelGateway:
                     )
             else:
                 collect_task.cancel()
+                if run_task is not None:
+                    run_task.cancel()
                 raise TimeoutError("No response within timeout")
 
             if text:
@@ -810,22 +857,6 @@ class ChannelGateway:
         run_started = False
         confirm_data: dict | None = None
 
-        TOOL_EVENT_TYPES = {
-            "TOOL_CALL_START",
-            "TOOL_CALL_DELTA",
-            "TOOL_CALL_END",
-            "TOOL_RESULT_START",
-            "TOOL_RESULT_TEXT_DELTA",
-            "TOOL_RESULT_DATA_DELTA",
-            "TOOL_RESULT_END",
-        }
-
-        THINKING_EVENT_TYPES = {
-            "THINKING_BLOCK_START",
-            "THINKING_BLOCK_DELTA",
-            "THINKING_BLOCK_END",
-        }
-
         def _on_ready() -> None:
             if ready_signal and not ready_signal.is_set():
                 ready_signal.set()
@@ -857,10 +888,10 @@ class ChannelGateway:
                 )
                 continue
 
-            if filter_tool_messages and evt_type in TOOL_EVENT_TYPES:
+            if filter_tool_messages and evt_type in _TOOL_EVENT_TYPES:
                 continue
 
-            if filter_thinking_messages and evt_type in THINKING_EVENT_TYPES:
+            if filter_thinking_messages and evt_type in _THINKING_EVENT_TYPES:
                 continue
 
             if evt_type == "THINKING_BLOCK_START":

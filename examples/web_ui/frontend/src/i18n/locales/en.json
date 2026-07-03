@@ -571,10 +571,10 @@
 			"appSecretPlaceholder": "Enter App Secret",
 			"dmScope": "Session Scope",
 			"permissionMode": "Permission Mode",
-			"filterToolMessages": "Show Tool Messages",
-			"filterToolMessagesDesc": "Display tool call/result messages in the channel.",
-			"filterThinking": "Show Thinking",
-			"filterThinkingDesc": "Display model reasoning process in the channel."
+			"showToolMessages": "Show Tool Messages",
+			"showToolMessagesDesc": "Display tool call/result messages in the channel.",
+			"showThinking": "Show Thinking",
+			"showThinkingDesc": "Display model reasoning process in the channel."
 		},
 		"dmScopeOptions": {
 			"perPeer": "Per Peer",

@@ -298,13 +298,17 @@ class ChannelManager:
         """Instantiate, initialise, and launch a channel listener."""
         channel = self._create_channel_instance(record)
         await channel.on_start()
-        channel.set_gateway(self._gateway)
-        self._gateway.register_channel(channel)
-        task = asyncio.create_task(
-            channel.start_listening(),
-            name=f"channel-listener:{record.channel_id}",
-        )
-        self._channel_tasks[record.channel_id] = task
+        try:
+            channel.set_gateway(self._gateway)
+            self._gateway.register_channel(channel)
+            task = asyncio.create_task(
+                channel.start_listening(),
+                name=f"channel-listener:{record.channel_id}",
+            )
+            self._channel_tasks[record.channel_id] = task
+        except Exception:
+            await channel.on_stop()
+            raise
         logger.info(
             "Channel '%s' (%s) started.",
             record.channel_id,

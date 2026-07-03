@@ -974,7 +974,7 @@ class RedisStorage(StorageBase):
             self.key_config.channel_global_index,
             f"{user_id}:{record.channel_id}",
         )
-        await self._client.set(
+        await self._set_with_ttl(
             botid_key,
             f"{user_id}:{record.channel_id}",
         )

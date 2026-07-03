@@ -149,6 +149,26 @@ async def _get_type_registry(request: Request) -> ChannelTypeRegistry:
     return registry
 
 
+async def _get_owned_channel(
+    channel_id: str,
+    user_id: str,
+    manager: ChannelManager,
+) -> ChannelRecord:
+    """Fetch a channel and verify the requesting user owns it."""
+    record = await manager.channel_storage.get_channel(channel_id)
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Channel '{channel_id}' not found.",
+        )
+    if record.tenant_user_id and record.tenant_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to access this channel.",
+        )
+    return record
+
+
 # ── Endpoints ──
 
 
@@ -163,10 +183,12 @@ async def list_channel_types(
 @channel_router.get("/")
 async def list_channels(
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> list[ChannelResponse]:
-    """List all registered channels."""
+    """List channels owned by the current user."""
     records = await manager.channel_storage.list_channels()
-    return [_to_response(r) for r in records]
+    owned = [r for r in records if r.tenant_user_id == user_id]
+    return [_to_response(r) for r in owned]
 
 
 @channel_router.post("/", status_code=status.HTTP_201_CREATED)
@@ -227,14 +249,10 @@ async def create_channel(
 async def get_channel(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
     """Get channel details by id."""
-    record = await manager.channel_storage.get_channel(channel_id)
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
-        )
+    record = await _get_owned_channel(channel_id, user_id, manager)
     return _to_response(record)
 
 
@@ -243,8 +261,11 @@ async def update_channel(
     channel_id: str,
     body: UpdateChannelRequest,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
     """Update channel configuration."""
+    await _get_owned_channel(channel_id, user_id, manager)
+
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(
@@ -270,8 +291,10 @@ async def update_channel(
 async def delete_channel(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> None:
     """Delete a channel and clean up all associated resources."""
+    await _get_owned_channel(channel_id, user_id, manager)
     await manager.remove_channel(channel_id)
 
 
@@ -279,8 +302,10 @@ async def delete_channel(
 async def enable_channel(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Enable a disabled channel."""
+    await _get_owned_channel(channel_id, user_id, manager)
     try:
         await manager.enable_channel(channel_id)
     except ChannelNotFoundError as e:
@@ -295,8 +320,10 @@ async def enable_channel(
 async def disable_channel(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Disable and stop a running channel."""
+    await _get_owned_channel(channel_id, user_id, manager)
     try:
         await manager.disable_channel(channel_id)
     except ChannelNotFoundError as e:
@@ -311,8 +338,10 @@ async def disable_channel(
 async def channel_status(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Get runtime status of a channel."""
+    await _get_owned_channel(channel_id, user_id, manager)
     return await manager.get_channel_status(channel_id)
 
 
@@ -320,14 +349,10 @@ async def channel_status(
 async def test_channel(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Test channel connection (placeholder)."""
-    record = await manager.channel_storage.get_channel(channel_id)
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
-        )
+    await _get_owned_channel(channel_id, user_id, manager)
     return {"status": "ok", "message": "Connection test not yet implemented."}
 
 
@@ -338,14 +363,10 @@ async def test_channel(
 async def list_bindings(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> list[BindingResponse]:
     """List routing rules for a channel."""
-    record = await manager.channel_storage.get_channel(channel_id)
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
-        )
+    record = await _get_owned_channel(channel_id, user_id, manager)
     return [
         BindingResponse(
             id=i,
@@ -366,14 +387,10 @@ async def add_binding(
     channel_id: str,
     body: AddBindingRequest,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> BindingResponse:
     """Add a routing rule to a channel."""
-    record = await manager.channel_storage.get_channel(channel_id)
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
-        )
+    record = await _get_owned_channel(channel_id, user_id, manager)
 
     new_rule = RoutingRule(
         metadata_key=body.metadata_key,
@@ -411,14 +428,10 @@ async def delete_binding(
     channel_id: str,
     binding_idx: int,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> None:
     """Remove a routing rule by index."""
-    record = await manager.channel_storage.get_channel(channel_id)
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
-        )
+    record = await _get_owned_channel(channel_id, user_id, manager)
 
     rules = list(record.routing_rules)
     if binding_idx < 0 or binding_idx >= len(rules):
@@ -444,6 +457,7 @@ async def delete_binding(
 async def list_chat_ids(
     channel_id: str,
     manager: ChannelManager = Depends(_get_channel_manager),
+    user_id: str = Depends(get_current_user_id),
 ) -> list[dict]:
     """List known chat_ids for a channel.
 
@@ -453,12 +467,7 @@ async def list_chat_ids(
 
     Returns a list of {chat_id, name?, source} dicts.
     """
-    record = await manager.channel_storage.get_channel(channel_id)
-    if not record:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Channel '{channel_id}' not found.",
-        )
+    await _get_owned_channel(channel_id, user_id, manager)
 
     seen_ids = await manager.session_mapper.list_seen_chat_ids(
         channel_id,

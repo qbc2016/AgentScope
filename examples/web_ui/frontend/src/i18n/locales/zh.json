@@ -571,10 +571,10 @@
 			"appSecretPlaceholder": "输入 App Secret",
 			"dmScope": "会话隔离策略",
 			"permissionMode": "权限模式",
-			"filterToolMessages": "显示工具消息",
-			"filterToolMessagesDesc": "在频道中展示工具调用和返回消息。",
-			"filterThinking": "显示思维过程",
-			"filterThinkingDesc": "在频道中展示模型推理过程。"
+			"showToolMessages": "显示工具消息",
+			"showToolMessagesDesc": "在频道中展示工具调用和返回消息。",
+			"showThinking": "显示思维过程",
+			"showThinkingDesc": "在频道中展示模型推理过程。"
 		},
 		"dmScopeOptions": {
 			"perPeer": "按用户隔离",
