@@ -17,6 +17,7 @@ from ._router import (
     session_router,
     workspace_router,
 )
+from .channel import channel_router
 from ._types import AgentMiddlewareFactory, AgentToolFactory, SubAgentTemplate
 from .message_bus import MessageBus
 from .storage import StorageBase
@@ -253,6 +254,7 @@ def create_app(
         workspace_router,
         model_router,
         tts_model_router,
+        channel_router,
     ):
         app.include_router(router)
 

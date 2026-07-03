@@ -505,6 +505,20 @@ class ChatService:
                     elif input_msg:
                         reply_msg.append_event(input_msg)
 
+                    # Emit a synthetic REPLY_START so SSE subscribers
+                    # (frontend, channel gateway) can detect the
+                    # continuation without requiring special handling.
+                    continuation_start = ReplyStartEvent(
+                        session_id=session_id,
+                        reply_id=agent.state.reply_id,
+                        name=agent_record.data.name,
+                    )
+                    await publish_session_event(
+                        self._message_bus,
+                        session_id,
+                        continuation_start.model_dump(mode="json"),
+                    )
+
                     async for event in agent.reply_stream(inputs=input_msg):
                         await publish_session_event(
                             self._message_bus,

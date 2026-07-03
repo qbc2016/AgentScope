@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ._base import StorageBase
 from ._model import (
     AgentRecord,
+    ChannelRecord,
     CredentialRecord,
     KnowledgeBaseRecord,
     KnowledgeDocumentRecord,
@@ -84,6 +85,11 @@ class RedisStorage(StorageBase):
         schedule_session_index: str = (
             "agentscope:user:{user_id}:schedule:{schedule_id}:sessions"
         )
+
+        channel: str = "agentscope:user:{user_id}:channel:{channel_id}"
+        channel_index: str = "agentscope:user:{user_id}:channels"
+        channel_global_index: str = "agentscope:channels"
+        channel_botid_index: str = "agentscope:channel_botid:{platform_bot_id}"
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -940,6 +946,137 @@ class RedisStorage(StorageBase):
             if raw:
                 records.append(ScheduleRecord.model_validate_json(raw))
         return records
+
+    # ------------------------------------------------------------------
+    # Channel persistence
+    # ------------------------------------------------------------------
+
+    async def upsert_channel(
+        self,
+        user_id: str,
+        record: ChannelRecord,
+    ) -> str:
+        """Persist a channel record with user and global indexes."""
+        record.tenant_user_id = user_id
+        key = self._key(
+            self.key_config.channel,
+            user_id=user_id,
+            channel_id=record.channel_id,
+        )
+        index_key = self._key(self.key_config.channel_index, user_id=user_id)
+        botid_key = self._key(
+            self.key_config.channel_botid_index,
+            platform_bot_id=record.platform_bot_id,
+        )
+        await self._set_with_ttl(key, record.model_dump_json())
+        await self._client.sadd(index_key, record.channel_id)
+        await self._client.sadd(
+            self.key_config.channel_global_index,
+            f"{user_id}:{record.channel_id}",
+        )
+        await self._client.set(
+            botid_key,
+            f"{user_id}:{record.channel_id}",
+        )
+        return record.channel_id
+
+    async def get_channel(
+        self,
+        user_id: str,
+        channel_id: str,
+    ) -> ChannelRecord | None:
+        """Fetch a single channel record by id."""
+        key = self._key(
+            self.key_config.channel,
+            user_id=user_id,
+            channel_id=channel_id,
+        )
+        raw = await self._client.get(key)
+        if not raw:
+            return None
+        return ChannelRecord.model_validate_json(raw)
+
+    async def list_channels(self, user_id: str) -> list[ChannelRecord]:
+        """Return all channel records belonging to the given user."""
+        index_key = self._key(self.key_config.channel_index, user_id=user_id)
+        ids = await self._client.smembers(index_key)
+        records = []
+        for channel_id in ids:
+            raw = await self._client.get(
+                self._key(
+                    self.key_config.channel,
+                    user_id=user_id,
+                    channel_id=channel_id,
+                ),
+            )
+            if raw:
+                records.append(ChannelRecord.model_validate_json(raw))
+        return records
+
+    async def delete_channel(
+        self,
+        user_id: str,
+        channel_id: str,
+    ) -> bool:
+        """Delete a channel record and clean up all indexes."""
+        key = self._key(
+            self.key_config.channel,
+            user_id=user_id,
+            channel_id=channel_id,
+        )
+        raw = await self._client.get(key)
+        if not raw:
+            return False
+
+        record = ChannelRecord.model_validate_json(raw)
+        index_key = self._key(self.key_config.channel_index, user_id=user_id)
+        botid_key = self._key(
+            self.key_config.channel_botid_index,
+            platform_bot_id=record.platform_bot_id,
+        )
+
+        await self._client.delete(key)
+        await self._client.srem(index_key, channel_id)
+        await self._client.srem(
+            self.key_config.channel_global_index,
+            f"{user_id}:{channel_id}",
+        )
+        await self._client.delete(botid_key)
+        return True
+
+    async def list_all_channels(self) -> list[ChannelRecord]:
+        """Return every channel record across all users."""
+        entries = await self._client.smembers(
+            self.key_config.channel_global_index,
+        )
+        records = []
+        for entry in entries:
+            user_id, channel_id = entry.split(":", 1)
+            raw = await self._client.get(
+                self._key(
+                    self.key_config.channel,
+                    user_id=user_id,
+                    channel_id=channel_id,
+                ),
+            )
+            if raw:
+                records.append(ChannelRecord.model_validate_json(raw))
+        return records
+
+    async def get_channel_by_platform_bot_id(
+        self,
+        platform_bot_id: str,
+    ) -> ChannelRecord | None:
+        """Find a channel by platform bot id using the lookup index."""
+        botid_key = self._key(
+            self.key_config.channel_botid_index,
+            platform_bot_id=platform_bot_id,
+        )
+        ref = await self._client.get(botid_key)
+        if not ref:
+            return None
+        user_id, channel_id = ref.split(":", 1)
+        return await self.get_channel(user_id, channel_id)
 
     # ------------------------------------------------------------------
     # Message persistence
