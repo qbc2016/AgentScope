@@ -290,17 +290,15 @@ class OpenAIResponseModel(ChatModelBase):
             elif event_type == "response.output_item.added":
                 item = event.item
                 if getattr(item, "type", None) == "function_call":
-                    # item.id       -> fc_xxx  (used as ToolCallBlock.id
-                    #                  and echoed back as function_call.id
-                    #                  in multi-turn history)
-                    # item.call_id  -> call_xxx (used as
-                    #                  function_call_output.call_id)
-                    # Only record the id/name/call_id here — do NOT emit
-                    # an empty-input delta so downstream consumers don't
-                    # see a leading no-op chunk. The block is created on
-                    # the first argument delta below.
+                    # item.call_id (call_xxx) is used as ToolCallBlock.id
+                    # so the formatter can echo it back as
+                    # function_call.call_id / function_call_output.call_id.
+                    # Only record the mapping here — do NOT emit an
+                    # empty-input delta so downstream consumers don't see
+                    # a leading no-op chunk. The block is created on the
+                    # first argument delta below.
                     tool_call_mapping[item.id] = (
-                        getattr(item, "call_id", None),
+                        item.call_id,
                         getattr(item, "name", "") or "unknown",
                     )
 
@@ -309,10 +307,9 @@ class OpenAIResponseModel(ChatModelBase):
                 if item_id in tool_call_mapping:
                     call_id, name = tool_call_mapping[item_id]
                     delta_res.append_tool_call(
-                        block_id=item_id,
+                        block_id=call_id,
                         name=name,
                         input=event.delta or "",
-                        call_id=call_id,
                     )
 
             elif event_type == "response.completed":
@@ -401,8 +398,7 @@ class OpenAIResponseModel(ChatModelBase):
             elif item_type == "function_call":
                 content_blocks.append(
                     ToolCallBlock(
-                        id=getattr(item, "id", ""),
-                        call_id=getattr(item, "call_id", None),
+                        id=item.call_id,
                         name=item.name,
                         input=getattr(item, "arguments", "") or "{}",
                     ),
