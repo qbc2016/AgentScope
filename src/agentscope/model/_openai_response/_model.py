@@ -298,7 +298,7 @@ class OpenAIResponseModel(ChatModelBase):
                     # a leading no-op chunk. The block is created on the
                     # first argument delta below.
                     tool_call_mapping[item.id] = (
-                        getattr(item, "call_id", None) or item.id,
+                        item.call_id,
                         getattr(item, "name", "") or "unknown",
                     )
 
@@ -398,8 +398,7 @@ class OpenAIResponseModel(ChatModelBase):
             elif item_type == "function_call":
                 content_blocks.append(
                     ToolCallBlock(
-                        id=getattr(item, "call_id", None)
-                        or getattr(item, "id", ""),
+                        id=item.call_id,
                         name=item.name,
                         input=getattr(item, "arguments", "") or "{}",
                     ),
