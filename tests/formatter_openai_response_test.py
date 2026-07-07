@@ -179,7 +179,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             },
             {
                 "type": "function_call",
-                "id": "call_1",
                 "call_id": "call_1",
                 "name": "get_capital",
                 "arguments": '{"country": "Japan"}',
@@ -231,7 +230,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
 
         self._gt_tool_call = {
             "type": "function_call",
-            "id": "call_1",
             "call_id": "call_1",
             "name": "get_capital",
             "arguments": '{"country": "Japan"}',
@@ -450,7 +448,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             [
                 {
                     "type": "function_call",
-                    "id": "call_img",
                     "call_id": "call_img",
                     "name": "get_map",
                     "arguments": '{"city": "Tokyo"}',
@@ -627,14 +624,12 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 },
                 {
                     "type": "function_call",
-                    "id": "call_1",
                     "call_id": "call_1",
                     "name": "func_1",
                     "arguments": '{"arg": "value1"}',
                 },
                 {
                     "type": "function_call",
-                    "id": "call_2",
                     "call_id": "call_2",
                     "name": "func_2",
                     "arguments": '{"arg": "value2"}',
@@ -657,7 +652,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 },
                 {
                     "type": "function_call",
-                    "id": "call_3",
                     "call_id": "call_3",
                     "name": "func_3",
                     "arguments": '{"arg": "value3"}',
@@ -669,7 +663,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
                 },
                 {
                     "type": "function_call",
-                    "id": "call_4",
                     "call_id": "call_4",
                     "name": "func_4",
                     "arguments": '{"arg": "value4"}',
@@ -778,24 +771,21 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             res,
         )
 
-    async def test_tool_call_two_id_scenario(self) -> None:
-        """When ToolCallBlock carries a separate call_id (OpenAI Responses
-        API two-ID style), the formatter must use call_id (not id) for
-        function_call_output."""
+    async def test_tool_call_id_used_as_call_id(self) -> None:
+        """The formatter uses ToolCallBlock.id as function_call.call_id
+        and ToolResultBlock.id as function_call_output.call_id."""
         fmt = OpenAIResponseFormatter()
         msgs = [
             AssistantMsg(
                 name="assistant",
                 content=[
                     ToolCallBlock(
-                        id="fc_abc",
-                        call_id="call-1",
+                        id="call-1",
                         name="search",
                         input='{"q": "test"}',
                     ),
                     ToolResultBlock(
-                        id="fc_abc",
-                        call_id="call-1",
+                        id="call-1",
                         name="search",
                         output=[TextBlock(text="result")],
                         state=ToolResultState.SUCCESS,
@@ -808,7 +798,6 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             [
                 {
                     "type": "function_call",
-                    "id": "fc_abc",
                     "call_id": "call-1",
                     "name": "search",
                     "arguments": '{"q": "test"}',

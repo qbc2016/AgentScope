@@ -233,21 +233,10 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                         )
 
                 elif isinstance(block, ToolCallBlock):
-                    # The Responses API distinguishes two identifiers on a
-                    # function_call item:
-                    #   id       → fc_xxx: the item identifier used when
-                    #              echoing the item in multi-turn history
-                    #   call_id  → call_xxx: the identifier that must be
-                    #              echoed in the matching function_call_output
-                    # For other APIs (Chat Completions, DashScope …) only one
-                    # ID exists; call_id extra field is None and we fall back
-                    # to id for both fields.
                     function_calls.append(
                         {
                             "type": "function_call",
-                            "id": block.id,
-                            "call_id": getattr(block, "call_id", None)
-                            or block.id,
+                            "call_id": block.id,
                             "name": block.name,
                             "arguments": block.input,
                         },
@@ -282,8 +271,7 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                     items.append(
                         {
                             "type": "function_call_output",
-                            "call_id": getattr(block, "call_id", None)
-                            or block.id,
+                            "call_id": block.id,
                             "output": textual_output,
                         },
                     )

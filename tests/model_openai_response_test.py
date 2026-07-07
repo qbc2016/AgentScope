@@ -144,8 +144,7 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
         self,
         mock_client_cls: MagicMock,
     ) -> None:
-        """Parsing a tool-call response creates a ToolCallBlock with
-        call_id."""
+        """Parsing a tool-call response stores call_id as ToolCallBlock.id."""
         mock_create = AsyncMock(
             return_value=_mock_completion(
                 function_calls=[
@@ -168,8 +167,7 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
                 True,
                 [
                     ToolCallBlock(
-                        id="fc_abc",
-                        call_id="call-1",
+                        id="call-1",
                         name="get_weather",
                         input='{"city":"BJ"}',
                     ),
@@ -369,8 +367,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
         self,
         mock_client_cls: MagicMock,
     ) -> None:
-        """Stream function-call events yield deltas then final
-        ToolCallBlock."""
+        """Stream function-call events use call_id as ToolCallBlock.id."""
         fc_item = MagicMock()
         fc_item.type = "function_call"
         fc_item.id = "fc_1"
@@ -418,8 +415,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
                     False,
                     [
                         ToolCallBlock(
-                            id="fc_1",
-                            call_id="call-1",
+                            id="call-1",
                             name="search",
                             input='{"q":',
                         ),
@@ -429,8 +425,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
                     False,
                     [
                         ToolCallBlock(
-                            id="fc_1",
-                            call_id="call-1",
+                            id="call-1",
                             name="search",
                             input='"test"}',
                         ),
@@ -440,8 +435,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
                     True,
                     [
                         ToolCallBlock(
-                            id="fc_1",
-                            call_id="call-1",
+                            id="call-1",
                             name="search",
                             input='{"q":"test"}',
                         ),
