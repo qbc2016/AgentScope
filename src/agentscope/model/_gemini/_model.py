@@ -29,6 +29,8 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
     function removes or rewrites the following:
 
     - ``additionalProperties``: removed entirely.
+    - ``const``: converted to an equivalent single-value ``enum``,
+      since Gemini's ``Schema`` model does not support ``const``.
     - ``anyOf`` containing a ``{"type": "null"}`` entry: simplified to
       the single non-null type. If there is exactly one non-null
       alternative it is inlined directly; otherwise the ``anyOf`` is
@@ -55,6 +57,12 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
 
     # Remove additionalProperties — not supported by Gemini
     schema.pop("additionalProperties", None)
+
+    # Convert `const` into an equivalent single-value `enum` — Gemini's
+    # Schema model does not support the `const` keyword.
+    if "const" in schema:
+        const_value = schema.pop("const")
+        schema.setdefault("enum", [const_value])
 
     # Simplify anyOf that only differs by a null type, e.g. Optional[X]
     if "anyOf" in schema and isinstance(schema["anyOf"], list):
