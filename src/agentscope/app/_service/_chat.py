@@ -11,10 +11,13 @@ Events produced by the agent are not exposed back through this method
 that wants them subscribes through the
 ``GET /sessions/{sid}/stream`` SSE endpoint.
 """
+import asyncio
+
 from fastapi import HTTPException
 
+from .._bus_ops import enqueue_run_trigger, publish_session_event
 from ..message_bus import MessageBus, MessageBusKeys
-from .._bus_ops import publish_session_event
+from ..rag.knowledge_base_manager import KnowledgeBaseManagerBase
 from ..storage import StorageBase, AgentRecord, SessionRecord
 from .._manager import BackgroundTaskManager, SchedulerManager
 from ..workspace_manager import WorkspaceManagerBase
@@ -23,7 +26,8 @@ from ..middleware import (
     StateChangeMiddleware,
     ToolOffloadMiddleware,
 )
-from ...middleware import TTSMiddleware
+from ...middleware import TTSMiddleware, RAGMiddleware
+from ...rag import KnowledgeBase
 from .._types import (
     AgentMiddlewareFactory,
     AgentToolFactory,
@@ -43,6 +47,7 @@ from ...event import (
     ReplyStartEvent,
     UserConfirmResultEvent,
     ExternalExecutionResultEvent,
+    UserInterruptEvent,
 )
 from ...message import AssistantMsg, Msg, ToolCallState
 from ...permission import AdditionalWorkingDirectory
@@ -70,6 +75,7 @@ class ChatService:
         scheduler_manager: SchedulerManager,
         background_task_manager: BackgroundTaskManager,
         message_bus: MessageBus,
+        knowledge_base_manager: KnowledgeBaseManagerBase | None = None,
         extra_agent_middlewares: AgentMiddlewareFactory | None = None,
         extra_agent_tools: AgentToolFactory | None = None,
         custom_subagent_templates: dict[str, SubAgentTemplate] | None = None,
@@ -97,6 +103,15 @@ class ChatService:
                 distributed locking (via :meth:`session_run`), event
                 replay + live fan-out (via :meth:`session_publish_event`),
                 and inbox delivery (via :class:`InboxMiddleware`).
+            knowledge_base_manager (`KnowledgeBaseManagerBase | None`, \
+             optional):
+                The application's knowledge base manager.  When
+                provided and the session config carries a
+                ``knowledge_config``, a
+                :class:`~agentscope.middleware.RAGMiddleware`
+                is attached to the agent at run time.  ``None``
+                disables knowledge-base wiring even for sessions that
+                have one configured.
             extra_agent_middlewares (`AgentMiddlewareFactory | None`, \
              optional):
                 Async factory invoked at every chat turn to produce
@@ -125,6 +140,7 @@ class ChatService:
         self._scheduler_manager = scheduler_manager
         self._background_task_manager = background_task_manager
         self._message_bus = message_bus
+        self._knowledge_base_manager = knowledge_base_manager
         self._extra_agent_middlewares = extra_agent_middlewares
         self._extra_agent_tools = extra_agent_tools
         self._sub_agent_templates = custom_subagent_templates
@@ -144,6 +160,7 @@ class ChatService:
         | list[Msg]
         | UserConfirmResultEvent
         | ExternalExecutionResultEvent
+        | UserInterruptEvent
         | None = None,
     ) -> None:
         """Drive a chat run to completion.
@@ -179,6 +196,9 @@ class ChatService:
                 - ``UserConfirmResultEvent`` /
                   ``ExternalExecutionResultEvent``: resume an awaiting
                   tool call (Case B).
+                - ``UserInterruptEvent``: abort a parked reply — the
+                  agent closes pending tool calls with interrupted
+                  results and ends the reply (Case B, no reasoning).
         """
         try:
             await self._run_impl(user_id, session_id, agent_id, input_msg)
@@ -192,6 +212,65 @@ class ChatService:
                 str(e),
             )
 
+    async def interrupt(
+        self,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+    ) -> None:
+        """Interrupt an in-progress reply for a session.
+
+        Two paths, chosen by session liveness:
+
+        - **Running** (lock held): publish on the interrupt channel so
+          the local :class:`~agentscope.app._manager.CancelDispatcher`
+          cancels its chat-run task; the agent's ``CancelledError``
+          cleanup runs (fake tool results for pending calls, fallback
+          message, ``ReplyEndEvent(INTERRUPTED)``).
+        - **Not running**: enqueue a ``resume`` trigger carrying a
+          :class:`UserInterruptEvent`. If the session is parked on
+          HITL, the agent short-circuits into the same cleanup path;
+          if it is idle, the agent silently no-ops. Callers do not
+          need to distinguish the two — the operation is idempotent.
+
+        Args:
+            user_id (`str`):
+                Authenticated caller's user id.
+            session_id (`str`):
+                Target session id.
+            agent_id (`str`):
+                Agent that owns the session.
+
+        Raises:
+            LookupError:
+                The session does not exist.
+        """
+        session = await self._storage.get_session(
+            user_id,
+            agent_id,
+            session_id,
+        )
+        if session is None:
+            raise LookupError(f"Session '{session_id}' not found.")
+
+        if await self._message_bus.is_locked(
+            MessageBusKeys.session_lock(session_id),
+        ):
+            await self._message_bus.publish(
+                MessageBusKeys.session_interrupt_channel(),
+                {"session_id": session_id},
+            )
+            return
+
+        await enqueue_run_trigger(
+            self._message_bus,
+            user_id=user_id,
+            session_id=session_id,
+            agent_id=agent_id,
+            kind=MessageBusKeys.WAKEUP_KIND_RESUME,
+            inputs=UserInterruptEvent(reply_id=session.state.reply_id),
+        )
+
     async def _run_impl(
         self,
         user_id: str,
@@ -201,6 +280,7 @@ class ChatService:
         | list[Msg]
         | UserConfirmResultEvent
         | ExternalExecutionResultEvent
+        | UserInterruptEvent
         | None,
     ) -> None:
         """The actual chat-run body; wrapped by :meth:`run` for error
@@ -251,24 +331,7 @@ class ChatService:
             )
 
         # ----------------------------------------------------------------
-        # 2. Toolkit (workspace tools + planning + ToolStop + schedule +
-        # team + extras + skills + mcps).
-        # ----------------------------------------------------------------
-        toolkit = await get_toolkit(
-            storage=self._storage,
-            workspace=workspace,
-            scheduler_manager=self._scheduler_manager,
-            background_task_manager=self._background_task_manager,
-            message_bus=self._message_bus,
-            user_id=user_id,
-            agent_record=agent_record,
-            session_record=session_record,
-            extra_factory=self._extra_agent_tools,
-            sub_agent_templates=self._sub_agent_templates,
-        )
-
-        # ----------------------------------------------------------------
-        # 3. Middlewares — framework-supplied first, then caller extras.
+        # 2. Middlewares — framework-supplied first, then caller extras.
         # Background-tool completions deliver their results via
         # ``message_bus.inbox_push + enqueue_wakeup``, so the dispatcher
         # (any process) wakes an idle session — no in-process retrigger
@@ -297,7 +360,7 @@ class ChatService:
             )
 
         # ----------------------------------------------------------------
-        # 3b. TTS middleware — inject when the session has a TTS config.
+        # 2b. TTS middleware — inject when the session has a TTS config.
         # ----------------------------------------------------------------
         tts_cfg = session_record.config.tts_model_config
         if tts_cfg is not None:
@@ -307,6 +370,67 @@ class ChatService:
                 self._storage,
             )
             middlewares.append(TTSMiddleware(tts_model))
+
+        # ----------------------------------------------------------------
+        # 2c. Knowledge-base middleware — inject when the session has KBs
+        # attached.  Each KB resolves to its own :class:`KnowledgeBase` handle
+        # (own embedding model + vector store), so the middleware can
+        # retrieve across heterogeneous KBs in one fan-out.
+        # ----------------------------------------------------------------
+        kb_cfg = session_record.config.knowledge_config
+        if (
+            kb_cfg is not None
+            and kb_cfg.knowledge_base_ids
+            and self._knowledge_base_manager is not None
+        ):
+            knowledges: list[KnowledgeBase] = []
+            for kb_id in kb_cfg.knowledge_base_ids:
+                try:
+                    knowledge = (
+                        await self._knowledge_base_manager.get_knowledge(
+                            user_id,
+                            kb_id,
+                        )
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    # A KB the session referenced was deleted (or its
+                    # credential revoked) — log and skip so the chat
+                    # turn can still run with the remaining KBs.
+                    logger.exception(
+                        "Skipping knowledge base %r for session %r: "
+                        "failed to resolve runtime handle.",
+                        kb_id,
+                        session_id,
+                    )
+                    continue
+                knowledges.append(knowledge)
+            if knowledges:
+                middlewares.append(
+                    RAGMiddleware(
+                        knowledge_bases=knowledges,
+                        parameters=RAGMiddleware.Parameters(
+                            **(kb_cfg.parameters or {}),
+                        ),
+                    ),
+                )
+
+        # ----------------------------------------------------------------
+        # 3. Toolkit (workspace tools + planning + ToolStop + schedule +
+        # team + extras + skills + mcps).
+        # ----------------------------------------------------------------
+        toolkit = await get_toolkit(
+            storage=self._storage,
+            workspace=workspace,
+            scheduler_manager=self._scheduler_manager,
+            background_task_manager=self._background_task_manager,
+            message_bus=self._message_bus,
+            middlewares=middlewares,
+            user_id=user_id,
+            agent_record=agent_record,
+            session_record=session_record,
+            extra_factory=self._extra_agent_tools,
+            sub_agent_templates=self._sub_agent_templates,
+        )
 
         # ----------------------------------------------------------------
         # 4. Model + fallback (resolved from session's config).
@@ -388,9 +512,8 @@ class ChatService:
             lock_key,
             ttl_secs=MessageBusKeys.SESSION_RUN_TTL_SECS,
         ):
+            reply_msg: Msg | None = None
             try:
-                reply_msg: Msg | None = None
-
                 if input_msg is None or isinstance(input_msg, (Msg, list)):
                     # Case A: new reply (user message(s), or retrigger with
                     # empty input)
@@ -463,27 +586,36 @@ class ChatService:
                         if reply_msg is not None:
                             reply_msg.append_event(event)
 
-                # Persist the reply Msg (upsert: overwrite if same id,
-                # append if new).
-                if reply_msg is not None:
-                    await self._storage.upsert_message(
-                        user_id,
-                        session_id,
-                        reply_msg,
-                    )
-
-                # Persist the updated agent state. MUST happen inside
-                # the session lock: if we released the lock first,
-                # another process could acquire it and load a stale
-                # state from storage before this write lands.
-                await self._storage.update_session_state(
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    session_id=session_id,
-                    state=agent.state,
-                )
             finally:
-                await self._message_bus.log_trim(events_key)
+                # All persistence in a single coroutine, shielded from
+                # outer cancellation.  Must complete BEFORE the session
+                # lock is released — otherwise another worker could
+                # acquire the lock and load a stale state from storage
+                # before this write lands.
+                async def _persist() -> None:
+                    if reply_msg is not None:
+                        await self._storage.upsert_message(
+                            user_id,
+                            session_id,
+                            reply_msg,
+                        )
+                    await self._storage.update_session_state(
+                        user_id=user_id,
+                        agent_id=agent_id,
+                        session_id=session_id,
+                        state=agent.state,
+                    )
+                    await self._message_bus.log_trim(events_key)
+
+                persist_task = asyncio.create_task(_persist())
+                try:
+                    await asyncio.shield(persist_task)
+                except asyncio.CancelledError:
+                    # Await the shielded task so the lock is only
+                    # released after storage is consistent, then
+                    # propagate to honour asyncio semantics.
+                    await persist_task
+                    raise
 
     async def _project_event(
         self,

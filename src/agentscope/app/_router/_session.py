@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from ..._utils._common import _generate_id
 from ..deps import (
+    get_chat_service,
     get_current_user_id,
     get_message_bus,
     get_session_service,
@@ -17,18 +18,26 @@ from ..deps import (
 from ._schema import (
     CreateSessionRequest,
     CreateSessionResponse,
+    InterruptSessionResponse,
     ListMessagesResponse,
     ListSessionsResponse,
+    SessionStatusResponse,
     SessionView,
     TeamDetailResponse,
     TeamMemberView,
     UpdateSessionRequest,
 )
 from ..message_bus import MessageBus, MessageBusKeys
-from .._service import SessionService, SessionProjection, SubagentHitlProjector
+from .._service import (
+    ChatService,
+    SessionService,
+    SessionProjection,
+    SubagentHitlProjector,
+)
 from ..storage import (
     AgentRecord,
     ChatModelConfig,
+    SessionKnowledgeConfig,
     TTSModelConfig,
     SessionConfig,
     SessionRecord,
@@ -36,6 +45,7 @@ from ..storage import (
     TeamRecord,
 )
 from ...message import ToolCallState
+from ..storage._utils import _ensure_team_members
 from ...event import CustomEvent
 
 
@@ -70,13 +80,16 @@ async def _build_team_detail(
         )
 
     members: list[TeamMemberView] = []
-    for member_id in team.data.member_ids:
-        agent = await storage.get_agent(user_id, member_id)
+    for member in await _ensure_team_members(storage, user_id, team):
+        agent = await storage.get_agent(member.owner_id, member.agent_id)
         if agent is None:
             continue
-        sessions = await storage.list_sessions(user_id, member_id)
-        session_id = sessions[0].id if sessions else None
-        members.append(TeamMemberView(agent=agent, session_id=session_id))
+        # Use the member's team-scoped session id directly; an invited
+        # agent has multiple sessions and only ``member.session_id``
+        # belongs to this team.
+        members.append(
+            TeamMemberView(agent=agent, session_id=member.session_id),
+        )
 
     return TeamDetailResponse(
         team=team,
@@ -118,6 +131,37 @@ async def _ensure_credential_exists(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Credential '{config.credential_id}' not found.",
         )
+
+
+async def _ensure_knowledge_bases_exist(
+    storage: StorageBase,
+    user_id: str,
+    config: SessionKnowledgeConfig | None,
+) -> None:
+    """Validate every KB id in ``config`` belongs to the given user.
+
+    No-op when ``config`` is ``None`` or its ``knowledge_base_ids``
+    list is empty.
+
+    Args:
+        storage (`StorageBase`): Injected storage backend.
+        user_id (`str`): The authenticated user ID.
+        config (`SessionKnowledgeConfig | None`):
+            Knowledge config to validate.  Pass ``None`` to skip.
+
+    Raises:
+        `HTTPException`: 404 if any KB id does not exist or is not
+            owned by the user.
+    """
+    if config is None or not config.knowledge_base_ids:
+        return
+    for kb_id in config.knowledge_base_ids:
+        kb = await storage.get_knowledge_base(user_id, kb_id)
+        if kb is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Knowledge base '{kb_id}' not found.",
+            )
 
 
 @session_router.get(
@@ -236,6 +280,11 @@ async def create_session(
         body.fallback_chat_model_config,
     )
     await _ensure_credential_exists(storage, user_id, body.tts_model_config)
+    await _ensure_knowledge_bases_exist(
+        storage,
+        user_id,
+        body.knowledge_config,
+    )
 
     session_record = await storage.upsert_session(
         user_id=user_id,
@@ -245,6 +294,7 @@ async def create_session(
             chat_model_config=body.chat_model_config,
             fallback_chat_model_config=body.fallback_chat_model_config,
             tts_model_config=body.tts_model_config,
+            knowledge_config=body.knowledge_config,
             **({"name": body.name} if body.name is not None else {}),
         ),
     )
@@ -292,6 +342,49 @@ async def delete_session(
         )
 
 
+@session_router.post(
+    "/{session_id}/interrupt",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Interrupt a running or HITL-parked chat run for a session",
+    responses={
+        404: {"description": "Session not found."},
+    },
+)
+async def interrupt_session(
+    session_id: str,
+    agent_id: str = Query(description="Agent the session belongs to."),
+    user_id: str = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+) -> InterruptSessionResponse:
+    """Request interruption of an in-progress reply for a session.
+
+    Thin HTTP wrapper around :meth:`ChatService.interrupt`; see that
+    method for the running vs not-running dispatch. Idempotent — an
+    idle target session is a silent no-op at the agent layer.
+
+    Args:
+        session_id: The session whose reply should be interrupted.
+        agent_id: The agent that owns the session.
+        user_id: Injected authenticated user id.
+        chat_service: Injected chat service.
+
+    Returns:
+        202 with :class:`InterruptSessionResponse` echoing the
+        session id.
+
+    Raises:
+        HTTPException: 404 if the session does not exist.
+    """
+    try:
+        await chat_service.interrupt(user_id, session_id, agent_id)
+    except LookupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    return InterruptSessionResponse(session_id=session_id)
+
+
 @session_router.patch(
     "/{session_id}",
     response_model=SessionRecord,
@@ -333,6 +426,11 @@ async def update_session(
         body.fallback_chat_model_config,
     )
     await _ensure_credential_exists(storage, user_id, body.tts_model_config)
+    await _ensure_knowledge_bases_exist(
+        storage,
+        user_id,
+        body.knowledge_config,
+    )
 
     updated_state = existing.state
     if body.permission_mode is not None:
@@ -417,6 +515,67 @@ async def list_messages(
         is_running=await message_bus.is_locked(
             MessageBusKeys.session_lock(session_id),
         ),
+    )
+
+
+# ----------------------------------------------------------------------
+# Status probe: unified session status (cluster liveness + parking state)
+# ----------------------------------------------------------------------
+
+
+@session_router.get(
+    "/{session_id}/status",
+    response_model=SessionStatusResponse,
+    summary="Probe the session's high-level status",
+)
+async def get_session_status(
+    session_id: str,
+    agent_id: str = Query(description="Agent the session belongs to."),
+    user_id: str = Depends(get_current_user_id),
+    session_service: SessionService = Depends(get_session_service),
+) -> SessionStatusResponse:
+    """Return the unified :class:`SessionStatus` for a session.
+
+    Ownership validation, cluster-liveness probing, and parked-state
+    derivation are all delegated to
+    :meth:`SessionService.get_session_status` — see that method for
+    the precedence rules that collapse the two orthogonal signals
+    (message-bus run lock + persisted context tail) into a single
+    four-valued enum.
+
+    Args:
+        session_id (`str`):
+            The session to probe.
+        agent_id (`str`):
+            The agent that owns the session (ownership validation).
+        user_id (`str`):
+            Injected authenticated user ID.
+        session_service (`SessionService`):
+            Injected session service. Owns both storage and message
+            bus dependencies so the composed answer is derived in a
+            single layer.
+
+    Returns:
+        `SessionStatusResponse`:
+            The probed session id and its unified status.
+
+    Raises:
+        `HTTPException`: 404 if the session does not exist or does not
+            belong to the authenticated user.
+    """
+    session_status = await session_service.get_session_status(
+        user_id,
+        agent_id,
+        session_id,
+    )
+    if session_status is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found.",
+        )
+    return SessionStatusResponse(
+        session_id=session_id,
+        status=session_status,
     )
 
 
@@ -537,7 +696,7 @@ async def stream_session_events(
             MessageBusKeys.session_events(session_id),
             max_count=MessageBusKeys.SESSION_REPLAY_MAX_LEN,
         ):
-            yield f"data: {json.dumps(event)}\n\n"
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         # 1b. Inject pending subagent HITL cards projected onto this
         #     session as a team leader (design §3.5). These live in a
@@ -573,7 +732,12 @@ async def stream_session_events(
                 name=SubagentHitlProjector.EVT_REQUIRE,
                 value=payload,
             )
-            yield f"data: {json.dumps(custom.model_dump(mode='json'))}\n\n"
+            data = json.dumps(
+                custom.model_dump(mode="json"),
+                ensure_ascii=False,
+            )
+
+            yield f"data: {data}\n\n"
 
         # 2. Live subscribe via a background feeder task that pushes
         #    events into a queue. The main loop reads from the queue
@@ -617,7 +781,7 @@ async def stream_session_events(
                     )
                     if item is None:
                         break
-                    yield f"data: {json.dumps(item)}\n\n"
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                 except asyncio.TimeoutError:
                     yield ":\n\n"
         finally:

@@ -6,10 +6,12 @@ from ....permission import PermissionMode
 from ...storage import (
     AgentRecord,
     ChatModelConfig,
+    SessionKnowledgeConfig,
     TTSModelConfig,
     SessionRecord,
     TeamRecord,
 )
+from ..._service import SessionStatus
 
 
 class TeamMemberView(BaseModel):
@@ -78,6 +80,14 @@ class CreateSessionRequest(BaseModel):
         default=None,
         description="TTS model configuration. Can be set later via PATCH.",
     )
+    knowledge_config: SessionKnowledgeConfig | None = Field(
+        default=None,
+        description=(
+            "Knowledge bases attached to this session plus the "
+            "`RAGMiddleware` parameters. Can be set later "
+            "via PATCH."
+        ),
+    )
 
 
 class CreateSessionResponse(BaseModel):
@@ -111,6 +121,13 @@ class UpdateSessionRequest(BaseModel):
         default=None,
         description="New TTS model configuration. "
         "Pass null to clear; omit to leave unchanged.",
+    )
+    knowledge_config: SessionKnowledgeConfig | None = Field(
+        default=None,
+        description=(
+            "New knowledge base attachment + middleware parameters. "
+            "Pass null to clear; omit to leave unchanged."
+        ),
     )
     permission_mode: PermissionMode | None = Field(
         default=None,
@@ -170,3 +187,46 @@ class ListMessagesResponse(BaseModel):
     is_running: bool = Field(
         description="Whether the session is currently running.",
     )
+
+
+class SessionStatusResponse(BaseModel):
+    """Response body for probing a session's high-level status.
+
+    See :class:`~agentscope.app._service.SessionStatus` for the
+    semantics of each ``status`` value and the precedence rules used
+    to derive it.
+    """
+
+    session_id: str = Field(description="The session that was probed.")
+    status: SessionStatus = Field(
+        description=(
+            "The session's unified status. One of ``running`` "
+            "(some worker holds the run lease), ``idle`` (no worker, "
+            "context clean), ``awaiting_permission`` (no worker, "
+            "context parked on HITL tool call), or "
+            "``awaiting_external_result`` (no worker, context parked "
+            "on external executor)."
+        ),
+    )
+
+
+class InterruptSessionResponse(BaseModel):
+    """Response body for ``POST /sessions/{sid}/interrupt`` (HTTP 202).
+
+    The interrupt operation is idempotent and always succeeds for an
+    existing session (only ``404`` is raised when the session id does
+    not exist):
+
+    - If the session is **running**, an interrupt signal is published
+      so the local
+      :class:`~agentscope.app._manager.CancelDispatcher` cancels the
+      chat-run task; the agent then runs its ``CancelledError`` cleanup
+      path.
+    - If the session is **parked** on HITL / external execution, a
+      resume trigger carrying a
+      :class:`~agentscope.event.UserInterruptEvent` is enqueued so the
+      agent short-circuits into the same cleanup path.
+    - If the session is **idle**, the call is a no-op.
+    """
+
+    session_id: str = Field(description="Echo of the interrupted session id.")

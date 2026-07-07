@@ -34,6 +34,11 @@ export interface ReActConfig {
 	stop_on_reject?: boolean;
 }
 
+export interface InviteConfig {
+	invitable?: boolean;
+	invite_description?: string | null;
+}
+
 // ─── Agent ────────────────────────────────────────────────────────────────────
 
 export interface AgentData {
@@ -42,6 +47,7 @@ export interface AgentData {
 	system_prompt: string;
 	context_config: ContextConfig;
 	react_config: ReActConfig;
+	invite_config: InviteConfig;
 }
 
 export interface AgentRecord extends RecordBase {
@@ -54,6 +60,7 @@ export interface CreateAgentRequest {
 	system_prompt?: string;
 	context_config?: ContextConfig;
 	react_config?: ReActConfig;
+	invite_config?: InviteConfig;
 }
 
 export interface CreateAgentResponse {
@@ -65,6 +72,7 @@ export interface UpdateAgentRequest {
 	system_prompt?: string;
 	context_config?: ContextConfig;
 	react_config?: ReActConfig;
+	invite_config?: InviteConfig;
 }
 
 export interface AgentListResponse {
@@ -73,14 +81,28 @@ export interface AgentListResponse {
 }
 
 /**
- * JSON Schema fragments returned by `GET /agent/schema`. Each fragment is a
- * self-contained JSON Schema object (no `$ref`s across fragments) covering
- * one section of the agent create / edit form.
+ * @deprecated Superseded by {@link AgentSchemaV2Response}. Kept only for
+ * legacy consumers still calling `GET /agent/schema`. The new form flow
+ * uses `GET /agent/schema/v2`, which returns the full `AgentData` JSON
+ * Schema in a single `schema` field.
  */
 export interface AgentSchemaResponse {
 	identity: JSONSchema;
 	context_config: JSONSchema;
 	react_config: JSONSchema;
+}
+
+/**
+ * Response of `GET /agent/schema/v2`. `schema` is the full `AgentData`
+ * JSON Schema (with `$ref`s inlined, `id` filtered out, and
+ * `context_config.summary_schema` filtered out). The frontend derives
+ * its section grouping directly from `schema.properties`:
+ *   - top-level scalar/textarea/boolean properties → "identity" section
+ *   - top-level `object`-typed properties (currently `context_config`,
+ *     `react_config`, and `invite_config`) → one section each
+ */
+export interface AgentSchemaV2Response {
+	schema: JSONSchema;
 }
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -94,6 +116,8 @@ export interface SessionConfig {
 	fallback_chat_model_config: ChatModelConfig | null;
 	/** TTS model configuration. null means TTS is not enabled. */
 	tts_model_config: TTSModelConfig | null;
+	/** Knowledge bases attached to this session + KB middleware parameters. */
+	knowledge_config: SessionKnowledgeConfig | null;
 	workspace_id: string;
 }
 
@@ -124,9 +148,15 @@ export interface CreateSessionRequest {
 	fallback_chat_model_config?: ChatModelConfig | null;
 	/** Optional TTS model. Omit (or pass null) for no TTS. */
 	tts_model_config?: TTSModelConfig | null;
+	/** Optional knowledge base attachment. Omit (or null) for none. */
+	knowledge_config?: SessionKnowledgeConfig | null;
 }
 
 export interface CreateSessionResponse {
+	session_id: string;
+}
+
+export interface InterruptSessionResponse {
 	session_id: string;
 }
 
@@ -147,6 +177,13 @@ export interface UpdateSessionRequest {
 	 *   - set to a value → replace the existing TTS config
 	 */
 	tts_model_config?: TTSModelConfig | null;
+	/**
+	 * New knowledge base attachment. PATCH semantics:
+	 *   - omit the field → leave unchanged
+	 *   - set to `null`  → detach every knowledge base
+	 *   - set to a value → replace the existing attachment
+	 */
+	knowledge_config?: SessionKnowledgeConfig | null;
 	permission_mode?: PermissionMode;
 }
 
@@ -236,6 +273,7 @@ export interface JSONSchemaProperty {
 	default?: unknown;
 	const?: unknown;
 	anyOf?: Array<{ type: string }>;
+	enum?: unknown[];
 	title?: string;
 	writeOnly?: boolean;
 	minimum?: number;
@@ -442,6 +480,226 @@ export interface ListModelResponse {
 	models: ModelCard[];
 	total: number;
 }
+
+// ─── Embedding ────────────────────────────────────────────────────────────────
+
+export interface EmbeddingModelConfig {
+	type: string;
+	credential_id: string;
+	model: string;
+	/**
+	 * Output vector dimensions, pinned at config time. Required because
+	 * the backend uses it to size the vector store collection and to
+	 * validate against the manager's `DimensionPolicy`.
+	 */
+	dimensions: number;
+	parameters: Record<string, unknown>;
+}
+
+export interface EmbeddingModelCard {
+	type: 'embedding_model';
+	name: string;
+	label: string;
+	status: 'active' | 'deprecated' | 'sunset';
+	input_types: string[];
+	output_types: string[];
+	context_size: number | null;
+	/** Default output dimensions for this model. */
+	dimensions: number;
+	/**
+	 * If set, the only dimensions this model can produce (Matryoshka).
+	 * `null` means the model is fixed-dim at `dimensions`.
+	 */
+	supported_dimensions: number[] | null;
+	parameter_schema: Record<string, unknown>;
+	parameter_overrides: Record<string, Record<string, unknown>>;
+}
+
+// ─── Knowledge Base ───────────────────────────────────────────────────────────
+
+/**
+ * Knowledge base view as exposed by the API. Mirrors
+ * :class:`agentscope.app._router._schema.KnowledgeBaseView`.
+ *
+ * Internal `user_id` / `collection_name` are stripped — the front-end
+ * has no business introspecting either.
+ */
+export interface KnowledgeBaseView {
+	id: string;
+	name: string;
+	description: string;
+	embedding_model_config: EmbeddingModelConfig;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface ListKnowledgeBasesResponse {
+	knowledge_bases: KnowledgeBaseView[];
+	total: number;
+}
+
+export interface CreateKnowledgeBaseRequest {
+	name: string;
+	description?: string;
+	embedding_model_config: EmbeddingModelConfig;
+}
+
+export interface CreateKnowledgeBaseResponse {
+	knowledge_base_id: string;
+}
+
+/**
+ * Body for `PATCH /knowledge_bases/{id}`. Only mutable fields can be
+ * sent; the embedding model is pinned at creation time and cannot
+ * change because the underlying collection is sized to its dimension.
+ */
+export interface UpdateKnowledgeBaseRequest {
+	name?: string;
+	description?: string;
+}
+
+/**
+ * Lifecycle states a document can be in. Mirrors
+ * :class:`agentscope.app.storage.KnowledgeDocumentStatus`.
+ *
+ * - `pending` — accepted, blob stored, indexing not yet started.
+ * - `parsing` / `chunking` / `indexing` — worker phases.
+ * - `ready` — chunks committed to the vector store.
+ * - `error` — terminal failure; `error` field carries the reason.
+ */
+export type KnowledgeDocumentStatus =
+	| 'pending'
+	| 'parsing'
+	| 'chunking'
+	| 'indexing'
+	| 'ready'
+	| 'error';
+
+/**
+ * Document view returned by `/knowledge_bases/{id}/documents` and
+ * `/knowledge_bases/{id}/documents/status`. Mirrors
+ * :class:`agentscope.app._router._schema.KnowledgeDocumentView`.
+ */
+export interface KnowledgeDocumentView {
+	id: string;
+	filename: string;
+	size: number;
+	content_type: string | null;
+	status: KnowledgeDocumentStatus;
+	error: string | null;
+	chunk_count: number;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface ListKnowledgeDocumentsResponse {
+	documents: KnowledgeDocumentView[];
+	total: number;
+}
+
+export interface ListKnowledgeDocumentStatusResponse {
+	items: KnowledgeDocumentView[];
+}
+
+export interface UploadKnowledgeDocumentResponse {
+	document_id: string;
+	filename: string;
+	status: KnowledgeDocumentStatus;
+}
+
+export interface SearchKnowledgeBaseRequest {
+	query: string;
+	top_k?: number;
+}
+
+/**
+ * Lightweight chunk shape returned inside `VectorSearchResult`. Mirrors
+ * :class:`agentscope.rag.Chunk` — content is the raw `TextBlock` /
+ * `DataBlock` discriminated union the backend ships.
+ */
+export interface KnowledgeChunk {
+	content: { type: 'text'; text: string; id?: string } | { type: string; [key: string]: unknown };
+	source: string;
+	chunk_index: number;
+	total_chunks: number;
+	metadata: Record<string, unknown>;
+}
+
+/**
+ * One vector search hit returned by the knowledge base search endpoint.
+ * Mirrors :class:`agentscope.rag.VectorSearchResult` on the backend.
+ */
+export interface VectorSearchResult {
+	score: number;
+	document_id: string;
+	chunk: KnowledgeChunk;
+}
+
+export interface SearchKnowledgeBaseResponse {
+	results: VectorSearchResult[];
+	total: number;
+}
+
+/**
+ * Mirrors :class:`agentscope.app.rag.knowledge_base_manager.DimensionPolicyKind`.
+ */
+export type DimensionPolicyKind = 'any' | 'fixed' | 'locked_by_existing';
+
+/**
+ * Mirrors :class:`agentscope.app.rag.knowledge_base_manager.DimensionPolicy`.
+ */
+export interface DimensionPolicy {
+	kind: DimensionPolicyKind;
+	dimension: number | null;
+}
+
+/** One credential and the embedding models it can serve, post-policy. */
+export interface KbEmbeddingProvider {
+	credential: CredentialRecord;
+	models: EmbeddingModelCard[];
+}
+
+/**
+ * Response of `GET /knowledge_bases/embedding_models`.
+ *
+ * Server-side already filtered models by the manager's
+ * :class:`DimensionPolicy` and narrowed matryoshka cards to the
+ * locked dimension when applicable. The policy is included so the
+ * UI can render an explanatory banner.
+ */
+export interface ListKbEmbeddingModelsResponse {
+	providers: KbEmbeddingProvider[];
+	policy: DimensionPolicy;
+}
+
+/**
+ * Session-level knowledge base attachment. Persisted on
+ * :class:`SessionConfig.knowledge_config` and translated into a
+ * `KnowledgeBaseMiddleware` at chat-run time.
+ *
+ * `parameters` holds the user-tunable middleware fields verbatim — its
+ * accepted keys/values are described by the JSON Schema returned from
+ * `GET /knowledge_bases/middleware/parameters_schema`.
+ */
+export interface SessionKnowledgeConfig {
+	knowledge_base_ids: string[];
+	parameters: Record<string, unknown>;
+}
+
+/** Response of `GET /knowledge_bases/middleware/parameters_schema`. */
+export interface KbMiddlewareParametersSchemaResponse {
+	parameter_schema: Record<string, unknown>;
+}
+
+/** Response of `GET /knowledge_bases/supported_content_types`. */
+export interface ListSupportedContentTypesResponse {
+	/** Union of IANA media types every registered parser handles. */
+	media_types: string[];
+	/** Union of filename extensions (each starting with `.`). */
+	extensions: string[];
+}
+
+// ─── TTS ──────────────────────────────────────────────────────────────────────
 
 export interface TTSModelCard {
 	type: 'tts_model';
