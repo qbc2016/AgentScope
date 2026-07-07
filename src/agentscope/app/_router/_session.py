@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from ..._utils._common import _generate_id
 from ..deps import (
+    get_chat_service,
     get_current_user_id,
     get_message_bus,
     get_session_service,
@@ -17,6 +18,7 @@ from ..deps import (
 from ._schema import (
     CreateSessionRequest,
     CreateSessionResponse,
+    InterruptSessionResponse,
     ListMessagesResponse,
     ListSessionsResponse,
     SessionStatusResponse,
@@ -26,7 +28,12 @@ from ._schema import (
     UpdateSessionRequest,
 )
 from ..message_bus import MessageBus, MessageBusKeys
-from .._service import SessionService, SessionProjection, SubagentHitlProjector
+from .._service import (
+    ChatService,
+    SessionService,
+    SessionProjection,
+    SubagentHitlProjector,
+)
 from ..storage import (
     AgentRecord,
     ChatModelConfig,
@@ -333,6 +340,49 @@ async def delete_session(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session '{session_id}' not found.",
         )
+
+
+@session_router.post(
+    "/{session_id}/interrupt",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Interrupt a running or HITL-parked chat run for a session",
+    responses={
+        404: {"description": "Session not found."},
+    },
+)
+async def interrupt_session(
+    session_id: str,
+    agent_id: str = Query(description="Agent the session belongs to."),
+    user_id: str = Depends(get_current_user_id),
+    chat_service: ChatService = Depends(get_chat_service),
+) -> InterruptSessionResponse:
+    """Request interruption of an in-progress reply for a session.
+
+    Thin HTTP wrapper around :meth:`ChatService.interrupt`; see that
+    method for the running vs not-running dispatch. Idempotent — an
+    idle target session is a silent no-op at the agent layer.
+
+    Args:
+        session_id: The session whose reply should be interrupted.
+        agent_id: The agent that owns the session.
+        user_id: Injected authenticated user id.
+        chat_service: Injected chat service.
+
+    Returns:
+        202 with :class:`InterruptSessionResponse` echoing the
+        session id.
+
+    Raises:
+        HTTPException: 404 if the session does not exist.
+    """
+    try:
+        await chat_service.interrupt(user_id, session_id, agent_id)
+    except LookupError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    return InterruptSessionResponse(session_id=session_id)
 
 
 @session_router.patch(
@@ -646,7 +696,7 @@ async def stream_session_events(
             MessageBusKeys.session_events(session_id),
             max_count=MessageBusKeys.SESSION_REPLAY_MAX_LEN,
         ):
-            yield f"data: {json.dumps(event)}\n\n"
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         # 1b. Inject pending subagent HITL cards projected onto this
         #     session as a team leader (design §3.5). These live in a
@@ -682,7 +732,12 @@ async def stream_session_events(
                 name=SubagentHitlProjector.EVT_REQUIRE,
                 value=payload,
             )
-            yield f"data: {json.dumps(custom.model_dump(mode='json'))}\n\n"
+            data = json.dumps(
+                custom.model_dump(mode="json"),
+                ensure_ascii=False,
+            )
+
+            yield f"data: {data}\n\n"
 
         # 2. Live subscribe via a background feeder task that pushes
         #    events into a queue. The main loop reads from the queue
@@ -726,7 +781,7 @@ async def stream_session_events(
                     )
                     if item is None:
                         break
-                    yield f"data: {json.dumps(item)}\n\n"
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
                 except asyncio.TimeoutError:
                     yield ":\n\n"
         finally:
