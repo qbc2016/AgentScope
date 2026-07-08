@@ -17,6 +17,7 @@ from agentscope.rag import (
     PDFParser,
     PPTParser,
     TextParser,
+    WordParser,
 )
 
 
@@ -106,6 +107,54 @@ def _make_pptx_rich() -> bytes:
 
     buffer = io.BytesIO()
     prs.save(buffer)
+    return buffer.getvalue()
+
+
+def _make_docx_simple(paragraphs: list[str]) -> bytes:
+    """Build a DOCX in memory with plain text paragraphs."""
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument()
+    for text in paragraphs:
+        doc.add_paragraph(text)
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def _make_docx_with_table() -> bytes:
+    """Build a DOCX with a paragraph, a 2x2 table, and a trailing
+    paragraph."""
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument()
+    doc.add_paragraph("Before table")
+
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "A"
+    table.cell(0, 1).text = "B"
+    table.cell(1, 0).text = "1"
+    table.cell(1, 1).text = "2"
+
+    doc.add_paragraph("After table")
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def _make_docx_with_image() -> bytes:
+    """Build a DOCX with a paragraph and an embedded PNG image."""
+    from docx import Document as DocxDocument
+    from docx.shared import Inches
+
+    doc = DocxDocument()
+    doc.add_paragraph("Text before image")
+    doc.add_picture(io.BytesIO(_PNG_PIXEL), width=Inches(1))
+    doc.add_paragraph("Text after image")
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
     return buffer.getvalue()
 
 
@@ -668,3 +717,206 @@ class PPTParserTest(IsolatedAsyncioTestCase):
         parser = PPTParser()
         with self.assertRaises(FileNotFoundError):
             await parser.parse("/no/such/file.pptx", "x.pptx")
+
+
+class WordParserTest(IsolatedAsyncioTestCase):
+    """Behavioural coverage for :class:`WordParser`."""
+
+    async def test_simple_paragraphs(self) -> None:
+        """Plain paragraphs are merged into a single text Section."""
+        docx_bytes = _make_docx_simple(["Hello", "World"])
+        parser = WordParser(include_image=False)
+        sections = await parser.parse(docx_bytes, "demo.docx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "Hello\nWorld",
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_table_merges_by_default(self) -> None:
+        """``separate_table=False`` merges the table into surrounding
+        text."""
+        docx_bytes = _make_docx_with_table()
+        parser = WordParser(include_image=False, separate_table=False)
+        sections = await parser.parse(docx_bytes, "demo.docx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Before table\n"
+                            "| A | B |\n"
+                            "| --- | --- |\n"
+                            "| 1 | 2 |\n\n"
+                            "After table"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_table_separated(self) -> None:
+        """``separate_table=True`` isolates the table from surrounding
+        paragraphs."""
+        docx_bytes = _make_docx_with_table()
+        parser = WordParser(include_image=False, separate_table=True)
+        sections = await parser.parse(docx_bytes, "demo.docx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "Before table",
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "| A | B |\n" "| --- | --- |\n" "| 1 | 2 |\n"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "After table",
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_table_json_format(self) -> None:
+        """``table_format="json"`` emits JSON instead of Markdown."""
+        docx_bytes = _make_docx_with_table()
+        parser = WordParser(
+            include_image=False,
+            separate_table=True,
+            table_format="json",
+        )
+        sections = await parser.parse(docx_bytes, "demo.docx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "Before table",
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "<system-info>A table loaded as a JSON "
+                            "array:</system-info>\n"
+                            '[["A", "B"], ["1", "2"]]'
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "After table",
+                        "id": AnyString(),
+                    },
+                    "source": "demo.docx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_image_emits_data_block(self) -> None:
+        """Embedded images become DataBlock sections."""
+        docx_bytes = _make_docx_with_image()
+        parser = WordParser(include_image=True)
+        sections = await parser.parse(docx_bytes, "rich.docx")
+
+        data_sections = [s for s in sections if s.content.type == "data"]
+        self.assertGreaterEqual(len(data_sections), 1)
+        ds = data_sections[0]
+        self.assertEqual(ds.source, "rich.docx")
+        self.assertEqual(ds.content.name, "rich.docx")
+        self.assertIn("media_type", ds.metadata)
+
+    async def test_image_excluded_when_disabled(self) -> None:
+        """``include_image=False`` keeps only text sections."""
+        docx_bytes = _make_docx_with_image()
+        parser = WordParser(include_image=False)
+        sections = await parser.parse(docx_bytes, "rich.docx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "Text before image\nText after image",
+                        "id": AnyString(),
+                    },
+                    "source": "rich.docx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_string_input_treated_as_path(self) -> None:
+        """``str`` is interpreted as a filesystem path to the DOCX."""
+        import tempfile
+
+        docx_bytes = _make_docx_simple(["Alpha"])
+        with tempfile.NamedTemporaryFile(
+            suffix=".docx",
+            delete=False,
+        ) as f:
+            f.write(docx_bytes)
+            path = f.name
+        try:
+            parser = WordParser(include_image=False)
+            sections = await parser.parse(path, "demo.docx")
+            self.assertEqual(len(sections), 1)
+        finally:
+            os.unlink(path)
+
+    async def test_supported_extensions(self) -> None:
+        """``.docx`` is the only extension."""
+        self.assertEqual(WordParser.supported_extensions(), [".docx"])
+
+    async def test_table_format_validation(self) -> None:
+        """Unknown ``table_format`` raises :class:`ValueError`."""
+        with self.assertRaises(ValueError):
+            WordParser(table_format="csv")  # type: ignore[arg-type]

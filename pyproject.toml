@@ -81,6 +81,7 @@ rag = [
     "qdrant-client",
     "pypdf",
     "python-pptx",
+    "python-docx",
 ]
 milvuslite = [
     "pymilvus[milvus-lite]>=2.4.0",

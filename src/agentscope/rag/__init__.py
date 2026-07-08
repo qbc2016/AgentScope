@@ -6,7 +6,14 @@ from ._document import (
     Section,
     Chunk,
 )
-from ._parser import ImageParser, ParserBase, PDFParser, PPTParser, TextParser
+from ._parser import (
+    ImageParser,
+    ParserBase,
+    PDFParser,
+    PPTParser,
+    TextParser,
+    WordParser,
+)
 from ._vdb import (
     DocumentSummary,
     MilvusLiteStore,
@@ -28,6 +35,7 @@ __all__ = [
     "PDFParser",
     "PPTParser",
     "TextParser",
+    "WordParser",
     "Section",
     "VectorStoreBase",
     "VectorRecord",
