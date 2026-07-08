@@ -597,10 +597,20 @@ class ChannelGateway:
 
         # Search for an existing session with the same channel name to
         # prevent orphaned duplicates after mapper data loss.
+        # NOTE: This is O(N) over all sessions for the agent — acceptable
+        # because it only runs when the mapper has no entry (first message
+        # or after data loss). The loop exits on the first match.
         existing_sessions = await self._storage.list_sessions(
             user_id=agentscope_user_id,
             agent_id=agent_id,
         )
+        if len(existing_sessions) > 500:
+            logger.warning(
+                "Agent %s has %d sessions; channel session search "
+                "may be slow. Consider cleanup of unused sessions.",
+                agent_id,
+                len(existing_sessions),
+            )
         for sess in existing_sessions:
             if sess.config and sess.config.name == session_name:
                 logger.info(

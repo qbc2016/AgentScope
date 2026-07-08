@@ -756,6 +756,7 @@ export interface UpdateChannelRequest {
 export interface ChannelTypeSchema {
 	channel_type: string;
 	display_name: string;
+	description: string;
 	credentials_schema: Record<string, unknown>;
 	config_schema: Record<string, unknown>;
 }

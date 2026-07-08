@@ -19,6 +19,7 @@ from .._base import ChannelBase, ChannelCapability, ChannelEvent
 _WS_MODULE_LOCK = threading.Lock()
 _ATTACHMENT_TTL_SECS = 300  # 5 minutes
 _ATTACHMENT_MAX_PER_USER = 10
+_PENDING_ATTACHMENTS_LOCK = threading.Lock()
 
 
 class FeishuChannel(ChannelBase):
@@ -73,6 +74,11 @@ class FeishuChannel(ChannelBase):
     async def on_stop(self) -> None:
         """Stop WebSocket client and close HTTP client."""
         self._stop_event.set()
+        # Resolve all pending approvals so awaiting coroutines unblock.
+        for fut in self._pending_approvals.values():
+            if not fut.done():
+                fut.set_result(False)
+        self._pending_approvals.clear()
         if self._ws_thread and self._ws_thread.is_alive():
             self._ws_thread.join(timeout=5.0)
         if self._http_client:
@@ -291,7 +297,8 @@ class FeishuChannel(ChannelBase):
 
         # Drain any buffered attachments for this user+chat (evict expired)
         buf_key = (channel_user_id, chat_id)
-        raw_entries = self._pending_attachments.pop(buf_key, [])
+        with _PENDING_ATTACHMENTS_LOCK:
+            raw_entries = self._pending_attachments.pop(buf_key, [])
         now = time.monotonic()
         pending = [
             att for ts, att in raw_entries if now - ts < _ATTACHMENT_TTL_SECS
@@ -367,9 +374,6 @@ class FeishuChannel(ChannelBase):
         card_content: str,
     ) -> str | None:
         """Send an interactive card message to Feishu."""
-        if not self._http_client or not self._tenant_access_token:
-            return None
-
         message_id = event.channel_message_id
         if message_id:
             url = (
@@ -392,24 +396,9 @@ class FeishuChannel(ChannelBase):
                 "content": card_content,
             }
 
-        try:
-            resp = await self._http_client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {self._tenant_access_token}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            data = resp.json()
-            if data.get("code") == 0:
-                return data.get("data", {}).get("message_id")
-            logger.warning(
-                "Feishu send_interactive_card failed: %s",
-                data.get("msg"),
-            )
-        except Exception:
-            logger.exception("Failed to send interactive card to Feishu.")
+        data = await self._api_request("POST", url, body=body)
+        if data and data.get("code") == 0:
+            return data.get("data", {}).get("message_id")
         return None
 
     async def update_card(
@@ -418,24 +407,12 @@ class FeishuChannel(ChannelBase):
         card_content: str,
     ) -> None:
         """Update an existing interactive card message."""
-        if not self._http_client or not self._tenant_access_token:
-            return
-
         url = f"https://open.feishu.cn/open-apis/im/v1/messages/{message_id}"
-        try:
-            await self._http_client.patch(
-                url,
-                headers={
-                    "Authorization": f"Bearer {self._tenant_access_token}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "msg_type": "interactive",
-                    "content": card_content,
-                },
-            )
-        except Exception:
-            logger.debug("Failed to update Feishu card %s.", message_id)
+        await self._api_request(
+            "PATCH",
+            url,
+            body={"msg_type": "interactive", "content": card_content},
+        )
 
     # ── Approval mechanism ──
 
@@ -533,35 +510,20 @@ class FeishuChannel(ChannelBase):
     ) -> str | None:
         """Add an emoji reaction to a Feishu message."""
         message_id = event.channel_message_id
-        if (
-            not message_id
-            or not self._http_client
-            or not self._tenant_access_token
-        ):
+        if not message_id:
             return None
 
         url = (
             "https://open.feishu.cn/open-apis"
             f"/im/v1/messages/{message_id}/reactions"
         )
-        try:
-            resp = await self._http_client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {self._tenant_access_token}",
-                    "Content-Type": "application/json",
-                },
-                json={"reaction_type": {"emoji_type": emoji_type}},
-            )
-            data = resp.json()
-            if data.get("code") == 0:
-                return data.get("data", {}).get("reaction_id")
-            logger.debug(
-                "Feishu add_reaction failed: %s",
-                data.get("msg"),
-            )
-        except Exception:
-            logger.debug("Failed to add reaction to Feishu message.")
+        data = await self._api_request(
+            "POST",
+            url,
+            body={"reaction_type": {"emoji_type": emoji_type}},
+        )
+        if data and data.get("code") == 0:
+            return data.get("data", {}).get("reaction_id")
         return None
 
     async def remove_reaction(
@@ -571,70 +533,45 @@ class FeishuChannel(ChannelBase):
     ) -> None:
         """Remove an emoji reaction from a Feishu message."""
         message_id = event.channel_message_id
-        if (
-            not message_id
-            or not self._http_client
-            or not self._tenant_access_token
-        ):
+        if not message_id:
             return
 
         url = (
             f"https://open.feishu.cn/open-apis/im/v1/messages"
             f"/{message_id}/reactions/{reaction_id}"
         )
-        try:
-            await self._http_client.delete(
-                url,
-                headers={
-                    "Authorization": f"Bearer {self._tenant_access_token}",
-                },
-            )
-        except Exception:
-            logger.debug("Failed to remove reaction from Feishu message.")
+        await self._api_request("DELETE", url)
 
     # ── Internal helpers ──
 
     async def list_bot_chats(self) -> list[dict]:
         """Fetch the list of groups/chats the bot is in via Feishu API."""
-        if not self._http_client or not self._tenant_access_token:
-            return []
-
-        url = "https://open.feishu.cn/open-apis/im/v1/chats?page_size=50"
+        base_url = "https://open.feishu.cn/open-apis/im/v1/chats?page_size=50"
         results: list[dict] = []
         page_token = ""
 
         while True:
-            req_url = url
+            req_url = base_url
             if page_token:
                 req_url += f"&page_token={page_token}"
 
-            try:
-                resp = await self._http_client.get(
-                    req_url,
-                    headers={
-                        "Authorization": f"Bearer {self._tenant_access_token}",
+            data = await self._api_request("GET", req_url)
+            if not data or data.get("code") != 0:
+                break
+
+            items = data.get("data", {}).get("items", [])
+            for item in items:
+                results.append(
+                    {
+                        "chat_id": item.get("chat_id", ""),
+                        "name": item.get("name", ""),
+                        "chat_type": item.get("chat_type", ""),
                     },
                 )
-                data = resp.json()
-                if data.get("code") != 0:
-                    break
 
-                items = data.get("data", {}).get("items", [])
-                for item in items:
-                    results.append(
-                        {
-                            "chat_id": item.get("chat_id", ""),
-                            "name": item.get("name", ""),
-                            "chat_type": item.get("chat_type", ""),
-                        },
-                    )
-
-                if not data.get("data", {}).get("has_more"):
-                    break
-                page_token = data.get("data", {}).get("page_token", "")
-            except Exception:
-                logger.debug("Failed to list Feishu bot chats.")
+            if not data.get("data", {}).get("has_more"):
                 break
+            page_token = data.get("data", {}).get("page_token", "")
 
         return results
 
@@ -773,11 +710,14 @@ class FeishuChannel(ChannelBase):
                 }
 
                 buf_key = (channel_user_id, chat_id)
-                entries = self._pending_attachments.setdefault(buf_key, [])
-                # Enforce per-user cap: drop oldest if over limit
-                if len(entries) >= _ATTACHMENT_MAX_PER_USER:
-                    entries.pop(0)
-                entries.append((time.monotonic(), attachment))
+                with _PENDING_ATTACHMENTS_LOCK:
+                    entries = self._pending_attachments.setdefault(
+                        buf_key,
+                        [],
+                    )
+                    if len(entries) >= _ATTACHMENT_MAX_PER_USER:
+                        entries.pop(0)
+                    entries.append((time.monotonic(), attachment))
             except Exception:
                 logger.debug("Failed to buffer %s attachment.", msg_type)
 
@@ -799,17 +739,77 @@ class FeishuChannel(ChannelBase):
         else:
             logger.error("Failed to get Feishu token: %s", data)
 
+    _TOKEN_EXPIRED_CODES = frozenset({99991663, 99991664})
+
+    async def _api_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        body: dict | None = None,
+        _retried: bool = False,
+    ) -> dict | None:
+        """Issue an authenticated Feishu API request with auto token refresh.
+
+        Returns the response JSON dict, or None on network/request failure.
+        Retries once if the token has expired.
+        """
+        if not self._http_client or not self._tenant_access_token:
+            return None
+        headers = {
+            "Authorization": f"Bearer {self._tenant_access_token}",
+            "Content-Type": "application/json",
+        }
+        try:
+            if method == "GET":
+                resp = await self._http_client.get(url, headers=headers)
+            elif method == "POST":
+                resp = await self._http_client.post(
+                    url,
+                    headers=headers,
+                    json=body,
+                )
+            elif method == "PATCH":
+                resp = await self._http_client.patch(
+                    url,
+                    headers=headers,
+                    json=body,
+                )
+            elif method == "DELETE":
+                resp = await self._http_client.delete(url, headers=headers)
+            else:
+                return None
+
+            data = resp.json()
+            code = data.get("code", -1)
+            if code == 0:
+                return data
+            if not _retried and code in self._TOKEN_EXPIRED_CODES:
+                await self._refresh_token()
+                return await self._api_request(
+                    method,
+                    url,
+                    body=body,
+                    _retried=True,
+                )
+            logger.warning(
+                "Feishu API %s %s failed (code=%s): %s",
+                method,
+                url.split("?")[0].rsplit("/", 2)[-1],
+                code,
+                data.get("msg"),
+            )
+            return data
+        except Exception:
+            logger.debug("Feishu API %s request failed.", method)
+            return None
+
     async def _send_message(
         self,
         event: ChannelEvent,
         text: str,
-        *,
-        _retried: bool = False,
     ) -> None:
-        """Send a text message via Feishu API (reply to original).
-
-        Automatically refreshes the token and retries once on auth failure.
-        """
+        """Send a text message via Feishu API (reply to original)."""
         message_id = event.channel_message_id
 
         if message_id:
@@ -833,28 +833,4 @@ class FeishuChannel(ChannelBase):
                 "content": json.dumps({"text": text}),
             }
 
-        try:
-            resp = await self._http_client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {self._tenant_access_token}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            data = resp.json()
-            code = data.get("code", 0)
-            if code == 0:
-                return
-            # Token expired/invalid — refresh and retry once
-            if not _retried and code in (99991663, 99991664):
-                await self._refresh_token()
-                await self._send_message(event, text, _retried=True)
-                return
-            logger.warning(
-                "Feishu send_message failed (code=%s): %s",
-                code,
-                data.get("msg"),
-            )
-        except Exception:
-            logger.exception("Failed to send message to Feishu.")
+        await self._api_request("POST", url, body=body)

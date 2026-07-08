@@ -997,10 +997,15 @@ class RedisStorage(StorageBase):
         return ChannelRecord.model_validate_json(raw)
 
     async def list_channels(self, user_id: str) -> list[ChannelRecord]:
-        """Return all channel records belonging to the given user."""
+        """Return all channel records belonging to the given user.
+
+        Stale entries whose underlying key has expired are automatically
+        purged from the user index (self-healing).
+        """
         index_key = self._key(self.key_config.channel_index, user_id=user_id)
         ids = await self._client.smembers(index_key)
         records = []
+        stale_ids: list[str] = []
         for channel_id in ids:
             raw = await self._client.get(
                 self._key(
@@ -1011,6 +1016,10 @@ class RedisStorage(StorageBase):
             )
             if raw:
                 records.append(ChannelRecord.model_validate_json(raw))
+            else:
+                stale_ids.append(channel_id)
+        if stale_ids:
+            await self._client.srem(index_key, *stale_ids)
         return records
 
     async def delete_channel(
@@ -1045,11 +1054,16 @@ class RedisStorage(StorageBase):
         return True
 
     async def list_all_channels(self) -> list[ChannelRecord]:
-        """Return every channel record across all users."""
+        """Return every channel record across all users.
+
+        Stale entries whose underlying key has expired are automatically
+        purged from the global index (self-healing).
+        """
         entries = await self._client.smembers(
             self.key_config.channel_global_index,
         )
         records = []
+        stale_entries: list[str] = []
         for entry in entries:
             user_id, channel_id = entry.split(":", 1)
             raw = await self._client.get(
@@ -1061,6 +1075,13 @@ class RedisStorage(StorageBase):
             )
             if raw:
                 records.append(ChannelRecord.model_validate_json(raw))
+            else:
+                stale_entries.append(entry)
+        if stale_entries:
+            await self._client.srem(
+                self.key_config.channel_global_index,
+                *stale_entries,
+            )
         return records
 
     async def get_channel_by_platform_bot_id(
