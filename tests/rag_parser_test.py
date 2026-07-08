@@ -17,6 +17,7 @@ from agentscope.rag import (
     PDFParser,
     PPTParser,
     TextParser,
+    ExcelParser,
 )
 
 
@@ -106,6 +107,27 @@ def _make_pptx_rich() -> bytes:
 
     buffer = io.BytesIO()
     prs.save(buffer)
+    return buffer.getvalue()
+
+
+def _make_xlsx_simple(
+    sheets: dict[str, list[list[str]]],
+) -> bytes:
+    """Build an XLSX in memory from a dict of sheet_name → rows.
+
+    Each row is a list of cell strings; the first row becomes the
+    header in pandas.
+    """
+    import pandas as pd
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        for sheet_name, rows in sheets.items():
+            if rows:
+                df = pd.DataFrame(rows[1:], columns=rows[0])
+            else:
+                df = pd.DataFrame()
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
     return buffer.getvalue()
 
 
@@ -668,3 +690,253 @@ class PPTParserTest(IsolatedAsyncioTestCase):
         parser = PPTParser()
         with self.assertRaises(FileNotFoundError):
             await parser.parse("/no/such/file.pptx", "x.pptx")
+
+
+class ExcelParserTest(IsolatedAsyncioTestCase):
+    """Behavioural coverage for :class:`ExcelParser`."""
+
+    async def test_single_sheet_markdown(self) -> None:
+        """A single-sheet workbook produces one text Section with
+        Markdown table."""
+        xlsx_bytes = _make_xlsx_simple(
+            {"Data": [["Name", "Age"], ["Alice", "25"]]},
+        )
+        parser = ExcelParser(table_format="markdown")
+        sections = await parser.parse(xlsx_bytes, "demo.xlsx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: Data\n"
+                            "| Name | Age |\n"
+                            "| --- | --- |\n"
+                            "| Alice | 25 |\n"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.xlsx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_single_sheet_json(self) -> None:
+        """``table_format="json"`` emits JSON rows."""
+        xlsx_bytes = _make_xlsx_simple(
+            {"Sheet1": [["X", "Y"], ["1", "2"]]},
+        )
+        parser = ExcelParser(table_format="json")
+        sections = await parser.parse(xlsx_bytes, "demo.xlsx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: Sheet1\n"
+                            "<system-info>A table loaded as a JSON "
+                            "array:</system-info>\n"
+                            '["X", "Y"]\n'
+                            '["1", "2"]'
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.xlsx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_multi_sheet_merged_by_default(self) -> None:
+        """``separate_sheet=False`` (default) merges sheets into one
+        Section."""
+        xlsx_bytes = _make_xlsx_simple(
+            {
+                "Sales": [["Q", "Rev"], ["Q1", "100"]],
+                "Costs": [["Q", "Cost"], ["Q1", "50"]],
+            },
+        )
+        parser = ExcelParser()
+        sections = await parser.parse(xlsx_bytes, "multi.xlsx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: Sales\n"
+                            "| Q | Rev |\n"
+                            "| --- | --- |\n"
+                            "| Q1 | 100 |\n\n"
+                            "Sheet: Costs\n"
+                            "| Q | Cost |\n"
+                            "| --- | --- |\n"
+                            "| Q1 | 50 |\n"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "multi.xlsx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_multi_sheet_separated(self) -> None:
+        """``separate_sheet=True`` keeps each sheet as its own Section."""
+        xlsx_bytes = _make_xlsx_simple(
+            {
+                "Sales": [["Q", "Rev"], ["Q1", "100"]],
+                "Costs": [["Q", "Cost"], ["Q1", "50"]],
+            },
+        )
+        parser = ExcelParser(separate_sheet=True)
+        sections = await parser.parse(xlsx_bytes, "multi.xlsx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: Sales\n"
+                            "| Q | Rev |\n"
+                            "| --- | --- |\n"
+                            "| Q1 | 100 |\n"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "multi.xlsx",
+                    "metadata": {"sheet": "Sales"},
+                },
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: Costs\n"
+                            "| Q | Cost |\n"
+                            "| --- | --- |\n"
+                            "| Q1 | 50 |\n"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "multi.xlsx",
+                    "metadata": {"sheet": "Costs"},
+                },
+            ],
+        )
+
+    async def test_sheet_name_in_text(self) -> None:
+        """``include_sheet_names=True`` prepends the sheet name."""
+        xlsx_bytes = _make_xlsx_simple(
+            {"MySheet": [["A"], ["1"]]},
+        )
+        parser = ExcelParser(include_sheet_names=True)
+        sections = await parser.parse(xlsx_bytes, "demo.xlsx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: MySheet\n" "| A |\n" "| --- |\n" "| 1 |\n"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.xlsx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_sheet_name_excluded(self) -> None:
+        """``include_sheet_names=False`` omits the sheet header."""
+        xlsx_bytes = _make_xlsx_simple(
+            {"MySheet": [["A"], ["1"]]},
+        )
+        parser = ExcelParser(include_sheet_names=False)
+        sections = await parser.parse(xlsx_bytes, "demo.xlsx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": ("| A |\n" "| --- |\n" "| 1 |\n"),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.xlsx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_cell_coordinates(self) -> None:
+        """``include_cell_coordinates=True`` adds coordinate prefixes."""
+        xlsx_bytes = _make_xlsx_simple(
+            {"Data": [["Val"], ["X"]]},
+        )
+        parser = ExcelParser(include_cell_coordinates=True)
+        sections = await parser.parse(xlsx_bytes, "demo.xlsx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: Data\n"
+                            "| [A1] Val |\n"
+                            "| --- |\n"
+                            "| [A2] X |\n"
+                        ),
+                        "id": AnyString(),
+                    },
+                    "source": "demo.xlsx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_string_input_treated_as_path(self) -> None:
+        """``str`` is interpreted as a filesystem path."""
+        import tempfile
+
+        xlsx_bytes = _make_xlsx_simple(
+            {"S": [["Col"], ["Val"]]},
+        )
+        with tempfile.NamedTemporaryFile(
+            suffix=".xlsx",
+            delete=False,
+        ) as f:
+            f.write(xlsx_bytes)
+            path = f.name
+        try:
+            parser = ExcelParser()
+            sections = await parser.parse(path, "demo.xlsx")
+            self.assertGreaterEqual(len(sections), 1)
+        finally:
+            os.unlink(path)
+
+    async def test_supported_extensions(self) -> None:
+        """Both ``.xls`` and ``.xlsx`` are listed."""
+        exts = ExcelParser.supported_extensions()
+        self.assertIn(".xlsx", exts)
+        self.assertIn(".xls", exts)
+
+    async def test_table_format_validation(self) -> None:
+        """Unknown ``table_format`` raises :class:`ValueError`."""
+        with self.assertRaises(ValueError):
+            ExcelParser(table_format="csv")  # type: ignore[arg-type]
