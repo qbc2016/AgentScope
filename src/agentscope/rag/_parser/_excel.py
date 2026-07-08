@@ -223,36 +223,41 @@ class ExcelParser(ParserBase):
             excel_file = pd.ExcelFile(io.BytesIO(file))
 
         workbook = None
-        if self.include_image:
-            try:
-                from openpyxl import load_workbook
+        try:
+            if self.include_image:
+                try:
+                    from openpyxl import load_workbook
 
-                if isinstance(file, str):
-                    workbook = load_workbook(file)
-                else:
-                    workbook = load_workbook(io.BytesIO(file))
-            except ImportError:
-                logger.warning(
-                    "openpyxl not available, image extraction disabled.",
+                    if isinstance(file, str):
+                        workbook = load_workbook(file)
+                    else:
+                        workbook = load_workbook(io.BytesIO(file))
+                except ImportError:
+                    logger.warning(
+                        "openpyxl not available, image extraction disabled.",
+                    )
+                except Exception as e:
+                    logger.warning("Failed to load workbook for images: %s", e)
+
+            sections: list[Section] = []
+
+            for sheet_name in excel_file.sheet_names:
+                sheet_sections = self._parse_sheet(
+                    excel_file,
+                    sheet_name,
+                    filename,
+                    workbook,
                 )
-            except Exception as e:
-                logger.warning("Failed to load workbook for images: %s", e)
+                sections.extend(sheet_sections)
 
-        sections: list[Section] = []
+            if not self.separate_sheet:
+                sections = self._merge_text_sections(sections, filename)
 
-        for sheet_name in excel_file.sheet_names:
-            sheet_sections = self._parse_sheet(
-                excel_file,
-                sheet_name,
-                filename,
-                workbook,
-            )
-            sections.extend(sheet_sections)
-
-        if not self.separate_sheet:
-            sections = self._merge_text_sections(sections, filename)
-
-        return sections
+            return sections
+        finally:
+            if workbook is not None:
+                workbook.close()
+            excel_file.close()
 
     # ------------------------------------------------------------------
     # Sheet-level parsing
