@@ -390,11 +390,10 @@ export function EditChannelDialog({ channel, open, onOpenChange, onUpdated }: Pr
 														: '__custom__'
 												}
 												onValueChange={(v) => {
-													if (v !== '__custom__')
-														setNewRule({
-															...newRule,
-															metadata_value: v,
-														});
+													setNewRule({
+														...newRule,
+														metadata_value: v === '__custom__' ? '' : v,
+													});
 												}}
 											>
 												<SelectTrigger className="flex-1" size="sm">

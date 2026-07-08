@@ -300,11 +300,25 @@ class ChannelGateway:
 
             if collect_task in done:
                 text, confirm_data = collect_task.result()
-                # Clean up run_task
+                # Allow run_task a grace period to finish persistence
+                # (upsert_message + update_session_state) before cleanup.
+                # The reply text was already collected from the bus, but
+                # ChatService._run_impl persists the reply Msg and updated
+                # agent state AFTER the reply_stream ends — cancelling
+                # too early loses that write.
                 if run_task is not None:
                     if not run_task.done():
-                        run_task.cancel()
-                    elif not run_task.cancelled():
+                        _, _ = await asyncio.wait(
+                            [run_task],
+                            timeout=10.0,
+                        )
+                        if not run_task.done():
+                            logger.warning(
+                                "run_task did not finish within grace "
+                                "period, cancelling.",
+                            )
+                            run_task.cancel()
+                    if run_task.done() and not run_task.cancelled():
                         exc = run_task.exception()
                         if exc is not None:
                             logger.error("Agent run task failed: %s", exc)
