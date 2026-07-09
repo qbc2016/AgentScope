@@ -13,8 +13,72 @@ if TYPE_CHECKING:
 ChannelFactory = Callable[..., "ChannelBase"]
 
 
+# ── Platform credential / config models ──
+
+
+class FeishuCredentials(BaseModel):
+    """Credentials for a Feishu (Lark) bot application."""
+
+    app_id: str = Field(title="App ID", description="Feishu App ID")
+    app_secret: str = Field(
+        title="App Secret",
+        description="Feishu App Secret",
+        json_schema_extra={"format": "password"},
+    )
+
+
+class FeishuChannelConfig(BaseModel):
+    """Platform-specific configuration for a Feishu channel."""
+
+    only_at_reply: bool = Field(
+        default=True,
+        title="Reply only when mentioned",
+        description="In group chats, reply only when the bot is @mentioned",
+    )
+
+
+class DiscordCredentials(BaseModel):
+    """Credentials for a Discord bot."""
+
+    bot_token: str = Field(
+        title="Bot Token",
+        json_schema_extra={"format": "password"},
+    )
+    application_id: str = Field(title="Application ID")
+
+
+class DingTalkCredentials(BaseModel):
+    """Credentials for a DingTalk bot (Stream mode)."""
+
+    client_id: str = Field(title="Client ID (AppKey)")
+    client_secret: str = Field(
+        title="Client Secret (AppSecret)",
+        json_schema_extra={"format": "password"},
+    )
+
+
+class WeComCredentials(BaseModel):
+    """Credentials for a WeCom bot."""
+
+    corp_id: str = Field(title="Corp ID")
+    agent_id: str = Field(title="Agent ID")
+    secret: str = Field(
+        title="Secret",
+        json_schema_extra={"format": "password"},
+    )
+
+
+# ── Schema and registry ──
+
+
 class ChannelTypeSchema(BaseModel):
-    """Metadata and credential schema for a channel type."""
+    """Metadata and credential schema for a channel type.
+
+    For built-in platforms, ``credentials_schema`` and ``config_schema``
+    are auto-generated from Pydantic models (e.g. ``FeishuCredentials``)
+    via ``model_json_schema()``.  Third-party plugins may still supply
+    raw JSON Schema dicts directly.
+    """
 
     channel_type: str
     """Type identifier (e.g. 'feishu', 'discord')."""
@@ -115,40 +179,18 @@ class ChannelTypeRegistry:
         return str(bot_id)
 
     def _register_builtin_types(self) -> None:
-        """Register built-in platform types."""
+        """Register built-in platform types.
+
+        Credentials and config schemas are generated from the Pydantic
+        models defined above.
+        """
         self.register(
             ChannelTypeSchema(
                 channel_type="feishu",
-                display_name="飞书 (Feishu/Lark)",
-                description="飞书机器人，通过长连接模式接收消息",
-                credentials_schema={
-                    "type": "object",
-                    "required": ["app_id", "app_secret"],
-                    "properties": {
-                        "app_id": {
-                            "type": "string",
-                            "title": "App ID",
-                            "description": "飞书应用的 App ID",
-                        },
-                        "app_secret": {
-                            "type": "string",
-                            "title": "App Secret",
-                            "description": "飞书应用的 App Secret",
-                            "format": "password",
-                        },
-                    },
-                },
-                config_schema={
-                    "type": "object",
-                    "properties": {
-                        "only_at_reply": {
-                            "type": "boolean",
-                            "title": "仅@时回复",
-                            "description": "群聊中仅在被@时回复",
-                            "default": True,
-                        },
-                    },
-                },
+                display_name="Feishu (Lark)",
+                description="Feishu bot via WebSocket long-connection mode",
+                credentials_schema=FeishuCredentials.model_json_schema(),
+                config_schema=FeishuChannelConfig.model_json_schema(),
                 platform_bot_id_field="app_id",
             ),
         )
@@ -158,25 +200,7 @@ class ChannelTypeRegistry:
                 channel_type="discord",
                 display_name="Discord",
                 description="Discord bot via Gateway WebSocket",
-                credentials_schema={
-                    "type": "object",
-                    "required": ["bot_token", "application_id"],
-                    "properties": {
-                        "bot_token": {
-                            "type": "string",
-                            "title": "Bot Token",
-                            "format": "password",
-                        },
-                        "application_id": {
-                            "type": "string",
-                            "title": "Application ID",
-                        },
-                    },
-                },
-                config_schema={
-                    "type": "object",
-                    "properties": {},
-                },
+                credentials_schema=DiscordCredentials.model_json_schema(),
                 platform_bot_id_field="application_id",
             ),
         )
@@ -184,27 +208,9 @@ class ChannelTypeRegistry:
         self.register(
             ChannelTypeSchema(
                 channel_type="dingtalk",
-                display_name="钉钉 (DingTalk)",
-                description="钉钉机器人，通过 Stream 模式接收消息",
-                credentials_schema={
-                    "type": "object",
-                    "required": ["client_id", "client_secret"],
-                    "properties": {
-                        "client_id": {
-                            "type": "string",
-                            "title": "Client ID (AppKey)",
-                        },
-                        "client_secret": {
-                            "type": "string",
-                            "title": "Client Secret (AppSecret)",
-                            "format": "password",
-                        },
-                    },
-                },
-                config_schema={
-                    "type": "object",
-                    "properties": {},
-                },
+                display_name="DingTalk",
+                description="DingTalk bot via Stream mode",
+                credentials_schema=DingTalkCredentials.model_json_schema(),
                 platform_bot_id_field="client_id",
             ),
         )
@@ -212,31 +218,9 @@ class ChannelTypeRegistry:
         self.register(
             ChannelTypeSchema(
                 channel_type="wecom",
-                display_name="企业微信 (WeCom)",
-                description="企业微信应用机器人",
-                credentials_schema={
-                    "type": "object",
-                    "required": ["corp_id", "agent_id", "secret"],
-                    "properties": {
-                        "corp_id": {
-                            "type": "string",
-                            "title": "Corp ID",
-                        },
-                        "agent_id": {
-                            "type": "string",
-                            "title": "Agent ID",
-                        },
-                        "secret": {
-                            "type": "string",
-                            "title": "Secret",
-                            "format": "password",
-                        },
-                    },
-                },
-                config_schema={
-                    "type": "object",
-                    "properties": {},
-                },
+                display_name="WeCom",
+                description="WeCom enterprise application bot",
+                credentials_schema=WeComCredentials.model_json_schema(),
                 platform_bot_id_field="corp_id",
             ),
         )
@@ -244,7 +228,11 @@ class ChannelTypeRegistry:
         self._register_builtin_factories()
 
     def _register_builtin_factories(self) -> None:
-        """Register factory functions for built-in channel types."""
+        """Register factory functions for built-in channel types.
+
+        Each factory validates credentials/config against the
+        corresponding Pydantic model before constructing the adapter.
+        """
 
         def _feishu_factory(
             channel_id: str,
@@ -253,11 +241,13 @@ class ChannelTypeRegistry:
         ) -> ChannelBase:
             from .feishu import FeishuChannel
 
+            creds = FeishuCredentials(**credentials)
+            cfg = FeishuChannelConfig(**config)
             return FeishuChannel(
                 channel_id=channel_id,
-                app_id=credentials["app_id"],
-                app_secret=credentials["app_secret"],
-                **config,
+                app_id=creds.app_id,
+                app_secret=creds.app_secret,
+                only_at_reply=cfg.only_at_reply,
             )
 
         def _discord_factory(
@@ -267,9 +257,10 @@ class ChannelTypeRegistry:
         ) -> ChannelBase:
             from .discord import DiscordChannel
 
+            creds = DiscordCredentials(**credentials)
             return DiscordChannel(
                 channel_id=channel_id,
-                bot_token=credentials["bot_token"],
+                bot_token=creds.bot_token,
                 **config,
             )
 
@@ -280,10 +271,11 @@ class ChannelTypeRegistry:
         ) -> ChannelBase:
             from .dingtalk import DingTalkChannel
 
+            creds = DingTalkCredentials(**credentials)
             return DingTalkChannel(
                 channel_id=channel_id,
-                client_id=credentials["client_id"],
-                client_secret=credentials["client_secret"],
+                client_id=creds.client_id,
+                client_secret=creds.client_secret,
                 **config,
             )
 
@@ -294,11 +286,12 @@ class ChannelTypeRegistry:
         ) -> ChannelBase:
             from .wecom import WeChatWorkChannel
 
+            creds = WeComCredentials(**credentials)
             return WeChatWorkChannel(
                 channel_id=channel_id,
-                corp_id=credentials["corp_id"],
-                agent_id=credentials["agent_id"],
-                secret=credentials["secret"],
+                corp_id=creds.corp_id,
+                agent_id=creds.agent_id,
+                secret=creds.secret,
                 **config,
             )
 

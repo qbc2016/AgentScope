@@ -23,7 +23,15 @@ from ._errors import (
 )
 from ._gateway import ChannelGateway
 from ._manager import ChannelManager
-from ._registry import ChannelTypeRegistry, ChannelTypeSchema
+from ._registry import (
+    ChannelTypeRegistry,
+    ChannelTypeSchema,
+    DingTalkCredentials,
+    DiscordCredentials,
+    FeishuChannelConfig,
+    FeishuCredentials,
+    WeComCredentials,
+)
 from ._session_mapper import (
     InMemorySessionMapper,
     MessageBusSessionMapper,
@@ -53,12 +61,17 @@ __all__ = [
     "ChannelSessionDefaults",
     "ChannelTypeRegistry",
     "ChannelTypeSchema",
+    "DingTalkCredentials",
+    "DiscordCredentials",
     "DuplicateBotError",
+    "FeishuChannelConfig",
+    "FeishuCredentials",
     "InMemoryChannelRepository",
     "InMemorySessionMapper",
     "MessageBusSessionMapper",
     "StorageBackedChannelRepository",
     "RoutingRule",
+    "WeComCredentials",
     "SessionMapperBase",
     "SessionMappingRecord",
 ]
