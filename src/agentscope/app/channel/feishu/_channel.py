@@ -14,7 +14,19 @@ import time
 from typing import Any
 
 from ...._logging import logger
-from .._base import ChannelBase, ChannelCapability, ChannelEvent
+from ....message import TextBlock, DataBlock, Base64Source
+from .._base import (
+    ChannelBase,
+    ChannelCapability,
+    ChannelEvent,
+)
+from ._card_templates import (
+    build_approval_card as _build_approval_card,
+    build_resolved_card as _build_resolved_card,
+    parse_action_value,
+    build_toast_response,
+    ACTION_TYPE,
+)
 
 _WS_MODULE_LOCK = threading.Lock()
 _ATTACHMENT_TTL_SECS = 300  # 5 minutes
@@ -31,6 +43,7 @@ class FeishuChannel(ChannelBase):
         image=True,
         file=False,
         streaming=False,
+        interactive_card=True,
         max_message_length=4000,
     )
 
@@ -53,11 +66,11 @@ class FeishuChannel(ChannelBase):
         self._main_loop: asyncio.AbstractEventLoop | None = None
         self._pending_approvals: dict[str, asyncio.Future] = {}
         # Per-user attachment buffer: (channel_user_id, chat_id) → list of
-        # (timestamp, attachment_dict) tuples. Entries older than
+        # (timestamp, DataBlock) tuples. Entries older than
         # _ATTACHMENT_TTL_SECS are evicted on access.
         self._pending_attachments: dict[
             tuple[str, str],
-            list[tuple[float, dict]],
+            list[tuple[float, DataBlock]],
         ] = {}
 
     @property
@@ -266,11 +279,11 @@ class FeishuChannel(ChannelBase):
 
         content_str = message.content or "{}"
         try:
-            content = json.loads(content_str)
+            content_json = json.loads(content_str)
         except json.JSONDecodeError:
-            content = {}
+            content_json = {}
 
-        text = content.get("text", "").strip()
+        text = content_json.get("text", "").strip()
         if not text:
             return None
 
@@ -300,18 +313,20 @@ class FeishuChannel(ChannelBase):
         with _PENDING_ATTACHMENTS_LOCK:
             raw_entries = self._pending_attachments.pop(buf_key, [])
         now = time.monotonic()
-        pending = [
-            att for ts, att in raw_entries if now - ts < _ATTACHMENT_TTL_SECS
+        pending: list[DataBlock] = [
+            blk for ts, blk in raw_entries if now - ts < _ATTACHMENT_TTL_SECS
         ]
+
+        content: list[TextBlock | DataBlock] = list(pending)
+        content.append(TextBlock(text=text))
 
         return ChannelEvent(
             channel_id=self._channel_id,
             channel_user_id=channel_user_id,
             channel_message_id=message_id,
-            message=text,
-            attachments=pending,
+            chat_id=chat_id,
+            content=content,
             metadata={
-                "chat_id": chat_id,
                 "chat_type": chat_type,
                 "tenant_key": data.header.tenant_key if data.header else "",
             },
@@ -346,9 +361,7 @@ class FeishuChannel(ChannelBase):
         user_id: str = "",
     ) -> str:
         """Build a Feishu interactive card for tool approval."""
-        from ._card_templates import build_approval_card
-
-        return build_approval_card(
+        return _build_approval_card(
             request_id=request_id,
             tool_name=tool_name,
             tool_input_summary=tool_input_summary,
@@ -364,9 +377,7 @@ class FeishuChannel(ChannelBase):
         action: str,
     ) -> str:
         """Build a Feishu resolved card."""
-        from ._card_templates import build_resolved_card
-
-        return build_resolved_card(tool_name=tool_name, action=action)
+        return _build_resolved_card(tool_name=tool_name, action=action)
 
     async def send_interactive_card(
         self,
@@ -385,7 +396,7 @@ class FeishuChannel(ChannelBase):
                 "content": card_content,
             }
         else:
-            chat_id = event.metadata.get("chat_id", "")
+            chat_id = event.chat_id or ""
             url = (
                 "https://open.feishu.cn/open-apis"
                 "/im/v1/messages?receive_id_type=chat_id"
@@ -445,12 +456,6 @@ class FeishuChannel(ChannelBase):
         from lark_oapi.event.callback.model.p2_card_action_trigger import (
             P2CardActionTriggerResponse,
         )
-        from ._card_templates import (
-            parse_action_value,
-            build_resolved_card,
-            build_toast_response,
-            ACTION_TYPE,
-        )
 
         event_obj = getattr(data, "event", None)
         action_obj = getattr(event_obj, "action", None) if event_obj else None
@@ -485,7 +490,7 @@ class FeishuChannel(ChannelBase):
         )
 
         # Build response: update card + toast
-        resolved_card = build_resolved_card(
+        resolved_card = _build_resolved_card(
             tool_name=tool_name,
             action=user_action,
         )
@@ -647,26 +652,26 @@ class FeishuChannel(ChannelBase):
 
         content_str = getattr(message, "content", None) or "{}"
         try:
-            content = json.loads(content_str)
+            content_json = json.loads(content_str)
         except (json.JSONDecodeError, TypeError):
             return
 
         # Determine the resource key and media type based on msg_type
         if msg_type == "image":
-            resource_key = content.get("image_key", "")
+            resource_key = content_json.get("image_key", "")
             resource_type = "image"
             media_type_default = "image/png"
         elif msg_type == "audio":
-            resource_key = content.get("file_key", "")
+            resource_key = content_json.get("file_key", "")
             resource_type = "file"
             media_type_default = "audio/ogg"
         elif msg_type == "media":
             # "media" is video in Feishu
-            resource_key = content.get("file_key", "")
+            resource_key = content_json.get("file_key", "")
             resource_type = "file"
             media_type_default = "video/mp4"
         elif msg_type == "file":
-            resource_key = content.get("file_key", "")
+            resource_key = content_json.get("file_key", "")
             resource_type = "file"
             media_type_default = "application/octet-stream"
         else:
@@ -702,12 +707,13 @@ class FeishuChannel(ChannelBase):
                 )
                 b64_data = base64.b64encode(resp.content).decode("ascii")
 
-                attachment = {
-                    "type": msg_type,
-                    "media_type": content_type,
-                    "data": b64_data,
-                    "source_type": "base64",
-                }
+                attachment = DataBlock(
+                    source=Base64Source(
+                        data=b64_data,
+                        media_type=content_type,
+                    ),
+                    name=msg_type,
+                )
 
                 buf_key = (channel_user_id, chat_id)
                 with _PENDING_ATTACHMENTS_LOCK:
@@ -822,7 +828,7 @@ class FeishuChannel(ChannelBase):
                 "content": json.dumps({"text": text}),
             }
         else:
-            chat_id = event.metadata.get("chat_id", "")
+            chat_id = event.chat_id or ""
             url = (
                 "https://open.feishu.cn/open-apis"
                 "/im/v1/messages?receive_id_type=chat_id"

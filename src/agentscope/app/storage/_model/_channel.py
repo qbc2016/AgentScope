@@ -2,11 +2,16 @@
 """The channel storage model."""
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from ....permission import PermissionMode
 
 
 DmScope = Literal["MAIN", "PER_PEER", "PER_CHAT", "PER_CHANNEL_PEER"]
-PermissionModeType = Literal["dont_ask", "bypass", "default"]
+
+CHANNEL_ALLOWED_PERMISSION_MODES = frozenset(
+    {PermissionMode.DEFAULT, PermissionMode.DONT_ASK, PermissionMode.BYPASS},
+)
 
 
 class ChannelRoutingRule(BaseModel):
@@ -51,8 +56,28 @@ class ChannelRecord(BaseModel):
     dm_scope: DmScope = "PER_PEER"
     """Session isolation strategy."""
 
-    permission_mode: PermissionModeType = "dont_ask"
-    """Permission mode for channel sessions."""
+    permission_mode: str = PermissionMode.DONT_ASK.value
+    """Permission mode for channel sessions.
+
+    Only a subset of ``PermissionMode`` values is allowed for channels:
+    ``default``, ``dont_ask``, ``bypass``. Modes like ``accept_edits``
+    and ``explore`` are designed for local IDE interactions and are not
+    suitable for external messaging platforms.
+    """
+
+    @field_validator("permission_mode")
+    @classmethod
+    def _validate_permission_mode(cls, v: str) -> str:
+        mode = PermissionMode(v)
+        if mode not in CHANNEL_ALLOWED_PERMISSION_MODES:
+            allowed = ", ".join(
+                m.value for m in CHANNEL_ALLOWED_PERMISSION_MODES
+            )
+            raise ValueError(
+                f"Permission mode '{v}' is not allowed for channels. "
+                f"Allowed modes: {allowed}",
+            )
+        return v
 
     enabled: bool = True
 

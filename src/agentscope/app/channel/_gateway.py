@@ -11,45 +11,59 @@ Responsibilities:
 import asyncio
 from datetime import datetime
 
+from ...event import EventType, UserConfirmResultEvent, ConfirmResult
 from ..._logging import logger
+from ...message import UserMsg, ToolCallBlock
+from ...permission import PermissionContext, PermissionMode
+from ...state import AgentState
 from ..message_bus import MessageBusKeys, MessageBus
-from ._base import ChannelBase, ChannelEvent
-from ._config import DefaultSessionConfig
-from ._session_mapper import SessionMapperBase, SessionMappingRecord
-from ._repository import ChannelRecord, ChannelStorageBase
-from ..storage import StorageBase
+from ..storage import (
+    StorageBase,
+    SessionConfig,
+    SessionSource,
+    ChatModelConfig,
+)
+from .._bus_ops import enqueue_run_trigger
 from .._service import ChatService
 from .._manager import ChatRunRegistry
+from ._base import ChannelBase, ChannelEvent
+from ._config import ChannelSessionDefaults
+from ._session_mapper import SessionMapperBase, SessionMappingRecord
+from ._repository import ChannelRecord, ChannelRepositoryBase
 
 _LOCK_PREFIX = "agentscope:channel:user_lock:"
 
 _TOOL_EVENT_TYPES: frozenset[str] = frozenset(
     {
-        "TOOL_CALL_START",
-        "TOOL_CALL_DELTA",
-        "TOOL_CALL_END",
-        "TOOL_RESULT_START",
-        "TOOL_RESULT_TEXT_DELTA",
-        "TOOL_RESULT_DATA_DELTA",
-        "TOOL_RESULT_END",
+        EventType.TOOL_CALL_START,
+        EventType.TOOL_CALL_DELTA,
+        EventType.TOOL_CALL_END,
+        EventType.TOOL_RESULT_START,
+        EventType.TOOL_RESULT_TEXT_DELTA,
+        EventType.TOOL_RESULT_DATA_DELTA,
+        EventType.TOOL_RESULT_END,
     },
 )
 
 _THINKING_EVENT_TYPES: frozenset[str] = frozenset(
     {
-        "THINKING_BLOCK_START",
-        "THINKING_BLOCK_DELTA",
-        "THINKING_BLOCK_END",
+        EventType.THINKING_BLOCK_START,
+        EventType.THINKING_BLOCK_DELTA,
+        EventType.THINKING_BLOCK_END,
     },
 )
 
 
 class ChannelGateway:
-    """Core orchestration engine for channel events.
+    """Core orchestration engine for channel events (data plane).
 
+    Handles per-event processing: routing to agents, session management,
+    chat run triggering, response collection, and HITL approval flows.
     Uses MessageBus distributed lock for per-user serialization so that
     multiple nodes in a cluster don't process events for the same user
     concurrently.
+
+    See ``ChannelManager`` for the lifecycle/control plane counterpart.
     """
 
     def __init__(
@@ -59,11 +73,32 @@ class ChannelGateway:
         chat_service: ChatService,
         chat_run_registry: ChatRunRegistry,
         mapper: SessionMapperBase,
-        channel_storage: ChannelStorageBase,
-        session_config: DefaultSessionConfig,
+        channel_storage: ChannelRepositoryBase,
+        session_config: ChannelSessionDefaults,
         response_timeout: float = 60.0,
         concurrent_users_limit: int = 1000,
     ) -> None:
+        """Initialise the gateway with its runtime dependencies.
+
+        Args:
+            storage: App-level persistence for sessions, agents, etc.
+            message_bus: Distributed pub/sub + locking for event streaming
+                and per-user serialization across cluster nodes.
+            chat_service: Service for triggering agent chat runs.
+            chat_run_registry: Registry for spawning and tracking async
+                chat run tasks (handles session-busy conflicts).
+            mapper: Maps channel peer/chat identifiers to AgentScope
+                session ids (``DmScope``-based).
+            channel_storage: Domain-level repository for ``ChannelRecord``
+                lookups (wraps ``StorageBase`` with ``channel_id``-first
+                access and tenant resolution).
+            session_config: Module-level defaults for workspace_id and
+                chat_model_config, used as fallback when creating sessions.
+            response_timeout: Maximum seconds to wait for an agent reply
+                before timing out.
+            concurrent_users_limit: Per-node concurrency semaphore for
+                simultaneous event processing.
+        """
         self._storage = storage
         self._bus = message_bus
         self._chat_service = chat_service
@@ -175,7 +210,7 @@ class ChannelGateway:
             agent_id = self._resolve_agent_id(event, channel_record)
 
             # Record chat_id for future routing-rule lookups
-            chat_id = event.metadata.get("chat_id")
+            chat_id = event.chat_id
             if chat_id:
                 await self._mapper.record_chat_id(
                     event.channel_id,
@@ -431,13 +466,6 @@ class ChannelGateway:
 
         Returns True (approved), False (denied), or None (timeout).
         """
-        from ...event import (
-            UserConfirmResultEvent,
-            ConfirmResult,
-        )
-        from ...message._block import ToolCallBlock
-        from .._bus_ops import enqueue_run_trigger
-
         tool_calls = confirm_data.get("tool_calls", [])
         reply_id = confirm_data.get("reply_id", "")
         if not tool_calls:
@@ -570,11 +598,6 @@ class ChannelGateway:
             )
             await self._mapper.delete(event.channel_id, mapper_key)
 
-        from ..storage import SessionConfig, SessionSource
-        from ..storage._model._session import ChatModelConfig
-        from ...state import AgentState
-        from ...permission import PermissionContext, PermissionMode
-
         # Resolve chat_model_config: per-channel > global default
         model_cfg_dict = (
             channel_record.chat_model_config
@@ -702,9 +725,6 @@ class ChannelGateway:
         Called on every event to ensure channel config changes are
         reflected in existing sessions.
         """
-        from ...permission import PermissionContext, PermissionMode
-        from ...state import AgentState
-
         session_record = await self._storage.get_session(
             user_id=user_id,
             agent_id=agent_id,
@@ -757,7 +777,7 @@ class ChannelGateway:
     ) -> str:
         """Generate the SessionMapper lookup key based on DmScope."""
         uid = event.channel_user_id
-        chat_id = event.metadata.get("chat_id", "")
+        chat_id = event.chat_id or ""
         scope = channel_record.dm_scope
 
         if scope == "MAIN":
@@ -808,29 +828,10 @@ class ChannelGateway:
         Returns the spawned asyncio.Task so callers can monitor for
         early failures (e.g. agent not found).
         """
-        from ...message import UserMsg
-        from ...message._block import TextBlock, DataBlock, Base64Source
-
         deadline = asyncio.get_running_loop().time() + max_wait
         backoff = 1.0
 
-        # Build message content: text + optional image attachments
-        msg_content: str | list = event.message
-        if event.attachments:
-            blocks: list[TextBlock | DataBlock] = []
-            for att in event.attachments:
-                if att.get("source_type") == "base64" and att.get("data"):
-                    blocks.append(
-                        DataBlock(
-                            source=Base64Source(
-                                data=att["data"],
-                                media_type=att.get("media_type", "image/png"),
-                            ),
-                        ),
-                    )
-            if blocks:
-                blocks.append(TextBlock(text=event.message))
-                msg_content = blocks
+        msg_content: list | str = event.content if event.content else ""
 
         while True:
             coro = self._chat_service.run(
@@ -900,7 +901,7 @@ class ChannelGateway:
 
             evt_type = evt.get("type", "")
 
-            if evt_type == "REPLY_START":
+            if evt_type == EventType.REPLY_START:
                 run_started = True
                 logger.debug("_collect_from_bus: REPLY_START received")
                 continue
@@ -918,31 +919,31 @@ class ChannelGateway:
             if filter_thinking_messages and evt_type in _THINKING_EVENT_TYPES:
                 continue
 
-            if evt_type == "THINKING_BLOCK_START":
+            if evt_type == EventType.THINKING_BLOCK_START:
                 text_parts.append("\n💭 ")
-            elif evt_type == "THINKING_BLOCK_DELTA":
+            elif evt_type == EventType.THINKING_BLOCK_DELTA:
                 text_parts.append(evt.get("delta", ""))
-            elif evt_type == "THINKING_BLOCK_END":
+            elif evt_type == EventType.THINKING_BLOCK_END:
                 text_parts.append("\n\n")
-            elif evt_type == "TOOL_CALL_START":
+            elif evt_type == EventType.TOOL_CALL_START:
                 tool_name = evt.get("tool_call_name", "")
                 text_parts.append(f"\n🔧 Calling tool: {tool_name}\n")
-            elif evt_type == "TOOL_RESULT_TEXT_DELTA":
+            elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA:
                 text_parts.append(evt.get("delta", ""))
-            elif evt_type == "TOOL_RESULT_END":
+            elif evt_type == EventType.TOOL_RESULT_END:
                 text_parts.append("\n")
-            elif evt_type == "TEXT_BLOCK_DELTA":
+            elif evt_type == EventType.TEXT_BLOCK_DELTA:
                 text_parts.append(evt.get("delta", ""))
-            elif evt_type == "REPLY_END":
+            elif evt_type == EventType.REPLY_END:
                 logger.debug(
                     "_collect_from_bus: REPLY_END, text_len=%d",
                     len("".join(text_parts)),
                 )
                 break
-            elif evt_type == "EXCEED_MAX_ITERS":
+            elif evt_type == EventType.EXCEED_MAX_ITERS:
                 text_parts.append("\n⚠️ Maximum reasoning rounds reached.")
                 break
-            elif evt_type == "REQUIRE_USER_CONFIRM":
+            elif evt_type == EventType.REQUIRE_USER_CONFIRM:
                 confirm_data = evt
                 break
 

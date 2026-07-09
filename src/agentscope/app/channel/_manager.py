@@ -20,7 +20,7 @@ from ._gateway import ChannelGateway
 from ._errors import DuplicateBotError
 from ._registry import ChannelTypeRegistry
 from ._session_mapper import SessionMapperBase
-from ._repository import ChannelRecord, ChannelStorageBase
+from ._repository import ChannelRecord, ChannelRepositoryBase
 from ..message_bus import MessageBus
 from ..storage import StorageBase
 from .._service import ChatService
@@ -37,7 +37,13 @@ def _gen_node_id() -> str:
 
 
 class ChannelManager:
-    """Manages the full lifecycle of channel instances."""
+    """Lifecycle and dynamic management of channel instances (control plane).
+
+    Handles CRUD operations for channels, start/stop of platform adapter
+    listener tasks, and multi-node lifecycle synchronization via MessageBus.
+
+    See ``ChannelGateway`` for the event-processing/data plane counterpart.
+    """
 
     def __init__(
         self,
@@ -46,10 +52,30 @@ class ChannelManager:
         chat_service: ChatService,
         chat_run_registry: ChatRunRegistry,
         session_mapper: SessionMapperBase,
-        channel_storage: ChannelStorageBase,
+        channel_storage: ChannelRepositoryBase,
         config: ChannelConfig,
         type_registry: ChannelTypeRegistry | None = None,
     ) -> None:
+        """Initialise the manager with its dependencies.
+
+        Args:
+            storage: App-level persistence for sessions, agents, etc.
+            message_bus: Distributed pub/sub for lifecycle event broadcast
+                across cluster nodes and per-user locking.
+            chat_service: Service for triggering agent chat runs (passed
+                through to ``ChannelGateway``).
+            chat_run_registry: Registry for spawning async chat run tasks
+                (passed through to ``ChannelGateway``).
+            session_mapper: Maps channel peer/chat to AgentScope sessions
+                (passed through to ``ChannelGateway``).
+            channel_storage: Domain-level repository for ``ChannelRecord``
+                CRUD operations.
+            config: Module-level configuration (timeouts, concurrency
+                limits, default session config).
+            type_registry: Registry mapping channel type strings to
+                platform adapter factories. Defaults to a built-in
+                registry with Feishu/Discord/DingTalk/WeCom.
+        """
         self._channel_storage = channel_storage
         self._session_mapper = session_mapper
         self._message_bus = message_bus
@@ -77,8 +103,8 @@ class ChannelManager:
         return self._gateway
 
     @property
-    def channel_storage(self) -> ChannelStorageBase:
-        """Public access to channel storage for read operations."""
+    def channel_storage(self) -> ChannelRepositoryBase:
+        """Public access to channel repository for read operations."""
         return self._channel_storage
 
     @property

@@ -7,15 +7,25 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class DefaultSessionConfig(BaseModel):
-    """Typed schema for default session configuration fields."""
+class ChannelSessionDefaults(BaseModel):
+    """Module-level default values for channel-created sessions.
+
+    These are **not** a replacement for ``SessionConfig`` (defined in
+    ``agentscope.app.storage``).  Instead, they provide fallback values
+    that ``ChannelGateway._ensure_session`` uses when constructing a real
+    ``SessionConfig`` for a new channel session — specifically
+    ``workspace_id`` and ``chat_model_config``.
+
+    Per-channel overrides in ``ChannelRecord.chat_model_config`` take
+    precedence over the defaults here.
+    """
 
     workspace_id: str = "default"
     """Workspace to use for channel-created sessions."""
 
     chat_model_config: dict[str, Any] | None = None
-    """Default chat model config dict. If set, channels without an explicit
-    per-channel chat_model_config will fall back to this."""
+    """Default chat model config dict.  Channels without an explicit
+    per-channel ``chat_model_config`` fall back to this."""
 
 
 class ChannelConfig(BaseModel):
@@ -28,7 +38,7 @@ class ChannelConfig(BaseModel):
     """Per-node concurrency semaphore for simultaneous event processing.
     Per-user serialization is handled by distributed locks via MessageBus."""
 
-    default_session_config: DefaultSessionConfig = Field(
-        default_factory=DefaultSessionConfig,
+    default_session_config: ChannelSessionDefaults = Field(
+        default_factory=ChannelSessionDefaults,
     )
-    """Default SessionConfig fields for channel-created sessions."""
+    """Fallback values for channel-created sessions (workspace and model)."""

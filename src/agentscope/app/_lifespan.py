@@ -183,10 +183,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ChannelManager,
             ChannelTypeRegistry,
             MessageBusSessionMapper,
-            StorageBackedChannelStorage,
+            StorageBackedChannelRepository,
         )
 
-        channel_storage = StorageBackedChannelStorage(storage)
+        channel_storage = StorageBackedChannelRepository(storage)
         session_mapper = MessageBusSessionMapper(message_bus)
         channel_config = ChannelConfig()
         channel_type_registry = ChannelTypeRegistry()

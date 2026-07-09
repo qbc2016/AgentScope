@@ -1,5 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Channel configuration persistence — abstract base + implementations."""
+"""Channel record repository — abstract base + implementations.
+
+This module provides a domain-level repository API for ``ChannelRecord``
+CRUD operations.  It is **not** a new persistence backend — the production
+implementation (``StorageBackedChannelRepository``) delegates to the
+existing ``StorageBase`` (Redis) infrastructure.
+
+The repository layer exists because:
+- ``StorageBase`` methods are user-scoped (require ``user_id``), but channel
+  runtime events arrive with only a ``channel_id``.
+- The repository handles the ``channel_id → tenant_user_id`` resolution
+  and caching internally.
+- ``ChannelManager`` needs a global view of all enabled channels at
+  startup (``list_channels(enabled_only=True)``), which is a domain-level
+  concern rather than a generic storage operation.
+"""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -11,15 +26,21 @@ from ._errors import ChannelNotFoundError
 
 __all__ = [
     "ChannelRecord",
-    "ChannelStorageBase",
-    "InMemoryChannelStorage",
+    "ChannelRepositoryBase",
+    "InMemoryChannelRepository",
     "RoutingRule",
-    "StorageBackedChannelStorage",
+    "StorageBackedChannelRepository",
 ]
 
 
-class ChannelStorageBase(ABC):
-    """Abstract base for channel record persistence."""
+class ChannelRepositoryBase(ABC):
+    """Abstract base for channel record repository.
+
+    Provides domain-level CRUD for ``ChannelRecord`` instances.
+    Production implementation delegates to ``StorageBase``; this
+    abstraction hides the ``channel_id → tenant_user_id`` lookup
+    required for user-scoped storage access.
+    """
 
     @abstractmethod
     async def get_channel(self, channel_id: str) -> ChannelRecord | None:
@@ -56,11 +77,11 @@ class ChannelStorageBase(ABC):
         """Find channel by platform_bot_id for uniqueness validation."""
 
 
-class InMemoryChannelStorage(ChannelStorageBase):
-    """In-memory channel storage for development and testing.
+class InMemoryChannelRepository(ChannelRepositoryBase):
+    """In-memory channel repository for development and testing.
 
-    NOTE: Data is lost on process restart. Use ``MessageBusChannelStorage``
-    for production deployments.
+    NOTE: Data is lost on process restart. Use
+    ``StorageBackedChannelRepository`` for production deployments.
     """
 
     def __init__(self) -> None:
@@ -106,8 +127,8 @@ class InMemoryChannelStorage(ChannelStorageBase):
         return None
 
 
-class StorageBackedChannelStorage(ChannelStorageBase):
-    """Channel storage that delegates to the app's StorageBase (Redis).
+class StorageBackedChannelRepository(ChannelRepositoryBase):
+    """Channel repository that delegates to the app's StorageBase (Redis).
 
     Reuses the existing StorageBase/RedisStorage infrastructure with proper
     multi-tenant user_id scoping, indexes, and key TTL management.
@@ -115,7 +136,7 @@ class StorageBackedChannelStorage(ChannelStorageBase):
     The ChannelManager is a global service that manages channels across
     all tenants, so:
     - ``list_channels()`` uses ``storage.list_all_channels()`` (global view)
-    - ``get_channel()`` uses a local channel_id→user_id cache for O(1) lookup
+    - ``get_channel()`` uses a local channel_id->user_id cache for O(1) lookup
     - Write operations use ``record.tenant_user_id`` as the user scope
     """
 

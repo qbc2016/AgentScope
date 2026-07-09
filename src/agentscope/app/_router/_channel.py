@@ -22,10 +22,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..deps import get_current_user_id
-from ._errors import ChannelNotFoundError, DuplicateBotError
-from ._repository import ChannelRecord, RoutingRule
-from ._manager import ChannelManager
-from ._registry import ChannelTypeRegistry
+from ..channel._errors import ChannelNotFoundError, DuplicateBotError
+from ..channel._repository import ChannelRecord, RoutingRule
+from ..channel._manager import ChannelManager
+from ..channel._registry import ChannelTypeRegistry
 
 channel_router = APIRouter(
     prefix="/channels",
