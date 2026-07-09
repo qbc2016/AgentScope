@@ -72,8 +72,15 @@ def _extract_text_from_paragraph(para: DocxParagraph) -> str:
 
 
 def _extract_table_data(table: DocxTable) -> list[list[str]]:
-    """Extract table data from a python-docx Table, handling merged cells
-    and preserving line breaks within cells."""
+    """Extract table data from a python-docx Table, preserving line breaks
+    within cells.
+
+    Horizontal merges (``w:gridSpan``) are expanded with empty strings so
+    that every row has the same number of columns.  Vertically merged
+    continuation cells (``w:vMerge`` without ``val="restart"``) are kept
+    as-is — their XML content is typically empty, which is the desired
+    behaviour for downstream renderers.
+    """
     from docx.oxml.ns import qn
 
     table_data: list[list[str]] = []
@@ -90,6 +97,16 @@ def _extract_table_data(table: DocxTable) -> list[list[str]]:
                 if para_text:
                     paragraphs.append(para_text)
             row_data.append("\n".join(paragraphs))
+
+            tc_pr = tc.find(qn("w:tcPr"))
+            if tc_pr is not None:
+                gs = tc_pr.find(qn("w:gridSpan"))
+                if gs is not None:
+                    span = int(
+                        gs.get(qn("w:val"), gs.get("val", "1")),
+                    )
+                    row_data.extend([""] * (span - 1))
+
         table_data.append(row_data)
     return table_data
 
@@ -272,6 +289,10 @@ class WordParser(ParserBase):
             if isinstance(element, CT_P):
                 para = Paragraph(element, doc)
 
+                text = _extract_text_from_paragraph(para)
+                if text:
+                    text_buffer.append(text)
+
                 if self.include_image:
                     has_drawing = bool(
                         para._element.findall(".//" + qn("w:drawing")),
@@ -293,10 +314,6 @@ class WordParser(ParserBase):
                                     },
                                 ),
                             )
-
-                text = _extract_text_from_paragraph(para)
-                if text:
-                    text_buffer.append(text)
 
             elif isinstance(element, CT_Tbl):
                 table_data = _extract_table_data(Table(element, doc))
