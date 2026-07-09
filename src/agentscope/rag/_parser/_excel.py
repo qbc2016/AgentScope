@@ -25,8 +25,17 @@ from ._utils import _guess_image_media_type
 
 
 def _get_excel_column_name(col_index: int) -> str:
-    """Convert a 0-based column index to an Excel column name
-    (A, B, ..., Z, AA, AB, ...)."""
+    """Convert a 0-based column index to an Excel column name.
+
+    Args:
+        col_index (`int`):
+            Zero-based column index (0 → ``"A"``, 25 → ``"Z"``,
+            26 → ``"AA"``, etc.).
+
+    Returns:
+        `str`:
+            The corresponding Excel column letter(s).
+    """
     result = ""
     col_index += 1
     while col_index > 0:
@@ -37,10 +46,19 @@ def _get_excel_column_name(col_index: int) -> str:
 
 
 def _extract_table_data(df: Any) -> list[list[str]]:
-    """Extract table data from a pandas DataFrame, converting NaN to
-    empty strings and normalising line breaks.
+    """Extract table data from a pandas DataFrame.
 
-    The first row of the returned list is the column header.
+    NaN values are converted to empty strings, and Windows-style line
+    breaks (``\\r\\n``) are normalised to ``\\n``.
+
+    Args:
+        df (`pandas.DataFrame`):
+            The DataFrame to extract data from.
+
+    Returns:
+        `list[list[str]]`:
+            A 2-D list where the first row is the column header and
+            subsequent rows contain the cell values as strings.
     """
     import pandas as pd
 
@@ -65,8 +83,18 @@ def _extract_images_from_worksheet(
 ) -> list[tuple[int, DataBlock]]:
     """Extract images from an openpyxl worksheet with their row positions.
 
-    Returns a list of ``(row_index, DataBlock)`` tuples, where
-    ``row_index`` is 0-based.
+    Args:
+        worksheet (`openpyxl.worksheet.worksheet.Worksheet`):
+            The openpyxl worksheet to scan for embedded images.
+        filename (`str`):
+            Source filename, stored in each :class:`DataBlock`'s
+            ``name`` field.
+
+    Returns:
+        `list[tuple[int, DataBlock]]`:
+            A list of ``(row_index, DataBlock)`` tuples, where
+            ``row_index`` is 0-based.  Images whose anchor cannot
+            be determined default to row 0.
     """
     images: list[tuple[int, DataBlock]] = []
 
@@ -198,9 +226,12 @@ class ExcelParser(ParserBase):
 
         Returns:
             `list[Section]`:
-                Sections in sheet order.  Text sections carry
-                ``{"sheet": "<name>"}`` metadata; image sections add
-                ``{"media_type": "image/..."}``.
+                Sections in sheet order.  When ``separate_sheet=True``,
+                text sections carry ``{"sheet": "<name>"}`` metadata
+                and image sections add
+                ``{"media_type": "image/..."}``.  When
+                ``separate_sheet=False`` (default), all text is merged
+                into a single section with ``metadata={}``.
 
         Raises:
             `FileNotFoundError`: If ``file`` is a ``str`` pointing to
