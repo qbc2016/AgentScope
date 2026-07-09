@@ -153,11 +153,7 @@ class ChannelBase(ABC):
     async def start_listening(self) -> None:
         """Establish long-lived connection and loop receiving events.
 
-        Implementations must include automatic reconnection with
-        exponential back-off.  Recommended strategy: initial delay 1 s,
-        factor 2×, capped at 30 s.  The base class does not enforce this
-        constraint; each platform adapter should implement its own retry
-        loop (e.g. ``asyncio.sleep(min(backoff, 30))``).
+        Implementations should include automatic reconnection.
         """
 
     @abstractmethod

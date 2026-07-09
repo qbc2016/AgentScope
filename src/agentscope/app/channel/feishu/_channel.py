@@ -103,11 +103,14 @@ class FeishuChannel(ChannelBase):
 
         The lark-oapi SDK's ws.Client runs its own asyncio event loop
         internally, so we run it in a separate thread and bridge events
-        back to our main loop. Implements automatic reconnection with
-        exponential backoff when the thread dies unexpectedly.
+        back to our main loop.  Implements automatic reconnection with
+        exponential backoff (initial 1 s, factor 2×, capped at 30 s)
+        when the thread dies unexpectedly.  The backoff resets to 1 s
+        once a connection has been stable for at least 60 s.
         """
         self._main_loop = asyncio.get_running_loop()
         backoff = 1.0
+        stable_threshold = 60.0
         token_refresh_interval = 1800  # 30 minutes
         while not self._stop_event.is_set():
             self._ws_thread = self._launch_ws_thread()
@@ -116,13 +119,14 @@ class FeishuChannel(ChannelBase):
                 self._channel_id,
                 self._ws_thread.name,
             )
-            backoff = 1.0
+            uptime = 0.0
             elapsed_since_refresh = 0.0
 
             while not self._stop_event.is_set():
                 if not self._ws_thread.is_alive():
                     break
                 await asyncio.sleep(5.0)
+                uptime += 5.0
                 elapsed_since_refresh += 5.0
                 if elapsed_since_refresh >= token_refresh_interval:
                     elapsed_since_refresh = 0.0
@@ -133,6 +137,9 @@ class FeishuChannel(ChannelBase):
 
             if self._stop_event.is_set():
                 break
+
+            if uptime >= stable_threshold:
+                backoff = 1.0
 
             logger.warning(
                 "Feishu WS thread for '%s' died, reconnecting in %.1fs.",
