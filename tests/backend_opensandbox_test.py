@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Test cases for :class:`E2BBackend`.
+"""Test cases for :class:`OpenSandboxBackend`.
 
 Validates that the three backend primitives (``exec_shell``,
 ``read_file``, ``write_file``) and the inherited shell-based filesystem
-helpers behave correctly inside a real E2B cloud sandbox.
+helpers behave correctly inside a real OpenSandbox sandbox.
 
-The whole module is skipped unless the ``E2B_API_KEY`` environment
-variable is set, because every test requires a live E2B sandbox.  CI
-runs without E2B credentials are therefore unaffected; when a key *is*
-present the tests exercise the real ``commands.run`` / ``files.*`` APIs.
+The whole module is skipped unless the ``OPENSANDBOX_DOMAIN`` environment
+variable is set, because every test requires a live OpenSandbox service.
+CI runs without OpenSandbox access are therefore unaffected; when a
+domain *is* present the tests exercise the real ``commands.run`` /
+``files.*`` APIs.
 
-A live sandbox is obtained by initializing an :class:`E2BWorkspace` and
-reusing its already-wired :class:`E2BBackend` (``ws._backend``), which
-avoids duplicating the sandbox bring-up logic here.
+A live sandbox is obtained by initializing an :class:`OpenSandboxWorkspace`
+and reusing its already-wired :class:`OpenSandboxBackend` (``ws._backend``),
+which avoids duplicating the sandbox bring-up logic here.
 """
 
 import os
@@ -21,31 +22,36 @@ import unittest
 from unittest.async_case import IsolatedAsyncioTestCase
 
 from agentscope.tool import ExecResult
-from agentscope.workspace import E2BWorkspace
-from agentscope.workspace import E2BBackend
-from agentscope.workspace._e2b._constants import SANDBOX_WORKDIR
+from agentscope.workspace import OpenSandboxWorkspace
+from agentscope.workspace import OpenSandboxBackend
+from agentscope.workspace._opensandbox._constants import SANDBOX_WORKDIR
 
 
-# ── E2B availability check ─────────────────────────────────────────
+# ── OpenSandbox availability check ─────────────────────────────────
 
-_E2B_API_KEY = os.getenv("E2B_API_KEY", "")
-_SKIP_REASON = "E2B_API_KEY environment variable is not set"
+_DOMAIN = os.getenv("OPENSANDBOX_DOMAIN", "")
+_API_KEY = os.getenv("OPENSANDBOX_API_KEY", "")
+_SKIP_REASON = "OPENSANDBOX_DOMAIN environment variable is not set"
 
 
-@unittest.skipUnless(_E2B_API_KEY, _SKIP_REASON)
-class TestE2BBackend(IsolatedAsyncioTestCase):
-    """Test cases for ``E2BBackend`` against a live sandbox.
+@unittest.skipUnless(_DOMAIN, _SKIP_REASON)
+class TestOpenSandboxBackend(IsolatedAsyncioTestCase):
+    """Test cases for ``OpenSandboxBackend`` against a live sandbox.
 
-    Each test creates a real E2B cloud sandbox via ``E2BWorkspace`` and
-    tears it down (``close`` → sandbox pause) afterwards.
+    Each test creates a real OpenSandbox sandbox via
+    ``OpenSandboxWorkspace`` and tears it down (``close`` → sandbox
+    pause) afterwards.
     """
 
     async def asyncSetUp(self) -> None:
         """Start a workspace and reuse its wired backend."""
-        self.workspace = E2BWorkspace(api_key=_E2B_API_KEY)
+        self.workspace = OpenSandboxWorkspace(
+            domain=_DOMAIN,
+            api_key=_API_KEY,
+        )
         await self.workspace.initialize()
         self.backend = self.workspace._backend
-        self.assertIsInstance(self.backend, E2BBackend)
+        self.assertIsInstance(self.backend, OpenSandboxBackend)
 
     async def asyncTearDown(self) -> None:
         """Pause / close the sandbox."""
