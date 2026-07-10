@@ -12,6 +12,7 @@ from ._parser import (
     PDFParser,
     PPTParser,
     TextParser,
+    WordParser,
     ExcelParser,
 )
 from ._vdb import (
@@ -36,6 +37,7 @@ __all__ = [
     "PDFParser",
     "PPTParser",
     "TextParser",
+    "WordParser",
     "ExcelParser",
     "Section",
     "VectorStoreBase",
