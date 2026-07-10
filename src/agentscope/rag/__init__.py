@@ -13,6 +13,7 @@ from ._parser import (
     PPTParser,
     TextParser,
     WordParser,
+    ExcelParser,
 )
 from ._vdb import (
     DocumentSummary,
@@ -21,6 +22,7 @@ from ._vdb import (
     VectorRecord,
     VectorSearchResult,
     QdrantStore,
+    MongoDBStore,
 )
 from ._knowledge import KnowledgeBase
 
@@ -36,10 +38,12 @@ __all__ = [
     "PPTParser",
     "TextParser",
     "WordParser",
+    "ExcelParser",
     "Section",
     "VectorStoreBase",
     "VectorRecord",
     "VectorSearchResult",
     "QdrantStore",
     "KnowledgeBase",
+    "MongoDBStore",
 ]
