@@ -6,6 +6,7 @@ from ._image import ImageParser
 from ._pdf import PDFParser
 from ._ppt import PPTParser
 from ._text import TextParser
+from ._excel import ExcelParser
 
 __all__ = [
     "ParserBase",
@@ -13,4 +14,5 @@ __all__ = [
     "PPTParser",
     "ImageParser",
     "TextParser",
+    "ExcelParser",
 ]
