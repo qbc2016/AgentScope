@@ -339,10 +339,6 @@ class FeishuChannel(ChannelBase):
             },
         )
 
-    async def normalize(self, raw_payload: dict) -> ChannelEvent | None:
-        """Not used in SDK mode — events come via the SDK callback."""
-        return None
-
     async def send_response(
         self,
         event: ChannelEvent,
@@ -403,13 +399,12 @@ class FeishuChannel(ChannelBase):
                 "content": card_content,
             }
         else:
-            chat_id = event.chat_id or ""
             url = (
                 "https://open.feishu.cn/open-apis"
                 "/im/v1/messages?receive_id_type=chat_id"
             )
             body = {
-                "receive_id": chat_id,
+                "receive_id": event.chat_id,
                 "msg_type": "interactive",
                 "content": card_content,
             }
@@ -835,13 +830,12 @@ class FeishuChannel(ChannelBase):
                 "content": json.dumps({"text": text}),
             }
         else:
-            chat_id = event.chat_id or ""
             url = (
                 "https://open.feishu.cn/open-apis"
                 "/im/v1/messages?receive_id_type=chat_id"
             )
             body = {
-                "receive_id": chat_id,
+                "receive_id": event.chat_id,
                 "msg_type": "text",
                 "content": json.dumps({"text": text}),
             }

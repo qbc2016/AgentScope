@@ -38,13 +38,7 @@ from ._session_mapper import (
     SessionMapperBase,
     SessionMappingRecord,
 )
-from ._repository import (
-    ChannelRecord,
-    ChannelRepositoryBase,
-    InMemoryChannelRepository,
-    RoutingRule,
-    StorageBackedChannelRepository,
-)
+from ..storage import ChannelRecord, ChannelRoutingRule
 
 __all__ = [
     "ChannelBase",
@@ -57,7 +51,6 @@ __all__ = [
     "ChannelManager",
     "ChannelNotFoundError",
     "ChannelRecord",
-    "ChannelRepositoryBase",
     "ChannelSessionDefaults",
     "ChannelTypeRegistry",
     "ChannelTypeSchema",
@@ -66,11 +59,9 @@ __all__ = [
     "DuplicateBotError",
     "FeishuChannelConfig",
     "FeishuCredentials",
-    "InMemoryChannelRepository",
     "InMemorySessionMapper",
     "MessageBusSessionMapper",
-    "StorageBackedChannelRepository",
-    "RoutingRule",
+    "ChannelRoutingRule",
     "WeComCredentials",
     "SessionMapperBase",
     "SessionMappingRecord",

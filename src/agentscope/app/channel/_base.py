@@ -18,10 +18,10 @@ if TYPE_CHECKING:
 class ChannelEvent(BaseModel):
     """Normalised inbound message event from an external platform.
 
-    This is an **internal** data structure consumed only by
-    ``ChannelGateway`` — it is never exposed to the agent layer.
+    This is an **internal** data structure consumed by the event
+    processing pipeline — it is never exposed to the agent layer.
     The ``content`` field uses the same ``TextBlock`` / ``DataBlock``
-    types as ``Msg.content``, so the gateway can pass it directly to
+    types as ``Msg.content``, so the pipeline can pass it directly to
     the agent without an extra conversion step.
     """
 
@@ -31,25 +31,25 @@ class ChannelEvent(BaseModel):
     channel_user_id: str
     """Platform-side unique user identifier."""
 
-    channel_message_id: str | None = None
-    """Platform-side message id for reply referencing."""
-
-    chat_id: str | None = None
+    chat_id: str
     """Platform-side chat/group identifier.
 
-    Used by ``ChannelGateway`` for session mapping (``DmScope``) and
-    routing-rule evaluation.  Platform adapters should populate this
-    during normalisation.
+    Used for session mapping (``DmScope``) and routing-rule
+    evaluation.  Platform adapters must populate this when
+    constructing the ``ChannelEvent``.
     """
+
+    channel_message_id: str | None = None
+    """Platform-side message id for reply referencing."""
 
     content: list[TextBlock | DataBlock] = Field(default_factory=list)
     """Unified content blocks.
 
     Platform adapters should convert raw payloads into ``TextBlock``
     (for text) and ``DataBlock`` (for images, audio, files, etc.)
-    during normalisation.  This is the **single source of truth** for
-    event content — there is no separate ``message`` or ``attachments``
-    field.
+    when constructing the event.  This is the **single source of
+    truth** for event content — there is no separate ``message`` or
+    ``attachments`` field.
     """
 
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -154,22 +154,6 @@ class ChannelBase(ABC):
         """Establish long-lived connection and loop receiving events.
 
         Implementations should include automatic reconnection.
-        """
-
-    @abstractmethod
-    async def normalize(self, raw_payload: dict) -> ChannelEvent | None:
-        """Convert a raw platform payload into a ``ChannelEvent``.
-
-        Returns ``None`` to indicate the event should be ignored.
-        Must populate ``ChannelEvent.chat_id`` when available and
-        build ``content`` as ``list[TextBlock | DataBlock]``.
-
-        For channels using SDK/WebSocket callbacks (e.g. Feishu long-connection
-        mode), events bypass this method entirely and are normalized in a
-        separate internal hook (e.g. ``_normalize_sdk_event``). In that case,
-        this method may return None unconditionally. It is retained in the
-        interface to support HTTP-webhook-based channels where raw JSON
-        payloads are POSTed to the server.
         """
 
     @abstractmethod

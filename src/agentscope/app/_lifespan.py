@@ -183,10 +183,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ChannelManager,
             ChannelTypeRegistry,
             MessageBusSessionMapper,
-            StorageBackedChannelRepository,
         )
 
-        channel_storage = StorageBackedChannelRepository(storage)
         session_mapper = MessageBusSessionMapper(message_bus)
         channel_config = ChannelConfig()
         channel_type_registry = ChannelTypeRegistry()
@@ -197,7 +195,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             chat_service=chat_service,
             chat_run_registry=chat_run_registry,
             session_mapper=session_mapper,
-            channel_storage=channel_storage,
             config=channel_config,
             type_registry=channel_type_registry,
         )

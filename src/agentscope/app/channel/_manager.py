@@ -17,12 +17,12 @@ from ..._logging import logger
 from ._base import ChannelBase
 from ._config import ChannelConfig
 from ._gateway import ChannelGateway
-from ._errors import DuplicateBotError
+from ._errors import ChannelNotFoundError, DuplicateBotError
 from ._registry import ChannelTypeRegistry
 from ._session_mapper import SessionMapperBase
-from ._repository import ChannelRecord, ChannelRepositoryBase
 from ..message_bus import MessageBus
 from ..storage import StorageBase
+from ..storage import ChannelRecord
 from .._service import ChatService
 from .._manager import ChatRunRegistry
 
@@ -52,14 +52,13 @@ class ChannelManager:
         chat_service: ChatService,
         chat_run_registry: ChatRunRegistry,
         session_mapper: SessionMapperBase,
-        channel_storage: ChannelRepositoryBase,
         config: ChannelConfig,
         type_registry: ChannelTypeRegistry | None = None,
     ) -> None:
         """Initialise the manager with its dependencies.
 
         Args:
-            storage: App-level persistence for sessions, agents, etc.
+            storage: App-level persistence for sessions, agents, channels.
             message_bus: Distributed pub/sub for lifecycle event broadcast
                 across cluster nodes and per-user locking.
             chat_service: Service for triggering agent chat runs (passed
@@ -68,15 +67,13 @@ class ChannelManager:
                 (passed through to ``ChannelGateway``).
             session_mapper: Maps channel peer/chat to AgentScope sessions
                 (passed through to ``ChannelGateway``).
-            channel_storage: Domain-level repository for ``ChannelRecord``
-                CRUD operations.
             config: Module-level configuration (timeouts, concurrency
                 limits, default session config).
             type_registry: Registry mapping channel type strings to
                 platform adapter factories. Defaults to a built-in
                 registry with Feishu/Discord/DingTalk/WeCom.
         """
-        self._channel_storage = channel_storage
+        self._storage = storage
         self._session_mapper = session_mapper
         self._message_bus = message_bus
         self._config = config
@@ -91,7 +88,6 @@ class ChannelManager:
             chat_service=chat_service,
             chat_run_registry=chat_run_registry,
             mapper=session_mapper,
-            channel_storage=channel_storage,
             session_config=config.default_session_config,
             response_timeout=config.response_timeout,
             concurrent_users_limit=config.concurrent_users_limit,
@@ -102,10 +98,22 @@ class ChannelManager:
         """Expose the gateway for direct event dispatch (testing)."""
         return self._gateway
 
-    @property
-    def channel_storage(self) -> ChannelRepositoryBase:
-        """Public access to channel repository for read operations."""
-        return self._channel_storage
+    async def get_channel_record(
+        self,
+        channel_id: str,
+    ) -> ChannelRecord | None:
+        """Fetch a channel record by id."""
+        return await self._storage.get_channel_by_id(channel_id)
+
+    async def list_channel_records(
+        self,
+        enabled_only: bool = False,
+    ) -> list[ChannelRecord]:
+        """List all channel records, optionally filtering enabled only."""
+        records = await self._storage.list_all_channels()
+        if enabled_only:
+            return [r for r in records if r.enabled]
+        return records
 
     @property
     def session_mapper(self) -> SessionMapperBase:
@@ -204,7 +212,7 @@ class ChannelManager:
 
         if action in ("added", "enabled"):
             if channel_id not in self._channel_tasks:
-                record = await self._channel_storage.get_channel(
+                record = await self._storage.get_channel_by_id(
                     channel_id,
                 )
                 if record and record.enabled:
@@ -221,7 +229,7 @@ class ChannelManager:
         elif action == "updated":
             if channel_id in self._channel_tasks:
                 await self._stop_channel(channel_id)
-            record = await self._channel_storage.get_channel(channel_id)
+            record = await self._storage.get_channel_by_id(channel_id)
             if record and record.enabled:
                 try:
                     await self._start_channel(record)
@@ -239,7 +247,7 @@ class ChannelManager:
         Raises DuplicateBotError if the platform_bot_id is already
         registered to another channel.
         """
-        existing = await self._channel_storage.get_by_platform_bot_id(
+        existing = await self._storage.get_channel_by_platform_bot_id(
             record.platform_bot_id,
         )
         if existing:
@@ -247,7 +255,8 @@ class ChannelManager:
                 record.platform_bot_id,
                 existing.channel_id,
             )
-        await self._channel_storage.save_channel(record)
+        user_id = record.tenant_user_id or "system"
+        await self._storage.upsert_channel(user_id, record)
         if record.enabled:
             await self._start_channel(record)
         await self._broadcast_lifecycle("added", record.channel_id)
@@ -256,7 +265,10 @@ class ChannelManager:
         """Stop, clean up mappings, and delete a channel."""
         await self._stop_channel(channel_id)
         await self._session_mapper.delete_all_for_channel(channel_id)
-        await self._channel_storage.delete_channel(channel_id)
+        record = await self._storage.get_channel_by_id(channel_id)
+        if record:
+            user_id = record.tenant_user_id or "system"
+            await self._storage.delete_channel(user_id, channel_id)
         await self._broadcast_lifecycle("removed", channel_id)
 
     async def update_channel(
@@ -266,10 +278,12 @@ class ChannelManager:
     ) -> ChannelRecord:
         """Stop the old instance, apply updates, and restart if enabled."""
         await self._stop_channel(channel_id)
-        record = await self._channel_storage.update_channel(
-            channel_id,
-            updates,
-        )
+        existing = await self._storage.get_channel_by_id(channel_id)
+        if existing is None:
+            raise ChannelNotFoundError(channel_id)
+        record = existing.model_copy(update=updates)
+        user_id = record.tenant_user_id or "system"
+        await self._storage.upsert_channel(user_id, record)
         if record.enabled:
             await self._start_channel(record)
         await self._broadcast_lifecycle("updated", channel_id)
@@ -277,20 +291,24 @@ class ChannelManager:
 
     async def enable_channel(self, channel_id: str) -> None:
         """Enable and start a disabled channel."""
-        record = await self._channel_storage.update_channel(
-            channel_id,
-            {"enabled": True},
-        )
+        existing = await self._storage.get_channel_by_id(channel_id)
+        if existing is None:
+            raise ChannelNotFoundError(channel_id)
+        record = existing.model_copy(update={"enabled": True})
+        user_id = record.tenant_user_id or "system"
+        await self._storage.upsert_channel(user_id, record)
         await self._start_channel(record)
         await self._broadcast_lifecycle("enabled", channel_id)
 
     async def disable_channel(self, channel_id: str) -> None:
         """Disable and stop a running channel."""
         await self._stop_channel(channel_id)
-        await self._channel_storage.update_channel(
-            channel_id,
-            {"enabled": False},
-        )
+        existing = await self._storage.get_channel_by_id(channel_id)
+        if existing is None:
+            raise ChannelNotFoundError(channel_id)
+        record = existing.model_copy(update={"enabled": False})
+        user_id = record.tenant_user_id or "system"
+        await self._storage.upsert_channel(user_id, record)
         await self._broadcast_lifecycle("disabled", channel_id)
 
     async def get_channel_status(self, channel_id: str) -> dict:
@@ -310,7 +328,7 @@ class ChannelManager:
 
     async def _load_and_start_channels(self) -> None:
         """Load all enabled channels from storage on startup."""
-        records = await self._channel_storage.list_channels(enabled_only=True)
+        records = await self.list_channel_records(enabled_only=True)
         for record in records:
             try:
                 await self._start_channel(record)

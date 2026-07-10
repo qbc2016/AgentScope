@@ -29,7 +29,7 @@ from .._manager import ChatRunRegistry
 from ._base import ChannelBase, ChannelEvent
 from ._config import ChannelSessionDefaults
 from ._session_mapper import SessionMapperBase, SessionMappingRecord
-from ._repository import ChannelRecord, ChannelRepositoryBase
+from ..storage import ChannelRecord
 
 _LOCK_PREFIX = "agentscope:channel:user_lock:"
 
@@ -73,7 +73,6 @@ class ChannelGateway:
         chat_service: ChatService,
         chat_run_registry: ChatRunRegistry,
         mapper: SessionMapperBase,
-        channel_storage: ChannelRepositoryBase,
         session_config: ChannelSessionDefaults,
         response_timeout: float = 60.0,
         concurrent_users_limit: int = 1000,
@@ -89,9 +88,6 @@ class ChannelGateway:
                 chat run tasks (handles session-busy conflicts).
             mapper: Maps channel peer/chat identifiers to AgentScope
                 session ids (``DmScope``-based).
-            channel_storage: Domain-level repository for ``ChannelRecord``
-                lookups (wraps ``StorageBase`` with ``channel_id``-first
-                access and tenant resolution).
             session_config: Module-level defaults for workspace_id and
                 chat_model_config, used as fallback when creating sessions.
             response_timeout: Maximum seconds to wait for an agent reply
@@ -104,7 +100,6 @@ class ChannelGateway:
         self._chat_service = chat_service
         self._chat_run_registry = chat_run_registry
         self._mapper = mapper
-        self._channel_storage = channel_storage
         self._session_config = session_config
         self._timeout = response_timeout
         self._channels: dict[str, ChannelBase] = {}
@@ -197,7 +192,7 @@ class ChannelGateway:
             reaction_id = await channel.add_reaction(event, "OnIt")
 
             # Step 1: Get ChannelRecord + resolve agent via routing rules
-            channel_record = await self._channel_storage.get_channel(
+            channel_record = await self._storage.get_channel_by_id(
                 event.channel_id,
             )
             if not channel_record:
@@ -210,11 +205,10 @@ class ChannelGateway:
             agent_id = self._resolve_agent_id(event, channel_record)
 
             # Record chat_id for future routing-rule lookups
-            chat_id = event.chat_id
-            if chat_id:
+            if event.chat_id:
                 await self._mapper.record_chat_id(
                     event.channel_id,
-                    chat_id,
+                    event.chat_id,
                 )
 
             # Step 2: Get or create session (DmScope-based)
@@ -777,7 +771,7 @@ class ChannelGateway:
     ) -> str:
         """Generate the SessionMapper lookup key based on DmScope."""
         uid = event.channel_user_id
-        chat_id = event.chat_id or ""
+        chat_id = event.chat_id
         scope = channel_record.dm_scope
 
         if scope == "MAIN":

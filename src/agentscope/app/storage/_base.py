@@ -461,6 +461,24 @@ class StorageBase(ABC):
         """
 
     @abstractmethod
+    async def get_channel_by_id(
+        self,
+        channel_id: str,
+    ) -> ChannelRecord | None:
+        """Fetch a channel record by channel_id without requiring user_id.
+
+        Uses a reverse index (channel_id → user_id) for O(1) lookup.
+        This is the primary lookup method used by the channel runtime
+        (Gateway, Manager) where only a channel_id is available.
+
+        Args:
+            channel_id (`str`): The channel id.
+
+        Returns:
+            `ChannelRecord | None`: The record, or ``None`` if not found.
+        """
+
+    @abstractmethod
     async def list_all_channels(self) -> list[ChannelRecord]:
         """Return every channel record across all users.
 

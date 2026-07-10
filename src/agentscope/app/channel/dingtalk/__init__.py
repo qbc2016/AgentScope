@@ -2,7 +2,7 @@
 """DingTalk channel adapter (not yet implemented)."""
 from typing import Any
 
-from .._base import ChannelBase, ChannelEvent
+from .._base import ChannelBase
 
 
 class DingTalkChannel(ChannelBase):
@@ -19,12 +19,6 @@ class DingTalkChannel(ChannelBase):
         )
 
     async def start_listening(self) -> None:
-        raise NotImplementedError
-
-    async def normalize(
-        self,
-        raw_payload: dict,
-    ) -> ChannelEvent | None:
         raise NotImplementedError
 
     async def send_response(self, event: Any, response: str) -> None:

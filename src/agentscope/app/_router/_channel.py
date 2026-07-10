@@ -22,10 +22,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..deps import get_current_user_id
-from ..channel._errors import ChannelNotFoundError, DuplicateBotError
-from ..channel._repository import ChannelRecord, RoutingRule
-from ..channel._manager import ChannelManager
-from ..channel._registry import ChannelTypeRegistry
+from ..channel import (
+    ChannelNotFoundError,
+    DuplicateBotError,
+    ChannelManager,
+    ChannelTypeRegistry,
+)
+from ..storage import ChannelRecord, ChannelRoutingRule
 
 channel_router = APIRouter(
     prefix="/channels",
@@ -45,7 +48,7 @@ class CreateChannelRequest(BaseModel):
     default_agent_id: str
     chat_model_config: dict | None = None
     fallback_chat_model_config: dict | None = None
-    routing_rules: list[RoutingRule] = Field(default_factory=list)
+    routing_rules: list[ChannelRoutingRule] = Field(default_factory=list)
     dm_scope: str = "PER_CHAT"
     permission_mode: str = "dont_ask"
     config: dict[str, Any] = Field(default_factory=dict)
@@ -60,7 +63,7 @@ class UpdateChannelRequest(BaseModel):
     default_agent_id: str | None = None
     chat_model_config: dict | None = None
     fallback_chat_model_config: dict | None = None
-    routing_rules: list[RoutingRule] | None = None
+    routing_rules: list[ChannelRoutingRule] | None = None
     dm_scope: str | None = None
     permission_mode: str | None = None
     config: dict[str, Any] | None = None
@@ -87,7 +90,7 @@ class ChannelResponse(BaseModel):
     default_agent_id: str
     chat_model_config: dict | None
     fallback_chat_model_config: dict | None = None
-    routing_rules: list[RoutingRule]
+    routing_rules: list[ChannelRoutingRule]
     dm_scope: str
     permission_mode: str
     enabled: bool
@@ -155,7 +158,7 @@ async def _get_owned_channel(
     manager: ChannelManager,
 ) -> ChannelRecord:
     """Fetch a channel and verify the requesting user owns it."""
-    record = await manager.channel_storage.get_channel(channel_id)
+    record = await manager.get_channel_record(channel_id)
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -186,7 +189,7 @@ async def list_channels(
     user_id: str = Depends(get_current_user_id),
 ) -> list[ChannelResponse]:
     """List channels owned by the current user."""
-    records = await manager.channel_storage.list_channels()
+    records = await manager.list_channel_records()
     owned = [r for r in records if r.tenant_user_id == user_id]
     return [_to_response(r) for r in owned]
 
@@ -392,7 +395,7 @@ async def add_binding(
     """Add a routing rule to a channel."""
     record = await _get_owned_channel(channel_id, user_id, manager)
 
-    new_rule = RoutingRule(
+    new_rule = ChannelRoutingRule(
         metadata_key=body.metadata_key,
         metadata_value=body.metadata_value,
         agent_id=body.agent_id,

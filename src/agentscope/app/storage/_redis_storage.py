@@ -90,6 +90,7 @@ class RedisStorage(StorageBase):
         channel_index: str = "agentscope:user:{user_id}:channels"
         channel_global_index: str = "agentscope:channels"
         channel_botid_index: str = "agentscope:channel_botid:{platform_bot_id}"
+        channel_lookup: str = "agentscope:channel_lookup:{channel_id}"
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -978,6 +979,11 @@ class RedisStorage(StorageBase):
             botid_key,
             f"{user_id}:{record.channel_id}",
         )
+        lookup_key = self._key(
+            self.key_config.channel_lookup,
+            channel_id=record.channel_id,
+        )
+        await self._set_with_ttl(lookup_key, user_id)
         return record.channel_id
 
     async def get_channel(
@@ -1051,7 +1057,26 @@ class RedisStorage(StorageBase):
             f"{user_id}:{channel_id}",
         )
         await self._client.delete(botid_key)
+        lookup_key = self._key(
+            self.key_config.channel_lookup,
+            channel_id=channel_id,
+        )
+        await self._client.delete(lookup_key)
         return True
+
+    async def get_channel_by_id(
+        self,
+        channel_id: str,
+    ) -> ChannelRecord | None:
+        """Fetch a channel record by channel_id using the reverse index."""
+        lookup_key = self._key(
+            self.key_config.channel_lookup,
+            channel_id=channel_id,
+        )
+        user_id = await self._client.get(lookup_key)
+        if not user_id:
+            return None
+        return await self.get_channel(user_id, channel_id)
 
     async def list_all_channels(self) -> list[ChannelRecord]:
         """Return every channel record across all users.
