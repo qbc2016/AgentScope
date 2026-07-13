@@ -73,6 +73,7 @@ workspace = [
     "aiodocker",
     "e2b",
     "agentscope[k8s]",
+    "daytona",
     "opensandbox",
 ]
 # ------------ Tools ------------
