@@ -430,6 +430,138 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             res,
         )
 
+    async def test_chat_formatter_reasoning_not_globally_sorted(
+        self,
+    ) -> None:
+        """Reasoning replay keeps existing tool/result boundaries."""
+        fmt = OpenAIResponseFormatter()
+        thinking_1 = ThinkingBlock(thinking="thinking_1")
+        thinking_1.reasoning_item_id = "rs_1"
+        thinking_2 = ThinkingBlock(thinking="thinking_2")
+        thinking_2.reasoning_item_id = "rs_2"
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    thinking_1,
+                    TextBlock(text="text_1"),
+                    ToolCallBlock(
+                        id="call_1",
+                        name="func_1",
+                        input='{"arg": "value1"}',
+                    ),
+                    ToolResultBlock(
+                        id="call_1",
+                        name="func_1",
+                        output=[TextBlock(text="result_1")],
+                        state=ToolResultState.SUCCESS,
+                    ),
+                    thinking_2,
+                    TextBlock(text="text_2"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [
+                        {"type": "summary_text", "text": "thinking_1"},
+                    ],
+                    "content": [],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "text_1"},
+                    ],
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "call_1",
+                    "name": "func_1",
+                    "arguments": '{"arg": "value1"}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_1",
+                    "output": "result_1",
+                },
+                {
+                    "type": "reasoning",
+                    "id": "rs_2",
+                    "summary": [
+                        {"type": "summary_text", "text": "thinking_2"},
+                    ],
+                    "content": [],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "text_2"},
+                    ],
+                },
+            ],
+            res,
+        )
+
+    async def test_chat_formatter_reasoning_splits_text_segments(
+        self,
+    ) -> None:
+        """Non-empty reasoning starts a new assistant text segment."""
+        fmt = OpenAIResponseFormatter()
+        thinking_1 = ThinkingBlock(thinking="thinking_1")
+        thinking_1.reasoning_item_id = "rs_1"
+        thinking_2 = ThinkingBlock(thinking="thinking_2")
+        thinking_2.reasoning_item_id = "rs_2"
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[
+                    thinking_1,
+                    TextBlock(text="text_1"),
+                    thinking_2,
+                    TextBlock(text="text_2"),
+                ],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [
+                        {"type": "summary_text", "text": "thinking_1"},
+                    ],
+                    "content": [],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "text_1"},
+                    ],
+                },
+                {
+                    "type": "reasoning",
+                    "id": "rs_2",
+                    "summary": [
+                        {"type": "summary_text", "text": "thinking_2"},
+                    ],
+                    "content": [],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "text_2"},
+                    ],
+                },
+            ],
+            res,
+        )
+
     @patch(
         "agentscope.formatter._formatter_base.shortuuid.uuid",
         return_value=_FIXED_ID,

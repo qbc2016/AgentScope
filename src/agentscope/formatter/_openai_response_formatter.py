@@ -123,18 +123,8 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
             msg = msgs[i]
             content_parts: list[dict] = []
             function_calls: list[dict] = []
-            # Responses API requires reasoning items to precede the output
-            # they produced, but streaming accumulates them last; sort to
-            # restore API order for history replay.
-            blocks = sorted(
-                msg.get_content_blocks(),
-                key=lambda block: 0
-                if isinstance(block, ThinkingBlock)
-                and getattr(block, "reasoning_item_id", None)
-                else 1,
-            )
 
-            for block in blocks:
+            for block in msg.get_content_blocks():
                 if isinstance(block, TextBlock):
                     text_type = (
                         "output_text"
@@ -218,7 +208,7 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                         None,
                     )
                     if reasoning_item_id:
-                        if content_parts:
+                        if content_parts and block.thinking:
                             items.append(
                                 {
                                     "role": msg.role,
@@ -226,8 +216,11 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                                 },
                             )
                             content_parts = []
-                        # summary may be empty when the model did not produce
-                        # reasoning summary text (e.g. o4-mini with streaming)
+                        # Empty reasoning blocks can arrive after text deltas
+                        # only to carry reasoning_item_id; emit them before
+                        # pending assistant text for replay. Non-empty
+                        # reasoning starts a new output segment, so flush text
+                        # first.
                         summary = (
                             [{"type": "summary_text", "text": block.thinking}]
                             if block.thinking
