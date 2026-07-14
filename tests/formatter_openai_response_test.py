@@ -398,6 +398,38 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             res,
         )
 
+    async def test_chat_formatter_empty_thinking_echoed_with_reasoning_item_id(
+        self,
+    ) -> None:
+        """Empty ThinkingBlock with reasoning_item_id is echoed first."""
+        fmt = OpenAIResponseFormatter()
+        thinking = ThinkingBlock(thinking="")
+        thinking.reasoning_item_id = "rs_empty"
+        msgs = [
+            AssistantMsg(
+                name="assistant",
+                content=[TextBlock(text="reply"), thinking],
+            ),
+        ]
+        res = await fmt.format(msgs)
+        self.assertListEqual(
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_empty",
+                    "summary": [],
+                    "content": [],
+                },
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "output_text", "text": "reply"},
+                    ],
+                },
+            ],
+            res,
+        )
+
     @patch(
         "agentscope.formatter._formatter_base.shortuuid.uuid",
         return_value=_FIXED_ID,

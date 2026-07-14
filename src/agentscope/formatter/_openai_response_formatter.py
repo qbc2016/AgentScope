@@ -123,8 +123,18 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
             msg = msgs[i]
             content_parts: list[dict] = []
             function_calls: list[dict] = []
+            # Responses API requires reasoning items to precede the output
+            # they produced, but streaming accumulates them last; sort to
+            # restore API order for history replay.
+            blocks = sorted(
+                msg.get_content_blocks(),
+                key=lambda block: 0
+                if isinstance(block, ThinkingBlock)
+                and getattr(block, "reasoning_item_id", None)
+                else 1,
+            )
 
-            for block in msg.get_content_blocks():
+            for block in blocks:
                 if isinstance(block, TextBlock):
                     text_type = (
                         "output_text"
