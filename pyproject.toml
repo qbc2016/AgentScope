@@ -91,8 +91,8 @@ rag = [
     "pandas",
 ]
 milvuslite = [
-    "pymilvus[milvus-lite]>=2.4.0",
-    "milvus-lite>=3.0; sys_platform == 'win32'",
+    "pymilvus>=2.4.0",
+    "milvus-lite>=3.1.0",
 ]
 # ------------ MongoDB vector store ------------
 mongodb = [
