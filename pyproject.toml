@@ -27,7 +27,7 @@ dependencies = [
     "filetype",
     "json5",
     "json_repair",
-    "mcp",
+    "mcp<2.0.0",
     "httpx",
     "numpy",
     "openai",
