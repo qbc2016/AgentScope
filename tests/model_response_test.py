@@ -5,7 +5,7 @@ from unittest.async_case import IsolatedAsyncioTestCase
 
 from utils import AnyString
 
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, DataBlock, Base64Source
 from agentscope.model import ChatResponse, FinishedReason, ChatUsage
 
 
@@ -404,6 +404,51 @@ class ChatResponseAppendTest(IsolatedAsyncioTestCase):
                         "id": "th1",
                     },
                 ],
+            ),
+        )
+
+    async def test_append_chat_response_data_block_extra_fields(self) -> None:
+        """DataBlock extras from deltas are copied to the accumulator."""
+        acc = ChatResponse(
+            content=[
+                DataBlock(
+                    id="data1",
+                    source=Base64Source(data="Zm9v", media_type="image/png"),
+                    detail="low",
+                ),
+            ],
+            is_last=False,
+        )
+        delta = ChatResponse(
+            content=[
+                DataBlock(
+                    id="data1",
+                    source=Base64Source(data="YmFy", media_type="image/png"),
+                    detail="high",
+                ),
+            ],
+            is_last=True,
+        )
+
+        acc.append_chat_response(delta)
+
+        self.assertDictEqual(
+            _dump(acc),
+            _expected(
+                content=[
+                    {
+                        "type": "data",
+                        "id": "data1",
+                        "source": {
+                            "type": "base64",
+                            "data": "YmFy",
+                            "media_type": "image/png",
+                        },
+                        "name": None,
+                        "detail": "high",
+                    },
+                ],
+                is_last=False,
             ),
         )
 

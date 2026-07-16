@@ -270,6 +270,10 @@ class ChatResponse(DictMixin):
                             setattr(block, key, value)
 
                 elif isinstance(block, DataBlock):
+                    for key, value in (delta_block.model_extra or {}).items():
+                        if value is not None:
+                            setattr(block, key, value)
+
                     # Only ``audio/*`` is treated as a streamable delta:
                     # callers accumulate raw media bytes across chunks and
                     # the concatenated result is a well-defined stream.

@@ -78,6 +78,7 @@ class MessageTest(IsolatedAsyncioTestCase):
                         url="https://example.com/image.png",
                         media_type="image/png",
                     ),
+                    detail="high",
                 ),
                 DataBlock(
                     source=Base64Source(
@@ -105,6 +106,7 @@ class MessageTest(IsolatedAsyncioTestCase):
                             "media_type": "image/png",
                         },
                         "name": None,
+                        "detail": "high",
                     },
                     {
                         "type": "data",
