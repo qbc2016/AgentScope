@@ -122,7 +122,7 @@ class _OpenAIFormatterBase(FormatterBase, ABC):
         else:
             raise ValueError(f"Unsupported image source type: {type(source)}")
 
-        image_url_payload: dict[str, Any] = {"url": url}
+        image_url_payload = {"url": url}
         if extra:
             image_url_payload.update(extra)
         return {
@@ -159,7 +159,7 @@ class _OpenAIFormatterBase(FormatterBase, ABC):
                     f"Unsupported audio media type: {media_type}, "
                     "only audio/wav and audio/mp3 are supported.",
                 )
-            input_audio_payload: dict[str, Any] = {
+            input_audio_payload = {
                 "data": source.data,
                 "format": media_type.split("/")[-1],
             }
