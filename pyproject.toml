@@ -44,6 +44,7 @@ dependencies = [
     "tree_sitter",
     "tree_sitter_bash",
     "jsonschema",
+    "Pillow",
 ]
 
 [project.optional-dependencies]
@@ -79,7 +80,6 @@ workspace = [
 # ------------ Tools ------------
 tools = [
     "ripgrep",
-    "Pillow",
 ]
 # ------------ RAG ------------
 rag = [

@@ -321,19 +321,8 @@ Usage:
                 media_type.startswith("image/")
                 and self._image_format is not None
             ):
-                try:
-                    from PIL import Image
-                except ImportError:
-                    return ToolChunk(
-                        content=[
-                            TextBlock(
-                                text="Error: Image format conversion requires "
-                                "Pillow. Install with: pip install Pillow",
-                            ),
-                        ],
-                        state=ToolResultState.ERROR,
-                        is_last=True,
-                    )
+                from PIL import Image
+
                 pil_fmt, media_type = self._IMAGE_FORMAT_MAP[
                     self._image_format
                 ]
