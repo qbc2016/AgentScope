@@ -4,6 +4,7 @@ import base64
 import os
 import tempfile
 from unittest.async_case import IsolatedAsyncioTestCase
+from utils import AnyString
 
 from agentscope.tool import ToolChunk, Read
 from agentscope.permission import (
@@ -390,12 +391,28 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             tool = Read(image_format="png")
             chunk = await tool(file_path=bmp_path)
 
-            self.assertEqual(chunk.state, "running")
-            block = chunk.content[0]
-            self.assertIsInstance(block, DataBlock)
             self.assertEqual(
-                block.source.media_type,
-                "image/png",
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "data",
+                            "id": AnyString(),
+                            "source": {
+                                "type": "base64",
+                                "data": AnyString(),
+                                "media_type": "image/png",
+                            },
+                            "name": os.path.basename(
+                                bmp_path,
+                            ),
+                        },
+                    ],
+                    "state": "running",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
             )
         finally:
             os.unlink(bmp_path)
@@ -419,12 +436,28 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             tool = Read(image_format="jpeg")
             chunk = await tool(file_path=png_path)
 
-            self.assertEqual(chunk.state, "running")
-            block = chunk.content[0]
-            self.assertIsInstance(block, DataBlock)
             self.assertEqual(
-                block.source.media_type,
-                "image/jpeg",
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "data",
+                            "id": AnyString(),
+                            "source": {
+                                "type": "base64",
+                                "data": AnyString(),
+                                "media_type": "image/jpeg",
+                            },
+                            "name": os.path.basename(
+                                png_path,
+                            ),
+                        },
+                    ],
+                    "state": "running",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
             )
         finally:
             os.unlink(png_path)
@@ -432,6 +465,9 @@ class ReadToolTest(IsolatedAsyncioTestCase):
     async def test_image_format_none_keeps_original(self) -> None:
         """Test image_format=None keeps original format."""
         img_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        expected_b64 = base64.b64encode(img_data).decode(
+            "ascii",
+        )
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".png",
@@ -443,21 +479,38 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             tool = Read(image_format=None)
             chunk = await tool(file_path=png_path)
 
-            self.assertEqual(chunk.state, "running")
-            block = chunk.content[0]
-            self.assertIsInstance(block, DataBlock)
             self.assertEqual(
-                block.source.media_type,
-                "image/png",
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "data",
+                            "id": AnyString(),
+                            "source": {
+                                "type": "base64",
+                                "data": expected_b64,
+                                "media_type": "image/png",
+                            },
+                            "name": os.path.basename(
+                                png_path,
+                            ),
+                        },
+                    ],
+                    "state": "running",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
             )
-            decoded = base64.b64decode(block.source.data)
-            self.assertEqual(decoded, img_data)
         finally:
             os.unlink(png_path)
 
     async def test_image_format_skips_audio(self) -> None:
         """Test image_format does not affect audio files."""
         audio_data = b"\x00" * 200
+        expected_b64 = base64.b64encode(audio_data).decode(
+            "ascii",
+        )
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".mp3",
@@ -469,12 +522,28 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             tool = Read(image_format="png")
             chunk = await tool(file_path=mp3_path)
 
-            self.assertEqual(chunk.state, "running")
-            block = chunk.content[0]
-            self.assertIsInstance(block, DataBlock)
             self.assertEqual(
-                block.source.media_type,
-                "audio/mpeg",
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "data",
+                            "id": AnyString(),
+                            "source": {
+                                "type": "base64",
+                                "data": expected_b64,
+                                "media_type": "audio/mpeg",
+                            },
+                            "name": os.path.basename(
+                                mp3_path,
+                            ),
+                        },
+                    ],
+                    "state": "running",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
             )
         finally:
             os.unlink(mp3_path)
