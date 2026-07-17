@@ -2,7 +2,8 @@
 """The read tool in agentscope."""
 import base64
 import fnmatch
-from typing import Any, List
+import io
+from typing import Any, List, Literal
 
 from .._base import ToolBase, ToolMiddlewareBase
 from ...permission import (
@@ -19,12 +20,6 @@ from ...message import (
     ToolResultState,
 )
 from ...state import AgentState
-from ...rag import (
-    PDFParser,
-    WordParser,
-    ExcelParser,
-    PPTParser,
-)
 from ._backend import BackendBase, _normalize_newlines
 
 _DATA_MEDIA_EXTENSIONS: dict[str, str] = {
@@ -66,7 +61,7 @@ Usage:
 - Results are returned using cat -n format, with line numbers starting at 1
 - This tool allows you to read images (eg PNG, JPG, GIF, WebP), audio (MP3, WAV, OGG), and video (MP4, WebM) files. Binary data files are returned as base64-encoded DataBlocks.
 - This tool can read PDF files (.pdf). Text is extracted per page. You can optionally provide the pages parameter to read specific pages.
-- This tool can read Word (.docx), Excel (.xlsx/.xls), and PowerPoint (.pptx) files. Text and tables are extracted; images in Word/PPT are included as DataBlocks."""  # noqa: E501
+- For other text-based files, content is returned with line numbers."""  # noqa: E501
     """The description presented to the agent."""
 
     input_schema: dict[str, Any] = {
@@ -107,9 +102,15 @@ Usage:
     is_external_tool: bool = False
     is_state_injected: bool = True
 
+    _IMAGE_FORMAT_MAP: dict[str, tuple[str, str]] = {
+        "png": ("PNG", "image/png"),
+        "jpeg": ("JPEG", "image/jpeg"),
+    }
+
     def __init__(
         self,
         max_line_characters: int = 2000,
+        image_format: Literal["png", "jpeg"] | None = None,
         middlewares: List[ToolMiddlewareBase] | None = None,
         backend: BackendBase | None = None,
     ) -> None:
@@ -117,21 +118,37 @@ Usage:
 
         Args:
             max_line_characters (`int`, defaults to 2000):
-                The maximum number of characters to include for each line when
-                reading files. Lines longer than this will be truncated with
-                a "[truncated]" suffix. This prevents overwhelming the agent
-                with excessively long lines while still providing useful
-                content.
-            middlewares (`List[ToolMiddlewareBase] | None`, optional):
+                The maximum number of characters to include
+                for each line when reading files. Lines longer
+                than this will be truncated with a "[truncated]"
+                suffix.
+            image_format (`Literal["png","jpeg"] | None`,
+                optional):
+                Target format for image conversion. Accepts
+                ``"png"`` or ``"jpeg"``. When ``None`` (default),
+                images are returned in their original format.
+                Requires Pillow when set.
+            middlewares (`List[ToolMiddlewareBase] | None`,
+                optional):
                 Tool middlewares wrapping the tool execution.
             backend (`BackendBase | None`, optional):
-                The sandbox backend to use for file I/O. When ``None``,
-                a :class:`LocalBackend` is created.
+                The sandbox backend to use for file I/O. When
+                ``None``, a :class:`LocalBackend` is created.
         """
         from ._backend import LocalBackend
 
+        if (
+            image_format is not None
+            and image_format not in self._IMAGE_FORMAT_MAP
+        ):
+            raise ValueError(
+                f"image_format must be 'png', 'jpeg', or "
+                f"None, got '{image_format}'",
+            )
+
         super().__init__(middlewares=middlewares)
         self._max_line_characters = max_line_characters
+        self._image_format = image_format
         self._backend = backend or LocalBackend()
 
     async def check_permissions(
@@ -228,8 +245,7 @@ Usage:
         """Read a file and return content as appropriate block types.
 
         Dispatches to format-specific readers based on file extension:
-        - PDF: text extraction via pypdf
-        - Word/Excel/PPT: structured extraction via RAG parsers
+        - PDF: text extraction via RAG parser
         - Image/audio/video: base64-encoded DataBlock
         - Other: line-numbered text (TextBlock)
         """
@@ -275,12 +291,6 @@ Usage:
 
         if ext == ".pdf":
             return await self._read_pdf(file_path, pages)
-        if ext == ".docx":
-            return await self._read_docx(file_path)
-        if ext in (".xlsx", ".xls"):
-            return await self._read_excel(file_path)
-        if ext == ".pptx":
-            return await self._read_pptx(file_path)
         if ext in _DATA_MEDIA_EXTENSIONS:
             return await self._read_media_file(file_path, ext)
 
@@ -302,11 +312,44 @@ Usage:
         ext: str,
     ) -> ToolChunk:
         """Read a binary media file and return as DataBlock."""
+        media_type = _DATA_MEDIA_EXTENSIONS[ext]
+
         try:
             raw = await self._backend.read_file(file_path)
 
-            media_type = _DATA_MEDIA_EXTENSIONS[ext]
-            encoded = base64.b64encode(raw).decode("ascii")
+            if (
+                media_type.startswith("image/")
+                and self._image_format is not None
+            ):
+                try:
+                    from PIL import Image
+                except ImportError:
+                    return ToolChunk(
+                        content=[
+                            TextBlock(
+                                text="Error: Image format conversion requires "
+                                "Pillow. Install with: pip install Pillow",
+                            ),
+                        ],
+                        state=ToolResultState.ERROR,
+                        is_last=True,
+                    )
+                pil_fmt, media_type = self._IMAGE_FORMAT_MAP[
+                    self._image_format
+                ]
+                img = Image.open(io.BytesIO(raw))
+                if pil_fmt == "JPEG" and img.mode in (
+                    "RGBA",
+                    "P",
+                ):
+                    img = img.convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format=pil_fmt)
+                raw = buf.getvalue()
+
+            encoded = base64.b64encode(raw).decode(
+                "ascii",
+            )
 
             return ToolChunk(
                 content=[
@@ -336,6 +379,21 @@ Usage:
         pages: List[int] | None = None,
     ) -> ToolChunk:
         """Read a PDF file, extract text, and return as TextBlock."""
+        try:
+            from ...rag import PDFParser
+        except ImportError:
+            return ToolChunk(
+                content=[
+                    TextBlock(
+                        text="Error: PDF reading requires the "
+                        "'rag' extra. Install with: "
+                        'pip install "agentscope[rag]"',
+                    ),
+                ],
+                state=ToolResultState.ERROR,
+                is_last=True,
+            )
+
         try:
             raw = await self._backend.read_file(file_path)
 
@@ -455,117 +513,6 @@ Usage:
         except Exception as e:
             return ToolChunk(
                 content=[TextBlock(text=f"Error reading file: {str(e)}")],
-                state=ToolResultState.ERROR,
-                is_last=True,
-            )
-
-    async def _read_docx(self, file_path: str) -> ToolChunk:
-        """Read a Word .docx file and return text + images."""
-        try:
-            raw = await self._backend.read_file(file_path)
-
-            parser = WordParser(
-                include_image=True,
-                separate_table=False,
-                table_format="markdown",
-            )
-            sections = await parser.parse(
-                raw,
-                self._backend.basename(file_path),
-            )
-
-            content: list[TextBlock | DataBlock] = [
-                s.content for s in sections
-            ]
-            if not content:
-                content = [TextBlock(text="(empty document)")]
-
-            return ToolChunk(
-                content=content,
-                state=ToolResultState.RUNNING,
-                is_last=True,
-            )
-
-        except Exception as e:
-            return ToolChunk(
-                content=[
-                    TextBlock(text=f"Error reading Word file: {str(e)}"),
-                ],
-                state=ToolResultState.ERROR,
-                is_last=True,
-            )
-
-    async def _read_excel(self, file_path: str) -> ToolChunk:
-        """Read an Excel file and return tables as text."""
-        try:
-            raw = await self._backend.read_file(file_path)
-
-            parser = ExcelParser(
-                include_sheet_names=True,
-                include_image=False,
-                separate_sheet=False,
-                table_format="markdown",
-            )
-            sections = await parser.parse(
-                raw,
-                self._backend.basename(file_path),
-            )
-
-            content: list[TextBlock | DataBlock] = [
-                s.content for s in sections
-            ]
-            if not content:
-                content = [TextBlock(text="(empty spreadsheet)")]
-
-            return ToolChunk(
-                content=content,
-                state=ToolResultState.RUNNING,
-                is_last=True,
-            )
-
-        except Exception as e:
-            return ToolChunk(
-                content=[
-                    TextBlock(text=f"Error reading Excel file: {str(e)}"),
-                ],
-                state=ToolResultState.ERROR,
-                is_last=True,
-            )
-
-    async def _read_pptx(self, file_path: str) -> ToolChunk:
-        """Read a PowerPoint .pptx file and return text + images."""
-        try:
-            raw = await self._backend.read_file(file_path)
-
-            parser = PPTParser(
-                include_image=True,
-                separate_table=False,
-                table_format="markdown",
-            )
-            sections = await parser.parse(
-                raw,
-                self._backend.basename(file_path),
-            )
-
-            content: list[TextBlock | DataBlock] = [
-                s.content for s in sections
-            ]
-            if not content:
-                content = [TextBlock(text="(empty presentation)")]
-
-            return ToolChunk(
-                content=content,
-                state=ToolResultState.RUNNING,
-                is_last=True,
-            )
-
-        except Exception as e:
-            return ToolChunk(
-                content=[
-                    TextBlock(
-                        text=f"Error reading PowerPoint file: {str(e)}",
-                    ),
-                ],
                 state=ToolResultState.ERROR,
                 is_last=True,
             )

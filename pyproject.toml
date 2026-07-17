@@ -79,6 +79,7 @@ workspace = [
 # ------------ Tools ------------
 tools = [
     "ripgrep",
+    "Pillow",
 ]
 # ------------ RAG ------------
 rag = [

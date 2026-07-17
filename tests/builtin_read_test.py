@@ -22,10 +22,12 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         """The async setup method."""
         self.read_tool = Read()
         # Create a temporary file for testing
-        self.temp_file = tempfile.NamedTemporaryFile(
-            mode="w",
-            delete=False,
-            suffix=".txt",
+        self.temp_file = (
+            tempfile.NamedTemporaryFile(  # pylint: disable=consider-using-with
+                mode="w",
+                delete=False,
+                suffix=".txt",
+            )
         )
         # Write multiple lines
         for i in range(1, 11):
@@ -369,94 +371,115 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         finally:
             os.unlink(path)
 
-    async def test_read_docx_file(self) -> None:
-        """Test reading a Word .docx file extracts text."""
+    async def test_image_format_converts_bmp_to_png(self) -> None:
+        """Test image_format converts BMP to PNG."""
         try:
-            from docx import Document
+            from PIL import Image
         except ImportError:
-            self.skipTest("python-docx not installed")
+            self.skipTest("Pillow not installed")
 
-        doc = Document()
-        doc.add_paragraph("Hello from Word")
-        doc.add_paragraph("Second paragraph")
-
+        img = Image.new("RGB", (2, 2), color="red")
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=".docx",
+            suffix=".bmp",
         ) as f:
-            doc.save(f.name)
-            docx_path = f.name
+            img.save(f.name, format="BMP")
+            bmp_path = f.name
 
         try:
-            chunk = await self.read_tool(file_path=docx_path)
+            tool = Read(image_format="png")
+            chunk = await tool(file_path=bmp_path)
 
             self.assertEqual(chunk.state, "running")
-            self.assertTrue(len(chunk.content) >= 1)
-            text_parts = [
-                b.text for b in chunk.content if isinstance(b, TextBlock)
-            ]
-            combined = "\n".join(text_parts)
-            self.assertIn("Hello from Word", combined)
-            self.assertIn("Second paragraph", combined)
+            block = chunk.content[0]
+            self.assertIsInstance(block, DataBlock)
+            self.assertEqual(
+                block.source.media_type,
+                "image/png",
+            )
         finally:
-            os.unlink(docx_path)
+            os.unlink(bmp_path)
 
-    async def test_read_excel_file(self) -> None:
-        """Test reading an Excel file extracts table data."""
+    async def test_image_format_converts_png_to_jpeg(self) -> None:
+        """Test image_format converts PNG to JPEG."""
         try:
-            import pandas as pd
+            from PIL import Image
         except ImportError:
-            self.skipTest("pandas not installed")
+            self.skipTest("Pillow not installed")
 
-        df = pd.DataFrame({"Name": ["Alice", "Bob"], "Age": [25, 30]})
+        img = Image.new("RGB", (2, 2), color="blue")
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=".xlsx",
+            suffix=".png",
         ) as f:
-            df.to_excel(f.name, index=False)
-            xlsx_path = f.name
+            img.save(f.name, format="PNG")
+            png_path = f.name
 
         try:
-            chunk = await self.read_tool(file_path=xlsx_path)
+            tool = Read(image_format="jpeg")
+            chunk = await tool(file_path=png_path)
 
             self.assertEqual(chunk.state, "running")
-            text_parts = [
-                b.text for b in chunk.content if isinstance(b, TextBlock)
-            ]
-            combined = "\n".join(text_parts)
-            self.assertIn("Alice", combined)
-            self.assertIn("Bob", combined)
+            block = chunk.content[0]
+            self.assertIsInstance(block, DataBlock)
+            self.assertEqual(
+                block.source.media_type,
+                "image/jpeg",
+            )
         finally:
-            os.unlink(xlsx_path)
+            os.unlink(png_path)
 
-    async def test_read_pptx_file(self) -> None:
-        """Test reading a PowerPoint file extracts text."""
-        try:
-            from pptx import Presentation
-        except ImportError:
-            self.skipTest("python-pptx not installed")
-
-        prs = Presentation()
-        slide = prs.slides.add_slide(prs.slide_layouts[0])
-        slide.shapes.title.text = "Slide Title"
-        slide.placeholders[1].text = "Slide body text"
-
+    async def test_image_format_none_keeps_original(self) -> None:
+        """Test image_format=None keeps original format."""
+        img_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=".pptx",
+            suffix=".png",
         ) as f:
-            prs.save(f.name)
-            pptx_path = f.name
+            f.write(img_data)
+            png_path = f.name
 
         try:
-            chunk = await self.read_tool(file_path=pptx_path)
+            tool = Read(image_format=None)
+            chunk = await tool(file_path=png_path)
 
             self.assertEqual(chunk.state, "running")
-            text_parts = [
-                b.text for b in chunk.content if isinstance(b, TextBlock)
-            ]
-            combined = "\n".join(text_parts)
-            self.assertIn("Slide Title", combined)
-            self.assertIn("Slide body text", combined)
+            block = chunk.content[0]
+            self.assertIsInstance(block, DataBlock)
+            self.assertEqual(
+                block.source.media_type,
+                "image/png",
+            )
+            decoded = base64.b64decode(block.source.data)
+            self.assertEqual(decoded, img_data)
         finally:
-            os.unlink(pptx_path)
+            os.unlink(png_path)
+
+    async def test_image_format_skips_audio(self) -> None:
+        """Test image_format does not affect audio files."""
+        audio_data = b"\x00" * 200
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".mp3",
+        ) as f:
+            f.write(audio_data)
+            mp3_path = f.name
+
+        try:
+            tool = Read(image_format="png")
+            chunk = await tool(file_path=mp3_path)
+
+            self.assertEqual(chunk.state, "running")
+            block = chunk.content[0]
+            self.assertIsInstance(block, DataBlock)
+            self.assertEqual(
+                block.source.media_type,
+                "audio/mpeg",
+            )
+        finally:
+            os.unlink(mp3_path)
+
+    def test_image_format_invalid_raises(self) -> None:
+        """Test invalid image_format raises ValueError."""
+        with self.assertRaises(ValueError):
+            Read(image_format="bmp")
