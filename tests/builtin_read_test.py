@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Read tool test case."""
+import base64
 import os
 import tempfile
 from unittest.async_case import IsolatedAsyncioTestCase
@@ -10,9 +11,10 @@ from agentscope.permission import (
     PermissionBehavior,
     PermissionRule,
 )
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, DataBlock, Base64Source
 
 
+# pylint: disable=too-many-public-methods
 class ReadToolTest(IsolatedAsyncioTestCase):
     """The read tool test case."""
 
@@ -186,3 +188,275 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             {"file_path": "/test.py"},
         )
         self.assertGreater(len(suggestions), 0)
+
+    async def test_read_image_file_returns_data_block(self) -> None:
+        """Test reading an image file returns DataBlock."""
+        img_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".png",
+        ) as f:
+            f.write(img_data)
+            img_path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=img_path)
+
+            self.assertIsInstance(chunk, ToolChunk)
+            self.assertEqual(chunk.state, "running")
+            self.assertEqual(len(chunk.content), 1)
+            self.assertIsInstance(chunk.content[0], DataBlock)
+
+            block = chunk.content[0]
+            self.assertIsInstance(block.source, Base64Source)
+            self.assertEqual(block.source.media_type, "image/png")
+            self.assertEqual(block.name, os.path.basename(img_path))
+
+            decoded = base64.b64decode(block.source.data)
+            self.assertEqual(decoded, img_data)
+        finally:
+            os.unlink(img_path)
+
+    async def test_read_jpeg_file_returns_data_block(self) -> None:
+        """Test reading a JPEG file returns DataBlock."""
+        jpg_data = b"\xff\xd8\xff\xe0" + b"\x00" * 50
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".jpg",
+        ) as f:
+            f.write(jpg_data)
+            jpg_path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=jpg_path)
+
+            self.assertEqual(chunk.state, "running")
+            self.assertIsInstance(chunk.content[0], DataBlock)
+            self.assertEqual(
+                chunk.content[0].source.media_type,
+                "image/jpeg",
+            )
+        finally:
+            os.unlink(jpg_path)
+
+    async def test_read_audio_file_returns_data_block(self) -> None:
+        """Test reading an audio file returns DataBlock."""
+        audio_data = b"\x00" * 200
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".mp3",
+        ) as f:
+            f.write(audio_data)
+            mp3_path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=mp3_path)
+
+            self.assertEqual(chunk.state, "running")
+            self.assertIsInstance(chunk.content[0], DataBlock)
+            self.assertEqual(
+                chunk.content[0].source.media_type,
+                "audio/mpeg",
+            )
+        finally:
+            os.unlink(mp3_path)
+
+    async def test_read_pdf_file(self) -> None:
+        """Test reading a PDF file extracts text."""
+        try:
+            from pypdf import PdfWriter
+        except ImportError:
+            self.skipTest("pypdf not installed")
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".pdf",
+        ) as f:
+            writer.write(f)
+            pdf_path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=pdf_path)
+
+            self.assertIsInstance(chunk, ToolChunk)
+            self.assertEqual(chunk.state, "running")
+            self.assertEqual(len(chunk.content), 1)
+            self.assertIsInstance(chunk.content[0], TextBlock)
+            self.assertIn("--- Page 1/1 ---", chunk.content[0].text)
+        finally:
+            os.unlink(pdf_path)
+
+    async def test_read_pdf_with_pages_param(self) -> None:
+        """Test reading specific pages from a PDF."""
+        try:
+            from pypdf import PdfWriter
+        except ImportError:
+            self.skipTest("pypdf not installed")
+
+        writer = PdfWriter()
+        for _ in range(5):
+            writer.add_blank_page(width=612, height=792)
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".pdf",
+        ) as f:
+            writer.write(f)
+            pdf_path = f.name
+
+        try:
+            chunk = await self.read_tool(
+                file_path=pdf_path,
+                pages=[1, 3],
+            )
+
+            self.assertEqual(chunk.state, "running")
+            text = chunk.content[0].text
+            self.assertIn("--- Page 1/5 ---", text)
+            self.assertIn("--- Page 3/5 ---", text)
+            self.assertNotIn("--- Page 2/5 ---", text)
+        finally:
+            os.unlink(pdf_path)
+
+    async def test_read_pdf_invalid_pages_filtered(self) -> None:
+        """Test that out-of-range pages are filtered out."""
+        try:
+            from pypdf import PdfWriter
+        except ImportError:
+            self.skipTest("pypdf not installed")
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".pdf",
+        ) as f:
+            writer.write(f)
+            pdf_path = f.name
+
+        try:
+            chunk = await self.read_tool(
+                file_path=pdf_path,
+                pages=[1, 99],
+            )
+
+            self.assertEqual(chunk.state, "running")
+            text = chunk.content[0].text
+            self.assertIn("--- Page 1/1 ---", text)
+            self.assertNotIn("Page 99", text)
+        finally:
+            os.unlink(pdf_path)
+
+    async def test_read_unknown_extension_as_text(self) -> None:
+        """Test that unknown extensions are read as text."""
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            delete=False,
+            suffix=".xyz",
+        ) as f:
+            f.write("hello world\n")
+            path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=path)
+
+            self.assertEqual(chunk.state, "running")
+            self.assertIsInstance(chunk.content[0], TextBlock)
+            self.assertIn("hello world", chunk.content[0].text)
+        finally:
+            os.unlink(path)
+
+    async def test_read_docx_file(self) -> None:
+        """Test reading a Word .docx file extracts text."""
+        try:
+            from docx import Document
+        except ImportError:
+            self.skipTest("python-docx not installed")
+
+        doc = Document()
+        doc.add_paragraph("Hello from Word")
+        doc.add_paragraph("Second paragraph")
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".docx",
+        ) as f:
+            doc.save(f.name)
+            docx_path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=docx_path)
+
+            self.assertEqual(chunk.state, "running")
+            self.assertTrue(len(chunk.content) >= 1)
+            text_parts = [
+                b.text for b in chunk.content if isinstance(b, TextBlock)
+            ]
+            combined = "\n".join(text_parts)
+            self.assertIn("Hello from Word", combined)
+            self.assertIn("Second paragraph", combined)
+        finally:
+            os.unlink(docx_path)
+
+    async def test_read_excel_file(self) -> None:
+        """Test reading an Excel file extracts table data."""
+        try:
+            import pandas as pd
+        except ImportError:
+            self.skipTest("pandas not installed")
+
+        df = pd.DataFrame({"Name": ["Alice", "Bob"], "Age": [25, 30]})
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".xlsx",
+        ) as f:
+            df.to_excel(f.name, index=False)
+            xlsx_path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=xlsx_path)
+
+            self.assertEqual(chunk.state, "running")
+            text_parts = [
+                b.text for b in chunk.content if isinstance(b, TextBlock)
+            ]
+            combined = "\n".join(text_parts)
+            self.assertIn("Alice", combined)
+            self.assertIn("Bob", combined)
+        finally:
+            os.unlink(xlsx_path)
+
+    async def test_read_pptx_file(self) -> None:
+        """Test reading a PowerPoint file extracts text."""
+        try:
+            from pptx import Presentation
+        except ImportError:
+            self.skipTest("python-pptx not installed")
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[0])
+        slide.shapes.title.text = "Slide Title"
+        slide.placeholders[1].text = "Slide body text"
+
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".pptx",
+        ) as f:
+            prs.save(f.name)
+            pptx_path = f.name
+
+        try:
+            chunk = await self.read_tool(file_path=pptx_path)
+
+            self.assertEqual(chunk.state, "running")
+            text_parts = [
+                b.text for b in chunk.content if isinstance(b, TextBlock)
+            ]
+            combined = "\n".join(text_parts)
+            self.assertIn("Slide Title", combined)
+            self.assertIn("Slide body text", combined)
+        finally:
+            os.unlink(pptx_path)
