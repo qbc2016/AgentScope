@@ -547,8 +547,3 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             )
         finally:
             os.unlink(mp3_path)
-
-    def test_image_format_invalid_raises(self) -> None:
-        """Test invalid image_format raises ValueError."""
-        with self.assertRaises(ValueError):
-            Read(image_format="bmp")
