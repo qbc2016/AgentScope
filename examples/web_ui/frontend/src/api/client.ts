@@ -1,7 +1,15 @@
 import { toast } from 'sonner';
 
-export const getBaseUrl = () => localStorage.getItem('server_url') ?? '';
-export const getUserId = () => localStorage.getItem('username') ?? '';
+type ElectronAPI = {
+	getBackendUrl: () => string;
+	getUserId: () => string;
+};
+
+const electronAPI = (window as { electronAPI?: ElectronAPI }).electronAPI;
+
+export const getBaseUrl = () =>
+	electronAPI?.getBackendUrl?.() ?? localStorage.getItem('server_url') ?? '';
+export const getUserId = () => electronAPI?.getUserId?.() ?? localStorage.getItem('username') ?? '';
 
 /**
  * Structured error thrown for non-2xx HTTP responses.

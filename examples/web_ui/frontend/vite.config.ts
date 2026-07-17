@@ -7,10 +7,17 @@ import svgr from 'vite-plugin-svgr';
 
 export default defineConfig({
 	plugins: [react(), tailwindcss(), svgr()],
+	base: './',
 	server: {
+		port: 5173,
+		strictPort: true,
 		proxy: {
 			'/api': 'http://localhost:3000',
 		},
+	},
+	build: {
+		outDir: '../electron-dist/frontend-dist',
+		emptyOutDir: true,
 	},
 	resolve: {
 		alias: {
