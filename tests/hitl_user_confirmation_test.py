@@ -274,6 +274,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
             "id": AnyString(),
             "created_at": AnyString(),
             "finished_at": None,
+            "finished_reason": None,
+            "error": None,
             "metadata": {},
             "name": "Friday",
             "role": "assistant",
@@ -397,6 +399,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
             },
             {
                 "content": [
@@ -452,6 +456,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
             *self.final_text_events,
             {
                 "type": "REPLY_END",
+                "error": None,
                 "session_id": session_id,
                 "finished_reason": "completed",
             },
@@ -475,6 +480,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
             },
             {
                 "content": [
@@ -661,6 +668,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
             },
             {
                 "content": [
@@ -777,6 +786,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
             *self.final_text_events,
             {
                 "type": "REPLY_END",
+                "error": None,
                 "session_id": session_id,
                 "finished_reason": "completed",
             },
@@ -799,6 +809,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
             },
             {
                 "content": [
@@ -1022,6 +1034,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
             },
             {
                 "content": [
@@ -1124,6 +1138,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
             *self.final_text_events,
             {
                 "type": "REPLY_END",
+                "error": None,
                 "session_id": session_id,
                 "finished_reason": "completed",
             },
@@ -1146,6 +1161,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
             },
             {
                 "content": [
@@ -1480,6 +1497,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
             },
             {
                 "content": [
@@ -1569,6 +1588,7 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
             *self.final_text_events,
             {
                 "type": "REPLY_END",
+                "error": None,
                 "session_id": session_id,
                 "finished_reason": "completed",
             },
@@ -1585,6 +1605,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "id": AnyString(),
                 "created_at": AnyString(),
                 "finished_at": AnyString(),
+                "finished_reason": None,
+                "error": None,
                 "metadata": {},
                 "name": "user",
                 "role": "user",
