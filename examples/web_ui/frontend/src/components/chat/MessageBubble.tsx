@@ -1,3 +1,4 @@
+import { ReplyFinishedReason } from '@agentscope-ai/agentscope/event';
 import type {
 	ContentBlock,
 	DataBlock,
@@ -17,6 +18,7 @@ import {
 	Copy,
 	Loader2,
 	MessageSquareQuote,
+	TriangleAlert,
 	Wrench,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -28,6 +30,7 @@ import { FileAttachment } from './FileAttachment';
 import { renderToolCall } from './tool-renderers';
 import { countDiffStats, DiffStats, getResultDiff } from './tool-renderers/_shared';
 import type { TFunction, ToolCallWithResult } from './tool-renderers/types';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -629,6 +632,14 @@ export function MessageBubble({ message, onUserConfirm }: MessageBubbleProps) {
 	const showBody = hasBodyContent;
 	const showFooter = !isUser;
 
+	// A fatal error terminated this reply. ``finished_reason`` / ``error`` are
+	// reply-level fields set by ``appendEvent`` on a ``REPLY_END`` with
+	// ``finished_reason === ReplyFinishedReason.ERROR`` — they are NOT content
+	// blocks, so the body above is always genuine agent output. Rendered as a
+	// separate alert below the body.
+	const errorInfo = message.error;
+	const isError = message.finished_reason === ReplyFinishedReason.ERROR || !!errorInfo;
+
 	const startMs = new Date(message.created_at).getTime();
 	const endMs = isRunning ? now : new Date(message.finished_at!).getTime();
 	const elapsedSeconds = Math.max(0, (endMs - startMs) / 1000);
@@ -660,6 +671,20 @@ export function MessageBubble({ message, onUserConfirm }: MessageBubbleProps) {
 						),
 					)}
 				</div>
+			)}
+			{isError && (
+				<Alert
+					variant="destructive"
+					className="m-2 w-[calc(100%-1rem)] border-red-200 bg-red-50 text-destructive dark:border-red-900 dark:bg-red-950 dark:text-red-50"
+				>
+					<TriangleAlert />
+					<AlertTitle>{t('messageBubble.error.title')}</AlertTitle>
+					<AlertDescription>
+						{t(`messageBubble.error.${errorInfo?.type ?? 'unknown'}`, {
+							defaultValue: errorInfo?.message ?? t('messageBubble.error.unknown'),
+						})}
+					</AlertDescription>
+				</Alert>
 			)}
 			{showFooter && (
 				<div className="flex flex-row items-center text-muted-foreground gap-x-4 px-2 w-full">

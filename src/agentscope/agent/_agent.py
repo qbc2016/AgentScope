@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """The unified agent class in AgentScope library."""
 import asyncio
+import collections
 import inspect
+import re
 
 from asyncio import Queue
 from copy import deepcopy
+from datetime import datetime, timezone, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import (
     Any,
     AsyncGenerator,
@@ -16,11 +20,15 @@ from typing import (
 
 import jsonschema
 
-from ._config import ContextConfig, ReActConfig, ModelConfig
+from ._config import ContextConfig, ReActConfig, ModelConfig, InjectionConfig
 from ..state import AgentState
 from ._utils import _ToolCallBatch
 from .._logging import logger
-from .._utils._common import _generate_id, _json_loads_with_repair
+from .._utils._common import (
+    _generate_id,
+    _json_loads_with_repair,
+    _execute_async_or_sync_func,
+)
 from ..event import (
     AgentEvent,
     ModelCallEndEvent,
@@ -48,8 +56,9 @@ from ..event import (
     DataBlockDeltaEvent,
     DataBlockEndEvent,
     ExceedMaxItersEvent,
-    ReplyEndReason,
+    ReplyFinishedReason,
     UserInterruptEvent,
+    HintBlockEvent,
 )
 from ..exception import AgentOrientedException
 from ..model import (
@@ -85,6 +94,7 @@ from ..permission import (
     PermissionBehavior,
     PermissionEngine,
     PermissionDecision,
+    PermissionRule,
 )
 from ..workspace import Offloader, WorkspaceBase
 
@@ -92,6 +102,21 @@ if TYPE_CHECKING:
     from ..middleware import MiddlewareBase
 else:
     MiddlewareBase = Any
+
+
+def _resolve_timezone(name: str) -> tzinfo:
+    """Resolve the given timezone name, falling back to UTC when the name is
+    invalid or the timezone database is unavailable, e.g. on Windows or slim
+    images without the ``tzdata`` package."""
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning(
+            "Failed to resolve the timezone %s, fallback to UTC. Install the "
+            "'tzdata' package if the timezone database is missing.",
+            repr(name),
+        )
+        return timezone.utc
 
 
 class Agent:
@@ -110,6 +135,7 @@ class Agent:
         model_config: ModelConfig | None = None,
         context_config: ContextConfig | None = None,
         react_config: ReActConfig | None = None,
+        injection_config: InjectionConfig | None = None,
     ) -> None:
         """Initialize the agent class in AgentScope.
 
@@ -142,6 +168,10 @@ class Agent:
                 compression.
             react_config (`ReActConfig | None`, optional):
                 The config for the reasoning-acting loop.
+            injection_config (`InjectionConfig | None`, optional):
+                The runtime state injection config, which controls how the
+                time, (plan) tasks and context usage are injected into the
+                context to help the agent better reason and act.
         """
         self.name = name
         self._system_prompt = system_prompt
@@ -151,6 +181,8 @@ class Agent:
         self.model_config = model_config or ModelConfig()
         self.context_config = context_config or ContextConfig()
         self.react_config = react_config or ReActConfig()
+        self.injection_config = injection_config or InjectionConfig()
+        self._validate_configs()
 
         # The permission engine
         self._engine = PermissionEngine(self.state.permission_context)
@@ -186,6 +218,39 @@ class Agent:
         self._compress_context_middlewares = [
             _ for _ in middlewares if _.is_implemented("on_compress_context")
         ]
+
+    def _validate_configs(self) -> None:
+        """Validate the config combinations that a single config class cannot
+        check by itself.
+
+        Raises:
+            `ValueError`:
+                If the reserved/buffer ratios don't leave room ahead of the
+                context compression threshold.
+        """
+        if (
+            self.context_config.reserve_ratio
+            >= self.context_config.trigger_ratio
+        ):
+            raise ValueError(
+                "The 'reserve_ratio' of the context config must be smaller "
+                "than its 'trigger_ratio', got "
+                f"{self.context_config.reserve_ratio} and "
+                f"{self.context_config.trigger_ratio}.",
+            )
+
+        if (
+            self.injection_config.inject_runtime_state
+            and self.injection_config.context_buffer_ratio
+            >= self.context_config.trigger_ratio
+        ):
+            raise ValueError(
+                "The 'context_buffer_ratio' of the injection config must be "
+                "smaller than the 'trigger_ratio' of the context config, so "
+                "that the context length is injected before the compression, "
+                f"got {self.injection_config.context_buffer_ratio} and "
+                f"{self.context_config.trigger_ratio}.",
+            )
 
     # =======================================================================
     # Agent public methods
@@ -710,7 +775,7 @@ class Agent:
                     end_event = ReplyEndEvent(
                         session_id=self.state.session_id,
                         reply_id=self.state.reply_id,
-                        finished_reason=ReplyEndReason.INTERRUPTED,
+                        finished_reason=ReplyFinishedReason.INTERRUPTED,
                     )
                 return
 
@@ -761,6 +826,10 @@ class Agent:
                     # Compressed the memory if needed before reasoning
                     await self.compress_context()
 
+                    # Inject runtime state if needed before reasoning
+                    async for evt in self._inject_runtime_state():
+                        yield evt
+
                     # Perform reasoning
                     interrupted = False
                     async for evt in self._reasoning():
@@ -770,7 +839,7 @@ class Agent:
                             end_event = ReplyEndEvent(
                                 session_id=self.state.session_id,
                                 reply_id=self.state.reply_id,
-                                finished_reason=ReplyEndReason.COMPLETED,
+                                finished_reason=ReplyFinishedReason.COMPLETED,
                             )
                             yield evt
                             return
@@ -787,7 +856,7 @@ class Agent:
                         end_event = ReplyEndEvent(
                             session_id=self.state.session_id,
                             reply_id=self.state.reply_id,
-                            finished_reason=ReplyEndReason.INTERRUPTED,
+                            finished_reason=ReplyFinishedReason.INTERRUPTED,
                         )
                         return
 
@@ -841,7 +910,7 @@ class Agent:
                         end_event = ReplyEndEvent(
                             session_id=self.state.session_id,
                             reply_id=self.state.reply_id,
-                            finished_reason=ReplyEndReason.INTERRUPTED,
+                            finished_reason=ReplyFinishedReason.INTERRUPTED,
                         )
                         return
 
@@ -878,7 +947,7 @@ class Agent:
             end_event = ReplyEndEvent(
                 session_id=self.state.session_id,
                 reply_id=self.state.reply_id,
-                finished_reason=ReplyEndReason.EXCEED_MAX_ITERS,
+                finished_reason=ReplyFinishedReason.EXCEED_MAX_ITERS,
             )
 
             yield AssistantMsg(
@@ -894,7 +963,7 @@ class Agent:
             end_event = ReplyEndEvent(
                 session_id=self.state.session_id,
                 reply_id=self.state.reply_id,
-                finished_reason=ReplyEndReason.INTERRUPTED,
+                finished_reason=ReplyFinishedReason.INTERRUPTED,
             )
 
             if self.react_config.interruption_raise_cancelled_error:
@@ -902,7 +971,10 @@ class Agent:
 
         finally:
             if end_event is not None:
-                if end_event.finished_reason == ReplyEndReason.INTERRUPTED:
+                if (
+                    end_event.finished_reason
+                    == ReplyFinishedReason.INTERRUPTED
+                ):
                     # Handle the context when interruption
                     async for _ in self._close_unfinished_tool_calls():
                         yield _
@@ -915,6 +987,249 @@ class Agent:
                     )
 
                 yield end_event
+
+    async def _inject_runtime_state(
+        self,
+    ) -> AsyncGenerator[HintBlockEvent, None]:
+        """Inject the current runtime state (time, plan tasks and context
+        usage) into the conversation context as a ``HintBlock``, so the agent
+        stays aware of the information that changes across turns/replies.
+
+        .. note:: The injection is **not** ephemeral. It is appended to the
+            persistent context on purpose, so the agent can perceive how time
+            elapses and what it did at each step, building a sense of time.
+
+        .. note:: We attach a ``HintBlock`` instead of mutating the system
+            prompt, so that prompt caching still works while the agent remains
+            aware of the changing time / tasks / context.
+
+        .. note:: Only information that *changes* within a conversation is
+            injected here. Fixed information should live in the system prompt.
+
+        The injection timing is decided per dimension:
+
+        - **Time**: injected when (1) no time is recorded in the context (i.e.
+          the first reply or right after a context compression), or (2) the
+          elapsed time since the recorded one exceeds
+          ``injection_config.time_interval`` hours. The injected time is the
+          wall-clock time of ``injection_config.timezone``, and the timezone
+          is injected next to it so that the elapsed time is still correct
+          when the configured timezone changes within a conversation.
+        - **Plan tasks**: injected when there are pending or in-progress tasks
+          while the context contains neither task-related tool calls (e.g.
+          they have been compressed away) nor a previous tasks injection.
+        - **Context**: injected at the first iteration of a reply when the
+          current input tokens are within
+          ``injection_config.context_buffer_ratio`` of the compression
+          threshold, letting the agent perceive that a compression is near.
+          This dimension is evaluated independently of the two above.
+
+        The user defined ``injection_config.extra_fields`` are attached to
+        every injection, but never trigger one by themselves.
+
+        Yields:
+            `HintBlockEvent`:
+                Emitted when a runtime-state hint is injected and
+                ``injection_config.emit_hint_event`` is enabled.
+        """
+        if not self.injection_config.inject_runtime_state:
+            return
+
+        injections: dict = {}
+
+        # The wall-clock time in the configured timezone. It's kept timezone
+        # aware for the elapsed time calculation, while ``time_format`` decides
+        # whether the timezone is carried in the injected text.
+        now = datetime.now(_resolve_timezone(self.injection_config.timezone))
+
+        # A fixed source used to detect existing injection
+        injection_source = self.injection_config.injection_source
+
+        # =====================================================================
+        # Step 1: Analyze the current context
+        #  - The latest injection that records a time (if any)
+        #  - If the agent is already aware of the uncompleted tasks
+        # =====================================================================
+        task_status: dict = collections.defaultdict(int)
+        for task in self.state.tasks_context.tasks:
+            task_status[task.state] += 1
+
+        has_uncompleted_tasks = (
+            task_status["pending"] > 0 or task_status["in_progress"] > 0
+        )
+
+        # The text of the newest injection that records a time. An injection
+        # only carries the fields triggered at that moment, so the newest one
+        # doesn't necessarily record a time.
+        last_time_text: str | None = None
+
+        # The agent is aware of the tasks when the context contains the task
+        # related tool calls or a previous tasks injection. Without uncompleted
+        # tasks the flag is never used, so skip the detection entirely.
+        aware_of_tasks = not has_uncompleted_tasks
+
+        for msg in reversed(self.state.context):
+            if last_time_text is not None and aware_of_tasks:
+                # Both dimensions are settled, no need to scan the older
+                # context
+                break
+
+            if msg.role != "assistant":
+                continue
+
+            for block in reversed(msg.content):
+                if (
+                    isinstance(block, HintBlock)
+                    and block.source == injection_source
+                ):
+                    if isinstance(block.hint, str):
+                        text = block.hint
+                    else:
+                        text = "".join(
+                            _.text
+                            for _ in block.hint
+                            if isinstance(_, TextBlock)
+                        )
+
+                    if last_time_text is None and "<current-time>" in text:
+                        last_time_text = text
+                    if not aware_of_tasks and "<tasks>" in text:
+                        aware_of_tasks = True
+
+                elif (
+                    isinstance(block, ToolCallBlock)
+                    and block.name in self.injection_config.task_tool_names
+                ):
+                    aware_of_tasks = True
+
+        # =====================================================================
+        # Step 2: Check Time Injection
+        # =====================================================================
+        # No time recorded in the context, e.g. the first reply or right after
+        # a context compression, so inject to be safe
+        inject_time = True
+        if last_time_text is not None:
+            # Extract the recorded time from the injection, e.g.
+            # <current-time>2026-07-01T12:00:00</current-time>
+            match = re.search(
+                r"<current-time>(.*?)</current-time>",
+                last_time_text,
+            )
+            last_time = None
+            if match is not None:
+                try:
+                    last_time = datetime.strptime(
+                        match.group(1).strip(),
+                        self.injection_config.time_format,
+                    )
+                except ValueError:
+                    # Fail to parse the recorded time, e.g. the time format has
+                    # changed, so inject again to be safe
+                    last_time = None
+
+            if last_time is not None:
+                if last_time.tzinfo is None:
+                    # The recorded time is the wall-clock time of the timezone
+                    # recorded next to it, e.g.
+                    # <timezone>Asia/Shanghai</timezone>. Restore it so that
+                    # the comparison holds even if the configured timezone has
+                    # changed since then.
+                    match_tz = re.search(
+                        r"<timezone>(.*?)</timezone>",
+                        last_time_text,
+                    )
+                    last_time = last_time.replace(
+                        tzinfo=_resolve_timezone(
+                            match_tz.group(1).strip()
+                            if match_tz
+                            else self.injection_config.timezone,
+                        ),
+                    )
+
+                elapsed_hours = (now - last_time).total_seconds() / 3600
+                # A negative elapsed time means the recorded time is in the
+                # future, e.g. the machine clock went backwards, so inject
+                # again to be safe
+                inject_time = not (
+                    0 <= elapsed_hours <= self.injection_config.time_interval
+                )
+
+        if inject_time:
+            injections["current-time"] = now.strftime(
+                self.injection_config.time_format,
+            )
+            injections["timezone"] = self.injection_config.timezone
+
+        # =====================================================================
+        # Step 3: Check Plan Tasks
+        # =====================================================================
+        # If exists uncompleted tasks and the agent isn't aware of them, e.g.
+        # the task related tool calls have been compressed away, so that the
+        # same reminder isn't repeated on every iteration
+        if has_uncompleted_tasks and not aware_of_tasks:
+            injections["tasks"] = (
+                f"You have {task_status['in_progress']} in-progress tasks "
+                f"and {task_status['pending']} pending tasks. "
+                f"Use `TaskList` to view them if you don't know."
+            )
+
+        # =====================================================================
+        # Step 4: Context Length
+        # =====================================================================
+        # The context length is checked independently of the dimensions above,
+        # and only at the beginning of a reply, where the context has just
+        # grown by the new input
+        if self.state.cur_iter == 0:
+            # Count the current tokens
+            kwargs = await self._prepare_model_input()
+            input_tokens = await self.model.count_tokens(**kwargs)
+
+            trigger_tokens = int(
+                self.context_config.trigger_ratio * self.model.context_size,
+            )
+
+            if input_tokens > (
+                max(
+                    0.0,
+                    self.context_config.trigger_ratio
+                    - self.injection_config.context_buffer_ratio,
+                )
+                * self.model.context_size
+            ):
+                # To trigger memory compress
+                injections["context-length"] = (
+                    f"Your current context contains {input_tokens} "
+                    f"tokens. When reaching {trigger_tokens} tokens, "
+                    f"your context will be compressed."
+                )
+
+        if injections:
+            # The user defined fields, which don't trigger an injection by
+            # themselves
+            injections.update(self.injection_config.extra_fields)
+
+            hint_block = HintBlock(
+                source=injection_source,
+                # Use replace instead of format, so that the other curly
+                # braces in the template are kept as-is
+                hint=self.injection_config.template.replace(
+                    "{runtime_state}",
+                    "\n".join(
+                        f"<{k}>{v}</{k}>" for k, v in injections.items()
+                    ),
+                ),
+            )
+            self.state.append_context(
+                self.name,
+                [hint_block],
+            )
+            if self.injection_config.emit_hint_event:
+                yield HintBlockEvent(
+                    reply_id=self.state.reply_id,
+                    block_id=hint_block.id,
+                    source=hint_block.source,
+                    hint=hint_block.hint,
+                )
 
     async def _reasoning(
         self,
@@ -1090,6 +1405,14 @@ class Agent:
             completed_response.usage,
         )
 
+        # A thinking-only response is an intermediate reasoning step rather
+        # than a user-visible final answer. Keep the ReAct loop running so the
+        # model can produce text, data, or a tool call on the next iteration.
+        has_only_thinking_blocks = bool(completed_response.content) and all(
+            isinstance(block, ThinkingBlock)
+            for block in completed_response.content
+        )
+
         # If no tool call is generated, return the final message directly
         if (
             completed_response.finished_reason != FinishedReason.INTERRUPTED
@@ -1097,6 +1420,7 @@ class Agent:
                 isinstance(_, ToolCallBlock)
                 for _ in completed_response.content
             )
+            and not has_only_thinking_blocks
         ):
             last_ctx = self._get_last_msg()
             final_usage = (
@@ -1486,6 +1810,14 @@ class Agent:
         # Create a queue to collect events from all concurrent workers.
         queue: Queue = Queue()
 
+        # Batch-shared accumulator for confirmation de-duplication: the
+        # suggested rules of every confirmation surfaced by this batch are
+        # collected here so a later call already covered by an earlier
+        # call's rule is not prompted a second time. Mutated only from
+        # synchronous sections of the workers, so no lock is needed on the
+        # single-threaded event loop.
+        kept_rules: list[PermissionRule] = []
+
         async def _run_all() -> list[BaseException | None]:
             """Run all tool calls concurrently and push the sentinel when done.
 
@@ -1497,7 +1829,10 @@ class Agent:
             # return_exceptions=True keeps all tasks running even when some
             # fail, and returns exceptions as values instead of re-raising.
             results = await asyncio.gather(
-                *[self._into_queue(tc, queue) for tc in tool_calls],
+                *[
+                    self._into_queue(tc, queue, kept_rules)
+                    for tc in tool_calls
+                ],
                 return_exceptions=True,
             )
             # The sentinel is placed AFTER gather returns, which guarantees
@@ -1550,6 +1885,7 @@ class Agent:
         self,
         tool_call: ToolCallBlock,
         queue: Queue,
+        kept_rules: list[PermissionRule] | None = None,
     ) -> None:
         """Execute a single tool call and forward every event into *queue*.
 
@@ -1559,13 +1895,18 @@ class Agent:
             queue (`Queue`):
                 The shared async queue that collects events from all
                 concurrent workers.
+            kept_rules (`list[PermissionRule] | None`, defaults to `None`):
+                The batch-shared accumulator of already-surfaced suggested
+                rules, forwarded to :meth:`_execute_tool_call` for
+                confirmation de-duplication within the concurrent batch.
         """
-        async for evt in self._execute_tool_call(tool_call):
+        async for evt in self._execute_tool_call(tool_call, kept_rules):
             await queue.put(evt)
 
     async def _execute_tool_call(
         self,
         tool_call: ToolCallBlock,
+        kept_rules: list[PermissionRule] | None = None,
     ) -> AsyncGenerator[
         RequireUserConfirmEvent
         | RequireExternalExecutionEvent
@@ -1587,6 +1928,16 @@ class Agent:
         Args:
             tool_call (`ToolCallBlock`):
                 The tool call block to be executed.
+            kept_rules (`list[PermissionRule] | None`, defaults to `None`):
+                A batch-scoped, shared accumulator of the suggested rules
+                already surfaced by earlier confirmations in the same
+                concurrent batch. Passed only by
+                :meth:`_execute_concurrent_tool_calls`; when provided, a
+                non-safety ASK whose invocation is already covered by an
+                accumulated rule is de-duplicated (left ``PENDING`` and
+                not surfaced again). ``None`` disables de-duplication
+                (e.g. sequential execution, which already parks at the
+                first ASK).
 
         Yields:
             `RequireUserConfirmEvent \
@@ -1663,6 +2014,36 @@ class Agent:
             PermissionBehavior.ASK,
             PermissionBehavior.PASSTHROUGH,
         ]:
+            # Batch de-duplication (concurrent batches only): if an earlier
+            # confirmation in this same batch already suggested an allow rule
+            # that matches this invocation, do not surface a second prompt.
+            # Leave the call PENDING so the next reply run re-evaluates it
+            # against the engine once the user answers the first prompt (and
+            # its rule has been added). Safety ASKs (bypass-immune) are never
+            # de-duplicated — an allow rule cannot clear them, so each must
+            # surface its own prompt.
+            is_safety_ask = (
+                decision.behavior == PermissionBehavior.ASK
+                and decision.bypass_immune
+            )
+            if kept_rules is not None and not is_safety_ask:
+                for rule in kept_rules:
+                    if rule.tool_name != tool.name:
+                        continue
+                    if await _execute_async_or_sync_func(
+                        tool.match_rule,
+                        rule.rule_content,
+                        parsed_input,
+                    ):
+                        # Covered by an earlier call's rule; stay PENDING and
+                        # do not yield — re-evaluated on the next reply run.
+                        return
+
+            if kept_rules is not None:
+                # Register this prompt's suggested rules so later calls in the
+                # batch can be de-duplicated against them.
+                kept_rules.extend(decision.suggested_rules or [])
+
             # Set the state of the tool call to "ask"
             # **Note** the update must be done before yielding the event
             self._update_tool_call_state(
