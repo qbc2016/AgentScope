@@ -648,7 +648,20 @@ class Agent:
         """
 
         async def _apply() -> None:
-            existing = self.state.summary or ""
+            """Apply truncation note to the agent state."""
+            raw_summary = self.state.summary
+            # Extract existing string summary to preserve and
+            # append truncation note; non-str summary (e.g. list
+            # of blocks) is ignored as truncation notes are
+            # text-only.
+            existing = (
+                raw_summary
+                if isinstance(
+                    raw_summary,
+                    str,
+                )
+                else ""
+            )
             _TRUNCATION_TAG = "<system-truncation-note>"
             _TRUNCATION_END = "</system-truncation-note>"
             tag_pos = existing.find(_TRUNCATION_TAG)
@@ -667,11 +680,9 @@ class Agent:
                     msgs=msgs_to_compress,
                 )
                 truncation_msg += (
-                    f" The truncated context is offloaded" f" to '{path}'."
+                    f" The truncated context is offloaded to '{path}'."
                 )
-            note = (
-                f"\n{_TRUNCATION_TAG}" f"{truncation_msg}" f"{_TRUNCATION_END}"
-            )
+            note = f"\n{_TRUNCATION_TAG}{truncation_msg}{_TRUNCATION_END}"
 
             await self._clear_unreserved_read_cache(
                 msgs_to_reserve,
