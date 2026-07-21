@@ -415,10 +415,9 @@ class MoonshotChatModel(ChatModelBase):
         """Moonshot-specific override for structured output.
 
         Moonshot rejects ``tool_choice="required"`` or an object-form
-        ``tool_choice`` when thinking mode is enabled. In that case we
-        default ``tool_choice`` to ``"auto"`` and rely on the base class's
-        injected system-reminder prompt to guide the model. When thinking
-        is disabled, this falls through to the base implementation.
+        ``tool_choice`` when thinking mode is enabled. When thinking
+        is enabled we temporarily disable it for the structured-output
+        call so the forced ``tool_choice`` works.
 
         Args:
             model_name (`str`):
@@ -429,10 +428,7 @@ class MoonshotChatModel(ChatModelBase):
                 A Pydantic model class or a JSON schema dict describing the
                 required output structure.
             tool_choice (`ToolChoice | None`, defaults to `None`):
-                The tool_choice forwarded to ``_call_api``. When ``None``
-                and thinking mode is enabled, it is downgraded to
-                ``ToolChoice(mode="auto")``; otherwise the base default
-                (force the structured-output tool) is used.
+                The tool_choice forwarded to ``_call_api``.
             **kwargs (`Any`):
                 Additional keyword arguments forwarded to ``_call_api``.
 
@@ -441,8 +437,11 @@ class MoonshotChatModel(ChatModelBase):
                 The structured response whose ``content`` is the validated
                 output dict matching ``structured_model``.
         """
-        if tool_choice is None and self.parameters.thinking_enable:
-            tool_choice = ToolChoice(mode="auto")
+        if self.parameters.thinking_enable:
+            kwargs.setdefault("extra_body", {})
+            kwargs["extra_body"]["thinking"] = {
+                "type": "disabled",
+            }
         return await super()._call_api_with_structured_output(
             model_name=model_name,
             messages=messages,
