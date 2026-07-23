@@ -463,11 +463,10 @@ class DeepSeekChatModel(ChatModelBase):
                 The structured response whose ``content`` is the validated
                 output dict matching ``structured_model``.
         """
-        if self.parameters.thinking_enable:
-            kwargs.setdefault("extra_body", {})
-            kwargs["extra_body"]["thinking"] = {
-                "type": "disabled",
-            }
+        kwargs.setdefault("extra_body", {})
+        kwargs["extra_body"]["thinking"] = {
+            "type": "disabled",
+        }
         return await super()._call_api_with_structured_output(
             model_name=model_name,
             messages=messages,

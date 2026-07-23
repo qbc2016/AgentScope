@@ -583,13 +583,10 @@ class Agent:
                     self.name,
                     e,
                 )
-                await self._truncate_context(
-                    msgs_to_compress,
-                    msgs_to_reserve,
-                )
-                return
 
-        if res.finished_reason == FinishedReason.INTERRUPTED:
+        if res is not None and (
+            res.finished_reason == FinishedReason.INTERRUPTED
+        ):
             logger.warning(
                 "The context compression was interrupted and skipped. ",
             )
@@ -598,22 +595,47 @@ class Agent:
         # Update the summary
         async def _apply_change() -> None:
             """Apply the context change with interruption protection."""
-            new_summary = cfg.summary_template.format(**res.content)
-            if self.offloader:
-                path = await self.offloader.offload_context(
-                    self.state.session_id,
-                    msgs=msgs_to_compress,
+            if res is not None:
+                new_summary = cfg.summary_template.format(**res.content)
+                if self.offloader:
+                    path = await self.offloader.offload_context(
+                        self.state.session_id,
+                        msgs=msgs_to_compress,
+                    )
+                    new_summary += (
+                        f"\n<system-reminder>The compressed context"
+                        f" is offloaded to '{path}', you can refer"
+                        f" to it when needed.</system-reminder>"
+                    )
+            else:
+                # Fallback: truncation without summary
+                raw_summary = self.state.summary
+                existing = raw_summary if isinstance(raw_summary, str) else ""
+                _TRUNC_TAG = "<system-truncation-note>"
+                _TRUNC_END = "</system-truncation-note>"
+                tag_pos = existing.find(_TRUNC_TAG)
+                if tag_pos >= 0:
+                    existing = existing[:tag_pos].rstrip()
+
+                truncation_msg = (
+                    f"{len(msgs_to_compress)} earlier message(s)"
+                    f" were truncated because summary"
+                    f" generation failed. Continue with the"
+                    f" remaining context."
                 )
-                new_summary += (
-                    f"\n<system-reminder>The compressed context is offloaded "
-                    f"to '{path}', you can refer to it when needed."
-                    f"</system-reminder>"
+                if self.offloader:
+                    path = await self.offloader.offload_context(
+                        self.state.session_id,
+                        msgs=msgs_to_compress,
+                    )
+                    truncation_msg += (
+                        f" The truncated context is offloaded" f" to '{path}'."
+                    )
+                new_summary = (
+                    f"{existing}\n{_TRUNC_TAG}" f"{truncation_msg}{_TRUNC_END}"
                 )
 
-            # Protected from interruption
             await self._clear_unreserved_read_cache(msgs_to_reserve)
-
-            # Update the context
             self.state.summary = new_summary
             self.state.context = msgs_to_reserve
 
@@ -627,79 +649,6 @@ class Agent:
             await asyncio.shield(apply_task)
         except asyncio.CancelledError:
             await apply_task
-            raise
-
-    async def _truncate_context(
-        self,
-        msgs_to_compress: list[Msg],
-        msgs_to_reserve: list[Msg],
-    ) -> None:
-        """Discard older messages without summarizing.
-
-        Called as a last-resort fallback when summary generation
-        fails. The existing summary is preserved and a truncation
-        note is appended.
-
-        Args:
-            msgs_to_compress (`list[Msg]`):
-                Messages that should have been summarized.
-            msgs_to_reserve (`list[Msg]`):
-                Messages to keep in context.
-        """
-
-        async def _apply() -> None:
-            """Apply truncation note to the agent state."""
-            raw_summary = self.state.summary
-            # Extract existing string summary to preserve and
-            # append truncation note; non-str summary (e.g. list
-            # of blocks) is ignored as truncation notes are
-            # text-only.
-            existing = (
-                raw_summary
-                if isinstance(
-                    raw_summary,
-                    str,
-                )
-                else ""
-            )
-            _TRUNCATION_TAG = "<system-truncation-note>"
-            _TRUNCATION_END = "</system-truncation-note>"
-            tag_pos = existing.find(_TRUNCATION_TAG)
-            if tag_pos >= 0:
-                existing = existing[:tag_pos].rstrip()
-
-            truncation_msg = (
-                f"{len(msgs_to_compress)} earlier message(s) "
-                f"were truncated because summary generation "
-                f"failed. Continue with the remaining "
-                f"context."
-            )
-            if self.offloader:
-                path = await self.offloader.offload_context(
-                    self.state.session_id,
-                    msgs=msgs_to_compress,
-                )
-                truncation_msg += (
-                    f" The truncated context is offloaded to '{path}'."
-                )
-            note = f"\n{_TRUNCATION_TAG}{truncation_msg}{_TRUNCATION_END}"
-
-            await self._clear_unreserved_read_cache(
-                msgs_to_reserve,
-            )
-            self.state.summary = existing + note
-            self.state.context = msgs_to_reserve
-
-            logger.info(
-                "[AGENT %s]: Context truncation finished.",
-                self.name,
-            )
-
-        task = asyncio.create_task(_apply())
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            await task
             raise
 
     # ======================================================================
