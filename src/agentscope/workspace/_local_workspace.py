@@ -15,6 +15,7 @@ from ._utils import DEFAULT_WORKSPACE_INSTRUCTIONS
 from .._logging import logger
 from ..mcp import MCPClient
 from ..skill import Skill
+from ..tool import ToolBase
 from ..tool._builtin._backend import LocalBackend
 from ._base import WorkspaceBase
 
@@ -117,6 +118,29 @@ class LocalWorkspace(WorkspaceBase):
 
         self._skill_lock = asyncio.Lock()
         self._mcp_lock = asyncio.Lock()
+
+    async def list_tools(self) -> list[ToolBase]:
+        """Return builtin tools, using PowerShell as the shell on Windows."""
+        from ..tool import Bash, Edit, Glob, Grep, PowerShell, Read, Write
+
+        backend = self.get_backend()
+        glob_kwargs: dict = {"backend": backend}
+        if self._glob_helper_path is not None:
+            glob_kwargs["glob_helper_path"] = self._glob_helper_path
+
+        if os.name == "nt":
+            shell: ToolBase = PowerShell(cwd=self.workdir, backend=backend)
+        else:
+            shell = Bash(cwd=self.workdir, backend=backend)
+
+        return [
+            shell,
+            Edit(backend=backend),
+            Glob(**glob_kwargs),
+            Grep(backend=backend),
+            Read(backend=backend),
+            Write(backend=backend),
+        ]
 
     async def initialize(self) -> None:
         """Initialise the workspace.
