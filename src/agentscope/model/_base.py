@@ -32,6 +32,22 @@ _TOOL_CHOICE_LITERAL_MODES = {"auto", "none", "required"}
 _MULTIMODAL_DATA_BLOCK_TOKEN_ESTIMATE = 2000
 
 
+def _shallow_merge_dicts(base: dict, override: dict) -> dict:
+    """Merge *override* into *base* with one-level dict recursion.
+
+    For keys whose values are dicts in both *base* and *override*,
+    the inner dicts are merged (override wins on conflicts).
+    All other keys are simply overwritten by *override*.
+    """
+    merged = {**base}
+    for k, v in override.items():
+        if k in merged and isinstance(merged[k], dict) and isinstance(v, dict):
+            merged[k] = {**merged[k], **v}
+        else:
+            merged[k] = v
+    return merged
+
+
 class ChatModelBase:
     """The base class for chat models."""
 
@@ -522,11 +538,12 @@ class ChatModelBase:
     ) -> StructuredResponse:
         """Generate structured output with automatic fallback.
 
-        Tries up to three strategies in order:
+        Tries up to four strategies in order:
 
         - **Mode A**: Keep current config + forced tool_choice
         - **Mode B**: Disable thinking + forced tool_choice
         - **Mode C**: Keep current config + auto tool_choice
+        - **Mode D**: Keep current config + no tool_choice
 
         On first success the mode index is cached so subsequent
         calls skip directly to the working strategy.
@@ -568,7 +585,7 @@ class ChatModelBase:
         if self._structured_output_mode is not None:
             idx = self._structured_output_mode
             extra_kw, tc = strategies[idx]
-            merged = {**kwargs, **extra_kw}
+            merged = _shallow_merge_dicts(kwargs, extra_kw)
             return await self._exec_structured_call(
                 model_name,
                 messages,
@@ -580,7 +597,7 @@ class ChatModelBase:
 
         last_err: Exception | None = None
         for idx, (extra_kw, tc) in enumerate(strategies):
-            merged = {**kwargs, **extra_kw}
+            merged = _shallow_merge_dicts(kwargs, extra_kw)
             try:
                 result = await self._exec_structured_call(
                     model_name,
@@ -602,6 +619,11 @@ class ChatModelBase:
                     )
                 return result
             except Exception as e:
+                if isinstance(
+                    e,
+                    (asyncio.CancelledError, KeyboardInterrupt),
+                ):
+                    raise
                 last_err = e
                 logger.debug(
                     "Structured output mode %d failed for %s: "

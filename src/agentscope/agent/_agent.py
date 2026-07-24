@@ -578,7 +578,12 @@ class Agent:
                         messages=messages,
                         structured_model=cfg.summary_schema,
                     )
-                except Exception:
+                except Exception as inner_e:
+                    logger.debug(
+                        "[AGENT %s]: Retry structured output " + "failed: %s",
+                        self.name,
+                        inner_e,
+                    )
                     res = None
 
             else:
