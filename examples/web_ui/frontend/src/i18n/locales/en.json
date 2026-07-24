@@ -613,6 +613,8 @@
 		"enginePlaceholder": "Select an engine",
 		"model": "Model",
 		"modelPlaceholder": "Select a model",
+		"credential": "Credential",
+		"credentialPlaceholder": "Select a credential",
 		"loadingModels": "Loading models...",
 		"voice": "Voice",
 		"voicePlaceholderPreset": "Preset voice name",

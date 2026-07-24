@@ -439,6 +439,7 @@ export function ModelParametersPopover({
 												if (!checked) return;
 												const engine = vp.data.engine;
 												const profileModel = vp.data.model;
+												const profileCredId = vp.data.credential_id;
 
 												let matchedType: string | undefined;
 												let matchedCredentialId: string | undefined;
@@ -453,6 +454,13 @@ export function ModelParametersPopover({
 															credential,
 															models,
 														} of items) {
+															// Prefer the profile's credential_id
+															if (
+																profileCredId &&
+																credential.id !== profileCredId
+															) {
+																continue;
+															}
 															const model = profileModel
 																? models.find(
 																		(m) =>

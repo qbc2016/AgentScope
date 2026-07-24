@@ -27,6 +27,7 @@ from ._schema import (
     CloneVoiceResponse,
     CreateVoiceProfileRequest,
     CreateVoiceProfileResponse,
+    CredentialRef,
     EngineInfo,
     ListVoiceProfilesResponse,
     OpenAIConsentRequest,
@@ -118,13 +119,37 @@ async def list_available_engines(
     Returns:
         `AvailableEnginesResponse`: Available engine names.
     """
-    engines = await _get_available_engines(access, user_id)
+    credentials = await access.list_resource(
+        user_id,
+        ResourceKind.CREDENTIAL,
+    )
+
+    # Map cred_type -> list of (id, label)
+    cred_by_type: dict[str, list[CredentialRef]] = {}
+    for cred in credentials:
+        cred_type = cred.data.get("type")
+        if cred_type:
+            label = cred.data.get("name") or cred_type
+            cred_by_type.setdefault(cred_type, []).append(
+                CredentialRef(id=cred.id, label=label),
+            )
+
+    engines: list[str] = []
+    for engine, required_type in ENGINE_TO_CREDENTIAL_TYPE.items():
+        if required_type in cred_by_type:
+            engines.append(engine)
+    engines.sort()
+
     details = [
         EngineInfo(
             name=eng,
             source=ENGINE_SOURCE.get(eng, "local"),
             gpu_requirement=ENGINE_GPU_REQUIREMENT.get(eng),
             voice_cloning=ENGINE_VOICE_CLONING.get(eng, False),
+            credentials=cred_by_type.get(
+                ENGINE_TO_CREDENTIAL_TYPE[eng],
+                [],
+            ),
         )
         for eng in engines
     ]
@@ -377,7 +402,7 @@ async def upload_openai_consent(
     Returns:
         OpenAIConsentResponse with the consent_id.
     """
-    cred_data = await _find_credential(
+    cred_data, _ = await _find_credential(
         access,
         user_id,
         "openai_credential",
@@ -442,7 +467,7 @@ async def _find_credential(
     access: ResourceAccessService,
     user_id: str,
     cred_type: str,
-) -> dict:
+) -> tuple[dict, str]:
     """Find and resolve a credential by type for a user.
 
     Args:
@@ -452,7 +477,7 @@ async def _find_credential(
             'dashscope_credential', 'openai_credential').
 
     Returns:
-        Raw credential data dict containing api_key.
+        Tuple of (raw credential data dict, credential_id).
 
     Raises:
         HTTPException: If no matching credential is found.
@@ -474,7 +499,7 @@ async def _find_credential(
         )
 
     record = await access.resolve_credential(user_id, cred_id)
-    return record.data
+    return record.data, cred_id
 
 
 @voice_profile_router.post(
@@ -561,7 +586,7 @@ async def _clone_dashscope(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="model is required for DashScope cloning.",
         )
-    cred_data = await _find_credential(
+    cred_data, cred_id = await _find_credential(
         access,
         user_id,
         "dashscope_credential",
@@ -651,7 +676,10 @@ async def _clone_dashscope(
             ),
         )
 
-    return CloneVoiceResponse(voice_id=voice_id)
+    return CloneVoiceResponse(
+        voice_id=voice_id,
+        credential_id=cred_id,
+    )
 
 
 _OPENAI_VOICES_URL = "https://api.openai.com/v1/audio/voices"
@@ -683,7 +711,7 @@ async def _clone_openai(
             detail=("consent token is required for OpenAI " "voice cloning."),
         )
 
-    cred_data = await _find_credential(
+    cred_data, cred_id = await _find_credential(
         access,
         user_id,
         "openai_credential",
@@ -740,4 +768,7 @@ async def _clone_openai(
             ),
         )
 
-    return CloneVoiceResponse(voice_id=voice_id)
+    return CloneVoiceResponse(
+        voice_id=voice_id,
+        credential_id=cred_id,
+    )

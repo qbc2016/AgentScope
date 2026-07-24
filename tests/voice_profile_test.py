@@ -35,6 +35,7 @@ class TestVoiceProfileModel(TestCase):
                 "name": "Test Voice",
                 "engine": None,
                 "model": None,
+                "credential_id": None,
                 "source": None,
                 "voice": None,
                 "metadata": None,
@@ -47,6 +48,7 @@ class TestVoiceProfileModel(TestCase):
             name="Clone Voice",
             engine="dashscope_tts",
             model="qwen3-tts-flash",
+            credential_id="cred-abc-123",
             source="api",
             voice="cosyvoice-clone-abc123",
             metadata={"quality": "high"},
@@ -57,6 +59,7 @@ class TestVoiceProfileModel(TestCase):
                 "name": "Clone Voice",
                 "engine": "dashscope_tts",
                 "model": "qwen3-tts-flash",
+                "credential_id": "cred-abc-123",
                 "source": "api",
                 "voice": "cosyvoice-clone-abc123",
                 "metadata": {"quality": "high"},
@@ -80,7 +83,7 @@ class TestEngineToCredentialMapping(TestCase):
     """Unit tests for ENGINE_TO_CREDENTIAL_TYPE mapping."""
 
     def test_api_engines_map_correctly(self) -> None:
-        """API engines map to their respective credentials."""
+        """All engines map to their respective credentials."""
         expected = {
             "cosyvoice": "dashscope_credential",
             "dashscope_tts": "dashscope_credential",

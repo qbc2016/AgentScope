@@ -36,6 +36,16 @@ class UpdateVoiceProfileRequest(BaseModel):
     """The updated voice profile configuration."""
 
 
+class CredentialRef(BaseModel):
+    """Minimal credential reference for engine binding."""
+
+    id: str
+    """Credential ID."""
+
+    label: str
+    """Display label (credential name or type)."""
+
+
 class EngineInfo(BaseModel):
     """Metadata about a TTS engine."""
 
@@ -50,6 +60,9 @@ class EngineInfo(BaseModel):
 
     voice_cloning: bool = False
     """Whether the engine supports voice cloning."""
+
+    credentials: list[CredentialRef] = []
+    """Available credentials for this engine."""
 
 
 class AvailableEnginesResponse(BaseModel):
@@ -95,6 +108,9 @@ class CloneVoiceResponse(BaseModel):
 
     voice_id: str
     """The cloned voice identifier."""
+
+    credential_id: str
+    """The credential used for cloning (must match synthesis)."""
 
 
 class OpenAIConsentRequest(BaseModel):

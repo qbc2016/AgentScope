@@ -72,6 +72,16 @@ class VoiceProfileData(BaseModel):
         title="Model",
     )
 
+    credential_id: str | None = Field(
+        default=None,
+        description=(
+            "Credential ID used for voice cloning and "
+            "synthesis. Ensures the same API key is used "
+            "for both operations."
+        ),
+        title="Credential ID",
+    )
+
     source: _SOURCE_TYPE | None = Field(
         default=None,
         description=(

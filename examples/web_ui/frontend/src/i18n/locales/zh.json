@@ -613,6 +613,8 @@
 		"enginePlaceholder": "选择引擎",
 		"model": "模型",
 		"modelPlaceholder": "选择模型",
+		"credential": "凭据",
+		"credentialPlaceholder": "选择凭据",
 		"loadingModels": "加载模型列表...",
 		"voice": "音色",
 		"voicePlaceholderPreset": "预设音色名",

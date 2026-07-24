@@ -95,6 +95,7 @@ function VoiceProfileDialog({
 	const [cloneError, setCloneError] = useState('');
 	const [cloneUrl, setCloneUrl] = useState('');
 	const [consentId, setConsentId] = useState('');
+	const [credentialId, setCredentialId] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const consentFileRef = useRef<HTMLInputElement>(null);
 
@@ -116,11 +117,13 @@ function VoiceProfileDialog({
 			setEngine(profile.data.engine || undefined);
 			setModel(profile.data.model || undefined);
 			setVoice(profile.data.voice || '');
+			setCredentialId(profile.data.credential_id || null);
 		} else {
 			setName('');
 			setEngine(undefined);
 			setModel(undefined);
 			setVoice('');
+			setCredentialId(null);
 		}
 	}, [profile, open]);
 
@@ -128,8 +131,17 @@ function VoiceProfileDialog({
 		if (!engine) {
 			setModelOptions([]);
 			setModel(undefined);
+			setCredentialId(null);
 			return;
 		}
+		// Auto-select credential for this engine
+		const engineInfo = engineDetails.find((d) => d.name === engine);
+		const creds = engineInfo?.credentials || [];
+		setCredentialId((prev) => {
+			if (prev && creds.some((c) => c.id === prev)) return prev;
+			return creds.length === 1 ? creds[0].id : null;
+		});
+
 		const credType = ENGINE_CREDENTIAL_TYPE[engine];
 		if (!credType) {
 			setModelOptions([]);
@@ -234,6 +246,7 @@ function VoiceProfileDialog({
 				...(engine === 'openai_tts' ? { consent: consentId.trim() } : {}),
 			});
 			setVoice(res.voice_id);
+			setCredentialId(res.credential_id);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			setCloneError(msg);
@@ -263,6 +276,7 @@ function VoiceProfileDialog({
 				audio_url: cloneUrl.trim(),
 			});
 			setVoice(res.voice_id);
+			setCredentialId(res.credential_id);
 			setCloneUrl('');
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -280,6 +294,7 @@ function VoiceProfileDialog({
 				name: name.trim(),
 				engine: engine || null,
 				model: model || null,
+				credential_id: credentialId,
 				source: engine
 					? engineDetails.find((d) => d.name === engine)?.source || null
 					: null,
@@ -343,6 +358,50 @@ function VoiceProfileDialog({
 							</Select>
 						)}
 					</div>
+					{engine &&
+						(() => {
+							const engineInfo = engineDetails.find((d) => d.name === engine);
+							const creds = engineInfo?.credentials || [];
+							if (creds.length === 0) return null;
+							if (creds.length === 1) {
+								return (
+									<div className="flex flex-col gap-2">
+										<Label htmlFor="vp-credential">
+											{t('voiceProfile.credential')}
+										</Label>
+										<p className="text-sm text-muted-foreground px-3 py-2 border rounded-md bg-muted/30">
+											{creds[0].label}
+										</p>
+									</div>
+								);
+							}
+							return (
+								<div className="flex flex-col gap-2">
+									<Label htmlFor="vp-credential">
+										{t('voiceProfile.credential')}
+									</Label>
+									<Select
+										value={credentialId || undefined}
+										onValueChange={(val) => setCredentialId(val)}
+									>
+										<SelectTrigger id="vp-credential">
+											<SelectValue
+												placeholder={t(
+													'voiceProfile.credentialPlaceholder',
+												)}
+											/>
+										</SelectTrigger>
+										<SelectContent>
+											{creds.map((c) => (
+												<SelectItem key={c.id} value={c.id}>
+													{c.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							);
+						})()}
 					{engine && (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="vp-model">{t('voiceProfile.model')}</Label>
@@ -520,6 +579,7 @@ export function VoiceProfilePage() {
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editProfile, setEditProfile] = useState<VoiceProfileRecord | null>(null);
 	const [deleteProfile, setDeleteProfile] = useState<VoiceProfileRecord | null>(null);
+	const [engineDetails, setEngineDetails] = useState<EngineInfo[]>([]);
 
 	const loadProfiles = useCallback(async () => {
 		try {
@@ -532,7 +592,17 @@ export function VoiceProfilePage() {
 
 	useEffect(() => {
 		loadProfiles();
+		voiceProfileApi.availableEngines().then((res) => {
+			setEngineDetails(res.engine_details);
+		});
 	}, [loadProfiles]);
+
+	const getCredentialLabel = (profile: VoiceProfileRecord): string | null => {
+		if (!profile.data.credential_id || !profile.data.engine) return null;
+		const info = engineDetails.find((d) => d.name === profile.data.engine);
+		const cred = info?.credentials.find((c) => c.id === profile.data.credential_id);
+		return cred?.label || null;
+	};
 
 	const handleDelete = async () => {
 		if (!deleteProfile) return;
@@ -618,6 +688,11 @@ export function VoiceProfilePage() {
 							</CardHeader>
 							<CardContent>
 								<div className="flex flex-wrap gap-2">
+									{(() => {
+										const credLabel = getCredentialLabel(profile);
+										if (!credLabel) return null;
+										return <Badge variant="secondary">{credLabel}</Badge>;
+									})()}
 									{profile.data.engine && (
 										<Badge variant="secondary">
 											{ENGINE_LABELS[profile.data.engine] ??
@@ -628,7 +703,7 @@ export function VoiceProfilePage() {
 										<Badge variant="secondary">{profile.data.model}</Badge>
 									)}
 									{profile.data.voice && (
-										<Badge variant="outline">{profile.data.voice}</Badge>
+										<Badge variant="secondary">{profile.data.voice}</Badge>
 									)}
 								</div>
 							</CardContent>
