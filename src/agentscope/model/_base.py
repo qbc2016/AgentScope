@@ -535,18 +535,15 @@ class ChatModelBase:
             model_name (`str`):
                 The model name to use for this call.
             messages (`list[Msg]`):
-                The context for the LLM to generate the structured
-                output.
+                The context for the LLM to generate the structured output.
             structured_model (`Type[BaseModel] | dict`):
-                A Pydantic model class or a JSON schema dict
-                describing the required output structure.
+                A Pydantic model class or a JSON schema dict describing the
+                required output structure.
             tool_choice (`ToolChoice | None`, defaults to `None`):
-                The tool_choice forwarded to ``_call_api``. When
-                ``None``, defaults to forcing the
-                ``generate_structured_output`` tool.
+                The tool_choice forwarded to ``_call_api``. When ``None``,
+                defaults to forcing the ``generate_structured_output`` tool.
             **kwargs (`Any`):
-                Additional keyword arguments forwarded to
-                ``_call_api``.
+                Additional keyword arguments forwarded to ``_call_api``.
         """
         func_name = "generate_structured_output"
         forced_tc = ToolChoice(mode=func_name)
