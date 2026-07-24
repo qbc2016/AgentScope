@@ -642,10 +642,10 @@ class Agent:
                         msgs=msgs_to_compress,
                     )
                     truncation_msg += (
-                        f" The truncated context is offloaded" f" to '{path}'."
+                        f" The truncated context is offloaded to '{path}'."
                     )
                 new_summary = (
-                    f"{existing}\n{_TRUNC_TAG}" f"{truncation_msg}{_TRUNC_END}"
+                    f"{existing}\n{_TRUNC_TAG}{truncation_msg}{_TRUNC_END}"
                 )
 
             await self._clear_unreserved_read_cache(msgs_to_reserve)
