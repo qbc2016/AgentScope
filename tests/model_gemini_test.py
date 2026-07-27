@@ -9,7 +9,7 @@ import json
 from typing import Any
 import unittest
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from utils import AnyString
 
@@ -118,12 +118,15 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
 
     def setUp(self) -> None:
         self.model = _make_model(stream=False)
+        # Client is built eagerly in __init__; inject a mock onto the
+        # instance so generate_content() hits it instead of the network.
+        self.mock_client = MagicMock()
+        self.model.client = self.mock_client
 
-    @patch("google.genai.Client")
-    async def test_text_response(self, mock_client_cls: MagicMock) -> None:
+    async def test_text_response(self) -> None:
         """Non-stream text response returns a single ChatResponse."""
         parts = [_make_part(text="Hello!")]
-        mock_client_cls.return_value.aio.models.generate_content = AsyncMock(
+        self.mock_client.aio.models.generate_content = AsyncMock(
             return_value=_mock_completion(parts),
         )
 
@@ -137,11 +140,7 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
             ),
         )
 
-    @patch("google.genai.Client")
-    async def test_tool_call_response(
-        self,
-        mock_client_cls: MagicMock,
-    ) -> None:
+    async def test_tool_call_response(self) -> None:
         """Non-stream tool call response creates ToolCallBlocks."""
         parts = [
             _make_part(
@@ -152,7 +151,7 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
                 },
             ),
         ]
-        mock_client_cls.return_value.aio.models.generate_content = AsyncMock(
+        self.mock_client.aio.models.generate_content = AsyncMock(
             return_value=_mock_completion(parts),
         )
 
@@ -176,11 +175,7 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
             ),
         )
 
-    @patch("google.genai.Client")
-    async def test_tool_call_response_without_id(
-        self,
-        mock_client_cls: MagicMock,
-    ) -> None:
+    async def test_tool_call_response_without_id(self) -> None:
         """A function call with no id gets a generated id, not a crash."""
         parts = [
             _make_part(
@@ -191,7 +186,7 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
                 },
             ),
         ]
-        mock_client_cls.return_value.aio.models.generate_content = AsyncMock(
+        self.mock_client.aio.models.generate_content = AsyncMock(
             return_value=_mock_completion(parts),
         )
 
@@ -217,17 +212,13 @@ class TestGeminiNonStream(IsolatedAsyncioTestCase):
         self.assertIsInstance(result.content[0].id, str)
         self.assertTrue(result.content[0].id)
 
-    @patch("google.genai.Client")
-    async def test_thinking_response(
-        self,
-        mock_client_cls: MagicMock,
-    ) -> None:
+    async def test_thinking_response(self) -> None:
         """Non-stream response with reasoning creates ThinkingBlock."""
         parts = [
             _make_part(text="Let me think...", thought=True),
             _make_part(text="Answer"),
         ]
-        mock_client_cls.return_value.aio.models.generate_content = AsyncMock(
+        self.mock_client.aio.models.generate_content = AsyncMock(
             return_value=_mock_completion(parts),
         )
 
@@ -263,16 +254,20 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
 
     def setUp(self) -> None:
         self.model = _make_model(stream=True)
+        # Client is built eagerly in __init__; inject a mock onto the
+        # instance so generate_content_stream() hits it instead of the
+        # network.
+        self.mock_client = MagicMock()
+        self.model.client = self.mock_client
 
-    @patch("google.genai.Client")
-    async def test_stream_text(self, mock_client_cls: MagicMock) -> None:
+    async def test_stream_text(self) -> None:
         """Stream text yields n deltas + 1 final with full content."""
         chunks = [
             _make_stream_chunk([_make_part(text="Hello")]),
             _make_stream_chunk([_make_part(text=" world")]),
         ]
-        mock_client_cls.return_value.aio.models.generate_content_stream = (
-            AsyncMock(return_value=_MockAsyncStream(chunks))
+        self.mock_client.aio.models.generate_content_stream = AsyncMock(
+            return_value=_MockAsyncStream(chunks),
         )
 
         gen = await self.model([])
@@ -314,18 +309,14 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
             ],
         )
 
-    @patch("google.genai.Client")
-    async def test_stream_thinking_and_text(
-        self,
-        mock_client_cls: MagicMock,
-    ) -> None:
+    async def test_stream_thinking_and_text(self) -> None:
         """Stream thinking + text yields deltas then accumulated final."""
         chunks = [
             _make_stream_chunk([_make_part(text="Think", thought=True)]),
             _make_stream_chunk([_make_part(text="Answer")]),
         ]
-        mock_client_cls.return_value.aio.models.generate_content_stream = (
-            AsyncMock(return_value=_MockAsyncStream(chunks))
+        self.mock_client.aio.models.generate_content_stream = AsyncMock(
+            return_value=_MockAsyncStream(chunks),
         )
 
         gen = await self.model([])
@@ -372,11 +363,7 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
             ],
         )
 
-    @patch("google.genai.Client")
-    async def test_stream_tool_call(
-        self,
-        mock_client_cls: MagicMock,
-    ) -> None:
+    async def test_stream_tool_call(self) -> None:
         """Stream tool call yields delta then final with same ToolCallBlock."""
         chunks = [
             _make_stream_chunk(
@@ -391,8 +378,8 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
                 ],
             ),
         ]
-        mock_client_cls.return_value.aio.models.generate_content_stream = (
-            AsyncMock(return_value=_MockAsyncStream(chunks))
+        self.mock_client.aio.models.generate_content_stream = AsyncMock(
+            return_value=_MockAsyncStream(chunks),
         )
 
         gen = await self.model([])
@@ -412,11 +399,7 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
             ],
         )
 
-    @patch("google.genai.Client")
-    async def test_stream_tool_calls_without_id(
-        self,
-        mock_client_cls: MagicMock,
-    ) -> None:
+    async def test_stream_tool_calls_without_id(self) -> None:
         """Two id-less function calls in one chunk get distinct ids."""
         chunks = [
             _make_stream_chunk(
@@ -438,8 +421,8 @@ class TestGeminiStream(IsolatedAsyncioTestCase):
                 ],
             ),
         ]
-        mock_client_cls.return_value.aio.models.generate_content_stream = (
-            AsyncMock(return_value=_MockAsyncStream(chunks))
+        self.mock_client.aio.models.generate_content_stream = AsyncMock(
+            return_value=_MockAsyncStream(chunks),
         )
 
         gen = await self.model([])
