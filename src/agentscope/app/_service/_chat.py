@@ -282,7 +282,7 @@ class ChatService:
             inputs=UserInterruptEvent(reply_id=session.state.reply_id),
         )
 
-    async def _run_impl(
+    async def _run_impl(  # pylint: disable=too-many-statements
         self,
         user_id: str,
         session_id: str,

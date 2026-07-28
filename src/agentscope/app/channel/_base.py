@@ -23,8 +23,8 @@ from pydantic import BaseModel, Field
 from ...message import TextBlock, DataBlock
 
 
+# Signature of the gateway entry point injected into an adapter.
 EmitFn = Callable[["ChannelEvent | ConfirmDecisionEvent"], Awaitable[None]]
-"""Signature of the gateway entry point injected into an adapter."""
 
 
 class ChannelEvent(BaseModel):
@@ -250,3 +250,10 @@ class ChannelBase(ABC):
         empty (unsupported).
         """
         return []
+
+    def _split_long_message(self, text: str) -> list[str]:
+        """Split text into chunks within the platform length limit."""
+        limit = self.capabilities.max_message_length
+        if len(text) <= limit:
+            return [text]
+        return [text[i : i + limit] for i in range(0, len(text), limit)]

@@ -15,11 +15,15 @@ class WeChatWorkChannel(ChannelBase):
     def __init__(self, **kwargs: Any) -> None:
         raise NotImplementedError(
             "WeChatWorkChannel is not yet implemented. "
-            "See docs/design_channel_v3.md for the planned design.",
+            "See docs/design_channel_redesign.md for the planned design.",
         )
 
     async def start_listening(self) -> None:
         raise NotImplementedError
 
-    async def send_response(self, event: Any, response: str) -> None:
+    async def send_response(
+        self,
+        event: Any,
+        content: Any,
+    ) -> None:
         raise NotImplementedError
