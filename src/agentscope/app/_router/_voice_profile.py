@@ -309,7 +309,7 @@ async def update_voice_profile(
     )
     if updated is None:
         raise RuntimeError(
-            f"Voice profile {profile_id!r} disappeared " "after upsert.",
+            f"Voice profile {profile_id!r} disappeared after upsert.",
         )
     return updated
 
@@ -346,10 +346,8 @@ async def delete_voice_profile(
 # Voice Cloning
 # ------------------------------------------------------------------
 
-_CLONE_URL = (
-    "https://dashscope.aliyuncs.com/api"
-    + "/v1/services/audio/tts/customization"
-)
+_CLONE_HOST = "https://dashscope.aliyuncs.com"
+_CLONE_URL = f"{_CLONE_HOST}/api/v1/services/audio/tts" f"/customization"
 
 
 @voice_profile_router.post(
@@ -510,10 +508,21 @@ async def clone_voice(
             ),
         )
 
-    # Model-level voice_cloning validation (skip for OpenAI
-    # whose voice creation API is model-agnostic)
+    source = ENGINE_SOURCE.get(body.engine, "local")
+    if source == "local":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Engine '{body.engine}' is a local engine. "
+                f"Set reference audio in the voice profile "
+                f"metadata instead of using the clone API."
+            ),
+        )
+
     if body.engine != "openai_tts":
-        cred_type = ENGINE_TO_CREDENTIAL_TYPE.get(body.engine)
+        cred_type = ENGINE_TO_CREDENTIAL_TYPE.get(
+            body.engine,
+        )
         if cred_type:
             cred_cls = CredentialFactory.get_credential_class(
                 cred_type,
@@ -526,19 +535,21 @@ async def clone_voice(
                 )
                 if card is not None and not card.voice_cloning:
                     raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
+                        status_code=(status.HTTP_400_BAD_REQUEST),
                         detail=(
-                            f"Model '{body.model}' does not "
-                            f"support voice cloning."
+                            f"Model '{body.model}' does "
+                            f"not support voice cloning."
                         ),
                     )
 
-    # OpenAI cloning: multipart/form-data upload
     if body.engine == "openai_tts":
         return await _clone_openai(body, access, user_id)
 
-    # DashScope-based cloning (Qwen-TTS / CosyVoice)
-    return await _clone_dashscope(body, access, user_id)
+    return await _clone_dashscope(
+        body,
+        access,
+        user_id,
+    )
 
 
 async def _clone_dashscope(
@@ -680,7 +691,7 @@ async def _clone_openai(
     if not body.consent:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=("consent token is required for OpenAI " "voice cloning."),
+            detail="consent token is required for OpenAI voice cloning.",
         )
 
     cred_data = await _find_credential(

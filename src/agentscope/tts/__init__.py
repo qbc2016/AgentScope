@@ -10,16 +10,28 @@ from ._dashscope import (
     DashScopeRealtimeTTSModel,
 )
 from ._gemini import GeminiTTSModel
+from ._local import (
+    ChatterboxTTSModel,
+    KokoroTTSModel,
+    LuxTTSModel,
+    TadaTTSModel,
+)
 from ._openai import OpenAITTSModel
+from ._voicebox import VoiceboxTTSModel
 
 __all__ = [
     "TTSModelBase",
     "TTSModelCard",
     "TTSResponse",
     "TTSUsage",
+    "ChatterboxTTSModel",
     "DashScopeCosyVoiceTTSModel",
     "DashScopeTTSModel",
     "DashScopeRealtimeTTSModel",
     "GeminiTTSModel",
+    "KokoroTTSModel",
+    "LuxTTSModel",
     "OpenAITTSModel",
+    "TadaTTSModel",
+    "VoiceboxTTSModel",
 ]

@@ -385,6 +385,7 @@ class ChatService:
                 user_id,
                 tts_cfg,
                 self._access,
+                storage=self._storage,
             )
             middlewares.append(TTSMiddleware(tts_model))
 

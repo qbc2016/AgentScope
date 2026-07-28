@@ -16,6 +16,16 @@ export function isModelForEngine(modelName: string, engine: string): boolean {
 			return modelName.startsWith('tts-') || modelName.includes('tts');
 		case 'gemini_tts':
 			return modelName.includes('gemini');
+		case 'kokoro':
+			return modelName === 'kokoro' || modelName.startsWith('kokoro');
+		case 'chatterbox':
+			return modelName === 'chatterbox' || modelName.startsWith('chatterbox');
+		case 'luxtts':
+			return modelName === 'luxtts' || modelName.startsWith('luxtts');
+		case 'tada':
+			return modelName === 'tada' || modelName.startsWith('tada');
+		case 'voicebox':
+			return modelName === 'voicebox' || modelName.startsWith('voicebox');
 		default:
 			return modelName === engine || modelName.includes(engine);
 	}

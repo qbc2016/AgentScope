@@ -5,7 +5,7 @@ from typing import Type
 from fastapi import HTTPException, status
 
 from ._access import ResourceAccessService
-from ..storage import TTSModelConfig
+from ..storage import StorageBase, TTSModelConfig
 from ...credential import CredentialFactory
 from ...tts import TTSModelBase
 
@@ -14,6 +14,7 @@ async def get_tts_model(
     user_id: str,
     config: TTSModelConfig,
     access: ResourceAccessService,
+    storage: StorageBase | None = None,
 ) -> TTSModelBase:
     """Build a TTS model instance from a stored credential and config.
 
@@ -25,6 +26,8 @@ async def get_tts_model(
             The TTS model configuration.
         access (`ResourceAccessService`):
             Injected resource access service.
+        storage (`StorageBase | None`, defaults to `None`):
+            Storage backend for loading voice profile metadata.
 
     Returns:
         `TTSModelBase`:
@@ -40,13 +43,28 @@ async def get_tts_model(
     if not tts_classes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Provider {config.type!r} does not support TTS models.",
+            detail=(
+                f"Credential {credential_record.data.get('type', '?')!r}"
+                f" does not support TTS models."
+            ),
         )
 
     tts_cls = _resolve_tts_class(tts_classes, config.model)
-    parameters = (
-        tts_cls.Parameters(**config.parameters) if config.parameters else None
-    )
+    params = dict(config.parameters) if config.parameters else {}
+
+    # Load reference audio from voice profile metadata
+    profile_id = params.pop("_voice_profile_id", None)
+    if profile_id and storage:
+        params = await _enrich_from_profile(
+            storage,
+            user_id,
+            profile_id,
+            params,
+        )
+
+    # Strip remaining internal keys
+    params = {k: v for k, v in params.items() if not k.startswith("_")}
+    parameters = tts_cls.Parameters(**params) if params else None
     return tts_cls(
         credential=credential,
         model=config.model,
@@ -54,12 +72,59 @@ async def get_tts_model(
     )
 
 
+async def _enrich_from_profile(
+    storage: StorageBase,
+    user_id: str,
+    profile_id: str,
+    params: dict,
+) -> dict:
+    """Merge voice profile metadata into TTS params.
+
+    Reads the voice profile from storage and copies
+    ``reference_audio_base64`` and ``reference_text`` from its
+    metadata into ``params``.
+
+    Local TTS models accept ``reference_audio_base64`` directly
+    in their Parameters and handle decoding internally during
+    synthesis. The audio is stored as base64 (not as a file
+    path) so that multi-node deployments can access it from
+    any machine without shared filesystem.
+
+    Values explicitly set in the TTS config parameters take
+    precedence over the profile metadata.
+    """
+    profile = await storage.get_voice_profile(user_id, profile_id)
+    if profile and profile.data.metadata:
+        meta = profile.data.metadata
+        if meta.get("reference_audio_base64"):
+            params.setdefault(
+                "reference_audio_base64",
+                meta["reference_audio_base64"],
+            )
+        if meta.get("reference_text"):
+            params.setdefault(
+                "reference_text",
+                meta["reference_text"],
+            )
+    return params
+
+
 def _resolve_tts_class(
     classes: list[Type[TTSModelBase]],
     model: str,
 ) -> Type[TTSModelBase]:
-    """Pick the TTS class that lists the given model name."""
+    """Pick the TTS class that lists the given model name.
+
+    Falls back to the single class for credentials exposing only
+    one TTS class; raises 400 when multiple classes exist but none
+    lists the model, to avoid silently using the wrong engine.
+    """
     for cls in classes:
         if any(card.name == model for card in cls.list_models()):
             return cls
-    return classes[0]
+    if len(classes) == 1:
+        return classes[0]
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Unknown TTS model {model!r} for this credential.",
+    )

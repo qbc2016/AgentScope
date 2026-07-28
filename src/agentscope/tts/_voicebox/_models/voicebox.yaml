@@ -1,0 +1,11 @@
+name: voicebox
+label: Voicebox (Local)
+status: active
+
+input_types:
+  - text/plain
+
+output_types:
+  - audio/wav
+
+parameter_overrides: {}

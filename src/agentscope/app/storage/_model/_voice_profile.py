@@ -13,6 +13,11 @@ _ENGINE_TYPE = Literal[
     "dashscope_tts",
     "openai_tts",
     "gemini_tts",
+    "kokoro",
+    "chatterbox",
+    "luxtts",
+    "tada",
+    "voicebox",
 ]
 
 _SOURCE_TYPE = Literal["api", "local"]
@@ -22,6 +27,11 @@ ENGINE_TO_CREDENTIAL_TYPE: dict[str, str] = {
     "dashscope_tts": "dashscope_credential",
     "openai_tts": "openai_credential",
     "gemini_tts": "gemini_credential",
+    "kokoro": "local_tts_credential",
+    "chatterbox": "local_tts_credential",
+    "luxtts": "local_tts_credential",
+    "tada": "local_tts_credential",
+    "voicebox": "voicebox_credential",
 }
 
 ENGINE_SOURCE: dict[str, _SOURCE_TYPE] = {
@@ -29,6 +39,11 @@ ENGINE_SOURCE: dict[str, _SOURCE_TYPE] = {
     "dashscope_tts": "api",
     "openai_tts": "api",
     "gemini_tts": "api",
+    "kokoro": "local",
+    "chatterbox": "local",
+    "luxtts": "local",
+    "tada": "local",
+    "voicebox": "local",
 }
 
 ENGINE_GPU_REQUIREMENT: dict[str, str | None] = {
@@ -36,6 +51,11 @@ ENGINE_GPU_REQUIREMENT: dict[str, str | None] = {
     "dashscope_tts": None,
     "openai_tts": None,
     "gemini_tts": None,
+    "kokoro": None,
+    "chatterbox": "CUDA recommended",
+    "luxtts": "<1 GB VRAM",
+    "tada": "CUDA recommended",
+    "voicebox": None,
 }
 
 ENGINE_VOICE_CLONING: dict[str, bool] = {
@@ -43,6 +63,11 @@ ENGINE_VOICE_CLONING: dict[str, bool] = {
     "dashscope_tts": True,
     "openai_tts": True,
     "gemini_tts": False,
+    "kokoro": False,
+    "chatterbox": True,
+    "luxtts": True,
+    "tada": True,
+    "voicebox": False,
 }
 
 
@@ -57,8 +82,9 @@ class VoiceProfileData(BaseModel):
     engine: _ENGINE_TYPE | None = Field(
         default=None,
         description=(
-            "Preferred TTS engine: cosyvoice, "
-            "dashscope_tts, openai_tts, or gemini_tts."
+            "TTS engine: cosyvoice, dashscope_tts, "
+            "openai_tts, gemini_tts (API) or kokoro, "
+            "chatterbox, luxtts, tada, voicebox (local)."
         ),
         title="Engine",
     )

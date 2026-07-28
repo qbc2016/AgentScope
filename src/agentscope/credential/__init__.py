@@ -6,9 +6,11 @@ from ._anthropic import AnthropicCredential
 from ._dashscope import DashScopeCredential
 from ._deepseek import DeepSeekCredential
 from ._gemini import GeminiCredential
+from ._local_tts import LocalTTSCredential
 from ._moonshot import MoonshotCredential
 from ._ollama import OllamaCredential
 from ._openai import OpenAICredential
+from ._voicebox import VoiceboxCredential
 from ._xai import XAICredential
 from ._factory import CredentialFactory
 
@@ -19,9 +21,11 @@ __all__ = [
     "DashScopeCredential",
     "DeepSeekCredential",
     "GeminiCredential",
+    "LocalTTSCredential",
     "MoonshotCredential",
     "OllamaCredential",
     "OpenAICredential",
+    "VoiceboxCredential",
     "XAICredential",
     "CredentialFactory",
 ]

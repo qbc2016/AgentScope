@@ -80,12 +80,17 @@ class TestEngineToCredentialMapping(TestCase):
     """Unit tests for ENGINE_TO_CREDENTIAL_TYPE mapping."""
 
     def test_api_engines_map_correctly(self) -> None:
-        """API engines map to their respective credentials."""
+        """All engines map to their respective credentials."""
         expected = {
             "cosyvoice": "dashscope_credential",
             "dashscope_tts": "dashscope_credential",
             "openai_tts": "openai_credential",
             "gemini_tts": "gemini_credential",
+            "kokoro": "local_tts_credential",
+            "chatterbox": "local_tts_credential",
+            "luxtts": "local_tts_credential",
+            "tada": "local_tts_credential",
+            "voicebox": "voicebox_credential",
         }
         self.assertEqual(ENGINE_TO_CREDENTIAL_TYPE, expected)
 
@@ -128,6 +133,11 @@ class TestEngineConstants(TestCase):
             "dashscope_tts": None,
             "openai_tts": None,
             "gemini_tts": None,
+            "kokoro": None,
+            "chatterbox": "CUDA recommended",
+            "luxtts": "<1 GB VRAM",
+            "tada": "CUDA recommended",
+            "voicebox": None,
         }
         self.assertEqual(ENGINE_GPU_REQUIREMENT, expected)
 
@@ -138,5 +148,10 @@ class TestEngineConstants(TestCase):
             "dashscope_tts": True,
             "openai_tts": True,
             "gemini_tts": False,
+            "kokoro": False,
+            "chatterbox": True,
+            "luxtts": True,
+            "tada": True,
+            "voicebox": False,
         }
         self.assertEqual(ENGINE_VOICE_CLONING, expected)

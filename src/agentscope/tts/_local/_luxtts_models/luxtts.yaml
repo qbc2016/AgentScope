@@ -1,0 +1,12 @@
+name: luxtts
+label: LuxTTS (Local)
+status: active
+voice_cloning: true
+
+input_types:
+  - text/plain
+
+output_types:
+  - audio/wav
+
+parameter_overrides: {}

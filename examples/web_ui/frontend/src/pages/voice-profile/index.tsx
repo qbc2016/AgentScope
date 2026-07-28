@@ -43,6 +43,11 @@ const ENGINE_LABELS: Record<string, string> = {
 	dashscope_tts: 'DashScope TTS',
 	openai_tts: 'OpenAI TTS',
 	gemini_tts: 'Gemini TTS',
+	kokoro: 'Kokoro (Local)',
+	chatterbox: 'Chatterbox (Local)',
+	luxtts: 'LuxTTS (Local)',
+	tada: 'TADA (Local)',
+	voicebox: 'Voicebox (Local)',
 };
 
 /** Read a File as base64 string (without the data URL prefix). */
@@ -67,7 +72,14 @@ const ENGINE_CREDENTIAL_TYPE: Record<string, string> = {
 	dashscope_tts: 'dashscope_credential',
 	openai_tts: 'openai_credential',
 	gemini_tts: 'gemini_credential',
+	kokoro: 'local_tts_credential',
+	chatterbox: 'local_tts_credential',
+	luxtts: 'local_tts_credential',
+	tada: 'local_tts_credential',
+	voicebox: 'voicebox_credential',
 };
+
+const LOCAL_ENGINES = new Set(['kokoro', 'chatterbox', 'luxtts', 'tada']);
 
 function VoiceProfileDialog({
 	open,
@@ -95,8 +107,12 @@ function VoiceProfileDialog({
 	const [cloneError, setCloneError] = useState('');
 	const [cloneUrl, setCloneUrl] = useState('');
 	const [consentId, setConsentId] = useState('');
+	const [refAudioBase64, setRefAudioBase64] = useState<string | null>(null);
+	const [refAudioFilename, setRefAudioFilename] = useState('');
+	const [referenceText, setReferenceText] = useState('');
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const consentFileRef = useRef<HTMLInputElement>(null);
+	const localRefInputRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
 		if (!open) return;
@@ -116,11 +132,18 @@ function VoiceProfileDialog({
 			setEngine(profile.data.engine || undefined);
 			setModel(profile.data.model || undefined);
 			setVoice(profile.data.voice || '');
+			const meta = profile.data.metadata as Record<string, unknown> | null;
+			setRefAudioBase64((meta?.reference_audio_base64 as string) || null);
+			setRefAudioFilename('');
+			setReferenceText((meta?.reference_text as string) || '');
 		} else {
 			setName('');
 			setEngine(undefined);
 			setModel(undefined);
 			setVoice('');
+			setRefAudioBase64(null);
+			setRefAudioFilename('');
+			setReferenceText('');
 		}
 	}, [profile, open]);
 
@@ -168,6 +191,28 @@ function VoiceProfileDialog({
 				: false;
 
 	const cloneSupportsUpload = engine === 'dashscope_tts' || engine === 'openai_tts';
+
+	const isLocal = engine ? LOCAL_ENGINES.has(engine) : false;
+
+	const handleLocalRefUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		if (file.size > MAX_AUDIO_SIZE_BYTES) {
+			setCloneError(t('voiceProfile.fileTooLarge', { max: MAX_AUDIO_SIZE_MB }));
+			return;
+		}
+		try {
+			const base64 = await fileToBase64(file);
+			setRefAudioBase64(base64);
+			setRefAudioFilename(file.name);
+			setCloneError('');
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			setCloneError(msg);
+		} finally {
+			if (localRefInputRef.current) localRefInputRef.current.value = '';
+		}
+	};
 
 	const voiceOptions: string[] = (() => {
 		if (!model) return [];
@@ -276,6 +321,13 @@ function VoiceProfileDialog({
 		if (!name.trim()) return;
 		setSaving(true);
 		try {
+			const metadata: Record<string, unknown> = {};
+			if (isLocal && refAudioBase64) {
+				metadata.reference_audio_base64 = refAudioBase64;
+				if (referenceText.trim()) {
+					metadata.reference_text = referenceText.trim();
+				}
+			}
 			const data: VoiceProfileData = {
 				name: name.trim(),
 				engine: engine || null,
@@ -284,6 +336,7 @@ function VoiceProfileDialog({
 					? engineDetails.find((d) => d.name === engine)?.source || null
 					: null,
 				voice: voice.trim() || null,
+				metadata: Object.keys(metadata).length > 0 ? metadata : null,
 			};
 			if (profile) {
 				await voiceProfileApi.update(profile.id, data);
@@ -409,7 +462,7 @@ function VoiceProfileDialog({
 							)}
 						</div>
 					)}
-					{canClone && selectedModelSupportsClone && (
+					{canClone && selectedModelSupportsClone && !isLocal && (
 						<div className="flex flex-col gap-2">
 							<Label>{t('voiceProfile.cloneVoice')}</Label>
 							{engine === 'openai_tts' && (
@@ -494,6 +547,53 @@ function VoiceProfileDialog({
 											? t('voiceProfile.cloning')
 											: t('voiceProfile.clone')}
 									</Button>
+								</div>
+							)}
+							{cloneError && <p className="text-sm text-destructive">{cloneError}</p>}
+						</div>
+					)}
+					{isLocal && canClone && selectedModelSupportsClone && (
+						<div className="flex flex-col gap-2">
+							<Label>{t('voiceProfile.referenceAudio')}</Label>
+							<p className="text-xs text-muted-foreground">
+								{t('voiceProfile.localCloneHint')}
+							</p>
+							<div className="flex items-center gap-2">
+								<input
+									ref={localRefInputRef}
+									type="file"
+									accept="audio/*"
+									className="hidden"
+									onChange={handleLocalRefUpload}
+								/>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => localRefInputRef.current?.click()}
+								>
+									<Upload className="size-4 mr-1.5" />
+									{refAudioBase64
+										? t('voiceProfile.replaceAudio')
+										: t('voiceProfile.uploadAudio')}
+								</Button>
+								{refAudioBase64 && (
+									<span className="text-xs text-muted-foreground">
+										{refAudioFilename || t('voiceProfile.audioUploaded')}
+									</span>
+								)}
+							</div>
+							{engine === 'tada' && (
+								<div className="flex flex-col gap-2 mt-1">
+									<Label htmlFor="vp-ref-text">
+										{t('voiceProfile.referenceTextLabel')}
+									</Label>
+									<Input
+										id="vp-ref-text"
+										value={referenceText}
+										onChange={(e) => setReferenceText(e.target.value)}
+										placeholder={t('voiceProfile.referenceTextPlaceholder')}
+									/>
 								</div>
 							)}
 							{cloneError && <p className="text-sm text-destructive">{cloneError}</p>}

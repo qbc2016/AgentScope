@@ -94,6 +94,18 @@ workspace = [
 tools = [
     "ripgrep",
 ]
+# ------------ Local TTS engines ------------
+# Lightweight core; each engine pulls its own heavy deps.
+tts-kokoro = ["kokoro>=0.9.4", "soundfile"]
+tts-chatterbox = ["chatterbox-tts"]
+tts-luxtts = ["soundfile"]
+tts-tada = ["hume-tada"]
+local-tts = [
+    "agentscope[tts-kokoro]",
+    "agentscope[tts-chatterbox]",
+    "agentscope[tts-luxtts]",
+    "agentscope[tts-tada]",
+]
 # ------------ Vector stores ------------
 vdb-qdrant = ["qdrant-client"]
 vdb-milvus = [
