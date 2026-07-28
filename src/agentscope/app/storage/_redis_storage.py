@@ -86,11 +86,14 @@ class RedisStorage(StorageBase):
             "agentscope:user:{user_id}:schedule:{schedule_id}:sessions"
         )
 
-        channel: str = "agentscope:user:{user_id}:channel:{channel_id}"
+        # channel_id is a globally unique UUID, so the record lives at a
+        # single global key. Indexes: per-user (management list),
+        # all-channels (reconcile enumeration), bot-id (uniqueness /
+        # dedup). See docs/design_channel_redesign.md §5.
+        channel: str = "agentscope:channel_record:{channel_id}"
         channel_index: str = "agentscope:user:{user_id}:channels"
-        channel_global_index: str = "agentscope:channels"
+        channel_all_index: str = "agentscope:channels"
         channel_botid_index: str = "agentscope:channel_botid:{platform_bot_id}"
-        channel_lookup: str = "agentscope:channel_lookup:{channel_id}"
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -954,175 +957,117 @@ class RedisStorage(StorageBase):
 
     async def upsert_channel(
         self,
-        user_id: str,
         record: ChannelRecord,
+        platform_bot_id: str,
     ) -> str:
-        """Persist a channel record with user and global indexes."""
-        record.tenant_user_id = user_id
-        key = self._key(
-            self.key_config.channel,
-            user_id=user_id,
-            channel_id=record.channel_id,
+        """Persist a channel record and refresh its indexes."""
+        key = self._key(self.key_config.channel, channel_id=record.id)
+        index_key = self._key(
+            self.key_config.channel_index,
+            user_id=record.user_id,
         )
-        index_key = self._key(self.key_config.channel_index, user_id=user_id)
         botid_key = self._key(
             self.key_config.channel_botid_index,
-            platform_bot_id=record.platform_bot_id,
+            platform_bot_id=platform_bot_id,
         )
         await self._set_with_ttl(key, record.model_dump_json())
-        await self._client.sadd(index_key, record.channel_id)
-        await self._client.sadd(
-            self.key_config.channel_global_index,
-            f"{user_id}:{record.channel_id}",
-        )
-        await self._set_with_ttl(
-            botid_key,
-            f"{user_id}:{record.channel_id}",
-        )
-        lookup_key = self._key(
-            self.key_config.channel_lookup,
-            channel_id=record.channel_id,
-        )
-        await self._set_with_ttl(lookup_key, user_id)
-        return record.channel_id
+        await self._client.sadd(index_key, record.id)
+        await self._client.sadd(self.key_config.channel_all_index, record.id)
+        await self._set_with_ttl(botid_key, record.id)
+        return record.id
 
     async def get_channel(
         self,
-        user_id: str,
         channel_id: str,
     ) -> ChannelRecord | None:
-        """Fetch a single channel record by id."""
-        key = self._key(
-            self.key_config.channel,
-            user_id=user_id,
-            channel_id=channel_id,
+        """Fetch a channel record by its global id."""
+        raw = await self._client.get(
+            self._key(self.key_config.channel, channel_id=channel_id),
         )
-        raw = await self._client.get(key)
         if not raw:
             return None
         return ChannelRecord.model_validate_json(raw)
 
     async def list_channels(self, user_id: str) -> list[ChannelRecord]:
-        """Return all channel records belonging to the given user.
+        """Return all channel records owned by the given user.
 
-        Stale entries whose underlying key has expired are automatically
-        purged from the user index (self-healing).
+        Stale entries whose record key has expired are purged from the
+        user index (self-healing).
         """
         index_key = self._key(self.key_config.channel_index, user_id=user_id)
-        ids = await self._client.smembers(index_key)
-        records = []
-        stale_ids: list[str] = []
+        return await self._collect_channels(
+            index_key,
+            await self._client.smembers(index_key),
+        )
+
+    async def list_all_channels(self) -> list[ChannelRecord]:
+        """Return every channel record across all users."""
+        index_key = self.key_config.channel_all_index
+        return await self._collect_channels(
+            index_key,
+            await self._client.smembers(index_key),
+        )
+
+    async def _collect_channels(
+        self,
+        index_key: str,
+        ids: "set[str]",
+    ) -> list[ChannelRecord]:
+        """Load channel records for ``ids``, purging stale index entries."""
+        records: list[ChannelRecord] = []
+        stale: list[str] = []
         for channel_id in ids:
             raw = await self._client.get(
-                self._key(
-                    self.key_config.channel,
-                    user_id=user_id,
-                    channel_id=channel_id,
-                ),
+                self._key(self.key_config.channel, channel_id=channel_id),
             )
             if raw:
                 records.append(ChannelRecord.model_validate_json(raw))
             else:
-                stale_ids.append(channel_id)
-        if stale_ids:
-            await self._client.srem(index_key, *stale_ids)
+                stale.append(channel_id)
+        if stale:
+            await self._client.srem(index_key, *stale)
         return records
 
     async def delete_channel(
         self,
-        user_id: str,
         channel_id: str,
+        platform_bot_id: str,
     ) -> bool:
         """Delete a channel record and clean up all indexes."""
-        key = self._key(
-            self.key_config.channel,
-            user_id=user_id,
-            channel_id=channel_id,
-        )
+        key = self._key(self.key_config.channel, channel_id=channel_id)
         raw = await self._client.get(key)
         if not raw:
             return False
-
         record = ChannelRecord.model_validate_json(raw)
-        index_key = self._key(self.key_config.channel_index, user_id=user_id)
-        botid_key = self._key(
-            self.key_config.channel_botid_index,
-            platform_bot_id=record.platform_bot_id,
-        )
 
         await self._client.delete(key)
-        await self._client.srem(index_key, channel_id)
         await self._client.srem(
-            self.key_config.channel_global_index,
-            f"{user_id}:{channel_id}",
+            self._key(
+                self.key_config.channel_index,
+                user_id=record.user_id,
+            ),
+            channel_id,
         )
-        await self._client.delete(botid_key)
-        lookup_key = self._key(
-            self.key_config.channel_lookup,
-            channel_id=channel_id,
+        await self._client.srem(self.key_config.channel_all_index, channel_id)
+        await self._client.delete(
+            self._key(
+                self.key_config.channel_botid_index,
+                platform_bot_id=platform_bot_id,
+            ),
         )
-        await self._client.delete(lookup_key)
         return True
 
-    async def get_channel_by_id(
-        self,
-        channel_id: str,
-    ) -> ChannelRecord | None:
-        """Fetch a channel record by channel_id using the reverse index."""
-        lookup_key = self._key(
-            self.key_config.channel_lookup,
-            channel_id=channel_id,
-        )
-        user_id = await self._client.get(lookup_key)
-        if not user_id:
-            return None
-        return await self.get_channel(user_id, channel_id)
-
-    async def list_all_channels(self) -> list[ChannelRecord]:
-        """Return every channel record across all users.
-
-        Stale entries whose underlying key has expired are automatically
-        purged from the global index (self-healing).
-        """
-        entries = await self._client.smembers(
-            self.key_config.channel_global_index,
-        )
-        records = []
-        stale_entries: list[str] = []
-        for entry in entries:
-            user_id, channel_id = entry.split(":", 1)
-            raw = await self._client.get(
-                self._key(
-                    self.key_config.channel,
-                    user_id=user_id,
-                    channel_id=channel_id,
-                ),
-            )
-            if raw:
-                records.append(ChannelRecord.model_validate_json(raw))
-            else:
-                stale_entries.append(entry)
-        if stale_entries:
-            await self._client.srem(
-                self.key_config.channel_global_index,
-                *stale_entries,
-            )
-        return records
-
-    async def get_channel_by_platform_bot_id(
+    async def get_channel_id_by_platform_bot_id(
         self,
         platform_bot_id: str,
-    ) -> ChannelRecord | None:
-        """Find a channel by platform bot id using the lookup index."""
-        botid_key = self._key(
-            self.key_config.channel_botid_index,
-            platform_bot_id=platform_bot_id,
+    ) -> str | None:
+        """Return the channel id bound to a platform bot, if any."""
+        return await self._client.get(
+            self._key(
+                self.key_config.channel_botid_index,
+                platform_bot_id=platform_bot_id,
+            ),
         )
-        ref = await self._client.get(botid_key)
-        if not ref:
-            return None
-        user_id, channel_id = ref.split(":", 1)
-        return await self.get_channel(user_id, channel_id)
 
     # ------------------------------------------------------------------
     # Message persistence

@@ -14,6 +14,7 @@ class SessionSource(str, Enum):
 
     USER = "user"
     SCHEDULE = "schedule"
+    CHANNEL = "channel"
 
 
 class ChatModelConfig(BaseModel):

@@ -1,69 +1,135 @@
 # -*- coding: utf-8 -*-
-"""The channel storage model."""
-from typing import Any, Literal
+"""The channel storage model.
+
+See ``docs/design_channel_redesign.md`` for the full design. Key points:
+
+- Routing is one concept: an ordered list of :class:`ChannelBinding`.
+  Each rule matches an inbound event and yields two outputs — which
+  agent handles it and how the session is grouped.
+- ``(agent_id, session_id)`` is derived by a pure function (see
+  :func:`agentscope.app.channel.resolve`); there is no persisted
+  channel→session mapping table.
+- ``platform_bot_id`` is NOT stored — it is extracted from
+  ``credentials`` on write for the uniqueness index.
+"""
+from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from ....permission import PermissionMode
 
 
-DmScope = Literal["MAIN", "PER_PEER", "PER_CHAT", "PER_CHANNEL_PEER"]
-
 CHANNEL_ALLOWED_PERMISSION_MODES = frozenset(
     {PermissionMode.DEFAULT, PermissionMode.DONT_ASK, PermissionMode.BYPASS},
 )
 
 
-class ChannelRoutingRule(BaseModel):
-    """A routing rule that maps metadata to an agent."""
+class SessionScope(str, Enum):
+    """How inbound messages are grouped into agent sessions.
 
-    metadata_key: str
-    metadata_value: str
-    agent_id: str
-    priority: int = 0
-
-
-class ChannelRecord(BaseModel):
-    """Persistent record for a channel instance.
-
-    Unlike other records, ``channel_id`` is user-specified rather than
-    auto-generated, so we don't extend ``_RecordBase``.
+    Scope is chat-centric: the session key is a projection of the
+    ``(chat_id, user_id)`` pair. See ``docs/design_channel_redesign.md``
+    §3 for why cross-chat (per-user) and global (main) scopes were
+    dropped.
     """
 
-    channel_id: str
-    """User-specified unique identifier."""
+    PER_CHAT = "per_chat"
+    """One session per chat. A direct message is naturally per-user
+    (the chat has only that user); a group chat shares one session
+    across all members."""
 
-    channel_type: str
-    """Platform adapter type: feishu / dingtalk / discord / wecom."""
+    PER_CHAT_USER = "per_chat_user"
+    """One session per (chat, user). Only meaningful for group chats —
+    isolates each member into their own session within the group."""
 
-    platform_bot_id: str
-    """Platform-scoped unique bot identifier (for dedup)."""
 
-    credentials: dict[str, Any] = Field(default_factory=dict)
-    """Platform credentials (app_id, app_secret, etc.)."""
+class ChannelBinding(BaseModel):
+    """One routing rule: match an inbound event, then decide which agent
+    handles it and how its session is grouped.
 
-    default_agent_id: str
-    """Default bound agent_id when no routing rule matches."""
+    Rules are evaluated in list order; the first match wins. The final
+    rule must be a catch-all (``match_value == "*"``) — it carries the
+    channel's defaults.
+    """
 
-    chat_model_config: dict[str, Any] | None = None
-    """Model configuration for channel-created sessions."""
+    match_key: str = "chat_id"
+    """Which field of the event to match: ``chat_id``, ``user_id``, or a
+    key inside ``event.metadata`` (e.g. ``chat_type``)."""
+
+    match_value: str = "*"
+    """Exact value to match, or ``"*"`` to match anything (catch-all)."""
+
+    agent_id: str
+    """The agent that handles matched messages."""
+
+    session_scope: SessionScope = SessionScope.PER_CHAT
+    """How matched messages are grouped into sessions."""
+
+
+class RoutingConfig(BaseModel):
+    """Ordered routing rules for a channel.
+
+    Validated so routing is always total and unambiguous: exactly one
+    catch-all, placed last, with no duplicate ``(match_key,
+    match_value)`` pairs.
+    """
+
+    bindings: list[ChannelBinding] = Field(default_factory=list)
+
+    @field_validator("bindings")
+    @classmethod
+    def _validate_bindings(
+        cls,
+        bindings: list[ChannelBinding],
+    ) -> list[ChannelBinding]:
+        if not bindings:
+            raise ValueError(
+                "routing.bindings must contain at least a catch-all rule "
+                "(match_value='*').",
+            )
+        # Exactly one catch-all, and it must be last.
+        catch_all_indices = [
+            i for i, b in enumerate(bindings) if b.match_value == "*"
+        ]
+        if len(catch_all_indices) != 1:
+            raise ValueError(
+                "routing.bindings must contain exactly one catch-all rule "
+                "(match_value='*').",
+            )
+        if catch_all_indices[0] != len(bindings) - 1:
+            raise ValueError(
+                "The catch-all rule (match_value='*') must be the last "
+                "binding; rules after it would be unreachable.",
+            )
+        # No duplicate (match_key, match_value) pairs.
+        seen: set[tuple[str, str]] = set()
+        for b in bindings:
+            key = (b.match_key, b.match_value)
+            if key in seen:
+                raise ValueError(
+                    f"Duplicate routing rule for {key}; the later one "
+                    "would be unreachable.",
+                )
+            seen.add(key)
+        return bindings
+
+
+class SessionSettings(BaseModel):
+    """Settings applied when a channel creates an agent session."""
+
+    chat_model_config: dict[str, Any]
+    """Model configuration for channel-created sessions. Required — there
+    is no global fallback default."""
 
     fallback_chat_model_config: dict[str, Any] | None = None
-    """Fallback model configuration. Used when the primary model fails."""
-
-    routing_rules: list[ChannelRoutingRule] = Field(default_factory=list)
-
-    dm_scope: DmScope = "PER_PEER"
-    """Session isolation strategy."""
+    """Optional fallback model configuration, used when the primary
+    model fails."""
 
     permission_mode: str = PermissionMode.DONT_ASK.value
-    """Permission mode for channel sessions.
-
-    Only a subset of ``PermissionMode`` values is allowed for channels:
-    ``default``, ``dont_ask``, ``bypass``. Modes like ``accept_edits``
-    and ``explore`` are designed for local IDE interactions and are not
-    suitable for external messaging platforms.
-    """
+    """Permission mode for channel sessions. Only ``default``,
+    ``dont_ask``, ``bypass`` are allowed — modes like ``accept_edits``
+    and ``explore`` target local IDE interactions."""
 
     @field_validator("permission_mode")
     @classmethod
@@ -79,13 +145,61 @@ class ChannelRecord(BaseModel):
             )
         return v
 
+
+class ReplyPresentation(BaseModel):
+    """Controls how much of the agent's internal process is shown to the
+    end user on the IM platform."""
+
+    show_tool_process: bool = False
+    """Show tool-call / tool-result events inline in the reply."""
+
+    show_thinking: bool = False
+    """Show the agent's thinking/reasoning blocks inline in the reply."""
+
+
+class ChannelRecord(BaseModel):
+    """Persistent record for a channel instance — the single source of
+    truth. Running adapter instances are a projection of this record.
+    """
+
+    # -- Identity & ownership --
+
+    id: str
+    """Server-generated UUID."""
+
+    channel_type: str
+    """Platform adapter type: feishu / dingtalk / discord / wecom."""
+
+    user_id: str
+    """AgentScope-side owner. Not platform data; used for access
+    control (a user only sees their own channels)."""
+
     enabled: bool = True
 
-    config: dict[str, Any] = Field(default_factory=dict)
-    """Platform-specific configuration."""
+    # -- Platform access --
 
-    filter_tool_messages: bool = False
-    filter_thinking_messages: bool = True
+    credentials: dict[str, Any] = Field(default_factory=dict)
+    """Platform credentials (app_id, app_secret, ...). Fields marked
+    ``format: password`` in the type's credential schema are secret.
 
-    tenant_user_id: str = ""
-    """AgentScope user who owns this channel (multi-tenant)."""
+    NOTE: at-rest encryption is a documented future hook (see
+    ``docs/design_channel_redesign.md`` §10); today these are masked at
+    the API boundary. ``platform_bot_id`` is NOT stored here — it is
+    extracted from these credentials on write for the uniqueness index.
+    """
+
+    platform_config: dict[str, Any] = Field(default_factory=dict)
+    """Platform-specific configuration (e.g. only_at_reply for Feishu)."""
+
+    # -- Business configuration --
+
+    routing: RoutingConfig
+    session: SessionSettings
+    presentation: ReplyPresentation = Field(default_factory=ReplyPresentation)
+
+    # -- Versioning (reconcile basis for the lifecycle dispatcher) --
+
+    created_at: str
+    updated_at: str
+    """Refreshed on every write; the dispatcher compares it to detect
+    that a running instance's config has changed."""
