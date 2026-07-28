@@ -91,8 +91,8 @@ async def _enrich_from_profile(
     """Merge voice profile metadata into TTS params.
 
     Reads the voice profile from storage and copies
-    ``reference_audio_base64`` and ``reference_text`` from its
-    metadata into ``params``.
+    engine-specific synthesis parameters from its metadata into
+    ``params``.
 
     Local TTS models accept ``reference_audio_base64`` directly
     in their Parameters and handle decoding internally during
@@ -111,16 +111,14 @@ async def _enrich_from_profile(
         )
     if profile.data.metadata:
         meta = profile.data.metadata
-        if meta.get("reference_audio_base64"):
-            params.setdefault(
-                "reference_audio_base64",
-                meta["reference_audio_base64"],
-            )
-        if meta.get("reference_text"):
-            params.setdefault(
-                "reference_text",
-                meta["reference_text"],
-            )
+        for key in (
+            "reference_audio_base64",
+            "reference_text",
+            "lang_code",
+            "speed",
+        ):
+            if key in meta and meta[key] is not None:
+                params.setdefault(key, meta[key])
     return params
 
 

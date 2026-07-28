@@ -8,7 +8,7 @@ import {
 	Upload,
 	Loader2,
 } from 'lucide-react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 import { voiceProfileApi, ttsModelApi } from '@/api';
 import type { VoiceProfileRecord, VoiceProfileData, EngineInfo, TTSModelCard } from '@/api';
@@ -81,6 +81,18 @@ const ENGINE_CREDENTIAL_TYPE: Record<string, string> = {
 
 const LOCAL_ENGINES = new Set(['kokoro', 'chatterbox', 'luxtts', 'tada']);
 
+const KOKORO_LANGUAGE_CODES = ['a', 'b', 'e', 'f', 'h', 'i', 'j', 'p', 'z'] as const;
+type KokoroLanguageCode = (typeof KOKORO_LANGUAGE_CODES)[number];
+
+function isKokoroLanguageCode(value: unknown): value is KokoroLanguageCode {
+	return typeof value === 'string' && KOKORO_LANGUAGE_CODES.includes(value as KokoroLanguageCode);
+}
+
+function kokoroLanguageFromVoice(voice: string): KokoroLanguageCode | undefined {
+	const prefix = voice.trim()[0];
+	return isKokoroLanguageCode(prefix) ? prefix : undefined;
+}
+
 function VoiceProfileDialog({
 	open,
 	onOpenChange,
@@ -99,6 +111,8 @@ function VoiceProfileDialog({
 	const [modelOptions, setModelOptions] = useState<TTSModelCard[]>([]);
 	const [modelsLoading, setModelsLoading] = useState(false);
 	const [voice, setVoice] = useState('');
+	const [kokoroLanguage, setKokoroLanguage] = useState<KokoroLanguageCode>('a');
+	const [speed, setSpeed] = useState(1);
 	const [saving, setSaving] = useState(false);
 	const [availableEngines, setAvailableEngines] = useState<string[]>([]);
 	const [engineDetails, setEngineDetails] = useState<EngineInfo[]>([]);
@@ -133,6 +147,13 @@ function VoiceProfileDialog({
 			setModel(profile.data.model || undefined);
 			setVoice(profile.data.voice || '');
 			const meta = profile.data.metadata as Record<string, unknown> | null;
+			const storedLanguage = meta?.lang_code;
+			setKokoroLanguage(
+				isKokoroLanguageCode(storedLanguage)
+					? storedLanguage
+					: kokoroLanguageFromVoice(profile.data.voice || '') || 'a',
+			);
+			setSpeed(typeof meta?.speed === 'number' ? meta.speed : 1);
 			setRefAudioBase64((meta?.reference_audio_base64 as string) || null);
 			setRefAudioFilename('');
 			setReferenceText((meta?.reference_text as string) || '');
@@ -141,6 +162,8 @@ function VoiceProfileDialog({
 			setEngine(undefined);
 			setModel(undefined);
 			setVoice('');
+			setKokoroLanguage('a');
+			setSpeed(1);
 			setRefAudioBase64(null);
 			setRefAudioFilename('');
 			setReferenceText('');
@@ -214,16 +237,46 @@ function VoiceProfileDialog({
 		}
 	};
 
-	const voiceOptions: string[] = (() => {
-		if (!model) return [];
+	const selectedModelProperties = useMemo<Record<string, Record<string, unknown>>>(() => {
+		if (!model) return {};
 		const card = modelOptions.find((m) => m.name === model);
-		if (!card) return [];
-		const props = (card.parameter_schema as Record<string, unknown>)?.properties as
+		if (!card) return {};
+		const properties = (card.parameter_schema as Record<string, unknown>)?.properties as
 			| Record<string, Record<string, unknown>>
 			| undefined;
-		if (!props?.voice?.enum) return [];
-		return props.voice.enum as string[];
-	})();
+		return properties ?? {};
+	}, [model, modelOptions]);
+
+	const voiceSchema = selectedModelProperties?.voice;
+	const speedSchema = selectedModelProperties?.speed;
+	const canConfigureVoice = Boolean(voiceSchema) || modelOptions.length === 0;
+	const speedMinimum = typeof speedSchema?.minimum === 'number' ? speedSchema.minimum : 0.5;
+	const speedMaximum = typeof speedSchema?.maximum === 'number' ? speedSchema.maximum : 2;
+	const voiceOptions = (voiceSchema?.enum as string[] | undefined) || [];
+
+	const displayedVoiceOptions = useMemo(
+		() =>
+			engine === 'kokoro'
+				? voiceOptions.filter(
+						(option) => kokoroLanguageFromVoice(option) === kokoroLanguage,
+					)
+				: voiceOptions,
+		[engine, kokoroLanguage, voiceOptions],
+	);
+
+	useEffect(() => {
+		if (engine !== 'kokoro' || displayedVoiceOptions.length === 0) return;
+		if (!displayedVoiceOptions.includes(voice)) {
+			setVoice(displayedVoiceOptions[0]);
+		}
+	}, [displayedVoiceOptions, engine, voice]);
+
+	useEffect(() => {
+		const profileMetadata = profile?.data.metadata as Record<string, unknown> | null;
+		if (!speedSchema || typeof profileMetadata?.speed === 'number') return;
+		const defaultSpeed = speedSchema.default;
+		setSpeed(typeof defaultSpeed === 'number' ? defaultSpeed : 1);
+	}, [profile, speedSchema]);
 
 	const handleConsentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
@@ -322,6 +375,12 @@ function VoiceProfileDialog({
 		setSaving(true);
 		try {
 			const metadata: Record<string, unknown> = {};
+			if (engine === 'kokoro') {
+				metadata.lang_code = kokoroLanguage;
+			}
+			if (speedSchema) {
+				metadata.speed = Math.min(speedMaximum, Math.max(speedMinimum, speed));
+			}
 			if (isLocal && canClone && refAudioBase64) {
 				metadata.reference_audio_base64 = refAudioBase64;
 				if (referenceText.trim()) {
@@ -335,7 +394,7 @@ function VoiceProfileDialog({
 				source: engine
 					? engineDetails.find((d) => d.name === engine)?.source || null
 					: null,
-				voice: voice.trim() || null,
+				voice: canConfigureVoice ? voice.trim() || null : null,
 				metadata: Object.keys(metadata).length > 0 ? metadata : null,
 			};
 			if (profile) {
@@ -430,10 +489,38 @@ function VoiceProfileDialog({
 							)}
 						</div>
 					)}
-					{engine && (
+					{engine === 'kokoro' && (
+						<div className="flex flex-col gap-2">
+							<Label htmlFor="vp-language">{t('voiceProfile.language')}</Label>
+							<Select
+								value={kokoroLanguage}
+								onValueChange={(value) =>
+									setKokoroLanguage(value as KokoroLanguageCode)
+								}
+							>
+								<SelectTrigger id="vp-language">
+									<SelectValue
+										placeholder={t('voiceProfile.languagePlaceholder')}
+									/>
+								</SelectTrigger>
+								<SelectContent>
+									{KOKORO_LANGUAGE_CODES.map((code) => (
+										<SelectItem key={code} value={code}>
+											{t(`voiceProfile.kokoroLanguages.${code}`)}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					)}
+					{engine && canConfigureVoice && (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="vp-voice">{t('voiceProfile.voice')}</Label>
-							{voiceOptions.length > 0 && (!voice || voiceOptions.includes(voice)) ? (
+							{displayedVoiceOptions.length > 0 &&
+							(!canClone ||
+								isLocal ||
+								!voice ||
+								displayedVoiceOptions.includes(voice)) ? (
 								<Select value={voice} onValueChange={setVoice}>
 									<SelectTrigger id="vp-voice">
 										<SelectValue
@@ -441,7 +528,7 @@ function VoiceProfileDialog({
 										/>
 									</SelectTrigger>
 									<SelectContent>
-										{voiceOptions.map((v) => (
+										{displayedVoiceOptions.map((v) => (
 											<SelectItem key={v} value={v}>
 												{v}
 											</SelectItem>
@@ -460,6 +547,23 @@ function VoiceProfileDialog({
 									}
 								/>
 							)}
+						</div>
+					)}
+					{engine && speedSchema && (
+						<div className="flex flex-col gap-2">
+							<Label htmlFor="vp-speed">{t('voiceProfile.speed')}</Label>
+							<Input
+								id="vp-speed"
+								type="number"
+								min={speedMinimum}
+								max={speedMaximum}
+								step="0.1"
+								value={speed}
+								onChange={(event) => setSpeed(Number(event.target.value))}
+							/>
+							<p className="text-xs text-muted-foreground">
+								{t('voiceProfile.speedHint')}
+							</p>
 						</div>
 					)}
 					{canClone && selectedModelSupportsClone && !isLocal && (

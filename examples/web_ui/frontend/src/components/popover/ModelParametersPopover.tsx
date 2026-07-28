@@ -546,10 +546,23 @@ export function ModelParametersPopover({
 														}
 													}
 												}
-												if (vp.data.voice) {
+												if (
+													vp.data.voice &&
+													(!matchedSchema?.properties ||
+														matchedSchema.properties.voice)
+												) {
 													params.voice = vp.data.voice;
 													if (engine === 'kokoro') {
-														const langCode = vp.data.voice.trim()[0];
+														const profileLanguage = (
+															vp.data.metadata as Record<
+																string,
+																unknown
+															> | null
+														)?.lang_code;
+														const langCode =
+															typeof profileLanguage === 'string'
+																? profileLanguage
+																: vp.data.voice.trim()[0];
 														if (
 															[
 																'a',
@@ -566,6 +579,15 @@ export function ModelParametersPopover({
 															params.lang_code = langCode;
 														}
 													}
+												}
+												const profileSpeed = (
+													vp.data.metadata as Record<
+														string,
+														unknown
+													> | null
+												)?.speed;
+												if (typeof profileSpeed === 'number') {
+													params.speed = profileSpeed;
 												}
 												params._voice_profile_id = vp.id;
 

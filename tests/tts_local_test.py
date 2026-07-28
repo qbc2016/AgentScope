@@ -486,6 +486,8 @@ class TestEnrichFromProfile(IsolatedAsyncioTestCase):
         profile.data.metadata = {
             "reference_audio_base64": "AAAA",
             "reference_text": "hello",
+            "lang_code": "z",
+            "speed": 1.2,
         }
         storage.get_voice_profile = AsyncMock(
             return_value=profile,
@@ -502,6 +504,8 @@ class TestEnrichFromProfile(IsolatedAsyncioTestCase):
             {
                 "reference_audio_base64": "AAAA",
                 "reference_text": "hello",
+                "lang_code": "z",
+                "speed": 1.2,
             },
         )
 
