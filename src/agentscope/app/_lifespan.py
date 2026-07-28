@@ -194,27 +194,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # ---------------- Channel module wiring ----------------
         from .channel import (
             ChannelConfig,
-            ChannelManager,
+            ChannelGateway,
+            ChannelLifecycleDispatcher,
+            ChannelService,
             ChannelTypeRegistry,
-            MessageBusSessionMapper,
         )
 
-        session_mapper = MessageBusSessionMapper(message_bus)
         channel_config = ChannelConfig()
         channel_type_registry = ChannelTypeRegistry()
-
-        channel_manager = ChannelManager(
+        channel_gateway = ChannelGateway(
             storage=storage,
             message_bus=message_bus,
-            chat_service=chat_service,
-            chat_run_registry=chat_run_registry,
-            session_mapper=session_mapper,
             config=channel_config,
+        )
+        channel_runtime = ChannelLifecycleDispatcher(
+            storage=storage,
+            message_bus=message_bus,
+            type_registry=channel_type_registry,
+            gateway=channel_gateway,
+            config=channel_config,
+        )
+        app.state.channel_service = ChannelService(
+            storage=storage,
+            message_bus=message_bus,
             type_registry=channel_type_registry,
         )
-        app.state.channel_manager = channel_manager
+        app.state.channel_runtime = channel_runtime
         app.state.channel_type_registry = channel_type_registry
 
-        await stack.enter_async_context(channel_manager.lifespan())
+        await stack.enter_async_context(channel_runtime.lifespan())
 
         yield

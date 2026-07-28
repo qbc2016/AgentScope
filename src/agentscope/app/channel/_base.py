@@ -171,7 +171,7 @@ class ChannelBase(ABC):
             content (`list[TextBlock | DataBlock]`): Blocks to send.
         """
 
-    async def present_confirm(
+    async def present_confirm(  # pylint: disable=unused-argument
         self,
         event: ChannelEvent,
         prompt: ConfirmPrompt,

@@ -396,9 +396,13 @@ class StorageBase(ABC):
 
     # ------------------------------------------------------------------
     # Channel persistence
+    #
+    # Optional capability: channels require the distributed message bus
+    # (locks / pub-sub / queues), so only bus-backed stores (Redis)
+    # implement these. Other backends inherit the NotImplementedError
+    # default. See docs/design_channel_redesign.md §5.
     # ------------------------------------------------------------------
 
-    @abstractmethod
     async def upsert_channel(
         self,
         record: ChannelRecord,
@@ -419,8 +423,10 @@ class StorageBase(ABC):
         Returns:
             `str`: The id of the stored record.
         """
+        raise NotImplementedError(
+            "This storage backend has no channel support.",
+        )
 
-    @abstractmethod
     async def get_channel(
         self,
         channel_id: str,
@@ -436,8 +442,10 @@ class StorageBase(ABC):
         Returns:
             `ChannelRecord | None`: The record, or ``None`` if not found.
         """
+        raise NotImplementedError(
+            "This storage backend has no channel support.",
+        )
 
-    @abstractmethod
     async def list_channels(
         self,
         user_id: str,
@@ -450,8 +458,10 @@ class StorageBase(ABC):
         Returns:
             `list[ChannelRecord]`: All channel records for the user.
         """
+        raise NotImplementedError(
+            "This storage backend has no channel support.",
+        )
 
-    @abstractmethod
     async def list_all_channels(self) -> list[ChannelRecord]:
         """Return every channel record across all users.
 
@@ -460,8 +470,10 @@ class StorageBase(ABC):
         Returns:
             `list[ChannelRecord]`: All channel records in the store.
         """
+        raise NotImplementedError(
+            "This storage backend has no channel support.",
+        )
 
-    @abstractmethod
     async def delete_channel(
         self,
         channel_id: str,
@@ -478,8 +490,10 @@ class StorageBase(ABC):
         Returns:
             `bool`: ``True`` if deleted, ``False`` if not found.
         """
+        raise NotImplementedError(
+            "This storage backend has no channel support.",
+        )
 
-    @abstractmethod
     async def get_channel_id_by_platform_bot_id(
         self,
         platform_bot_id: str,
@@ -495,6 +509,9 @@ class StorageBase(ABC):
         Returns:
             `str | None`: The bound channel id, or ``None``.
         """
+        raise NotImplementedError(
+            "This storage backend has no channel support.",
+        )
 
     # ------------------------------------------------------------------
     # Message persistence

@@ -33,11 +33,13 @@ from pydantic import TypeAdapter
 from ..._logging import logger
 from ...event import (
     ExternalExecutionResultEvent,
+    ReplyEndEvent,
     UserConfirmResultEvent,
     UserInterruptEvent,
 )
+from ...types import ErrorInfo, ErrorType, ReplyFinishedReason
 from ..message_bus import MessageBusKeys
-from .._bus_ops import enqueue_run_trigger
+from .._bus_ops import enqueue_run_trigger, publish_session_event
 
 if TYPE_CHECKING:
     from ..message_bus import MessageBus
@@ -288,6 +290,21 @@ class WakeupDispatcher:
                 session_id,
                 agent_id,
                 user_id,
+            )
+            # Surface an error on the event stream so collectors (e.g. the
+            # channel gateway) fail fast instead of waiting for a timeout.
+            await publish_session_event(
+                self._bus,
+                session_id,
+                ReplyEndEvent(
+                    session_id=session_id,
+                    reply_id="",
+                    finished_reason=ReplyFinishedReason.ERROR,
+                    error=ErrorInfo(
+                        type=ErrorType.INTERNAL,
+                        message="Session no longer exists.",
+                    ),
+                ).model_dump(mode="json"),
             )
             return
 

@@ -40,6 +40,7 @@ from ..storage import (
 from ._base import ChannelBase, ChannelEvent, ConfirmDecisionEvent
 from ._config import ChannelConfig
 from ._routing import resolve
+from ._seen_chats import record_chat_id
 
 
 _COLLECTOR_LOCK_PREFIX = "agentscope:channel:collector:"
@@ -132,6 +133,7 @@ class ChannelGateway:
             return
 
         agent_id, session_id = resolve(event, record)
+        await record_chat_id(self._bus, event.channel_id, event.chat_id)
         await self._ensure_session(record, agent_id, session_id)
 
         reaction_id = await channel.add_reaction(event, "OnIt")
@@ -222,6 +224,20 @@ class ChannelGateway:
             if etype == EventType.REPLY_START:
                 started = True
                 continue
+            if etype == EventType.REPLY_END:
+                # Terminal even without a REPLY_START — a run that never
+                # started (e.g. deleted session) surfaces here as an error.
+                if evt.get("finished_reason") == ReplyFinishedReason.ERROR:
+                    logger.error("Agent run failed: %s", evt.get("error"))
+                    text = "".join(parts).strip()
+                    return text or (
+                        "❌ Agent encountered an error. Please check the "
+                        "agent configuration."
+                    )
+                break
+            if etype == EventType.EXCEED_MAX_ITERS:
+                parts.append("\n⚠️ Maximum reasoning rounds reached.")
+                break
             if not started:
                 continue
 
@@ -246,19 +262,6 @@ class ChannelGateway:
                 parts.append(evt.get("delta", ""))
             elif etype == EventType.TOOL_RESULT_END:
                 parts.append("\n")
-            elif etype == EventType.EXCEED_MAX_ITERS:
-                parts.append("\n⚠️ Maximum reasoning rounds reached.")
-                break
-            elif etype == EventType.REPLY_END:
-                if evt.get("finished_reason") == ReplyFinishedReason.ERROR:
-                    err = evt.get("error") or {}
-                    logger.error("Agent run failed: %s", err)
-                    text = "".join(parts).strip()
-                    return text or (
-                        "❌ Agent encountered an error. Please check the "
-                        "agent configuration."
-                    )
-                break
 
         return "".join(parts).strip() or "(Agent returned no text content)"
 

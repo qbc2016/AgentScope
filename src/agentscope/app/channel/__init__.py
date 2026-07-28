@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Channel module — external platform integration for AgentScope.
+"""Channel module — connect AgentScope agents to IM platforms.
 
-This module connects AgentScope agents to messaging platforms (Feishu,
-Discord, DingTalk, WeCom) via WebSocket/long-lived connections. It sits
-at the Service Level and directly accesses ChatService, MessageBus, and
-Storage without any HTTP intermediary.
-
-Public API:
-    - ChannelManager: lifecycle management of channel instances
-    - ChannelBase: abstract base for platform adapters
-    - ChannelEvent: normalised message event model
-    - ChannelGateway: core event orchestration engine
-    - ChannelConfig: module-level configuration
+Adapters translate a platform (Feishu, ...) to/from normalised events;
+the stateless :class:`ChannelGateway` orchestrates each event;
+:class:`ChannelService` owns CRUD; :class:`ChannelLifecycleDispatcher`
+keeps this node's live instances reconciled with storage. See
+``docs/design_channel_redesign.md``.
 """
-from ._base import ChannelBase, ChannelCapability, ChannelEvent
-from ._config import ChannelConfig, ChannelSessionDefaults
+from ._base import (
+    ChannelBase,
+    ChannelCapability,
+    ChannelEvent,
+    ConfirmDecisionEvent,
+    ConfirmPrompt,
+)
+from ._config import ChannelConfig
+from ._dispatcher import ChannelLifecycleDispatcher
 from ._errors import (
     ChannelConnectionError,
     ChannelError,
@@ -22,7 +23,6 @@ from ._errors import (
     DuplicateBotError,
 )
 from ._gateway import ChannelGateway
-from ._manager import ChannelManager
 from ._registry import (
     ChannelTypeRegistry,
     ChannelTypeSchema,
@@ -32,13 +32,9 @@ from ._registry import (
     FeishuCredentials,
     WeComCredentials,
 )
-from ._session_mapper import (
-    InMemorySessionMapper,
-    MessageBusSessionMapper,
-    SessionMapperBase,
-    SessionMappingRecord,
-)
-from ..storage import ChannelRecord, ChannelRoutingRule
+from ._routing import resolve
+from ._service import ChannelService
+from ._seen_chats import list_seen_chat_ids, record_chat_id
 
 __all__ = [
     "ChannelBase",
@@ -48,21 +44,20 @@ __all__ = [
     "ChannelError",
     "ChannelEvent",
     "ChannelGateway",
-    "ChannelManager",
+    "ChannelLifecycleDispatcher",
     "ChannelNotFoundError",
-    "ChannelRecord",
-    "ChannelSessionDefaults",
+    "ChannelService",
     "ChannelTypeRegistry",
     "ChannelTypeSchema",
+    "ConfirmDecisionEvent",
+    "ConfirmPrompt",
     "DingTalkCredentials",
     "DiscordCredentials",
     "DuplicateBotError",
     "FeishuChannelConfig",
     "FeishuCredentials",
-    "InMemorySessionMapper",
-    "MessageBusSessionMapper",
-    "ChannelRoutingRule",
     "WeComCredentials",
-    "SessionMapperBase",
-    "SessionMappingRecord",
+    "list_seen_chat_ids",
+    "record_chat_id",
+    "resolve",
 ]
