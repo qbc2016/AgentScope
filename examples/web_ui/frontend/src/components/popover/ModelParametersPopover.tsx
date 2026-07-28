@@ -1,13 +1,20 @@
-import { ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ChatModelConfig, ModelCard, TTSModelCard, TTSModelConfig } from '@/api';
+import type {
+	ChatModelConfig,
+	CredentialView,
+	ModelCard,
+	TTSModelCard,
+	TTSModelConfig,
+} from '@/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
+	DropdownMenuGroup,
 	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
@@ -66,6 +73,22 @@ function resolveType(prop: ParameterProperty): ResolvedType {
 		}
 	}
 	return { type: 'string', enumValues: null };
+}
+
+/** Extract default values from a TTS model card's parameter schema. */
+function extractDefaults(schema: ParameterSchema | undefined): Record<string, unknown> {
+	const defaults: Record<string, unknown> = {};
+	if (schema?.properties) {
+		for (const [k, p] of Object.entries(schema.properties)) {
+			if (p.default !== undefined) defaults[k] = p.default;
+		}
+	}
+	return defaults;
+}
+
+/** Display label for a credential: its user-facing name, or a short id prefix. */
+function credentialLabel(credential: CredentialView): string {
+	return (credential.data.name as string) || credential.id.slice(0, 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,87 +316,84 @@ export function ModelParametersPopover({
 								<p>{t('llm-select.empty.title')}</p>
 							</div>
 						) : (
-							Object.entries(groups).map(([type, items], idx) => {
-								const isSingle = items.length === 1;
-								return (
-									<div key={type}>
-										{idx > 0 && <DropdownMenuSeparator />}
-										<DropdownMenuLabel>
-											{type.replace(/_credential$/, '')}
-										</DropdownMenuLabel>
-										{isSingle
-											? items[0].models.map((m) => {
-													const isSelected =
-														selectedFallbackModel?.credential_id ===
-															items[0].credential.id &&
-														selectedFallbackModel?.model === m.name;
-													return (
-														<DropdownMenuCheckboxItem
-															key={`${items[0].credential.id}-${m.name}`}
-															checked={isSelected}
-															onCheckedChange={(checked) => {
-																if (checked) {
-																	handleSelectFallback(
-																		type,
-																		items[0].credential.id,
-																		m.name,
-																	);
-																} else {
-																	onFallbackChange(null);
-																}
-															}}
-														>
-															{m.label}
-														</DropdownMenuCheckboxItem>
-													);
-												})
-											: items.map(({ credential, models }) => {
-													const credName =
-														(credential.data.name as string) ||
-														credential.id.slice(0, 8);
-													return (
-														<DropdownMenuSub key={credential.id}>
-															<DropdownMenuSubTrigger>
-																{credName}
-															</DropdownMenuSubTrigger>
-															<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
-																{models.map((m) => {
-																	const isSelected =
-																		selectedFallbackModel?.credential_id ===
-																			credential.id &&
-																		selectedFallbackModel?.model ===
-																			m.name;
-																	return (
-																		<DropdownMenuCheckboxItem
-																			key={`${credential.id}-${m.name}`}
-																			checked={isSelected}
-																			onCheckedChange={(
-																				checked,
-																			) => {
-																				if (checked) {
-																					handleSelectFallback(
-																						type,
-																						credential.id,
-																						m.name,
-																					);
-																				} else {
-																					onFallbackChange(
-																						null,
-																					);
-																				}
-																			}}
-																		>
-																			{m.label}
-																		</DropdownMenuCheckboxItem>
-																	);
-																})}
-															</DropdownMenuSubContent>
-														</DropdownMenuSub>
-													);
-												})}
-									</div>
-								);
-							})
+							Object.entries(groups)
+								.map(
+									([type, items]) =>
+										[type, items.filter((i) => i.models.length > 0)] as const,
+								)
+								.filter(([, usable]) => usable.length > 0)
+								.map(([type, usable], idx) => {
+									const isSingle = usable.length === 1;
+
+									const renderFallbackItems = (
+										credential: CredentialView,
+										models: ModelCard[],
+									) =>
+										models.map((m) => {
+											const isSelected =
+												selectedFallbackModel?.credential_id ===
+													credential.id &&
+												selectedFallbackModel?.model === m.name;
+											return (
+												<DropdownMenuCheckboxItem
+													key={`${credential.id}-${m.name}`}
+													checked={isSelected}
+													onCheckedChange={(checked) => {
+														if (checked) {
+															handleSelectFallback(
+																type,
+																credential.id,
+																m.name,
+															);
+														} else {
+															onFallbackChange(null);
+														}
+													}}
+												>
+													{m.label}
+												</DropdownMenuCheckboxItem>
+											);
+										});
+
+									return (
+										<DropdownMenuGroup key={type}>
+											{idx > 0 && <DropdownMenuSeparator />}
+											<DropdownMenuLabel>
+												{type.replace(/_credential$/, '')}
+											</DropdownMenuLabel>
+											{isSingle
+												? renderFallbackItems(
+														usable[0].credential,
+														usable[0].models,
+													)
+												: usable.map(({ credential, models }) => {
+														const hasSelected = models.some(
+															(m) =>
+																selectedFallbackModel?.credential_id ===
+																	credential.id &&
+																selectedFallbackModel?.model ===
+																	m.name,
+														);
+														return (
+															<DropdownMenuSub key={credential.id}>
+																<DropdownMenuSubTrigger>
+																	{hasSelected && (
+																		<Check className="size-4 mr-1.5 shrink-0" />
+																	)}
+																	{credentialLabel(credential)}
+																</DropdownMenuSubTrigger>
+																<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+																	{renderFallbackItems(
+																		credential,
+																		models,
+																	)}
+																</DropdownMenuSubContent>
+															</DropdownMenuSub>
+														);
+													})}
+										</DropdownMenuGroup>
+									);
+								})
 						)}
 						<DropdownMenuSeparator />
 						<DropdownMenuCheckboxItem
@@ -467,151 +487,93 @@ export function ModelParametersPopover({
 								<p>{t('model-parameters.ttsEmpty')}</p>
 							</div>
 						) : (
-							Object.entries(ttsGroups).map(([type, items], idx) => {
-								const isSingle = items.length === 1;
-								return (
-									<div key={type}>
-										{idx > 0 && <DropdownMenuSeparator />}
-										<DropdownMenuLabel>
-											{type.replace(/_credential$/, '')}
-										</DropdownMenuLabel>
-										{isSingle
-											? items[0].models.map((m) => {
-													const isSelected =
-														selectedTTSModel?.credential_id ===
-															items[0].credential.id &&
-														selectedTTSModel?.model === m.name;
-													return (
-														<DropdownMenuCheckboxItem
-															key={`${items[0].credential.id}-${m.name}`}
-															checked={isSelected}
-															onSelect={(e) => e.preventDefault()}
-															onCheckedChange={(checked) => {
-																if (!checked) return;
-																const schema =
-																	m.parameter_schema as
-																		| ParameterSchema
-																		| undefined;
-																const defaults: Record<
-																	string,
-																	unknown
-																> = {};
-																if (schema?.properties) {
-																	for (const [
-																		k,
-																		p,
-																	] of Object.entries(
-																		schema.properties,
-																	)) {
-																		if (p.default !== undefined)
-																			defaults[k] = p.default;
-																	}
-																}
-																onTTSChange({
-																	type,
-																	credential_id:
-																		items[0].credential.id,
-																	model: m.name,
-																	parameters: defaults,
-																});
-															}}
+							Object.entries(ttsGroups)
+								.map(
+									([type, items]) =>
+										[type, items.filter((i) => i.models.length > 0)] as const,
+								)
+								.filter(([, usable]) => usable.length > 0)
+								.map(([type, usable], idx) => {
+									const isSingle = usable.length === 1;
+
+									const renderTTSItems = (
+										credential: CredentialView,
+										models: TTSModelCard[],
+									) =>
+										models.map((m) => {
+											const isSelected =
+												selectedTTSModel?.credential_id === credential.id &&
+												selectedTTSModel?.model === m.name;
+											return (
+												<DropdownMenuCheckboxItem
+													key={`${credential.id}-${m.name}`}
+													checked={isSelected}
+													onSelect={(e) => e.preventDefault()}
+													onCheckedChange={(checked) => {
+														if (!checked) return;
+														onTTSChange({
+															type,
+															credential_id: credential.id,
+															model: m.name,
+															parameters: extractDefaults(
+																m.parameter_schema as
+																	| ParameterSchema
+																	| undefined,
+															),
+														});
+													}}
+												>
+													{m.label}
+													{m.realtime && (
+														<Badge
+															variant="outline"
+															className="ml-1.5 text-[10px] px-1 py-0"
 														>
-															{m.label}
-															{m.realtime && (
-																<Badge
-																	variant="outline"
-																	className="ml-1.5 text-[10px] px-1 py-0"
-																>
-																	Realtime
-																</Badge>
-															)}
-														</DropdownMenuCheckboxItem>
-													);
-												})
-											: items.map(({ credential, models }) => {
-													const credName =
-														(credential.data.name as string) ||
-														credential.id.slice(0, 8);
-													return (
-														<DropdownMenuSub key={credential.id}>
-															<DropdownMenuSubTrigger>
-																{credName}
-															</DropdownMenuSubTrigger>
-															<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
-																{models.map((m) => {
-																	const isSelected =
-																		selectedTTSModel?.credential_id ===
-																			credential.id &&
-																		selectedTTSModel?.model ===
-																			m.name;
-																	return (
-																		<DropdownMenuCheckboxItem
-																			key={`${credential.id}-${m.name}`}
-																			checked={isSelected}
-																			onSelect={(e) =>
-																				e.preventDefault()
-																			}
-																			onCheckedChange={(
-																				checked,
-																			) => {
-																				if (!checked)
-																					return;
-																				const schema =
-																					m.parameter_schema as
-																						| ParameterSchema
-																						| undefined;
-																				const defaults: Record<
-																					string,
-																					unknown
-																				> = {};
-																				if (
-																					schema?.properties
-																				) {
-																					for (const [
-																						k,
-																						p,
-																					] of Object.entries(
-																						schema.properties,
-																					)) {
-																						if (
-																							p.default !==
-																							undefined
-																						)
-																							defaults[
-																								k
-																							] =
-																								p.default;
-																					}
-																				}
-																				onTTSChange({
-																					type,
-																					credential_id:
-																						credential.id,
-																					model: m.name,
-																					parameters:
-																						defaults,
-																				});
-																			}}
-																		>
-																			{m.label}
-																			{m.realtime && (
-																				<Badge
-																					variant="outline"
-																					className="ml-1.5 text-[10px] px-1 py-0"
-																				>
-																					Realtime
-																				</Badge>
-																			)}
-																		</DropdownMenuCheckboxItem>
-																	);
-																})}
-															</DropdownMenuSubContent>
-														</DropdownMenuSub>
-													);
-												})}
-									</div>
-								);
-							})
+															Realtime
+														</Badge>
+													)}
+												</DropdownMenuCheckboxItem>
+											);
+										});
+
+									return (
+										<DropdownMenuGroup key={type}>
+											{idx > 0 && <DropdownMenuSeparator />}
+											<DropdownMenuLabel>
+												{type.replace(/_credential$/, '')}
+											</DropdownMenuLabel>
+											{isSingle
+												? renderTTSItems(
+														usable[0].credential,
+														usable[0].models,
+													)
+												: usable.map(({ credential, models }) => {
+														const hasSelected = models.some(
+															(m) =>
+																selectedTTSModel?.credential_id ===
+																	credential.id &&
+																selectedTTSModel?.model === m.name,
+														);
+														return (
+															<DropdownMenuSub key={credential.id}>
+																<DropdownMenuSubTrigger>
+																	{hasSelected && (
+																		<Check className="size-4 mr-1.5 shrink-0" />
+																	)}
+																	{credentialLabel(credential)}
+																</DropdownMenuSubTrigger>
+																<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+																	{renderTTSItems(
+																		credential,
+																		models,
+																	)}
+																</DropdownMenuSubContent>
+															</DropdownMenuSub>
+														);
+													})}
+										</DropdownMenuGroup>
+									);
+								})
 						)}
 
 						{/* TTS parameters sub-panel (hover to expand right) */}
