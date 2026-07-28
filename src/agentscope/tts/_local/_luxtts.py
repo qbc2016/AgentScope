@@ -23,7 +23,7 @@ from .._tts_response import TTSResponse
 from ..._logging import logger
 from ...credential import LocalTTSCredential
 from ...message import DataBlock, Base64Source
-from ._utils import cleanup_tempfile, decode_to_tempfile
+from ._utils import audio_to_numpy, cleanup_tempfile, decode_to_tempfile
 
 
 _SAMPLE_RATE = 48000
@@ -245,10 +245,12 @@ class LuxTTSModel(TTSModelBase):
                         ref_path,
                         b64_source,
                     )
-                    audio_np = model.generate_speech(
-                        text,
-                        encoded,
-                        num_steps=self.parameters.num_steps,
+                    audio_np = audio_to_numpy(
+                        model.generate_speech(
+                            text,
+                            encoded,
+                            num_steps=self.parameters.num_steps,
+                        ),
                     )
                 except Exception as e:
                     logger.error(

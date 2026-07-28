@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """The voice profile storage model."""
+import base64
+import binascii
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ...._utils._common import _generate_id
 from ._base import _RecordBase
@@ -21,6 +23,8 @@ _ENGINE_TYPE = Literal[
 ]
 
 _SOURCE_TYPE = Literal["api", "local"]
+_MAX_REFERENCE_AUDIO_BYTES = 10 * 1024 * 1024
+_MAX_REFERENCE_AUDIO_BASE64_CHARS = ((_MAX_REFERENCE_AUDIO_BYTES + 2) // 3) * 4
 
 ENGINE_TO_CREDENTIAL_TYPE: dict[str, str] = {
     "cosyvoice": "dashscope_credential",
@@ -121,6 +125,36 @@ class VoiceProfileData(BaseModel):
         description="Engine-specific extra configuration.",
         title="Metadata",
     )
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_reference_audio(cls, metadata: dict | None) -> dict | None:
+        """Reject malformed or oversized inline reference audio."""
+        if metadata is None:
+            return None
+        audio_base64 = metadata.get("reference_audio_base64")
+        if audio_base64 is None:
+            return metadata
+        if not isinstance(audio_base64, str):
+            raise ValueError("reference_audio_base64 must be a string")
+        if len(audio_base64) > _MAX_REFERENCE_AUDIO_BASE64_CHARS:
+            raise ValueError("reference audio must not exceed 10 MiB")
+        try:
+            audio = base64.b64decode(audio_base64, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError(
+                "reference_audio_base64 must be valid base64",
+            ) from error
+        if len(audio) > _MAX_REFERENCE_AUDIO_BYTES:
+            raise ValueError("reference audio must not exceed 10 MiB")
+        return metadata
+
+    @model_validator(mode="after")
+    def _derive_source_from_engine(self) -> "VoiceProfileData":
+        """Keep the persisted source consistent with the engine."""
+        if self.engine is not None:
+            self.source = ENGINE_SOURCE[self.engine]
+        return self
 
 
 class VoiceProfileRecord(_RecordBase):

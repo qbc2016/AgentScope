@@ -9,7 +9,13 @@ Covers:
 """
 import typing
 from unittest import TestCase
+from unittest.mock import patch
 
+from pydantic import ValidationError
+
+from agentscope.app._router._voice_profile import (
+    _voice_profile_summary,
+)
 from agentscope.app.storage._model import (
     ENGINE_TO_CREDENTIAL_TYPE,
     VoiceProfileData,
@@ -74,6 +80,75 @@ class TestVoiceProfileModel(TestCase):
         self.assertEqual(record.data.name, "Test")
         self.assertIsNotNone(record.id)
         self.assertIsNotNone(record.created_at)
+
+    def test_source_is_derived_from_engine(self) -> None:
+        """Client input cannot persist an inconsistent source."""
+        data = VoiceProfileData(
+            name="Local voice",
+            engine="kokoro",
+            source="api",
+        )
+        self.assertEqual(data.source, "local")
+
+    def test_invalid_reference_audio_base64_is_rejected(self) -> None:
+        """Malformed inline reference audio is rejected."""
+        with self.assertRaises(ValidationError):
+            VoiceProfileData(
+                name="Bad audio",
+                engine="tada",
+                metadata={
+                    "reference_audio_base64": "not base64!",
+                },
+            )
+
+    def test_oversized_reference_audio_is_rejected(self) -> None:
+        """Decoded reference audio is capped by the backend."""
+        with (
+            patch(
+                "agentscope.app.storage._model._voice_profile."
+                "_MAX_REFERENCE_AUDIO_BYTES",
+                3,
+            ),
+            patch(
+                "agentscope.app.storage._model._voice_profile."
+                "_MAX_REFERENCE_AUDIO_BASE64_CHARS",
+                8,
+            ),
+            self.assertRaises(ValidationError),
+        ):
+            VoiceProfileData(
+                name="Large audio",
+                engine="tada",
+                metadata={
+                    "reference_audio_base64": "MTIzNA==",
+                },
+            )
+
+    def test_list_summary_redacts_reference_audio(self) -> None:
+        """List records keep only an audio-presence marker."""
+        record = VoiceProfileRecord(
+            user_id="user-1",
+            data=VoiceProfileData(
+                name="Clone",
+                engine="tada",
+                metadata={
+                    "reference_audio_base64": "QUJD",
+                    "reference_text": "hello",
+                },
+            ),
+        )
+        summary = _voice_profile_summary(record)
+        self.assertEqual(
+            summary.data.metadata,
+            {
+                "reference_text": "hello",
+                "has_reference_audio": True,
+            },
+        )
+        self.assertEqual(
+            record.data.metadata["reference_audio_base64"],
+            "QUJD",
+        )
 
 
 class TestEngineToCredentialMapping(TestCase):

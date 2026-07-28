@@ -47,17 +47,22 @@ class LocalTTSCredential(CredentialBase):
     def get_tts_model_classes(
         cls,
     ) -> list[Type["TTSModelBase"]]:
-        """Return the local TTS model classes."""
+        """Return classes whose optional engine dependencies exist."""
         from ..tts import (
             KokoroTTSModel,
             ChatterboxTTSModel,
             LuxTTSModel,
             TadaTTSModel,
         )
+        from ..tts._local._utils import is_local_tts_engine_available
 
-        return [
-            KokoroTTSModel,
-            ChatterboxTTSModel,
-            LuxTTSModel,
-            TadaTTSModel,
-        ]
+        classes: list[Type["TTSModelBase"]] = []
+        if is_local_tts_engine_available("kokoro"):
+            classes.append(KokoroTTSModel)
+        if is_local_tts_engine_available("chatterbox"):
+            classes.append(ChatterboxTTSModel)
+        if is_local_tts_engine_available("luxtts"):
+            classes.append(LuxTTSModel)
+        if is_local_tts_engine_available("tada"):
+            classes.append(TadaTTSModel)
+        return classes

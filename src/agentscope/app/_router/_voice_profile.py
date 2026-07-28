@@ -21,6 +21,7 @@ from ..storage._model import (
     ENGINE_VOICE_CLONING,
 )
 from ...credential import CredentialFactory
+from ...tts._local._utils import is_local_tts_engine_available
 from ._schema import (
     AvailableEnginesResponse,
     CloneVoiceRequest,
@@ -66,7 +67,10 @@ async def _get_available_engines(
 
     engines: list[str] = []
     for engine, required_type in ENGINE_TO_CREDENTIAL_TYPE.items():
-        if required_type in cred_types:
+        if required_type in cred_types and (
+            required_type != "local_tts_credential"
+            or is_local_tts_engine_available(engine)
+        ):
             engines.append(engine)
     return sorted(engines)
 
@@ -152,11 +156,30 @@ async def list_voice_profiles(
     Returns:
         `ListVoiceProfilesResponse`: All voice profiles.
     """
-    profiles = await storage.list_voice_profiles(user_id)
+    profiles = [
+        _voice_profile_summary(profile)
+        for profile in await storage.list_voice_profiles(user_id)
+    ]
     return ListVoiceProfilesResponse(
         profiles=profiles,
         total=len(profiles),
     )
+
+
+def _voice_profile_summary(
+    profile: VoiceProfileRecord,
+) -> VoiceProfileRecord:
+    """Remove inline audio from a list item without mutating storage."""
+    metadata = profile.data.metadata
+    if not metadata or "reference_audio_base64" not in metadata:
+        return profile
+    summary_metadata = dict(metadata)
+    summary_metadata.pop("reference_audio_base64", None)
+    summary_metadata["has_reference_audio"] = True
+    summary_data = profile.data.model_copy(
+        update={"metadata": summary_metadata},
+    )
+    return profile.model_copy(update={"data": summary_data})
 
 
 @voice_profile_router.get(

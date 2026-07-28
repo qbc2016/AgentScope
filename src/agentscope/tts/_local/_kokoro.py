@@ -28,6 +28,9 @@ from ...message import DataBlock, Base64Source
 
 _SAMPLE_RATE = 24000
 _MEDIA_TYPE = "audio/wav"
+_VOICE_LANGUAGE_CODES = frozenset(
+    {"a", "b", "e", "f", "h", "i", "j", "p", "z"},
+)
 
 
 class KokoroTTSModel(TTSModelBase):
@@ -50,13 +53,25 @@ class KokoroTTSModel(TTSModelBase):
             ),
         )
 
-        lang_code: str = Field(
+        lang_code: Literal[
+            "a",
+            "b",
+            "e",
+            "f",
+            "h",
+            "i",
+            "j",
+            "p",
+            "z",
+        ] = Field(
             default="a",
             title="Language Code",
             description=(
                 "Language code: 'a' for American English, "
                 "'b' for British English, 'j' for Japanese, "
-                "'z' for Mandarin Chinese."
+                "'z' for Mandarin Chinese, plus 'e', 'f', "
+                "'h', 'i', and 'p' for Spanish, French, "
+                "Hindi, Italian, and Brazilian Portuguese."
             ),
         )
 
@@ -136,7 +151,7 @@ class KokoroTTSModel(TTSModelBase):
 
         .. note:: Must be called while holding ``_lock``.
         """
-        lang_code = self.parameters.lang_code
+        lang_code = self._effective_lang_code()
         device = self.credential.device
         key = f"{lang_code}:{device}"
         if key not in self._pipelines:
@@ -153,6 +168,18 @@ class KokoroTTSModel(TTSModelBase):
                 device=device,
             )
         return self._pipelines[key]
+
+    def _effective_lang_code(self) -> str:
+        """Derive the language from a standard Kokoro voice name.
+
+        Kokoro voice packs are prefixed with their language code.
+        Using the prefix avoids invalid pairs such as ``zf_xiaobei``
+        with the default American-English pipeline.
+        """
+        voice_prefix = self.parameters.voice.split(",", 1)[0].strip()[:1]
+        if voice_prefix in _VOICE_LANGUAGE_CODES:
+            return voice_prefix
+        return self.parameters.lang_code
 
     def _synthesize_sync(self, text: str) -> str | None:
         """Run the blocking Kokoro synthesis in a worker thread.

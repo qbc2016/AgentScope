@@ -49,12 +49,22 @@ async def get_tts_model(
             ),
         )
 
-    tts_cls = _resolve_tts_class(tts_classes, config.model)
+    tts_cls = _resolve_tts_class(
+        tts_classes,
+        config.model,
+        allow_single_fallback=(credential.type != "local_tts_credential"),
+    )
     params = dict(config.parameters) if config.parameters else {}
 
     # Load reference audio from voice profile metadata
     profile_id = params.pop("_voice_profile_id", None)
-    if profile_id and storage:
+    if profile_id and storage is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A storage backend is required to use a voice profile.",
+        )
+    if profile_id:
+        assert storage is not None
         params = await _enrich_from_profile(
             storage,
             user_id,
@@ -94,7 +104,12 @@ async def _enrich_from_profile(
     precedence over the profile metadata.
     """
     profile = await storage.get_voice_profile(user_id, profile_id)
-    if profile and profile.data.metadata:
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Voice profile {profile_id!r} not found.",
+        )
+    if profile.data.metadata:
         meta = profile.data.metadata
         if meta.get("reference_audio_base64"):
             params.setdefault(
@@ -112,17 +127,18 @@ async def _enrich_from_profile(
 def _resolve_tts_class(
     classes: list[Type[TTSModelBase]],
     model: str,
+    allow_single_fallback: bool = True,
 ) -> Type[TTSModelBase]:
     """Pick the TTS class that lists the given model name.
 
-    Falls back to the single class for credentials exposing only
-    one TTS class; raises 400 when multiple classes exist but none
+    When allowed, falls back to the single class for credentials
+    exposing only one TTS class. Otherwise raises 400 when no class
     lists the model, to avoid silently using the wrong engine.
     """
     for cls in classes:
         if any(card.name == model for card in cls.list_models()):
             return cls
-    if len(classes) == 1:
+    if len(classes) == 1 and allow_single_fallback:
         return classes[0]
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,

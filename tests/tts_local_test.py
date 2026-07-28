@@ -16,11 +16,16 @@ Covers:
 import base64
 import os
 import sys
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
 from fastapi import HTTPException
 
+from agentscope.app._router._voice_profile import (
+    _get_available_engines,
+)
 from agentscope.app._service._tts_model import (
     _enrich_from_profile,
     _resolve_tts_class,
@@ -36,6 +41,7 @@ from agentscope.tts import (
 from agentscope.tts._local._utils import (
     cleanup_tempfile,
     decode_to_tempfile,
+    is_local_tts_engine_available,
 )
 
 
@@ -65,6 +71,12 @@ class TestKokoroTTSModel(IsolatedAsyncioTestCase):
                 "speed": 1.0,
             },
         )
+
+    async def test_voice_prefix_selects_matching_language(self) -> None:
+        """A Chinese voice overrides the generic default language."""
+        model = self._make_model()
+        model.parameters.voice = "zf_xiaobei"
+        self.assertEqual(model._effective_lang_code(), "z")
 
 
 class TestChatterboxTTSModel(IsolatedAsyncioTestCase):
@@ -111,7 +123,7 @@ class TestChatterboxTTSModel(IsolatedAsyncioTestCase):
         self.assertEqual(
             model.parameters.model_dump(),
             {
-                "variant": "english",
+                "variant": "turbo",
                 "reference_audio_path": None,
                 "reference_audio_base64": None,
                 "language_id": None,
@@ -178,6 +190,49 @@ class TestResolveTTSClass(TestCase):
         cls = _resolve_tts_class([KokoroTTSModel], "no-such-model")
         self.assertIs(cls, KokoroTTSModel)
 
+    def test_local_single_class_does_not_fall_back(self) -> None:
+        """A missing local engine cannot resolve to another engine."""
+        with self.assertRaises(HTTPException) as ctx:
+            _resolve_tts_class(
+                [KokoroTTSModel],
+                "tada",
+                allow_single_fallback=False,
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+
+class TestLocalEngineAvailability(IsolatedAsyncioTestCase):
+    """Verify unavailable optional engines are not exposed."""
+
+    @patch(
+        "agentscope.tts._local._utils.is_local_tts_engine_available",
+    )
+    async def test_credential_filters_model_classes(
+        self,
+        available: MagicMock,
+    ) -> None:
+        """The local credential lists only importable engines."""
+        available.side_effect = lambda engine: engine == "kokoro"
+        classes = LocalTTSCredential.get_tts_model_classes()
+        self.assertEqual(classes, [KokoroTTSModel])
+
+    @patch(
+        "agentscope.app._router._voice_profile."
+        "is_local_tts_engine_available",
+    )
+    async def test_voice_profile_filters_available_engines(
+        self,
+        available: MagicMock,
+    ) -> None:
+        """Voice Profiles do not advertise missing local packages."""
+        available.side_effect = lambda engine: engine == "kokoro"
+        access = AsyncMock()
+        credential = MagicMock()
+        credential.data = {"type": "local_tts_credential"}
+        access.list_resource.return_value = [credential]
+        engines = await _get_available_engines(access, "user1")
+        self.assertEqual(engines, ["kokoro"])
+
 
 class TestTadaTTSModel(IsolatedAsyncioTestCase):
     """Unit tests for TadaTTSModel."""
@@ -200,6 +255,68 @@ class TestTadaTTSModel(IsolatedAsyncioTestCase):
         result = await model.synthesize("Hello")
         self.assertIsInstance(result, TTSResponse)
         self.assertIsNone(result.content)
+
+    async def test_generation_output_audio_is_written(self) -> None:
+        """TADA's GenerationOutput.audio payload is extracted."""
+        reference_audio = MagicMock()
+        reference_audio.ndim = 2
+        reference_audio.shape = (2, 4)
+        mono_audio = MagicMock()
+        reference_audio.mean.return_value = mono_audio
+        mono_audio.to.return_value = mono_audio
+        fake_torchaudio = SimpleNamespace(
+            load=lambda _: (reference_audio, 24000),
+        )
+        captured: dict[str, object] = {}
+
+        def fake_write(
+            buffer: object,
+            audio: np.ndarray,
+            sample_rate: int,
+            **_: object,
+        ) -> None:
+            captured["audio"] = audio
+            captured["sample_rate"] = sample_rate
+            buffer.write(b"test-wav")
+
+        fake_soundfile = SimpleNamespace(write=fake_write)
+        encoder = MagicMock(return_value="prompt")
+        tada = MagicMock()
+        tada.generate.return_value = SimpleNamespace(
+            audio=[np.array([0.1, -0.1], dtype=np.float32)],
+        )
+
+        model = self._make_model()
+        model.parameters.reference_audio_path = "/reference.wav"
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "soundfile": fake_soundfile,
+                    "torchaudio": fake_torchaudio,
+                },
+            ),
+            patch.object(
+                model,
+                "_load_models",
+                return_value=(encoder, tada),
+            ),
+        ):
+            result = await model.synthesize("Hello")
+
+        reference_audio.mean.assert_called_once_with(
+            dim=0,
+            keepdim=True,
+        )
+        self.assertEqual(captured["sample_rate"], 24000)
+        np.testing.assert_allclose(
+            captured["audio"],
+            np.array([0.1, -0.1], dtype=np.float32),
+        )
+        self.assertEqual(
+            base64.b64decode(result.content.source.data),
+            b"test-wav",
+        )
 
 
 class TestDecodeToTempfile(TestCase):
@@ -225,6 +342,19 @@ class TestDecodeToTempfile(TestCase):
     def test_cleanup_missing_file_is_noop(self) -> None:
         """cleanup_tempfile on missing path is silent."""
         cleanup_tempfile("/tmp/__no_such_file__.wav")
+
+    @patch(
+        "agentscope.tts._local._utils.importlib.util.find_spec",
+    )
+    def test_engine_availability_checks_every_module(
+        self,
+        find_spec: MagicMock,
+    ) -> None:
+        """An engine is unavailable if an optional import is absent."""
+        find_spec.side_effect = lambda name: (
+            object() if name == "kokoro" else None
+        )
+        self.assertFalse(is_local_tts_engine_available("kokoro"))
 
 
 class TestClearCache(TestCase):
@@ -284,14 +414,21 @@ class TestClearCache(TestCase):
         self.assertEqual(LuxTTSModel._prompt_cache, {})
 
     def test_tada_clear_cache(self) -> None:
-        """TadaTTSModel.clear_cache empties _models."""
+        """TadaTTSModel.clear_cache empties both caches."""
+        TadaTTSModel._encoders["en:cpu"] = "e"
         TadaTTSModel._models["cpu"] = "m"
+        self.addCleanup(
+            TadaTTSModel._encoders.pop,
+            "en:cpu",
+            None,
+        )
         self.addCleanup(
             TadaTTSModel._models.pop,
             "cpu",
             None,
         )
         TadaTTSModel.clear_cache()
+        self.assertEqual(TadaTTSModel._encoders, {})
         self.assertEqual(TadaTTSModel._models, {})
 
 
@@ -310,6 +447,7 @@ class TestChatterboxVoiceRestore(IsolatedAsyncioTestCase):
         ):
             cred = LocalTTSCredential(device="cpu")
             model = ChatterboxTTSModel(credential=cred)
+            model.parameters.variant = "english"
 
             sentinel = object()
             cached = MagicMock()
@@ -393,17 +531,18 @@ class TestEnrichFromProfile(IsolatedAsyncioTestCase):
             },
         )
 
-    async def test_missing_profile_is_noop(self) -> None:
-        """Non-existent profile leaves params unchanged."""
+    async def test_missing_profile_raises_not_found(self) -> None:
+        """A deleted profile fails explicitly instead of being ignored."""
         storage = AsyncMock()
         storage.get_voice_profile = AsyncMock(
             return_value=None,
         )
         params = {"key": "val"}
-        result = await _enrich_from_profile(
-            storage,
-            "user1",
-            "missing",
-            params,
-        )
-        self.assertEqual(result, {"key": "val"})
+        with self.assertRaises(HTTPException) as ctx:
+            await _enrich_from_profile(
+                storage,
+                "user1",
+                "missing",
+                params,
+            )
+        self.assertEqual(ctx.exception.status_code, 404)

@@ -479,7 +479,7 @@ export function ModelParametersPopover({
 													}
 												}
 
-												if (!matchedType && selectedTTSModel) {
+												if (!matchedType && !engine && selectedTTSModel) {
 													matchedType = selectedTTSModel.type;
 													matchedCredentialId =
 														selectedTTSModel.credential_id;
@@ -510,7 +510,7 @@ export function ModelParametersPopover({
 													}
 												}
 
-												if (!matchedType) {
+												if (!matchedType && !engine) {
 													const firstGroup = Object.entries(ttsGroups)[0];
 													if (firstGroup) {
 														const [ft, fi] = firstGroup;
@@ -548,6 +548,24 @@ export function ModelParametersPopover({
 												}
 												if (vp.data.voice) {
 													params.voice = vp.data.voice;
+													if (engine === 'kokoro') {
+														const langCode = vp.data.voice.trim()[0];
+														if (
+															[
+																'a',
+																'b',
+																'e',
+																'f',
+																'h',
+																'i',
+																'j',
+																'p',
+																'z',
+															].includes(langCode)
+														) {
+															params.lang_code = langCode;
+														}
+													}
 												}
 												params._voice_profile_id = vp.id;
 

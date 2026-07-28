@@ -96,16 +96,20 @@ tools = [
 ]
 # ------------ Local TTS engines ------------
 # Lightweight core; each engine pulls its own heavy deps.
-tts-kokoro = ["kokoro>=0.9.4", "soundfile"]
-tts-chatterbox = ["chatterbox-tts"]
-tts-luxtts = ["soundfile"]
-tts-tada = ["hume-tada"]
-local-tts = [
-    "agentscope[tts-kokoro]",
-    "agentscope[tts-chatterbox]",
-    "agentscope[tts-luxtts]",
-    "agentscope[tts-tada]",
+tts-kokoro = [
+    "kokoro>=0.9.4,<0.10",
+    "misaki[ja,zh]>=0.9.4",
+    "soundfile",
 ]
+tts-chatterbox = ["chatterbox-tts>=0.1.7,<0.2", "soundfile"]
+tts-luxtts = [
+    "Zipvoice @ git+https://github.com/ysharma3501/LuxTTS.git@28ae6a61151684fffc9d1a7aa15eafa02286fe0b",
+    "linacodec @ git+https://github.com/ysharma3501/LinaCodec.git@c0ae7c7285e121475c27592cfbb600624b714290",
+    "soundfile",
+]
+# TADA is runtime-detected only: hume-tada 0.1.9 currently requires
+# protobuf<3.20 through descript-audio-codec, while AgentScope's
+# OpenTelemetry stack requires protobuf>=5.
 # ------------ Vector stores ------------
 vdb-qdrant = ["qdrant-client"]
 vdb-milvus = [
@@ -200,6 +204,34 @@ Repository = "https://github.com/agentscope-ai/agentscope"
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
 include-package-data = true
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "tts-chatterbox" },
+        { extra = "tts-luxtts" },
+    ],
+    [
+        { extra = "tts-chatterbox" },
+        { extra = "memory-reme" },
+    ],
+    [
+        { extra = "tts-chatterbox" },
+        { extra = "memory" },
+    ],
+    [
+        { extra = "tts-chatterbox" },
+        { extra = "reme" },
+    ],
+    [
+        { extra = "tts-chatterbox" },
+        { extra = "full" },
+    ],
+    [
+        { extra = "tts-chatterbox" },
+        { extra = "dev" },
+    ],
+]
 
 [tool.setuptools.package-data]
 # ``"*"`` applies to every discovered package. Patterns:

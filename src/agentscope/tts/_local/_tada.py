@@ -22,7 +22,7 @@ from .._tts_response import TTSResponse
 from ..._logging import logger
 from ...credential import LocalTTSCredential
 from ...message import DataBlock, Base64Source
-from ._utils import cleanup_tempfile, decode_to_tempfile
+from ._utils import audio_to_numpy, cleanup_tempfile, decode_to_tempfile
 
 
 _SAMPLE_RATE = 24000
@@ -70,6 +70,26 @@ class TadaTTSModel(TTSModelBase):
             ),
         )
 
+        language: Literal[
+            "en",
+            "ar",
+            "ch",
+            "de",
+            "es",
+            "fr",
+            "it",
+            "ja",
+            "pl",
+            "pt",
+        ] = Field(
+            default="en",
+            title="Language",
+            description=(
+                "Language of the reference and generated speech. "
+                "Non-English references should include reference_text."
+            ),
+        )
+
     type: Literal["tada_tts"] = "tada_tts"
     """The type of the TTS model."""
 
@@ -80,9 +100,11 @@ class TadaTTSModel(TTSModelBase):
 
     realtime: bool = False
 
-    _models: dict[str, tuple[Any, Any]] = {}
-    """Class-level (encoder, model) cache keyed by device, so new
-    model instances reuse already-loaded weights."""
+    _encoders: dict[str, Any] = {}
+    """Encoder cache keyed by language and device."""
+
+    _models: dict[str, Any] = {}
+    """Language-independent model cache keyed by device."""
 
     _lock = threading.Lock()
     """Serializes model loading and inference across threads."""
@@ -96,6 +118,7 @@ class TadaTTSModel(TTSModelBase):
         on demand.
         """
         with cls._lock:
+            cls._encoders.clear()
             cls._models.clear()
 
     @classmethod
@@ -139,29 +162,45 @@ class TadaTTSModel(TTSModelBase):
         .. note:: Must be called while holding ``_lock``.
         """
         device = self.credential.device
+        language = self.parameters.language
+        encoder_key = f"{language}:{device}"
+        if encoder_key not in self._encoders:
+            try:
+                from tada.modules.encoder import Encoder
+            except ImportError as e:
+                raise ImportError(
+                    "hume-tada is required for "
+                    "TadaTTSModel. Install it in a compatible "
+                    "environment.",
+                ) from e
+            encoder_kwargs = {}
+            if language != "en":
+                encoder_kwargs["language"] = language
+            self._encoders[encoder_key] = Encoder.from_pretrained(
+                "HumeAI/tada-codec",
+                subfolder="encoder",
+                **encoder_kwargs,
+            ).to(device)
+
         if device not in self._models:
             try:
                 import torch
-                from tada.modules.encoder import Encoder
                 from tada.modules.tada import (
                     TadaForCausalLM,
                 )
             except ImportError as e:
                 raise ImportError(
                     "hume-tada is required for "
-                    "TadaTTSModel. Install with: "
-                    "pip install hume-tada",
+                    "TadaTTSModel. Install it in a compatible "
+                    "environment.",
                 ) from e
-            encoder = Encoder.from_pretrained(
-                "HumeAI/tada-codec",
-                subfolder="encoder",
-            ).to(device)
+            dtype = torch.bfloat16 if device == "cuda" else torch.float32
             tada_model = TadaForCausalLM.from_pretrained(
                 "HumeAI/tada-3b-ml",
-                torch_dtype=torch.bfloat16,
+                torch_dtype=dtype,
             ).to(device)
-            self._models[device] = (encoder, tada_model)
-        return self._models[device]
+            self._models[device] = tada_model
+        return self._encoders[encoder_key], self._models[device]
 
     def _synthesize_sync(self, text: str) -> str | None:
         """Run the blocking TADA synthesis in a worker thread.
@@ -185,16 +224,17 @@ class TadaTTSModel(TTSModelBase):
         try:
             try:
                 import soundfile as sf
-                import torch
                 import torchaudio
             except ImportError as e:
                 raise ImportError(
-                    "soundfile, torch, and torchaudio are "
+                    "soundfile and torchaudio are "
                     "required for TadaTTSModel.",
                 ) from e
 
             audio, sample_rate = torchaudio.load(ref_path)
             device = self.credential.device
+            if audio.ndim > 1 and audio.shape[0] > 1:
+                audio = audio.mean(dim=0, keepdim=True)
             audio = audio.to(device)
 
             with self._lock:
@@ -211,18 +251,14 @@ class TadaTTSModel(TTSModelBase):
                         text=ref_text_list,
                         sample_rate=sample_rate,
                     )
-                    audio_tensor = tada_model.generate(
+                    generation = tada_model.generate(
                         prompt=prompt,
                         text=text,
                     )
-
-                    if isinstance(
-                        audio_tensor,
-                        torch.Tensor,
-                    ):
-                        audio_np = audio_tensor.squeeze().cpu().numpy()
-                    else:
-                        audio_np = audio_tensor
+                    audio_output = getattr(generation, "audio", generation)
+                    if hasattr(generation, "audio"):
+                        audio_output = audio_output[0]
+                    audio_np = audio_to_numpy(audio_output)
                 except Exception as e:
                     logger.error(
                         "TADA TTS synthesis failed: %s",

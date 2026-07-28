@@ -22,7 +22,7 @@ from .._tts_response import TTSResponse
 from ..._logging import logger
 from ...credential import LocalTTSCredential
 from ...message import DataBlock, Base64Source
-from ._utils import cleanup_tempfile, decode_to_tempfile
+from ._utils import audio_to_numpy, cleanup_tempfile, decode_to_tempfile
 
 
 _MEDIA_TYPE = "audio/wav"
@@ -77,14 +77,41 @@ class ChatterboxTTSModel(TTSModelBase):
             ),
         )
 
-        language_id: str | None = Field(
+        language_id: (
+            Literal[
+                "ar",
+                "da",
+                "de",
+                "el",
+                "en",
+                "es",
+                "fi",
+                "fr",
+                "he",
+                "hi",
+                "it",
+                "ja",
+                "ko",
+                "ms",
+                "nl",
+                "no",
+                "pl",
+                "pt",
+                "ru",
+                "sv",
+                "sw",
+                "tr",
+                "zh",
+            ]
+            | None
+        ) = Field(
             default=None,
             title="Language ID",
             description=(
                 "Language identifier for the multilingual "
                 "variant (e.g. 'en', 'es', 'fr', 'de', "
-                "'it', 'pt', 'pl', 'tr', 'ru', 'nl', 'cs',"
-                " 'ar', 'zh-cn', 'ja', 'hu', 'ko')."
+                "'it', 'pt', 'pl', 'tr', 'ru', 'nl', "
+                "'ar', 'zh', 'ja', 'ko')."
             ),
         )
 
@@ -274,10 +301,9 @@ class ChatterboxTTSModel(TTSModelBase):
         try:
             try:
                 import soundfile as sf
-                import torch
             except ImportError as e:
                 raise ImportError(
-                    f"Failed to import soundfile/torch "
+                    f"Failed to import soundfile "
                     f"for ChatterboxTTSModel: {e}",
                 ) from e
 
@@ -318,13 +344,7 @@ class ChatterboxTTSModel(TTSModelBase):
                                 text,
                             )
 
-                    if isinstance(
-                        audio_tensor,
-                        torch.Tensor,
-                    ):
-                        audio_np = audio_tensor.squeeze().cpu().numpy()
-                    else:
-                        audio_np = audio_tensor
+                    audio_np = audio_to_numpy(audio_tensor)
 
                     sample_rate = getattr(
                         model,

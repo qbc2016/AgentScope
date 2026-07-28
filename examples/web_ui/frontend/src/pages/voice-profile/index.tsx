@@ -177,7 +177,7 @@ function VoiceProfileDialog({
 			})
 			.catch(() => setModelOptions([]))
 			.finally(() => setModelsLoading(false));
-	}, [engine]);
+	}, [engine, engineDetails]);
 
 	const canClone = engine
 		? (engineDetails.find((d) => d.name === engine)?.voice_cloning ?? false)
@@ -322,7 +322,7 @@ function VoiceProfileDialog({
 		setSaving(true);
 		try {
 			const metadata: Record<string, unknown> = {};
-			if (isLocal && refAudioBase64) {
+			if (isLocal && canClone && refAudioBase64) {
 				metadata.reference_audio_base64 = refAudioBase64;
 				if (referenceText.trim()) {
 					metadata.reference_text = referenceText.trim();
@@ -604,7 +604,12 @@ function VoiceProfileDialog({
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
 						{t('voiceProfile.cancel')}
 					</Button>
-					<Button onClick={handleSave} disabled={saving || !name.trim() || !engine}>
+					<Button
+						onClick={handleSave}
+						disabled={
+							saving || enginesLoading || modelsLoading || !name.trim() || !engine
+						}
+					>
 						{saving ? t('voiceProfile.saving') : t('voiceProfile.save')}
 					</Button>
 				</DialogFooter>
@@ -700,8 +705,11 @@ export function VoiceProfilePage() {
 									<Button
 										size="icon-sm"
 										variant="ghost"
-										onClick={() => {
-											setEditProfile(profile);
+										onClick={async () => {
+											const fullProfile = await voiceProfileApi.get(
+												profile.id,
+											);
+											setEditProfile(fullProfile);
 											setDialogOpen(true);
 										}}
 									>
