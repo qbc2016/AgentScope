@@ -43,16 +43,17 @@ class ChatterboxTTSModel(TTSModelBase):
         """Frontend-exposed parameters for Chatterbox TTS."""
 
         variant: Literal[
+            "turbo",
             "english",
             "multilingual",
-            "turbo",
         ] = Field(
-            default="english",
+            default="turbo",
             title="Variant",
             description=(
-                "The Chatterbox variant: 'english' for "
-                "voice cloning, 'multilingual' for "
-                "multi-language, 'turbo' for fast synthesis."
+                "The Chatterbox variant: 'turbo' for "
+                "fast synthesis, 'english' for voice "
+                "cloning, 'multilingual' for "
+                "multi-language."
             ),
         )
 
@@ -212,7 +213,7 @@ class ChatterboxTTSModel(TTSModelBase):
                         device=device,
                     )
                 elif variant == "multilingual":
-                    from chatterbox.tts import (
+                    from chatterbox.mtl_tts import (
                         ChatterboxMultilingualTTS,
                     )
 
@@ -221,7 +222,7 @@ class ChatterboxTTSModel(TTSModelBase):
                         device=device,
                     )
                 elif variant == "turbo":
-                    from chatterbox.tts import (
+                    from chatterbox.tts_turbo import (
                         ChatterboxTurboTTS,
                     )
 

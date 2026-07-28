@@ -151,16 +151,16 @@ class LuxTTSModel(TTSModelBase):
         key = f"{self.model}:{device}"
         if key not in self._models:
             try:
-                from luxtts import LuxTTS
+                from zipvoice.luxvoice import LuxTTS
             except ImportError as e:
                 raise ImportError(
-                    "luxtts is required for LuxTTSModel. "
-                    "Install with: pip install "
+                    "LuxTTS is required. Install with: "
+                    "pip install "
                     "git+https://github.com/ysharma3501/"
                     "LuxTTS.git",
                 ) from e
             self._models[key] = LuxTTS(
-                model_id=self.model,
+                model_path="YatharthS/LuxTTS",
                 device=device,
             )
         return self._models[key]

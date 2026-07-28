@@ -141,19 +141,25 @@ class TadaTTSModel(TTSModelBase):
         device = self.credential.device
         if device not in self._models:
             try:
-                from hume_tada import (
-                    Encoder,
+                import torch
+                from tada.modules.encoder import Encoder
+                from tada.modules.tada import (
                     TadaForCausalLM,
                 )
             except ImportError as e:
                 raise ImportError(
-                    "hume-tada is required for TadaTTSModel. "
-                    "Install with: pip install hume-tada",
+                    "hume-tada is required for "
+                    "TadaTTSModel. Install with: "
+                    "pip install hume-tada",
                 ) from e
-            encoder = Encoder.from_pretrained(device=device)
+            encoder = Encoder.from_pretrained(
+                "HumeAI/tada-codec",
+                subfolder="encoder",
+            ).to(device)
             tada_model = TadaForCausalLM.from_pretrained(
-                device=device,
-            )
+                "HumeAI/tada-3b-ml",
+                torch_dtype=torch.bfloat16,
+            ).to(device)
             self._models[device] = (encoder, tada_model)
         return self._models[device]
 
@@ -180,35 +186,48 @@ class TadaTTSModel(TTSModelBase):
             try:
                 import soundfile as sf
                 import torch
+                import torchaudio
             except ImportError as e:
                 raise ImportError(
-                    "soundfile and torch are required for TadaTTSModel.",
+                    "soundfile, torch, and torchaudio are "
+                    "required for TadaTTSModel.",
                 ) from e
+
+            audio, sample_rate = torchaudio.load(ref_path)
+            device = self.credential.device
+            audio = audio.to(device)
 
             with self._lock:
                 encoder, tada_model = self._load_models()
                 try:
-                    ref_text_list = []
+                    ref_text_list: list[str] | None = None
                     if self.parameters.reference_text:
                         ref_text_list = [
                             self.parameters.reference_text,
                         ]
 
                     prompt = encoder(
-                        ref_path,
-                        text=ref_text_list or None,
+                        audio,
+                        text=ref_text_list,
+                        sample_rate=sample_rate,
                     )
                     audio_tensor = tada_model.generate(
-                        prompt,
+                        prompt=prompt,
                         text=text,
                     )
 
-                    if isinstance(audio_tensor, torch.Tensor):
+                    if isinstance(
+                        audio_tensor,
+                        torch.Tensor,
+                    ):
                         audio_np = audio_tensor.squeeze().cpu().numpy()
                     else:
                         audio_np = audio_tensor
                 except Exception as e:
-                    logger.error("TADA TTS synthesis failed: %s", e)
+                    logger.error(
+                        "TADA TTS synthesis failed: %s",
+                        e,
+                    )
                     return None
         finally:
             cleanup_tempfile(tmp_path)
