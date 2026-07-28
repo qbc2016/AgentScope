@@ -205,26 +205,20 @@ class ChatterboxTTSModel(TTSModelBase):
             self._patch_perth_watermarker()
             try:
                 if variant == "english":
-                    from chatterbox.tts import (
-                        ChatterboxTTS,
-                    )
+                    from chatterbox.tts import ChatterboxTTS
 
                     m = ChatterboxTTS.from_pretrained(
                         device=device,
                     )
                 elif variant == "multilingual":
-                    from chatterbox.mtl_tts import (
-                        ChatterboxMultilingualTTS,
-                    )
+                    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
                     m = ChatterboxMultilingualTTS.from_pretrained(
                         t3_model="v3",
                         device=device,
                     )
                 elif variant == "turbo":
-                    from chatterbox.tts_turbo import (
-                        ChatterboxTurboTTS,
-                    )
+                    from chatterbox.tts_turbo import ChatterboxTurboTTS
 
                     m = ChatterboxTurboTTS.from_pretrained(
                         device=device,
@@ -283,8 +277,8 @@ class ChatterboxTTSModel(TTSModelBase):
                 import torch
             except ImportError as e:
                 raise ImportError(
-                    "soundfile and torch are required for "
-                    "ChatterboxTTSModel.",
+                    f"Failed to import soundfile/torch "
+                    f"for ChatterboxTTSModel: {e}",
                 ) from e
 
             with self._lock:
@@ -300,14 +294,12 @@ class ChatterboxTTSModel(TTSModelBase):
                         audio_tensor = model.generate(
                             text,
                             audio_prompt_path=ref_path,
-                            exaggeration=(self.parameters.exaggeration),
-                            cfg_weight=(self.parameters.cfg_weight),
+                            exaggeration=self.parameters.exaggeration,
+                            cfg_weight=self.parameters.cfg_weight,
                         )
                     elif variant == "multilingual":
                         gen_kwargs: dict[str, Any] = {
-                            "language_id": (
-                                self.parameters.language_id or "en"
-                            ),
+                            "language_id": self.parameters.language_id or "en",
                         }
                         if ref_path is not None:
                             gen_kwargs["audio_prompt_path"] = ref_path
