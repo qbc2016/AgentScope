@@ -16,6 +16,7 @@ import {
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuLabel,
+	DropdownMenuPortal,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
@@ -382,12 +383,14 @@ export function ModelParametersPopover({
 																	)}
 																	{credentialLabel(credential)}
 																</DropdownMenuSubTrigger>
-																<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
-																	{renderFallbackItems(
-																		credential,
-																		models,
-																	)}
-																</DropdownMenuSubContent>
+																<DropdownMenuPortal>
+																	<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+																		{renderFallbackItems(
+																			credential,
+																			models,
+																		)}
+																	</DropdownMenuSubContent>
+																</DropdownMenuPortal>
 															</DropdownMenuSub>
 														);
 													})}
@@ -562,12 +565,14 @@ export function ModelParametersPopover({
 																	)}
 																	{credentialLabel(credential)}
 																</DropdownMenuSubTrigger>
-																<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
-																	{renderTTSItems(
-																		credential,
-																		models,
-																	)}
-																</DropdownMenuSubContent>
+																<DropdownMenuPortal>
+																	<DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+																		{renderTTSItems(
+																			credential,
+																			models,
+																		)}
+																	</DropdownMenuSubContent>
+																</DropdownMenuPortal>
 															</DropdownMenuSub>
 														);
 													})}
