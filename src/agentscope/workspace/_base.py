@@ -61,7 +61,7 @@ from typing import Self
 from pydantic import AnyUrl
 
 from .._logging import logger
-from .._utils._common import _generate_id
+from .._utils._common import _generate_id, _normalize_local_path
 from ..mcp import MCPClient
 from ..message import (
     Base64Source,
@@ -149,6 +149,17 @@ class WorkspaceBase:
     _skill_lock: asyncio.Lock
     """Guards mutation of the ``skills/`` directory."""
 
+    @property
+    def _glob_helper_path(self) -> str | None:
+        """Optional path (backend-side) to the ``Glob`` helper script.
+
+        ``None`` means the :class:`Glob` builtin tool falls back to its
+        default behaviour (suitable for :class:`LocalBackend`). Remote
+        backends override this with a sandbox-/container-side script path
+        so :class:`Glob` can run efficiently inside the workspace.
+        """
+        return None
+
     def __init__(
         self,
         *,
@@ -180,7 +191,9 @@ class WorkspaceBase:
         self._backend = None
 
         self.default_mcps = list(default_mcps or [])
-        self.skill_paths = list(skill_paths or [])
+        self.skill_paths = [
+            _normalize_local_path(path) for path in skill_paths or []
+        ]
 
         self._mcps = []
         self._mcp_lock = asyncio.Lock()

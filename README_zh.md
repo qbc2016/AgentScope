@@ -62,23 +62,18 @@ AgentScope 2.0 是一款面向生产、易于使用的智能体框架，提供�
 - [**事件系统** →](https://docs.agentscope.io/latest/zh/building-blocks/message-and-event) 统一的事件总线，服务于前端智能体应用与 human-in-the-loop 协作。
 - [**权限系统** →](https://docs.agentscope.io/latest/zh/building-blocks/permission-system) 对工具和资源进行细粒度、可配置的控制。
 - [**多租户与多会话服务** →](https://docs.agentscope.io/latest/zh/deploy/agent-service) 提供生产级服务，在租户与会话之间实现隔离。
-- [**工作区 / 沙箱支持** →](https://docs.agentscope.io/latest/zh/building-blocks/workspace) 在隔离环境中运行工具和代码，内置支持本地文件系统、Docker、E2B 和 OpenSandbox 后端。
+- [**工作区 / 沙箱支持** →](https://docs.agentscope.io/latest/zh/building-blocks/workspace) 在隔离环境中运行工具和代码，内置支持本地文件系统、Docker、E2B、OpenSandbox 和 Daytona 后端。
 - [**可扩展中间件系统** →](https://docs.agentscope.io/latest/zh/building-blocks/middleware) 可组合的钩子系统，用于自定义和扩展智能体的推理-行动循环。
 
 我们为日益自主的大语言模型而设计。
 我们的方法是充分发挥模型的推理与工具调用能力，
 而不是用严格的提示词和固化的编排方式来束缚它们。
 
-## 为什么选择 AgentScope？
-
-- **简单**：通过内置的 ReAct 智能体、工具、技能、人机协作干预、记忆、计划、实时语音、评估和模型微调，5 分钟即可开始构建你的智能体
-- **可扩展**：丰富的生态系统集成，覆盖工具、记忆和可观测性；内置 MCP 和 A2A 支持；通过消息中心（MsgHub）实现灵活的多智能体编排和工作流
-- **生产就绪**：支持本地部署、云端 Serverless 部署或 K8s 集群部署，并内置 OTel 支持
-
 <img src="assets/images/agentscope.png" alt="agentscope" width="100%"/>
 
 ## 新闻
 <!-- BEGIN NEWS -->
+- **[2026-07] `集成`:** 集成 Daytona 工作区/沙箱实现。 [文档](https://docs.agentscope.io/latest/en/building-blocks/workspace)
 - **[2026-07] `集成`:** 集成 K8s，OpenSandbox 工作区/沙箱实现。 [文档](https://docs.agentscope.io/latest/en/building-blocks/workspace)
 - **[2026-07] `集成`:** 集成 ReMe 长期记忆。 [样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/long_term_memory/reme) | [文档](https://docs.agentscope.io/latest/zh/building-blocks/long-term-memory)
 - **[2026-06] `功能`:** 支持 Agentic Memory。 [样例](https://github.com/agentscope-ai/agentscope/tree/main/examples/long_term_memory/agentic_memory) | [文档](https://docs.agentscope.io/latest/zh/building-blocks/long-term-memory)
