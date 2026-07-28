@@ -717,57 +717,62 @@ export interface ListSupportedContentTypesResponse {
 
 // ─── Channel ──────────────────────────────────────────────────────────────────
 
-export type DmScope = 'MAIN' | 'PER_PEER' | 'PER_CHAT' | 'PER_CHANNEL_PEER';
+// How inbound messages are grouped into agent sessions.
+export type SessionScope = 'per_chat' | 'per_chat_user';
 
-export interface RoutingRule {
-	metadata_key: string;
-	metadata_value: string;
+// One routing rule: match an inbound event, then pick the agent and how
+// its session is grouped. Rules are ordered; the first match wins and the
+// last must be a catch-all (match_value === '*').
+export interface ChannelBinding {
+	match_key: string;
+	match_value: string;
 	agent_id: string;
-	priority: number;
+	session_scope: SessionScope;
+}
+
+export interface RoutingConfig {
+	bindings: ChannelBinding[];
+}
+
+export interface SessionSettings {
+	chat_model_config: ChatModelConfig;
+	fallback_chat_model_config?: ChatModelConfig | null;
+	permission_mode: PermissionMode;
+}
+
+export interface ReplyPresentation {
+	show_tool_process: boolean;
+	show_thinking: boolean;
 }
 
 export interface ChannelRecord {
-	channel_id: string;
+	id: string;
 	channel_type: string;
+	user_id: string;
 	platform_bot_id: string;
-	default_agent_id: string;
-	chat_model_config: ChatModelConfig | null;
-	fallback_chat_model_config: ChatModelConfig | null;
-	routing_rules: RoutingRule[];
-	dm_scope: DmScope;
-	permission_mode: PermissionMode;
 	enabled: boolean;
-	config: Record<string, unknown>;
-	filter_tool_messages: boolean;
-	filter_thinking_messages: boolean;
+	platform_config: Record<string, unknown>;
+	routing: RoutingConfig;
+	session: SessionSettings;
+	presentation: ReplyPresentation;
+	created_at: string;
+	updated_at: string;
 }
 
 export interface CreateChannelRequest {
-	channel_id: string;
 	channel_type: string;
 	credentials: Record<string, unknown>;
-	default_agent_id: string;
-	chat_model_config?: ChatModelConfig | null;
-	fallback_chat_model_config?: ChatModelConfig | null;
-	routing_rules?: RoutingRule[];
-	dm_scope?: DmScope;
-	permission_mode?: PermissionMode;
-	config?: Record<string, unknown>;
-	filter_tool_messages?: boolean;
-	filter_thinking_messages?: boolean;
+	platform_config?: Record<string, unknown>;
+	routing: RoutingConfig;
+	session: SessionSettings;
+	presentation?: ReplyPresentation;
 	enabled?: boolean;
 }
 
 export interface UpdateChannelRequest {
-	default_agent_id?: string;
-	chat_model_config?: ChatModelConfig | null;
-	fallback_chat_model_config?: ChatModelConfig | null;
-	routing_rules?: RoutingRule[];
-	dm_scope?: DmScope;
-	permission_mode?: PermissionMode;
-	config?: Record<string, unknown>;
-	filter_tool_messages?: boolean;
-	filter_thinking_messages?: boolean;
+	routing?: RoutingConfig;
+	session?: SessionSettings;
+	presentation?: ReplyPresentation;
 	enabled?: boolean;
 }
 
@@ -777,11 +782,17 @@ export interface ChannelTypeSchema {
 	description: string;
 	credentials_schema: Record<string, unknown>;
 	config_schema: Record<string, unknown>;
+	platform_bot_id_field?: string;
+}
+
+export interface ChannelNodeStatus {
+	node_id: string;
+	status: string;
 }
 
 export interface ChannelStatusResponse {
 	status: 'running' | 'stopped' | 'error';
-	error?: string | null;
+	nodes: ChannelNodeStatus[];
 }
 
 // ─── TTS ──────────────────────────────────────────────────────────────────────

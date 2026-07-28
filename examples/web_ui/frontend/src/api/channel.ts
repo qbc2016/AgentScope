@@ -4,17 +4,8 @@ import type {
 	ChannelStatusResponse,
 	ChannelTypeSchema,
 	CreateChannelRequest,
-	RoutingRule,
 	UpdateChannelRequest,
 } from './types';
-
-export interface BindingResponse {
-	id: number;
-	metadata_key: string;
-	metadata_value: string;
-	agent_id: string;
-	priority: number;
-}
 
 export const channelApi = {
 	listTypes: () => client.get<ChannelTypeSchema[]>('/channels/types'),
@@ -37,18 +28,6 @@ export const channelApi = {
 
 	status: (channelId: string) =>
 		client.get<ChannelStatusResponse>(`/channels/${channelId}/status`),
-
-	test: (channelId: string) =>
-		client.post<{ status: string; message: string }>(`/channels/${channelId}/test`),
-
-	listBindings: (channelId: string) =>
-		client.get<BindingResponse[]>(`/channels/${channelId}/bindings`),
-
-	addBinding: (channelId: string, rule: Omit<RoutingRule, 'priority'> & { priority?: number }) =>
-		client.post<BindingResponse>(`/channels/${channelId}/bindings`, rule),
-
-	deleteBinding: (channelId: string, bindingIdx: number) =>
-		client.delete(`/channels/${channelId}/bindings/${bindingIdx}`),
 
 	listChatIds: (channelId: string) =>
 		client.get<{ chat_id: string; name: string; source: string }[]>(

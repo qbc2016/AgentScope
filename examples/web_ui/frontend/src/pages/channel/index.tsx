@@ -14,16 +14,6 @@ import { useTranslation } from '@/i18n/useI18n';
 import { CreateChannelDialog } from '@/pages/channel/create-channel-dialog';
 import { EditChannelDialog } from '@/pages/channel/edit-channel-dialog';
 
-function ChannelTypeLabel({ type }: { type: string }) {
-	const labels: Record<string, string> = {
-		feishu: 'Feishu',
-		dingtalk: 'DingTalk',
-		discord: 'Discord',
-		wecom: 'WeCom',
-	};
-	return <span>{labels[type] ?? type}</span>;
-}
-
 function ChannelCard({
 	channel,
 	agentName,
@@ -47,7 +37,7 @@ function ChannelCard({
 				<div className="flex items-center justify-between">
 					<CardTitle className="text-sm font-semibold flex items-center gap-2">
 						<Cable className="size-4 text-muted-foreground" />
-						{channel.channel_id}
+						{channel.channel_type} · {channel.id.slice(0, 8)}
 					</CardTitle>
 					<div className="flex items-center gap-1">
 						{channel.enabled ? (
@@ -91,16 +81,8 @@ function ChannelCard({
 			</CardHeader>
 			<CardContent className="flex flex-col gap-2 text-sm">
 				<div className="flex justify-between items-center">
-					<span className="text-muted-foreground">{t('channel.type')}</span>
-					<ChannelTypeLabel type={channel.channel_type} />
-				</div>
-				<div className="flex justify-between items-center">
 					<span className="text-muted-foreground">{t('common.agent')}</span>
 					<span className="truncate max-w-[120px]">{agentName}</span>
-				</div>
-				<div className="flex justify-between items-center">
-					<span className="text-muted-foreground">{t('channel.dmScope')}</span>
-					<span>{channel.dm_scope}</span>
 				</div>
 				<div className="flex justify-between items-center">
 					<span className="text-muted-foreground">{t('channel.status')}</span>
@@ -111,11 +93,11 @@ function ChannelCard({
 						{channel.enabled ? t('channel.connected') : t('common.disabled')}
 					</Badge>
 				</div>
-				{channel.chat_model_config && (
+				{channel.session.chat_model_config && (
 					<div className="flex justify-between items-center">
 						<span className="text-muted-foreground">{t('common.model')}</span>
 						<span className="truncate max-w-[140px] text-xs font-mono">
-							{channel.chat_model_config.model}
+							{channel.session.chat_model_config.model}
 						</span>
 					</div>
 				)}
@@ -164,11 +146,14 @@ export function ChannelPage() {
 					<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 						{channels.map((ch) => (
 							<ChannelCard
-								key={ch.channel_id}
+								key={ch.id}
 								channel={ch}
-								agentName={getAgentName(ch.default_agent_id)}
-								onEnable={() => enable(ch.channel_id)}
-								onDisable={() => disable(ch.channel_id)}
+								agentName={getAgentName(
+									ch.routing.bindings[ch.routing.bindings.length - 1]?.agent_id ??
+										'',
+								)}
+								onEnable={() => enable(ch.id)}
+								onDisable={() => disable(ch.id)}
 								onEdit={() => setEditTarget(ch)}
 								onDelete={() => setDeleteTarget(ch)}
 							/>
@@ -196,11 +181,11 @@ export function ChannelPage() {
 					onOpenChange={(open) => !open && setDeleteTarget(null)}
 					title={t('common.deleteTitle', {
 						entity: t('channel.deleteEntity'),
-						name: deleteTarget.channel_id,
+						name: `${deleteTarget.channel_type} · ${deleteTarget.id.slice(0, 8)}`,
 					})}
 					description={t('common.deleteDescription')}
 					onConfirm={async () => {
-						await remove(deleteTarget.channel_id);
+						await remove(deleteTarget.id);
 						setDeleteTarget(null);
 					}}
 				/>
