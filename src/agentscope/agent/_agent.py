@@ -534,6 +534,7 @@ class Agent:
             context_overflow = True
 
         # Compress the messages
+        res = None
         try:
             res = await self.model.generate_structured_output(
                 messages=messages,
@@ -584,10 +585,6 @@ class Agent:
                         self.name,
                         inner_e,
                     )
-                    res = None
-
-            else:
-                res = None
 
             if res is None:
                 logger.warning(
@@ -610,45 +607,32 @@ class Agent:
             """Apply the context change with interruption protection."""
             if res is not None:
                 new_summary = cfg.summary_template.format(**res.content)
-                if self.offloader:
-                    path = await self.offloader.offload_context(
-                        self.state.session_id,
-                        msgs=msgs_to_compress,
-                    )
-                    new_summary += (
-                        f"\n<system-reminder>The compressed context"
-                        f" is offloaded to '{path}', you can refer"
-                        f" to it when needed.</system-reminder>"
-                    )
+
             else:
-                # Fallback: discard msgs_to_compress without a summary. The
-                # offloader appends to a session-stable path, so offload
-                # unconditionally; the note only needs to appear once.
-                truncation_msg = (
-                    "Some earlier messages were truncated because summary"
-                    " generation failed. Continue with the remaining context."
+                new_summary = self.state.summary or (
+                    "<system-info>Some earlier messages were truncated for "
+                    "limited context.</system-info>"
                 )
-                if self.offloader:
-                    path = await self.offloader.offload_context(
-                        self.state.session_id,
-                        msgs=msgs_to_compress,
-                    )
-                    truncation_msg += (
-                        f" The truncated context is offloaded to '{path}'."
-                    )
 
-                raw_summary = self.state.summary
-                existing = raw_summary if isinstance(raw_summary, str) else ""
-                tag = "<system-truncation-note>"
-                if tag in existing:
-                    new_summary = existing
-                else:
-                    new_summary = (
-                        f"{existing}\n{tag}{truncation_msg}"
-                        f"</system-truncation-note>"
-                    )
+            if self.offloader:
+                path = await self.offloader.offload_context(
+                    self.state.session_id,
+                    msgs=msgs_to_compress,
+                )
+                offload_reminder = (
+                    f"\n<system-reminder>The compressed context"
+                    f" is offloaded to '{path}', you can refer"
+                    f" to it when needed.</system-reminder>"
+                )
+                if isinstance(new_summary, str):
+                    new_summary += offload_reminder
+                elif isinstance(new_summary, list):
+                    new_summary.append(TextBlock(text=offload_reminder))
 
+            # Clear the read tool cache
             await self._clear_unreserved_read_cache(msgs_to_reserve)
+
+            # Update the context and summary
             self.state.summary = new_summary
             self.state.context = msgs_to_reserve
 
