@@ -2,43 +2,23 @@
 """Channel module configuration."""
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import BaseModel, Field
-
-
-class ChannelSessionDefaults(BaseModel):
-    """Module-level default values for channel-created sessions.
-
-    These are **not** a replacement for ``SessionConfig`` (defined in
-    ``agentscope.app.storage``).  Instead, they provide fallback values
-    that ``ChannelGateway._ensure_session`` uses when constructing a real
-    ``SessionConfig`` for a new channel session — specifically
-    ``workspace_id`` and ``chat_model_config``.
-
-    Per-channel overrides in ``ChannelRecord.chat_model_config`` take
-    precedence over the defaults here.
-    """
-
-    workspace_id: str = "default"
-    """Workspace to use for channel-created sessions."""
-
-    chat_model_config: dict[str, Any] | None = None
-    """Default chat model config dict.  Channels without an explicit
-    per-channel ``chat_model_config`` fall back to this."""
+from pydantic import BaseModel
 
 
 class ChannelConfig(BaseModel):
     """Module-level configuration for the Channel subsystem."""
 
     response_timeout: float = 60.0
-    """Maximum seconds to wait for an agent reply."""
+    """Maximum seconds a collector waits for an agent reply."""
 
-    concurrent_users_limit: int = 1000
-    """Per-node concurrency semaphore for simultaneous event processing.
-    Per-user serialization is handled by distributed locks via MessageBus."""
+    workspace_id: str = "default"
+    """Workspace bound to channel-created sessions. The per-channel model
+    config is required on the record, so there is no model default here
+    (see docs/design_channel_redesign.md decision #2)."""
 
-    default_session_config: ChannelSessionDefaults = Field(
-        default_factory=ChannelSessionDefaults,
-    )
-    """Fallback values for channel-created sessions (workspace and model)."""
+    reconcile_interval: float = 60.0
+    """Seconds between periodic reconcile sweeps in the lifecycle
+    dispatcher (a fallback under lost lifecycle notifications)."""
+
+    liveness_ttl: int = 30
+    """TTL (seconds) of a node's per-channel status heartbeat."""
