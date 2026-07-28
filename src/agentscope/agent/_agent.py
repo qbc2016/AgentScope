@@ -621,20 +621,12 @@ class Agent:
                         f" to it when needed.</system-reminder>"
                     )
             else:
-                # Fallback: truncation without summary
-                raw_summary = self.state.summary
-                existing = raw_summary if isinstance(raw_summary, str) else ""
-                _TRUNC_TAG = "<system-truncation-note>"
-                _TRUNC_END = "</system-truncation-note>"
-                tag_pos = existing.find(_TRUNC_TAG)
-                if tag_pos >= 0:
-                    existing = existing[:tag_pos].rstrip()
-
+                # Fallback: discard msgs_to_compress without a summary. The
+                # offloader appends to a session-stable path, so offload
+                # unconditionally; the note only needs to appear once.
                 truncation_msg = (
-                    f"{len(msgs_to_compress)} earlier message(s)"
-                    f" were truncated because summary"
-                    f" generation failed. Continue with the"
-                    f" remaining context."
+                    "Some earlier messages were truncated because summary"
+                    " generation failed. Continue with the remaining context."
                 )
                 if self.offloader:
                     path = await self.offloader.offload_context(
@@ -644,9 +636,17 @@ class Agent:
                     truncation_msg += (
                         f" The truncated context is offloaded to '{path}'."
                     )
-                new_summary = (
-                    f"{existing}\n{_TRUNC_TAG}{truncation_msg}{_TRUNC_END}"
-                )
+
+                raw_summary = self.state.summary
+                existing = raw_summary if isinstance(raw_summary, str) else ""
+                tag = "<system-truncation-note>"
+                if tag in existing:
+                    new_summary = existing
+                else:
+                    new_summary = (
+                        f"{existing}\n{tag}{truncation_msg}"
+                        f"</system-truncation-note>"
+                    )
 
             await self._clear_unreserved_read_cache(msgs_to_reserve)
             self.state.summary = new_summary
