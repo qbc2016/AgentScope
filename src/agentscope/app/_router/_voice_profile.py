@@ -13,12 +13,13 @@ from ..deps import (
     get_storage,
 )
 from .._service import ResourceAccessService
-from ..storage import StorageBase, VoiceProfileRecord
+from ..storage import StorageBase, VoiceProfileData, VoiceProfileRecord
 from ..storage._model import (
     ENGINE_GPU_REQUIREMENT,
     ENGINE_SOURCE,
     ENGINE_TO_CREDENTIAL_TYPE,
     ENGINE_VOICE_CLONING,
+    get_missing_voice_profile_binding_fields,
 )
 from ...credential import CredentialFactory
 from ._schema import (
@@ -42,61 +43,71 @@ voice_profile_router = APIRouter(
 )
 
 
-async def _get_available_engines(
+async def _resolve_owned_credential(
     access: ResourceAccessService,
     user_id: str,
-) -> list[str]:
-    """Return engine names whose credential is configured.
+    credential_id: str,
+    expected_type: str,
+) -> dict:
+    """Resolve an owner-scoped credential and validate its provider type.
 
     Args:
         access: Resource access service.
         user_id: Authenticated user id.
-
-    Returns:
-        Sorted list of available engine names.
+        credential_id: Credential selected for the voice.
+        expected_type: Credential type required by the engine.
     """
-    credentials = await access.list_resource(
+    record = await access.resolve_credential(
         user_id,
-        ResourceKind.CREDENTIAL,
+        credential_id,
     )
-    cred_types: set[str] = set()
-    for cred in credentials:
-        cred_type = cred.data.get("type")
-        if cred_type:
-            cred_types.add(cred_type)
+    if record.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Custom voices require a credential owned by the "
+                "authenticated user; shared credentials are not allowed."
+            ),
+        )
 
-    engines: list[str] = []
-    for engine, required_type in ENGINE_TO_CREDENTIAL_TYPE.items():
-        if required_type in cred_types:
-            engines.append(engine)
-    return sorted(engines)
-
-
-async def _ensure_engine_credential(
-    access: ResourceAccessService,
-    user_id: str,
-    engine: str | None,
-) -> None:
-    """Raise 400 if engine requires a missing credential.
-
-    Args:
-        access: Resource access service.
-        user_id: Authenticated user id.
-        engine: Engine name from voice profile data.
-    """
-    if engine is None:
-        return
-    available = await _get_available_engines(access, user_id)
-    if engine not in available:
-        required = ENGINE_TO_CREDENTIAL_TYPE.get(engine, engine)
+    actual_type = record.data.get("type")
+    if actual_type != expected_type:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Engine '{engine}' requires a "
-                f"'{required}' credential. "
-                f"Please configure one first."
+                f"Credential {credential_id!r} has type {actual_type!r}; "
+                f"expected {expected_type!r}."
             ),
         )
+    return record.data
+
+
+async def _validate_voice_profile_data(
+    access: ResourceAccessService,
+    user_id: str,
+    data: VoiceProfileData,
+) -> None:
+    """Validate an authorization binding before storing a voice profile.
+
+    Runtime use is independently guarded by
+    ``_service._tts_model._validate_voice_binding``. Both layers share the
+    required-field definition so stored and runtime validation stay aligned.
+    """
+    missing = get_missing_voice_profile_binding_fields(data)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Voice profile requires " + ", ".join(missing) + ".",
+        )
+
+    assert data.engine is not None
+    assert data.credential_id is not None
+    await _resolve_owned_credential(
+        access,
+        user_id,
+        data.credential_id,
+        ENGINE_TO_CREDENTIAL_TYPE[data.engine],
+    )
 
 
 @voice_profile_router.get(
@@ -127,6 +138,10 @@ async def list_available_engines(
     # Map cred_type -> list of (id, label)
     cred_by_type: dict[str, list[CredentialRef]] = {}
     for cred in credentials:
+        # Sharing a provider credential must not implicitly share every custom
+        # voice in the upstream account.
+        if cred.user_id != user_id:
+            continue
         cred_type = cred.data.get("type")
         if cred_type:
             label = cred.data.get("name") or cred_type
@@ -238,15 +253,10 @@ async def create_voice_profile(
     Returns:
         `CreateVoiceProfileResponse`: The created profile id.
     """
-    if not body.data.engine:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="engine is required.",
-        )
-    await _ensure_engine_credential(
+    await _validate_voice_profile_data(
         access,
         user_id,
-        body.data.engine,
+        body.data,
     )
     # Check for duplicate name
     existing_profiles = await storage.list_voice_profiles(user_id)
@@ -296,15 +306,10 @@ async def update_voice_profile(
     Returns:
         `VoiceProfileRecord`: The updated voice profile.
     """
-    if not body.data.engine:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="engine is required.",
-        )
-    await _ensure_engine_credential(
+    await _validate_voice_profile_data(
         access,
         user_id,
-        body.data.engine,
+        body.data,
     )
     existing = await storage.get_voice_profile(
         user_id,
@@ -402,9 +407,10 @@ async def upload_openai_consent(
     Returns:
         OpenAIConsentResponse with the consent_id.
     """
-    cred_data, _ = await _find_credential(
+    cred_data = await _resolve_owned_credential(
         access,
         user_id,
+        body.credential_id,
         "openai_credential",
     )
     api_key = cred_data.get("api_key", "")
@@ -461,45 +467,6 @@ async def upload_openai_consent(
         )
 
     return OpenAIConsentResponse(consent_id=consent_id)
-
-
-async def _find_credential(
-    access: ResourceAccessService,
-    user_id: str,
-    cred_type: str,
-) -> tuple[dict, str]:
-    """Find and resolve a credential by type for a user.
-
-    Args:
-        access: Resource access service.
-        user_id: Authenticated user id.
-        cred_type: Credential type string (e.g.
-            'dashscope_credential', 'openai_credential').
-
-    Returns:
-        Tuple of (raw credential data dict, credential_id).
-
-    Raises:
-        HTTPException: If no matching credential is found.
-    """
-    credentials = await access.list_resource(
-        user_id,
-        ResourceKind.CREDENTIAL,
-    )
-    cred_id: str | None = None
-    for cred in credentials:
-        if cred.data.get("type") == cred_type:
-            cred_id = cred.id
-            break
-
-    if cred_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(f"No {cred_type} found. " f"Please configure one first."),
-        )
-
-    record = await access.resolve_credential(user_id, cred_id)
-    return record.data, cred_id
 
 
 @voice_profile_router.post(
@@ -586,9 +553,10 @@ async def _clone_dashscope(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="model is required for DashScope cloning.",
         )
-    cred_data, cred_id = await _find_credential(
+    cred_data = await _resolve_owned_credential(
         access,
         user_id,
+        body.credential_id,
         "dashscope_credential",
     )
     api_key = cred_data.get("api_key", "")
@@ -678,7 +646,7 @@ async def _clone_dashscope(
 
     return CloneVoiceResponse(
         voice_id=voice_id,
-        credential_id=cred_id,
+        credential_id=body.credential_id,
     )
 
 
@@ -711,9 +679,10 @@ async def _clone_openai(
             detail=("consent token is required for OpenAI " "voice cloning."),
         )
 
-    cred_data, cred_id = await _find_credential(
+    cred_data = await _resolve_owned_credential(
         access,
         user_id,
+        body.credential_id,
         "openai_credential",
     )
     api_key = cred_data.get("api_key", "")
@@ -770,5 +739,5 @@ async def _clone_openai(
 
     return CloneVoiceResponse(
         voice_id=voice_id,
-        credential_id=cred_id,
+        credential_id=body.credential_id,
     )

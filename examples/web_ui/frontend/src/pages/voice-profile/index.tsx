@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/i18n/useI18n';
-import { isModelForEngine } from '@/utils/tts';
+import { credentialTypeForEngine, isModelForEngine } from '@/utils/tts';
 
 const ENGINE_LABELS: Record<string, string> = {
 	cosyvoice: 'CosyVoice',
@@ -61,13 +61,6 @@ function fileToBase64(file: File): Promise<string> {
 
 const MAX_AUDIO_SIZE_MB = 10;
 const MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024;
-
-const ENGINE_CREDENTIAL_TYPE: Record<string, string> = {
-	cosyvoice: 'dashscope_credential',
-	dashscope_tts: 'dashscope_credential',
-	openai_tts: 'openai_credential',
-	gemini_tts: 'gemini_credential',
-};
 
 function VoiceProfileDialog({
 	open,
@@ -142,7 +135,7 @@ function VoiceProfileDialog({
 			return creds.length === 1 ? creds[0].id : null;
 		});
 
-		const credType = ENGINE_CREDENTIAL_TYPE[engine];
+		const credType = credentialTypeForEngine(engine);
 		if (!credType) {
 			setModelOptions([]);
 			return;
@@ -194,7 +187,7 @@ function VoiceProfileDialog({
 
 	const handleConsentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
-		if (!file) return;
+		if (!file || !credentialId) return;
 		if (file.size > MAX_AUDIO_SIZE_BYTES) {
 			setCloneError(t('voiceProfile.fileTooLarge', { max: MAX_AUDIO_SIZE_MB }));
 			return;
@@ -204,6 +197,7 @@ function VoiceProfileDialog({
 		try {
 			const base64 = await fileToBase64(file);
 			const res = await voiceProfileApi.uploadOpenAIConsent({
+				credential_id: credentialId,
 				audio_base64: base64,
 				audio_filename: file.name,
 			});
@@ -221,7 +215,7 @@ function VoiceProfileDialog({
 
 	const handleCloneUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
-		if (!file || !engine) return;
+		if (!file || !engine || !credentialId) return;
 		if (file.size > MAX_AUDIO_SIZE_BYTES) {
 			setCloneError(t('voiceProfile.fileTooLarge', { max: MAX_AUDIO_SIZE_MB }));
 			return;
@@ -240,6 +234,7 @@ function VoiceProfileDialog({
 			const base64 = await fileToBase64(file);
 			const res = await voiceProfileApi.cloneVoice({
 				engine,
+				credential_id: credentialId,
 				model,
 				audio_base64: base64,
 				audio_filename: file.name,
@@ -259,7 +254,7 @@ function VoiceProfileDialog({
 	};
 
 	const handleCloneFromUrl = async () => {
-		if (!engine || !model) {
+		if (!engine || !model || !credentialId) {
 			setCloneError(t('voiceProfile.modelPlaceholder'));
 			return;
 		}
@@ -272,6 +267,7 @@ function VoiceProfileDialog({
 		try {
 			const res = await voiceProfileApi.cloneVoice({
 				engine,
+				credential_id: credentialId,
 				model,
 				audio_url: cloneUrl.trim(),
 			});
@@ -494,7 +490,7 @@ function VoiceProfileDialog({
 											type="button"
 											variant="outline"
 											size="sm"
-											disabled={cloning}
+											disabled={cloning || !credentialId}
 											onClick={() => consentFileRef.current?.click()}
 										>
 											{t('voiceProfile.uploadConsent')}
@@ -515,7 +511,7 @@ function VoiceProfileDialog({
 										type="button"
 										variant="outline"
 										size="sm"
-										disabled={cloning}
+										disabled={cloning || !credentialId}
 										onClick={() => fileInputRef.current?.click()}
 									>
 										{cloning ? (
@@ -541,7 +537,7 @@ function VoiceProfileDialog({
 										type="button"
 										variant="outline"
 										size="sm"
-										disabled={cloning || !cloneUrl.trim()}
+										disabled={cloning || !cloneUrl.trim() || !credentialId}
 										onClick={handleCloneFromUrl}
 									>
 										{cloning ? (
@@ -563,7 +559,17 @@ function VoiceProfileDialog({
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
 						{t('voiceProfile.cancel')}
 					</Button>
-					<Button onClick={handleSave} disabled={saving || !name.trim() || !engine}>
+					<Button
+						onClick={handleSave}
+						disabled={
+							saving ||
+							!name.trim() ||
+							!engine ||
+							!credentialId ||
+							!model ||
+							!voice.trim()
+						}
+					>
 						{saving ? t('voiceProfile.saving') : t('voiceProfile.save')}
 					</Button>
 				</DialogFooter>

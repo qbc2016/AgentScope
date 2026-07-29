@@ -107,6 +107,27 @@ class VoiceProfileData(BaseModel):
     )
 
 
+def get_missing_voice_profile_binding_fields(
+    data: VoiceProfileData,
+) -> list[str]:
+    """Return missing fields required to authorize and use a voice profile.
+
+    Both profile CRUD validation and runtime TTS validation must use this
+    definition so a profile accepted at write time is also usable later.
+    """
+    binding_fields = {
+        "engine": data.engine,
+        "credential_id": data.credential_id,
+        "model": data.model,
+        "voice": data.voice,
+    }
+    return [
+        name
+        for name, value in binding_fields.items()
+        if not isinstance(value, str) or not value.strip()
+    ]
+
+
 class VoiceProfileRecord(_RecordBase):
     """The voice profile ORM model."""
 

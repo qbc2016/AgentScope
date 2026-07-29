@@ -490,6 +490,7 @@
 		"ttsParameters": "Parameters",
 		"ttsParametersDescription": "Adjust parameters for the selected TTS model.",
 		"voiceProfiles": "Voice Profiles",
+		"voiceProfileUnavailable": "The bound credential or model is unavailable.",
 		"noTts": "No TTS"
 	},
 	"setup": {

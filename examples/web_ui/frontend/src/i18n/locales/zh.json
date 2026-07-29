@@ -490,6 +490,7 @@
 		"ttsParameters": "参数",
 		"ttsParametersDescription": "调整所选语音合成模型的参数。",
 		"voiceProfiles": "语音配置",
+		"voiceProfileUnavailable": "绑定的凭证或模型不可用。",
 		"noTts": "不使用语音合成"
 	},
 	"setup": {

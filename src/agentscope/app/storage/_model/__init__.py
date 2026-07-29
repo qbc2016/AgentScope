@@ -26,6 +26,7 @@ from ._voice_profile import (
     ENGINE_SOURCE,
     ENGINE_TO_CREDENTIAL_TYPE,
     ENGINE_VOICE_CLONING,
+    get_missing_voice_profile_binding_fields,
     VoiceProfileData,
     VoiceProfileRecord,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "ENGINE_SOURCE",
     "ENGINE_GPU_REQUIREMENT",
     "ENGINE_VOICE_CLONING",
+    "get_missing_voice_profile_binding_fields",
     "VoiceProfileData",
     "VoiceProfileRecord",
 ]

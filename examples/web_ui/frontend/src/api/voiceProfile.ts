@@ -47,6 +47,7 @@ export interface AvailableEnginesResponse {
 
 export interface CloneVoiceRequest {
 	engine: string;
+	credential_id: string;
 	model?: string | null;
 	audio_base64?: string | null;
 	audio_filename?: string;
@@ -62,6 +63,7 @@ export interface CloneVoiceResponse {
 }
 
 export interface OpenAIConsentRequest {
+	credential_id: string;
 	name?: string;
 	language?: string;
 	audio_base64: string;

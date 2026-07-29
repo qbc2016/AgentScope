@@ -81,6 +81,9 @@ class CloneVoiceRequest(BaseModel):
     engine: str
     """TTS engine to clone for."""
 
+    credential_id: str
+    """Owner-scoped credential used for cloning and later synthesis."""
+
     model: str | None = None
     """Target model (required for DashScope, optional for OpenAI)."""
 
@@ -115,6 +118,9 @@ class CloneVoiceResponse(BaseModel):
 
 class OpenAIConsentRequest(BaseModel):
     """Request body for uploading an OpenAI consent recording."""
+
+    credential_id: str
+    """Owner-scoped OpenAI credential used for the consent recording."""
 
     name: str = "agentscope_consent"
     """Label for the consent recording."""
