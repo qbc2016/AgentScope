@@ -8,4 +8,6 @@ input_types:
 output_types:
   - audio/wav
 
-parameter_overrides: {}
+parameter_overrides:
+  profile:
+    hidden: true

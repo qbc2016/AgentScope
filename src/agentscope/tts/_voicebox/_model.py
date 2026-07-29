@@ -79,6 +79,8 @@ class VoiceboxTTSModel(TTSModelBase):
         model: str = "voicebox",
         parameters: "VoiceboxTTSModel.Parameters | None" = None,
         stream: bool = False,
+        client_id: str | None = None,
+        require_client_binding: bool = False,
     ) -> None:
         """Initialize the Voicebox TTS model.
 
@@ -93,7 +95,17 @@ class VoiceboxTTSModel(TTSModelBase):
             stream (`bool`, defaults to `False`):
                 Whether to stream output. Voicebox returns
                 full audio in one response.
+            client_id (`str | None`, defaults to `None`):
+                Value sent in the ``X-Voicebox-Client-Id`` header.
+            require_client_binding (`bool`, defaults to `False`):
+                Require ``client_id`` to have a Voicebox profile binding.
+                This prevents Voicebox from falling back to its global
+                default profile.
         """
+        if require_client_binding and not client_id:
+            raise ValueError(
+                "client_id is required when require_client_binding is true.",
+            )
         super().__init__(
             credential=credential,
             model=model,
@@ -101,6 +113,66 @@ class VoiceboxTTSModel(TTSModelBase):
             stream=stream,
         )
         self._endpoint = credential.endpoint.rstrip("/")
+        self._client_id = client_id
+        self._require_client_binding = require_client_binding
+        self._client_binding_checked = False
+
+    def _request_headers(self) -> dict[str, str]:
+        """Build headers shared by Voicebox HTTP requests."""
+        headers = {"Content-Type": "application/json"}
+        if self._client_id:
+            headers["X-Voicebox-Client-Id"] = self._client_id
+        return headers
+
+    async def _ensure_client_binding(self) -> None:
+        """Ensure this client has its own Voicebox profile binding.
+
+        Voicebox otherwise falls back to a process-wide default profile,
+        which is unsafe for a shared AgentScope deployment.
+        """
+        if self._client_binding_checked:
+            return
+
+        try:
+            import httpx
+        except ImportError as e:
+            raise ImportError(
+                "httpx is required for VoiceboxTTSModel. "
+                "Install with: pip install httpx",
+            ) from e
+
+        assert self._client_id is not None
+        url = f"{self._endpoint}/mcp/bindings"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    url,
+                    headers=self._request_headers(),
+                )
+                response.raise_for_status()
+                items = response.json().get("items", [])
+        except Exception as e:
+            raise RuntimeError(
+                "Could not verify the Voicebox client binding. "
+                "Make sure Voicebox supports GET /mcp/bindings.",
+            ) from e
+
+        binding = next(
+            (
+                item
+                for item in items
+                if isinstance(item, dict)
+                and item.get("client_id") == self._client_id
+            ),
+            None,
+        )
+        if not binding or not binding.get("profile_id"):
+            raise RuntimeError(
+                "No Voicebox profile is bound to AgentScope client "
+                f"{self._client_id!r}. Open Voicebox Settings -> MCP, "
+                "bind this client to a profile, then try again.",
+            )
+        self._client_binding_checked = True
 
     async def _call_mcp_tool(
         self,
@@ -143,9 +215,7 @@ class VoiceboxTTSModel(TTSModelBase):
             response = await client.post(
                 url,
                 json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                },
+                headers=self._request_headers(),
             )
             response.raise_for_status()
             result = response.json()
@@ -176,6 +246,15 @@ class VoiceboxTTSModel(TTSModelBase):
         """
         if text is None:
             return TTSResponse(content=None)
+
+        if self._require_client_binding:
+            if self.parameters.profile is not None:
+                raise RuntimeError(
+                    "An explicit Voicebox profile is not allowed when "
+                    "per-client isolation is enabled. Configure the profile "
+                    "binding in Voicebox Settings -> MCP instead.",
+                )
+            await self._ensure_client_binding()
 
         arguments: dict[str, Any] = {"text": text}
 

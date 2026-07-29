@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """TTS model service: builds a TTSModelBase from stored credential + config."""
+import hashlib
 from typing import Type
 
 from fastapi import HTTPException, status
@@ -7,7 +8,7 @@ from fastapi import HTTPException, status
 from ._access import ResourceAccessService
 from ..storage import StorageBase, TTSModelConfig
 from ...credential import CredentialFactory
-from ...tts import TTSModelBase
+from ...tts import TTSModelBase, VoiceboxTTSModel
 
 
 async def get_tts_model(
@@ -75,11 +76,33 @@ async def get_tts_model(
     # Strip remaining internal keys
     params = {k: v for k, v in params.items() if not k.startswith("_")}
     parameters = tts_cls.Parameters(**params) if params else None
+
+    if issubclass(tts_cls, VoiceboxTTSModel):
+        client_id = _voicebox_client_id(user_id, config.credential_id)
+        return VoiceboxTTSModel(
+            credential=credential,
+            model=config.model,
+            parameters=parameters,
+            client_id=client_id,
+            require_client_binding=True,
+        )
+
     return tts_cls(
         credential=credential,
         model=config.model,
         parameters=parameters,
     )
+
+
+def _voicebox_client_id(user_id: str, credential_id: str) -> str:
+    """Build a stable, header-safe Voicebox binding id.
+
+    The credential id is included so separate Voicebox endpoints configured
+    by the same AgentScope user do not accidentally share a binding.
+    """
+    identity = f"{user_id}\0{credential_id}".encode()
+    digest = hashlib.sha256(identity).hexdigest()[:24]
+    return f"agentscope-{digest}"
 
 
 async def _enrich_from_profile(
