@@ -238,22 +238,14 @@ export function ModelParametersPopover({
 	const { groups: ttsGroups } = useAvailableTTSModels();
 	const { profiles: voiceProfiles } = useVoiceProfiles();
 	const selectedTTSParameters = (selectedTTSModel?.parameters ?? {}) as Record<string, unknown>;
-	const selectedVoiceProfile = voiceProfiles.find(
-		(profile) => profile.id === selectedTTSParameters._voice_profile_id,
-	);
-	const selectedVoiceProfileMetadata = selectedVoiceProfile?.data.metadata as
-		| Record<string, unknown>
-		| null
-		| undefined;
 	const isTadaSelected =
 		selectedTTSModel != null && isModelForEngine(selectedTTSModel.model, 'tada');
 	const hasTadaReferenceAudio = Boolean(
-		selectedTTSParameters.reference_audio_path ||
-		selectedTTSParameters.reference_audio_base64 ||
-		selectedVoiceProfileMetadata?.reference_audio_base64 ||
-		selectedVoiceProfileMetadata?.has_reference_audio,
+		selectedTTSParameters.reference_audio_path || selectedTTSParameters.reference_audio_base64,
 	);
-	const showTadaReferenceWarning = isTadaSelected && !hasTadaReferenceAudio;
+	const hasSelectedVoiceProfile = Boolean(selectedTTSParameters._voice_profile_id);
+	const showTadaReferenceWarning =
+		isTadaSelected && !hasSelectedVoiceProfile && !hasTadaReferenceAudio;
 
 	const schema = modelCard?.parameter_schema as ParameterSchema | undefined;
 	const properties = schema?.properties ?? {};
@@ -447,14 +439,6 @@ export function ModelParametersPopover({
 										selectedTTSModel != null &&
 										(selectedTTSModel.parameters as Record<string, unknown>)
 											?._voice_profile_id === vp.id;
-									const profileMetadata = vp.data.metadata as Record<
-										string,
-										unknown
-									> | null;
-									const isInvalidTadaProfile =
-										vp.data.engine === 'tada' &&
-										!profileMetadata?.reference_audio_base64 &&
-										!profileMetadata?.has_reference_audio;
 									return (
 										<DropdownMenuCheckboxItem
 											key={vp.id}
@@ -631,16 +615,6 @@ export function ModelParametersPopover({
 											}}
 										>
 											<span className="truncate">{vp.data.name}</span>
-											{isInvalidTadaProfile && (
-												<Badge
-													variant="destructive"
-													className="ml-1.5 text-[10px] px-1 py-0"
-												>
-													{t(
-														'model-parameters.tadaReferenceRequiredBadge',
-													)}
-												</Badge>
-											)}
 											{vp.data.engine && (
 												<Badge
 													variant="secondary"
