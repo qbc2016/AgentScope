@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useTranslation } from '@/i18n/useI18n';
-import { isModelForEngine } from '@/utils/tts';
+import { credentialTypeForEngine, isModelForEngine } from '@/utils/tts';
 
 const ENGINE_LABELS: Record<string, string> = {
 	cosyvoice: 'CosyVoice',
@@ -66,18 +66,6 @@ function fileToBase64(file: File): Promise<string> {
 
 const MAX_AUDIO_SIZE_MB = 10;
 const MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024;
-
-const ENGINE_CREDENTIAL_TYPE: Record<string, string> = {
-	cosyvoice: 'dashscope_credential',
-	dashscope_tts: 'dashscope_credential',
-	openai_tts: 'openai_credential',
-	gemini_tts: 'gemini_credential',
-	kokoro: 'local_tts_credential',
-	chatterbox: 'local_tts_credential',
-	luxtts: 'local_tts_credential',
-	tada: 'local_tts_credential',
-	voicebox: 'voicebox_credential',
-};
 
 const LOCAL_ENGINES = new Set(['kokoro', 'chatterbox', 'luxtts', 'tada']);
 
@@ -124,6 +112,7 @@ function VoiceProfileDialog({
 	const [refAudioBase64, setRefAudioBase64] = useState<string | null>(null);
 	const [refAudioFilename, setRefAudioFilename] = useState('');
 	const [referenceText, setReferenceText] = useState('');
+	const [credentialId, setCredentialId] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const consentFileRef = useRef<HTMLInputElement>(null);
 	const localRefInputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +146,7 @@ function VoiceProfileDialog({
 			setRefAudioBase64((meta?.reference_audio_base64 as string) || null);
 			setRefAudioFilename('');
 			setReferenceText((meta?.reference_text as string) || '');
+			setCredentialId(profile.data.credential_id || null);
 		} else {
 			setName('');
 			setEngine(undefined);
@@ -167,6 +157,7 @@ function VoiceProfileDialog({
 			setRefAudioBase64(null);
 			setRefAudioFilename('');
 			setReferenceText('');
+			setCredentialId(null);
 		}
 	}, [profile, open]);
 
@@ -174,9 +165,18 @@ function VoiceProfileDialog({
 		if (!engine) {
 			setModelOptions([]);
 			setModel(undefined);
+			setCredentialId(null);
 			return;
 		}
-		const credType = ENGINE_CREDENTIAL_TYPE[engine];
+		// Auto-select credential for this engine
+		const engineInfo = engineDetails.find((d) => d.name === engine);
+		const creds = engineInfo?.credentials || [];
+		setCredentialId((prev) => {
+			if (prev && creds.some((c) => c.id === prev)) return prev;
+			return creds.length === 1 ? creds[0].id : null;
+		});
+
+		const credType = credentialTypeForEngine(engine);
 		if (!credType) {
 			setModelOptions([]);
 			return;
@@ -252,16 +252,16 @@ function VoiceProfileDialog({
 	const canConfigureVoice = Boolean(voiceSchema) || modelOptions.length === 0;
 	const speedMinimum = typeof speedSchema?.minimum === 'number' ? speedSchema.minimum : 0.5;
 	const speedMaximum = typeof speedSchema?.maximum === 'number' ? speedSchema.maximum : 2;
-	const voiceOptions = (voiceSchema?.enum as string[] | undefined) || [];
-
 	const displayedVoiceOptions = useMemo(
-		() =>
-			engine === 'kokoro'
+		() => {
+			const voiceOptions = (voiceSchema?.enum as string[] | undefined) || [];
+			return engine === 'kokoro'
 				? voiceOptions.filter(
 						(option) => kokoroLanguageFromVoice(option) === kokoroLanguage,
 					)
-				: voiceOptions,
-		[engine, kokoroLanguage, voiceOptions],
+				: voiceOptions;
+		},
+		[engine, kokoroLanguage, voiceSchema],
 	);
 
 	useEffect(() => {
@@ -280,7 +280,7 @@ function VoiceProfileDialog({
 
 	const handleConsentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
-		if (!file) return;
+		if (!file || !credentialId) return;
 		if (file.size > MAX_AUDIO_SIZE_BYTES) {
 			setCloneError(t('voiceProfile.fileTooLarge', { max: MAX_AUDIO_SIZE_MB }));
 			return;
@@ -290,6 +290,7 @@ function VoiceProfileDialog({
 		try {
 			const base64 = await fileToBase64(file);
 			const res = await voiceProfileApi.uploadOpenAIConsent({
+				credential_id: credentialId,
 				audio_base64: base64,
 				audio_filename: file.name,
 			});
@@ -307,7 +308,7 @@ function VoiceProfileDialog({
 
 	const handleCloneUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
-		if (!file || !engine) return;
+		if (!file || !engine || !credentialId) return;
 		if (file.size > MAX_AUDIO_SIZE_BYTES) {
 			setCloneError(t('voiceProfile.fileTooLarge', { max: MAX_AUDIO_SIZE_MB }));
 			return;
@@ -326,12 +327,14 @@ function VoiceProfileDialog({
 			const base64 = await fileToBase64(file);
 			const res = await voiceProfileApi.cloneVoice({
 				engine,
+				credential_id: credentialId,
 				model,
 				audio_base64: base64,
 				audio_filename: file.name,
 				...(engine === 'openai_tts' ? { consent: consentId.trim() } : {}),
 			});
 			setVoice(res.voice_id);
+			setCredentialId(res.credential_id);
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			setCloneError(msg);
@@ -344,7 +347,7 @@ function VoiceProfileDialog({
 	};
 
 	const handleCloneFromUrl = async () => {
-		if (!engine || !model) {
+		if (!engine || !model || !credentialId) {
 			setCloneError(t('voiceProfile.modelPlaceholder'));
 			return;
 		}
@@ -357,10 +360,12 @@ function VoiceProfileDialog({
 		try {
 			const res = await voiceProfileApi.cloneVoice({
 				engine,
+				credential_id: credentialId,
 				model,
 				audio_url: cloneUrl.trim(),
 			});
 			setVoice(res.voice_id);
+			setCredentialId(res.credential_id);
 			setCloneUrl('');
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
@@ -395,6 +400,7 @@ function VoiceProfileDialog({
 				name: name.trim(),
 				engine: engine || null,
 				model: model || null,
+				credential_id: credentialId,
 				source: engine
 					? engineDetails.find((d) => d.name === engine)?.source || null
 					: null,
@@ -459,6 +465,50 @@ function VoiceProfileDialog({
 							</Select>
 						)}
 					</div>
+					{engine &&
+						(() => {
+							const engineInfo = engineDetails.find((d) => d.name === engine);
+							const creds = engineInfo?.credentials || [];
+							if (creds.length === 0) return null;
+							if (creds.length === 1) {
+								return (
+									<div className="flex flex-col gap-2">
+										<Label htmlFor="vp-credential">
+											{t('voiceProfile.credential')}
+										</Label>
+										<p className="text-sm text-muted-foreground px-3 py-2 border rounded-md bg-muted/30">
+											{creds[0].label}
+										</p>
+									</div>
+								);
+							}
+							return (
+								<div className="flex flex-col gap-2">
+									<Label htmlFor="vp-credential">
+										{t('voiceProfile.credential')}
+									</Label>
+									<Select
+										value={credentialId || undefined}
+										onValueChange={(val) => setCredentialId(val)}
+									>
+										<SelectTrigger id="vp-credential">
+											<SelectValue
+												placeholder={t(
+													'voiceProfile.credentialPlaceholder',
+												)}
+											/>
+										</SelectTrigger>
+										<SelectContent>
+											{creds.map((c) => (
+												<SelectItem key={c.id} value={c.id}>
+													{c.label}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							);
+						})()}
 					{engine && (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="vp-model">{t('voiceProfile.model')}</Label>
@@ -596,7 +646,7 @@ function VoiceProfileDialog({
 											type="button"
 											variant="outline"
 											size="sm"
-											disabled={cloning}
+											disabled={cloning || !credentialId}
 											onClick={() => consentFileRef.current?.click()}
 										>
 											{t('voiceProfile.uploadConsent')}
@@ -617,7 +667,7 @@ function VoiceProfileDialog({
 										type="button"
 										variant="outline"
 										size="sm"
-										disabled={cloning}
+										disabled={cloning || !credentialId}
 										onClick={() => fileInputRef.current?.click()}
 									>
 										{cloning ? (
@@ -643,7 +693,7 @@ function VoiceProfileDialog({
 										type="button"
 										variant="outline"
 										size="sm"
-										disabled={cloning || !cloneUrl.trim()}
+										disabled={cloning || !cloneUrl.trim() || !credentialId}
 										onClick={handleCloneFromUrl}
 									>
 										{cloning ? (
@@ -727,6 +777,9 @@ function VoiceProfileDialog({
 							modelsLoading ||
 							!name.trim() ||
 							!engine ||
+							!credentialId ||
+							!model ||
+							(canConfigureVoice && !voice.trim()) ||
 							(engine === 'tada' && !refAudioBase64)
 						}
 					>
@@ -745,6 +798,7 @@ export function VoiceProfilePage() {
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editProfile, setEditProfile] = useState<VoiceProfileRecord | null>(null);
 	const [deleteProfile, setDeleteProfile] = useState<VoiceProfileRecord | null>(null);
+	const [engineDetails, setEngineDetails] = useState<EngineInfo[]>([]);
 
 	const loadProfiles = useCallback(async () => {
 		try {
@@ -757,7 +811,17 @@ export function VoiceProfilePage() {
 
 	useEffect(() => {
 		loadProfiles();
+		voiceProfileApi.availableEngines().then((res) => {
+			setEngineDetails(res.engine_details);
+		});
 	}, [loadProfiles]);
+
+	const getCredentialLabel = (profile: VoiceProfileRecord): string | null => {
+		if (!profile.data.credential_id || !profile.data.engine) return null;
+		const info = engineDetails.find((d) => d.name === profile.data.engine);
+		const cred = info?.credentials.find((c) => c.id === profile.data.credential_id);
+		return cred?.label || null;
+	};
 
 	const handleDelete = async () => {
 		if (!deleteProfile) return;
@@ -846,6 +910,11 @@ export function VoiceProfilePage() {
 							</CardHeader>
 							<CardContent>
 								<div className="flex flex-wrap gap-2">
+									{(() => {
+										const credLabel = getCredentialLabel(profile);
+										if (!credLabel) return null;
+										return <Badge variant="secondary">{credLabel}</Badge>;
+									})()}
 									{profile.data.engine && (
 										<Badge variant="secondary">
 											{ENGINE_LABELS[profile.data.engine] ??
@@ -856,7 +925,7 @@ export function VoiceProfilePage() {
 										<Badge variant="secondary">{profile.data.model}</Badge>
 									)}
 									{profile.data.voice && (
-										<Badge variant="outline">{profile.data.voice}</Badge>
+										<Badge variant="secondary">{profile.data.voice}</Badge>
 									)}
 								</div>
 							</CardContent>

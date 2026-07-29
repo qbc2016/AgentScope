@@ -492,6 +492,7 @@
 		"voiceProfiles": "Voice Profiles",
 		"tadaReferenceRequiredBadge": "Reference audio required",
 		"tadaReferenceRequired": "TADA requires reference audio and returns no audio without it. Create and select a TADA voice profile with an uploaded sample, or provide reference_audio_path/reference_audio_base64 in Parameters.",
+		"voiceProfileUnavailable": "The bound credential or model is unavailable.",
 		"noTts": "No TTS"
 	},
 	"setup": {
@@ -615,6 +616,8 @@
 		"enginePlaceholder": "Select an engine",
 		"model": "Model",
 		"modelPlaceholder": "Select a model",
+		"credential": "Credential",
+		"credentialPlaceholder": "Select a credential",
 		"loadingModels": "Loading models...",
 		"language": "Language",
 		"languagePlaceholder": "Select a language",

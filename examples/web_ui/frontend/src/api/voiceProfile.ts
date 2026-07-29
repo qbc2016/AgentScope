@@ -4,6 +4,7 @@ export interface VoiceProfileData {
 	name: string;
 	engine?: string | null;
 	model?: string | null;
+	credential_id?: string | null;
 	source?: 'api' | 'local' | null;
 	voice?: string | null;
 	metadata?: Record<string, unknown> | null;
@@ -26,11 +27,17 @@ export interface CreateVoiceProfileResponse {
 	profile_id: string;
 }
 
+export interface CredentialRef {
+	id: string;
+	label: string;
+}
+
 export interface EngineInfo {
 	name: string;
 	source: 'api' | 'local';
 	gpu_requirement?: string | null;
 	voice_cloning: boolean;
+	credentials: CredentialRef[];
 }
 
 export interface AvailableEnginesResponse {
@@ -40,6 +47,7 @@ export interface AvailableEnginesResponse {
 
 export interface CloneVoiceRequest {
 	engine: string;
+	credential_id: string;
 	model?: string | null;
 	audio_base64?: string | null;
 	audio_filename?: string;
@@ -51,9 +59,11 @@ export interface CloneVoiceRequest {
 
 export interface CloneVoiceResponse {
 	voice_id: string;
+	credential_id: string;
 }
 
 export interface OpenAIConsentRequest {
+	credential_id: string;
 	name?: string;
 	language?: string;
 	audio_base64: string;

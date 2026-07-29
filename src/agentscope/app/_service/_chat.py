@@ -167,12 +167,14 @@ class ChatService:
         user_id: str,
         session_id: str,
         agent_id: str,
-        input_msg: Msg
-        | list[Msg]
-        | UserConfirmResultEvent
-        | ExternalExecutionResultEvent
-        | UserInterruptEvent
-        | None = None,
+        input_msg: (
+            Msg
+            | list[Msg]
+            | UserConfirmResultEvent
+            | ExternalExecutionResultEvent
+            | UserInterruptEvent
+            | None
+        ) = None,
     ) -> None:
         """Drive a chat run to completion.
 
@@ -287,12 +289,14 @@ class ChatService:
         user_id: str,
         session_id: str,
         agent_id: str,
-        input_msg: Msg
-        | list[Msg]
-        | UserConfirmResultEvent
-        | ExternalExecutionResultEvent
-        | UserInterruptEvent
-        | None,
+        input_msg: (
+            Msg
+            | list[Msg]
+            | UserConfirmResultEvent
+            | ExternalExecutionResultEvent
+            | UserInterruptEvent
+            | None
+        ),
     ) -> None:
         """The actual chat-run body; wrapped by :meth:`run` for error
         swallowing. Separated so the try/except doesn't bury the

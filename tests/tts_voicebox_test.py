@@ -113,7 +113,7 @@ class TestVoiceboxTTSModel(IsolatedAsyncioTestCase):
         model = await get_tts_model(
             "user-a",
             TTSModelConfig(
-                type="voicebox_tts",
+                type="voicebox_credential",
                 credential_id="credential-a",
                 model="voicebox",
                 parameters={},

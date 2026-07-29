@@ -102,6 +102,16 @@ class VoiceProfileData(BaseModel):
         title="Model",
     )
 
+    credential_id: str | None = Field(
+        default=None,
+        description=(
+            "Credential ID used for voice cloning and "
+            "synthesis. Ensures the same API key is used "
+            "for both operations."
+        ),
+        title="Credential ID",
+    )
+
     source: _SOURCE_TYPE | None = Field(
         default=None,
         description=(
@@ -155,6 +165,30 @@ class VoiceProfileData(BaseModel):
         if self.engine is not None:
             self.source = ENGINE_SOURCE[self.engine]
         return self
+
+
+def get_missing_voice_profile_binding_fields(
+    data: VoiceProfileData,
+) -> list[str]:
+    """Return missing fields required to authorize and use a voice profile.
+
+    Both profile CRUD validation and runtime TTS validation must use this
+    definition so a profile accepted at write time is also usable later.
+    """
+    binding_fields = {
+        "engine": data.engine,
+        "credential_id": data.credential_id,
+        "model": data.model,
+    }
+    # Reference-audio and Voicebox profiles do not use a provider voice id.
+    # Their ownership is still bound to the exact engine, credential and model.
+    if data.engine not in {"chatterbox", "luxtts", "tada", "voicebox"}:
+        binding_fields["voice"] = data.voice
+    return [
+        name
+        for name, value in binding_fields.items()
+        if not isinstance(value, str) or not value.strip()
+    ]
 
 
 class VoiceProfileRecord(_RecordBase):

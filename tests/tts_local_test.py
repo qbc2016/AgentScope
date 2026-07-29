@@ -246,6 +246,7 @@ class TestLocalEngineAvailability(IsolatedAsyncioTestCase):
         available.side_effect = lambda engine: engine == "kokoro"
         access = AsyncMock()
         credential = MagicMock()
+        credential.user_id = "user1"
         credential.data = {"type": "local_tts_credential"}
         access.list_resource.return_value = [credential]
         engines = await _get_available_engines(access, "user1")

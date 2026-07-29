@@ -492,6 +492,7 @@
 		"voiceProfiles": "语音配置",
 		"tadaReferenceRequiredBadge": "需要参考音频",
 		"tadaReferenceRequired": "TADA 必须提供参考音频，否则不会返回音频。请创建并选择一个已上传音频的 TADA 语音配置，或者在“参数”中设置 reference_audio_path/reference_audio_base64。",
+		"voiceProfileUnavailable": "绑定的凭证或模型不可用。",
 		"noTts": "不使用语音合成"
 	},
 	"setup": {
@@ -615,6 +616,8 @@
 		"enginePlaceholder": "选择引擎",
 		"model": "模型",
 		"modelPlaceholder": "选择模型",
+		"credential": "凭据",
+		"credentialPlaceholder": "选择凭据",
 		"loadingModels": "加载模型列表...",
 		"language": "语言",
 		"languagePlaceholder": "选择语言",
