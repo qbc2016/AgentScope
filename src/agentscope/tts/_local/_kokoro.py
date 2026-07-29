@@ -31,6 +31,10 @@ _MEDIA_TYPE = "audio/wav"
 _VOICE_LANGUAGE_CODES = frozenset(
     {"a", "b", "e", "f", "h", "i", "j", "p", "z"},
 )
+_LANGUAGE_DEPENDENCY_HINTS = {
+    "j": ("Japanese", "ja"),
+    "z": ("Mandarin Chinese", "zh"),
+}
 
 
 class KokoroTTSModel(TTSModelBase):
@@ -163,10 +167,27 @@ class KokoroTTSModel(TTSModelBase):
                     "Install with: pip install 'kokoro>=0.9.4' "
                     "soundfile",
                 ) from e
-            self._pipelines[key] = KPipeline(
-                lang_code=lang_code,
-                device=device,
-            )
+            try:
+                self._pipelines[key] = KPipeline(
+                    lang_code=lang_code,
+                    device=device,
+                )
+            except ImportError as e:
+                dependency_hint = _LANGUAGE_DEPENDENCY_HINTS.get(lang_code)
+                if dependency_hint is None:
+                    raise
+                language, extra = dependency_hint
+                missing_module = getattr(e, "name", None)
+                missing_detail = (
+                    f" (missing module: {missing_module!r})"
+                    if missing_module
+                    else ""
+                )
+                raise ImportError(
+                    f"Kokoro {language} support could not load its "
+                    f"optional dependencies{missing_detail}. "
+                    f"Install with: pip install 'misaki[{extra}]>=0.9.4'",
+                ) from e
         return self._pipelines[key]
 
     def _effective_lang_code(self) -> str:

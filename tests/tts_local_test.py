@@ -78,6 +78,24 @@ class TestKokoroTTSModel(IsolatedAsyncioTestCase):
         model.parameters.voice = "zf_xiaobei"
         self.assertEqual(model._effective_lang_code(), "z")
 
+    async def test_missing_chinese_dependency_has_install_hint(self) -> None:
+        """A missing Chinese G2P dependency has an actionable error."""
+        model = self._make_model()
+        model.parameters.voice = "zf_xiaobei"
+        missing = ModuleNotFoundError(
+            "No module named 'ordered_set'",
+            name="ordered_set",
+        )
+        fake_kokoro = SimpleNamespace(
+            KPipeline=MagicMock(side_effect=missing),
+        )
+        with patch.dict(sys.modules, {"kokoro": fake_kokoro}):
+            with self.assertRaisesRegex(
+                ImportError,
+                r"ordered_set.*misaki\[zh\]",
+            ):
+                model._get_pipeline()
+
 
 class TestChatterboxTTSModel(IsolatedAsyncioTestCase):
     """Unit tests for ChatterboxTTSModel."""
