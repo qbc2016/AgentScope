@@ -38,6 +38,14 @@ class MessageBusKeys:
     drop the entry while the session is running; it re-queues until the
     parked run releases its lock."""
 
+    WAKEUP_KIND_MESSAGE: Final = "message"
+    """Trigger kind: start a new turn from a genuine user ``Msg`` (e.g. an
+    inbound channel message). The dispatcher spawns the run with the
+    carried message as ``input_msg`` so it is persisted and reasoned over
+    as a real user turn. Like ``resume`` (and unlike ``wake``) it carries
+    input, so it is re-queued rather than dropped while the session is
+    running."""
+
     # ------------------------------------------------------------------
     # Cross-session UI projection — a generic per-session Redis-hash
     # store onto which one session can project UI cards owned by another

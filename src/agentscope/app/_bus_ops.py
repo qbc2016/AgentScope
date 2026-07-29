@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         UserConfirmResultEvent,
         UserInterruptEvent,
     )
+    from agentscope.message import Msg
 
 
 # ── publish_session_event ──────────────────────────────────────────────
@@ -74,10 +75,15 @@ async def enqueue_run_trigger(
     session_id: str,
     agent_id: str,
     *,
-    kind: Literal["wake", "resume"] = MessageBusKeys.WAKEUP_KIND_WAKE,
+    kind: Literal[
+        "wake",
+        "resume",
+        "message",
+    ] = MessageBusKeys.WAKEUP_KIND_WAKE,
     inputs: UserConfirmResultEvent
     | ExternalExecutionResultEvent
     | UserInterruptEvent
+    | Msg
     | None = None,
 ) -> None:
     """Enqueue a typed run trigger and signal dispatchers.
@@ -91,6 +97,10 @@ async def enqueue_run_trigger(
       an external execution result, or a user interrupt.  The dispatcher
       waits (with backoff) until the parked run releases its lock, then
       spawns with ``input_msg`` set to the deserialised event.
+    - ``message`` — start a new turn from a genuine user ``Msg`` (e.g. an
+      inbound channel message).  Like ``resume`` it carries input and is
+      re-queued rather than dropped while the session is running; the run
+      persists it and reasons over it as a real user turn.
 
     The payload is serialised to a plain dict before being pushed to the
     wakeup queue; the ``MessageBus`` transport layer never sees event

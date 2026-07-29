@@ -22,7 +22,7 @@ from ...event import (
     RequireUserConfirmEvent,
     UserConfirmResultEvent,
 )
-from ...message import DataBlock, HintBlock, TextBlock
+from ...message import DataBlock, HintBlock, TextBlock, UserMsg
 from ...permission import PermissionContext, PermissionMode
 from ...state import AgentState
 from ...types import ReplyFinishedReason
@@ -132,24 +132,36 @@ class ChannelGateway:
         if content is None:
             return  # media buffered; nothing to run until a text message
 
+        # If a reply is already in flight, inject the new input as a hint
+        # so the live run folds it into the ongoing turn — no new bubble.
+        # Otherwise start a fresh user turn (persisted, collected, replied).
+        if await self._bus.is_locked(MessageBusKeys.session_lock(session_id)):
+            await self._bus.queue_push(
+                MessageBusKeys.inbox(session_id),
+                HintBlock(
+                    hint=content,
+                    source=event.channel_user_id,
+                ).model_dump(mode="json"),
+            )
+            return
+
         await self._ensure_session(record, agent_id, session_id)
         reaction_id = await channel.add_reaction(event, "OnIt")
         try:
 
             async def deliver() -> None:
-                await self._bus.queue_push(
-                    MessageBusKeys.inbox(session_id),
-                    HintBlock(
-                        hint=content,
-                        source=event.channel_user_id,
-                    ).model_dump(mode="json"),
-                )
+                # Deliver as a genuine user turn (persisted, reasoned over
+                # as user input) — not an inbox hint.
                 await enqueue_run_trigger(
                     self._bus,
                     user_id=record.user_id,
                     session_id=session_id,
                     agent_id=agent_id,
-                    kind=MessageBusKeys.WAKEUP_KIND_WAKE,
+                    kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                    inputs=UserMsg(
+                        name=event.channel_user_id,
+                        content=content,
+                    ),
                 )
 
             text, confirm = await self._collect_turn(
