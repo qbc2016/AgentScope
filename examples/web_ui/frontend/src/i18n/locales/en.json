@@ -490,6 +490,8 @@
 		"ttsParameters": "Parameters",
 		"ttsParametersDescription": "Adjust parameters for the selected TTS model.",
 		"voiceProfiles": "Voice Profiles",
+		"tadaReferenceRequiredBadge": "Reference audio required",
+		"tadaReferenceRequired": "TADA requires reference audio and returns no audio without it. Create and select a TADA voice profile with an uploaded sample, or provide reference_audio_path/reference_audio_base64 in Parameters.",
 		"noTts": "No TTS"
 	},
 	"setup": {
@@ -644,6 +646,7 @@
 		"fileTooLarge": "File too large, max {{max}}MB allowed",
 		"referenceAudio": "Reference Audio",
 		"localCloneHint": "Upload reference audio for voice cloning. The audio will be stored in the profile.",
+		"tadaReferenceAudioRequired": "TADA requires reference audio. Upload an audio sample before saving this profile.",
 		"replaceAudio": "Replace Audio",
 		"audioUploaded": "Uploaded",
 		"referenceTextLabel": "Reference Text",

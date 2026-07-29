@@ -92,6 +92,10 @@ export function EditCredentialDialog({ open, onOpenChange, credential, onUpdated
 						schema={schema}
 						values={values}
 						onChange={(key, val) => setValues((prev) => ({ ...prev, [key]: val }))}
+						placeholderFor={(_key, prop) =>
+							prop.default == null ? undefined : String(prop.default)
+						}
+						descriptionFor={(_key, prop) => prop.description}
 					/>
 				) : null}
 				<DialogFooter>

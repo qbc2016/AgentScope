@@ -490,6 +490,8 @@
 		"ttsParameters": "参数",
 		"ttsParametersDescription": "调整所选语音合成模型的参数。",
 		"voiceProfiles": "语音配置",
+		"tadaReferenceRequiredBadge": "需要参考音频",
+		"tadaReferenceRequired": "TADA 必须提供参考音频，否则不会返回音频。请创建并选择一个已上传音频的 TADA 语音配置，或者在“参数”中设置 reference_audio_path/reference_audio_base64。",
 		"noTts": "不使用语音合成"
 	},
 	"setup": {
@@ -644,6 +646,7 @@
 		"fileTooLarge": "文件过大，最大支持 {{max}}MB",
 		"referenceAudio": "参考音频",
 		"localCloneHint": "上传参考音频用于语音克隆，音频将存储在配置中。",
+		"tadaReferenceAudioRequired": "TADA 必须提供参考音频，请上传音频样本后再保存此配置。",
 		"replaceAudio": "替换音频",
 		"audioUploaded": "已上传",
 		"referenceTextLabel": "参考文本",

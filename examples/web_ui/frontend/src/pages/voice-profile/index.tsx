@@ -372,6 +372,10 @@ function VoiceProfileDialog({
 
 	const handleSave = async () => {
 		if (!name.trim()) return;
+		if (engine === 'tada' && !refAudioBase64) {
+			setCloneError(t('voiceProfile.tadaReferenceAudioRequired'));
+			return;
+		}
 		setSaving(true);
 		try {
 			const metadata: Record<string, unknown> = {};
@@ -658,9 +662,16 @@ function VoiceProfileDialog({
 					)}
 					{isLocal && canClone && selectedModelSupportsClone && (
 						<div className="flex flex-col gap-2">
-							<Label>{t('voiceProfile.referenceAudio')}</Label>
+							<Label>
+								{t('voiceProfile.referenceAudio')}
+								{engine === 'tada' && (
+									<span className="text-destructive ml-0.5">*</span>
+								)}
+							</Label>
 							<p className="text-xs text-muted-foreground">
-								{t('voiceProfile.localCloneHint')}
+								{engine === 'tada'
+									? t('voiceProfile.tadaReferenceAudioRequired')
+									: t('voiceProfile.localCloneHint')}
 							</p>
 							<div className="flex items-center gap-2">
 								<input
@@ -711,7 +722,12 @@ function VoiceProfileDialog({
 					<Button
 						onClick={handleSave}
 						disabled={
-							saving || enginesLoading || modelsLoading || !name.trim() || !engine
+							saving ||
+							enginesLoading ||
+							modelsLoading ||
+							!name.trim() ||
+							!engine ||
+							(engine === 'tada' && !refAudioBase64)
 						}
 					>
 						{saving ? t('voiceProfile.saving') : t('voiceProfile.save')}
