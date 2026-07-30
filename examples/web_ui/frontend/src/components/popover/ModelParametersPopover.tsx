@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CircleAlert, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, CircleAlert, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type {
@@ -295,7 +295,6 @@ export function ModelParametersPopover({
 	onTTSChange,
 }: Props) {
 	const [values, setValues] = useState<Record<string, unknown>>({});
-	const [remoteModelDrafts, setRemoteModelDrafts] = useState<Record<string, string>>({});
 	const { t } = useTranslation();
 	const { groups } = useAvailableModels();
 	const { groups: ttsGroups } = useAvailableTTSModels();
@@ -314,6 +313,14 @@ export function ModelParametersPopover({
 	const hasSelectedVoiceProfile = Boolean(
 		selectedTTSModel?.voice_profile_id || selectedTTSParameters._voice_profile_id,
 	);
+	const isGenericRemoteSelected =
+		selectedTTSModel?.type === 'remote_tts_credential' &&
+		selectedTTSModel.model === 'remote-tts';
+	const normalizedRemoteModel =
+		typeof selectedTTSParameters.model === 'string' ? selectedTTSParameters.model.trim() : '';
+	const hasRemoteModel =
+		normalizedRemoteModel.length > 0 && normalizedRemoteModel !== 'remote-tts';
+	const showRemoteModelWarning = isGenericRemoteSelected && !hasRemoteModel;
 	const selectedRequiresReference =
 		isTadaSelected || selectedTTSCard?.reference_audio_required === true;
 	const showReferenceWarning =
@@ -327,18 +334,6 @@ export function ModelParametersPopover({
 	useEffect(() => {
 		setValues(selectedModel?.parameters ?? {});
 	}, [selectedModel?.model]);
-
-	useEffect(() => {
-		const credentialIds = new Set(
-			(ttsGroups.remote_tts_credential ?? []).map((item) => item.credential.id),
-		);
-		setRemoteModelDrafts((current) => {
-			const next = Object.fromEntries(
-				Object.entries(current).filter(([credentialId]) => credentialIds.has(credentialId)),
-			);
-			return Object.keys(next).length === Object.keys(current).length ? current : next;
-		});
-	}, [ttsGroups]);
 
 	const handleChange = useCallback(
 		(key: string, value: unknown) => {
@@ -655,11 +650,6 @@ export function ModelParametersPopover({
 													? enumValues === null || enumValues.length > 0
 													: enumValues !== null && enumValues.length > 0;
 											})
-											.filter(
-												(m) =>
-													type !== 'remote_tts_credential' ||
-													m.name !== 'remote-tts',
-											)
 											.map((m) => {
 												const hasActiveProfile =
 													selectedTTSModel != null &&
@@ -668,7 +658,16 @@ export function ModelParametersPopover({
 													!hasActiveProfile &&
 													selectedTTSModel?.credential_id ===
 														credential.id &&
-													selectedTTSModel?.model === m.name;
+													(selectedTTSModel?.model === m.name ||
+														(type === 'remote_tts_credential' &&
+															m.name === 'remote-tts' &&
+															selectedTTSModel?.type ===
+																'remote_tts_credential' &&
+															!models.some(
+																(candidate) =>
+																	candidate.name ===
+																	selectedTTSModel.model,
+															)));
 												return (
 													<DropdownMenuCheckboxItem
 														key={`${credential.id}-${m.name}`}
@@ -724,116 +723,21 @@ export function ModelParametersPopover({
 												);
 											}),
 									)}
-									{type === 'remote_tts_credential' &&
-										items.map(({ credential, models }) => {
-											const generic = models.find(
-												(item) => item.name === 'remote-tts',
-											);
-											if (!generic) return null;
-											const selectedManualModel =
-												selectedTTSModel?.type ===
-													'remote_tts_credential' &&
-												selectedTTSModel.credential_id === credential.id &&
-												!models.some(
-													(item) => item.name === selectedTTSModel.model,
-												)
-													? selectedTTSModel.model
-													: '';
-											const draft =
-												remoteModelDrafts[credential.id] ??
-												selectedManualModel;
-											const credentialName =
-												typeof credential.data.name === 'string'
-													? credential.data.name
-													: t('model-parameters.remoteModelId');
-											const isSelected =
-												selectedTTSModel?.type ===
-													'remote_tts_credential' &&
-												selectedTTSModel.credential_id === credential.id &&
-												selectedTTSModel.model === draft.trim() &&
-												selectedTTSModel.voice_profile_id == null;
-											const selectRemoteModel = () => {
-												const modelId = draft.trim();
-												if (!modelId) return;
-												const schema = generic.parameter_schema as
-													| ParameterSchema
-													| undefined;
-												const defaults: Record<string, unknown> = {};
-												for (const [key, prop] of Object.entries(
-													schema?.properties ?? {},
-												)) {
-													if (prop.default !== undefined) {
-														defaults[key] = prop.default;
-													}
-												}
-												onTTSChange({
-													type,
-													credential_id: credential.id,
-													model: modelId,
-													parameters: defaults,
-												});
-											};
-											return (
-												<div
-													key={`${credential.id}-manual-model`}
-													className="mx-2 my-2 flex max-w-80 flex-col gap-2 rounded-md border p-2"
-													onPointerDown={(e) => e.stopPropagation()}
-													onKeyDown={(e) => e.stopPropagation()}
-												>
-													<p className="text-xs font-medium">
-														{credentialName}
-													</p>
-													<div className="flex gap-2">
-														<Input
-															value={draft}
-															onChange={(e) =>
-																setRemoteModelDrafts((current) => ({
-																	...current,
-																	[credential.id]: e.target.value,
-																}))
-															}
-															onKeyDown={(e) => {
-																if (e.key === 'Enter') {
-																	e.preventDefault();
-																	selectRemoteModel();
-																}
-															}}
-															placeholder={t(
-																'model-parameters.remoteModelPlaceholder',
-															)}
-														/>
-														<Button
-															type="button"
-															variant="ghost"
-															size="icon-sm"
-															disabled={!draft.trim()}
-															aria-label={t(
-																'model-parameters.selectRemoteModel',
-															)}
-															aria-pressed={isSelected}
-															tooltip={t(
-																'model-parameters.selectRemoteModel',
-															)}
-															onClick={selectRemoteModel}
-														>
-															<span
-																className={`flex size-4 items-center justify-center rounded-sm border ${
-																	isSelected
-																		? 'border-primary bg-primary text-primary-foreground'
-																		: 'border-input'
-																}`}
-															>
-																{isSelected && (
-																	<Check className="size-3" />
-																)}
-															</span>
-														</Button>
-													</div>
-												</div>
-											);
-										})}
 								</div>
 							))
+						)}
+
+						{showRemoteModelWarning && (
+							<>
+								<DropdownMenuSeparator />
+								<div
+									className="mx-2 my-2 flex max-w-80 gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive"
+									onPointerDown={(e) => e.stopPropagation()}
+								>
+									<CircleAlert className="mt-0.5 size-4 shrink-0" />
+									<p>{t('model-parameters.remoteModelRequired')}</p>
+								</div>
+							</>
 						)}
 
 						{showReferenceWarning && (
@@ -908,7 +812,21 @@ export function ModelParametersPopover({
 													</p>
 												);
 											}
-											const curParams = selectedTTSModel.parameters ?? {};
+											const isGenericRemoteCard =
+												selType === 'remote_tts_credential' &&
+												selModel.name === 'remote-tts';
+											const curParams = {
+												...(selectedTTSModel.parameters ?? {}),
+											};
+											if (
+												isGenericRemoteCard &&
+												selectedTTSModel.model !== 'remote-tts' &&
+												curParams.model == null
+											) {
+												// Preserve legacy manual configs whose provider
+												// model ID was stored in TTSModelConfig.model.
+												curParams.model = selectedTTSModel.model;
+											}
 
 											return (
 												<div
@@ -920,7 +838,10 @@ export function ModelParametersPopover({
 														const { type: effectiveType, enumValues } =
 															resolveType(prop);
 														const label = prop.title ?? key;
-														const isReq = mRequired.includes(key);
+														const isReq =
+															mRequired.includes(key) ||
+															(isGenericRemoteCard &&
+																key === 'model');
 														const fieldProps: FieldProps = {
 															id: `tts-${selModel!.name}-${key}`,
 															label,
@@ -937,6 +858,9 @@ export function ModelParametersPopover({
 																}
 																onTTSChange({
 																	...selectedTTSModel,
+																	model: isGenericRemoteCard
+																		? 'remote-tts'
+																		: selectedTTSModel.model,
 																	parameters: next,
 																});
 															},

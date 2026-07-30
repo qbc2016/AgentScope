@@ -494,9 +494,7 @@
 		"referenceAudioRequiredBadge": "需要参考音频",
 		"tadaReferenceRequired": "TADA 必须提供参考音频，否则不会返回音频。请创建并选择一个已上传音频的 TADA 语音配置，或者在“参数”中设置 reference_audio_path/reference_audio_base64。",
 		"referenceAudioRequired": "该模型必须提供参考音频。请创建并选择一个已上传音频的语音配置。",
-		"remoteModelId": "远端模型 ID",
-		"remoteModelPlaceholder": "服务端模型 ID",
-		"selectRemoteModel": "选择远端模型",
+		"remoteModelRequired": "Remote TTS 必须在“参数 → Model”中填写服务端提供的模型 ID，否则不会返回音频。",
 		"voiceProfileUnavailable": "绑定的凭证或模型不可用。",
 		"noTts": "不使用语音合成"
 	},

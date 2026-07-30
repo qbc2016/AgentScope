@@ -62,6 +62,15 @@ class RemoteTTSModel(TTSModelBase):
     class Parameters(BaseModel):
         """Frontend-exposed remote synthesis parameters."""
 
+        model: str | None = Field(
+            default=None,
+            title="Model",
+            description=(
+                "Model identifier understood by the remote TTS service. "
+                "Required when using the generic Remote TTS option."
+            ),
+        )
+
         voice: str = Field(
             default="default",
             title="Voice",
@@ -180,13 +189,14 @@ class RemoteTTSModel(TTSModelBase):
 
     def _build_payload(self, text: str) -> dict[str, Any]:
         """Build an explicit allowlist of remote request fields."""
-        if self.model == "remote-tts":
+        remote_model = (self.parameters.model or self.model).strip()
+        if remote_model == "remote-tts" or not remote_model:
             raise ValueError(
                 "Remote TTS requires a concrete model ID. Configure the "
-                "model in the TTS settings instead of using 'remote-tts'.",
+                "Model field in the TTS parameters.",
             )
         payload: dict[str, Any] = {
-            "model": self.model,
+            "model": remote_model,
             "input": text,
             "voice": self.parameters.voice,
             "response_format": self.parameters.response_format,
@@ -383,6 +393,9 @@ class RemoteTTSModel(TTSModelBase):
 
         schema = copy.deepcopy(generic.parameter_schema)
         properties = schema.setdefault("properties", {})
+        # A discovered model card already identifies the concrete provider
+        # model. Only the generic Remote TTS card needs a manual Model field.
+        properties.pop("model", None)
 
         formats = cls._string_list(item.get("response_formats"))
         if formats:

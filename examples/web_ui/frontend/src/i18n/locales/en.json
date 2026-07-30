@@ -494,9 +494,7 @@
 		"referenceAudioRequiredBadge": "Reference audio required",
 		"tadaReferenceRequired": "TADA requires reference audio and returns no audio without it. Create and select a TADA voice profile with an uploaded sample, or provide reference_audio_path/reference_audio_base64 in Parameters.",
 		"referenceAudioRequired": "This model requires reference audio. Create and select a voice profile with an uploaded sample.",
-		"remoteModelId": "Remote model ID",
-		"remoteModelPlaceholder": "Provider model ID",
-		"selectRemoteModel": "Select remote model",
+		"remoteModelRequired": "Remote TTS will not return audio until you enter the model ID served by the endpoint in Parameters → Model.",
 		"voiceProfileUnavailable": "The bound credential or model is unavailable.",
 		"noTts": "No TTS"
 	},

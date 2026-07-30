@@ -16,6 +16,7 @@ from agentscope.app._service import (
     discover_tts_models,
     get_tts_model,
     redact_credential_view,
+    validate_tts_model_config,
 )
 from agentscope.app.storage import CredentialRecord, TTSModelConfig
 from agentscope.credential import CredentialFactory, RemoteTTSCredential
@@ -60,6 +61,17 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
             "agentscope.app._service._tts_model.discover_tts_models",
             new=AsyncMock(return_value=[]),
         ):
+            await validate_tts_model_config(
+                "user-a",
+                TTSModelConfig(
+                    type="remote_tts_credential",
+                    credential_id="credential-a",
+                    model="remote-tts",
+                    parameters={},
+                ),
+                access,
+                AsyncMock(),
+            )
             model = cast(
                 RemoteTTSModel,
                 await get_tts_model(
@@ -67,8 +79,11 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
                     TTSModelConfig(
                         type="remote_tts_credential",
                         credential_id="credential-a",
-                        model="provider-model",
-                        parameters={"voice": "zf_xiaobei"},
+                        model="remote-tts",
+                        parameters={
+                            "model": "provider-model",
+                            "voice": "zf_xiaobei",
+                        },
                     ),
                     access,
                 ),
@@ -88,6 +103,7 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
             },
             {
                 "parameters": {
+                    "model": "provider-model",
                     "voice": "zf_xiaobei",
                     "response_format": "wav",
                     "speed": 1.0,
@@ -109,6 +125,11 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
                     "type": "string",
                 },
                 "parameter_descriptions": {
+                    "model": (
+                        "Model identifier understood by the remote TTS "
+                        "service. Required when using the generic Remote TTS "
+                        "option."
+                    ),
                     "voice": (
                         "Voice identifier understood by the remote service. "
                         "Enter it manually when the endpoint does not expose "
@@ -148,6 +169,7 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
             api_key="secret-token",
         )
         parameters = RemoteTTSModel.Parameters(
+            model="tada",
             voice="speaker-a",
             response_format="mp3",
             speed=1.2,
@@ -160,7 +182,7 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
         )
         model = RemoteTTSModel(
             credential=credential,
-            model="tada",
+            model="remote-tts",
             parameters=parameters,
         )
         response = httpx.Response(

@@ -207,6 +207,7 @@ async def validate_tts_model_config(
         config,
         access,
         storage,
+        allow_incomplete_remote_model=True,
     )
 
 
@@ -215,6 +216,8 @@ async def _validate_and_resolve_tts_config(
     config: TTSModelConfig,
     access: ResourceAccessService,
     storage: StorageBase | None,
+    *,
+    allow_incomplete_remote_model: bool = False,
 ) -> tuple[CredentialBase, Type[TTSModelBase]]:
     """Resolve the provider and enforce custom voice ownership."""
     credential_record = await access.resolve_credential(
@@ -232,15 +235,21 @@ async def _validate_and_resolve_tts_config(
         )
 
     credential = CredentialFactory.from_dict(credential_record.data)
+    remote_model = config.parameters.get("model")
+    normalized_remote_model = (
+        remote_model.strip() if isinstance(remote_model, str) else ""
+    )
     if (
         credential.type == "remote_tts_credential"
         and config.model == "remote-tts"
+        and not allow_incomplete_remote_model
+        and normalized_remote_model in {"", "remote-tts"}
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "Remote TTS requires a concrete model ID. Reconfigure this "
-                "TTS selection and enter the model served by the endpoint."
+                "Remote TTS requires a concrete model ID. Enter the model "
+                "served by the endpoint in the TTS parameters."
             ),
         )
     tts_classes = credential.get_tts_model_classes()
@@ -264,13 +273,25 @@ async def _validate_and_resolve_tts_config(
             credential_record,
             credential,
         )
+        card_name = (
+            normalized_remote_model
+            if config.model == "remote-tts" and normalized_remote_model
+            else config.model
+        )
         card = next(
             (
                 candidate
                 for candidate in discovered_cards
-                if candidate.name == config.model
+                if candidate.name == card_name
             ),
-            None,
+            next(
+                (
+                    candidate
+                    for candidate in discovered_cards
+                    if candidate.name == config.model
+                ),
+                None,
+            ),
         )
     _validate_tts_parameters(tts_cls, config)
     await _validate_voice_binding(
