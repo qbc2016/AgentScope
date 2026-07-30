@@ -62,12 +62,11 @@ export function useAvailableTTSModels() {
 						);
 						setGroups((current) => ({
 							...current,
-							remote_tts_credential: (
-								current.remote_tts_credential ?? []
-							).map((item) =>
-								item.credential.id === credential.id
-									? { credential, models }
-									: item,
+							remote_tts_credential: (current.remote_tts_credential ?? []).map(
+								(item) =>
+									item.credential.id === credential.id
+										? { credential, models }
+										: item,
 							),
 						}));
 					} catch {

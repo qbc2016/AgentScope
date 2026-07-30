@@ -330,19 +330,13 @@ export function ModelParametersPopover({
 
 	useEffect(() => {
 		const credentialIds = new Set(
-			(ttsGroups.remote_tts_credential ?? []).map(
-				(item) => item.credential.id,
-			),
+			(ttsGroups.remote_tts_credential ?? []).map((item) => item.credential.id),
 		);
 		setRemoteModelDrafts((current) => {
 			const next = Object.fromEntries(
-				Object.entries(current).filter(([credentialId]) =>
-					credentialIds.has(credentialId),
-				),
+				Object.entries(current).filter(([credentialId]) => credentialIds.has(credentialId)),
 			);
-			return Object.keys(next).length === Object.keys(current).length
-				? current
-				: next;
+			return Object.keys(next).length === Object.keys(current).length ? current : next;
 		});
 	}, [ttsGroups]);
 
@@ -658,10 +652,8 @@ export function ModelParametersPopover({
 												if (!voiceProp) return true;
 												const { enumValues } = resolveType(voiceProp);
 												return type === 'remote_tts_credential'
-													? enumValues === null ||
-															enumValues.length > 0
-													: enumValues !== null &&
-															enumValues.length > 0;
+													? enumValues === null || enumValues.length > 0
+													: enumValues !== null && enumValues.length > 0;
 											})
 											.filter(
 												(m) =>
@@ -741,12 +733,9 @@ export function ModelParametersPopover({
 											const selectedManualModel =
 												selectedTTSModel?.type ===
 													'remote_tts_credential' &&
-												selectedTTSModel.credential_id ===
-													credential.id &&
+												selectedTTSModel.credential_id === credential.id &&
 												!models.some(
-													(item) =>
-														item.name ===
-														selectedTTSModel.model,
+													(item) => item.name === selectedTTSModel.model,
 												)
 													? selectedTTSModel.model
 													: '';
@@ -761,12 +750,8 @@ export function ModelParametersPopover({
 												<div
 													key={`${credential.id}-manual-model`}
 													className="mx-2 my-2 flex max-w-80 flex-col gap-2 rounded-md border p-2"
-													onPointerDown={(e) =>
-														e.stopPropagation()
-													}
-													onKeyDown={(e) =>
-														e.stopPropagation()
-													}
+													onPointerDown={(e) => e.stopPropagation()}
+													onKeyDown={(e) => e.stopPropagation()}
 												>
 													<p className="text-xs font-medium">
 														{credentialName}
@@ -775,13 +760,10 @@ export function ModelParametersPopover({
 														<Input
 															value={draft}
 															onChange={(e) =>
-																setRemoteModelDrafts(
-																	(current) => ({
-																		...current,
-																		[credential.id]:
-																			e.target.value,
-																	}),
-																)
+																setRemoteModelDrafts((current) => ({
+																	...current,
+																	[credential.id]: e.target.value,
+																}))
 															}
 															placeholder={t(
 																'model-parameters.remoteModelPlaceholder',
@@ -791,8 +773,7 @@ export function ModelParametersPopover({
 															size="sm"
 															disabled={!draft.trim()}
 															onClick={() => {
-																const modelId =
-																	draft.trim();
+																const modelId = draft.trim();
 																if (!modelId) return;
 																const schema =
 																	generic.parameter_schema as
@@ -806,12 +787,10 @@ export function ModelParametersPopover({
 																	key,
 																	prop,
 																] of Object.entries(
-																	schema?.properties ??
-																		{},
+																	schema?.properties ?? {},
 																)) {
 																	if (
-																		prop.default !==
-																		undefined
+																		prop.default !== undefined
 																	) {
 																		defaults[key] =
 																			prop.default;
@@ -819,16 +798,13 @@ export function ModelParametersPopover({
 																}
 																onTTSChange({
 																	type,
-																	credential_id:
-																		credential.id,
+																	credential_id: credential.id,
 																	model: modelId,
 																	parameters: defaults,
 																});
 															}}
 														>
-															{t(
-																'model-parameters.useRemoteModel',
-															)}
+															{t('model-parameters.useRemoteModel')}
 														</Button>
 													</div>
 												</div>
@@ -849,9 +825,7 @@ export function ModelParametersPopover({
 									<p>
 										{isTadaSelected
 											? t('model-parameters.tadaReferenceRequired')
-											: t(
-													'model-parameters.referenceAudioRequired',
-												)}
+											: t('model-parameters.referenceAudioRequired')}
 									</p>
 								</div>
 							</>
@@ -890,13 +864,10 @@ export function ModelParametersPopover({
 												);
 												if (
 													!selModel &&
-													selType ===
-														'remote_tts_credential'
+													selType === 'remote_tts_credential'
 												) {
 													selModel = models.find(
-														(m) =>
-															m.name ===
-															'remote-tts',
+														(m) => m.name === 'remote-tts',
 													);
 												}
 												if (selModel) break;

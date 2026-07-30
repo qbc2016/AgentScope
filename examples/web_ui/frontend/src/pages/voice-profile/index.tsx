@@ -192,10 +192,7 @@ function VoiceProfileDialog({
 		setModelOptions([]);
 		setModelsLoading(true);
 		ttsModelApi
-			.list(
-				credType,
-				credType === 'remote_tts_credential' ? credentialId : undefined,
-			)
+			.list(credType, credType === 'remote_tts_credential' ? credentialId : undefined)
 			.then((res) => {
 				const filtered = res.models.filter((m) => isModelForEngine(m.name, engine!));
 				setModelOptions(filtered);
@@ -281,8 +278,8 @@ function VoiceProfileDialog({
 	const canConfigureVoice = Boolean(voiceSchema) || modelOptions.length === 0;
 	const supportsReferenceAudio = Boolean(
 		selectedModelProperties.reference_audio_base64 ||
-			selectedModelCard?.parameters_overrides?.reference_audio_base64 ||
-			selectedModelCard?.reference_audio_required,
+		selectedModelCard?.parameters_overrides?.reference_audio_base64 ||
+		selectedModelCard?.reference_audio_required,
 	);
 	const speedMinimum = typeof speedSchema?.minimum === 'number' ? speedSchema.minimum : 0.5;
 	const speedMaximum = typeof speedSchema?.maximum === 'number' ? speedSchema.maximum : 2;
@@ -556,12 +553,8 @@ function VoiceProfileDialog({
 										id="vp-model"
 										list="vp-remote-model-options"
 										value={model || ''}
-										onChange={(e) =>
-											setModel(e.target.value || undefined)
-										}
-										placeholder={t(
-											'voiceProfile.remoteModelPlaceholder',
-										)}
+										onChange={(e) => setModel(e.target.value || undefined)}
+										placeholder={t('voiceProfile.remoteModelPlaceholder')}
 									/>
 									<datalist id="vp-remote-model-options">
 										{modelOptions
@@ -785,62 +778,64 @@ function VoiceProfileDialog({
 						canClone &&
 						(selectedModelSupportsClone ||
 							selectedModelCard?.reference_audio_required) && (
-						<div className="flex flex-col gap-2">
-							<Label>
-								{t('voiceProfile.referenceAudio')}
-								{(engine === 'tada' ||
-									selectedModelCard?.reference_audio_required) && (
-									<span className="text-destructive ml-0.5">*</span>
+							<div className="flex flex-col gap-2">
+								<Label>
+									{t('voiceProfile.referenceAudio')}
+									{(engine === 'tada' ||
+										selectedModelCard?.reference_audio_required) && (
+										<span className="text-destructive ml-0.5">*</span>
+									)}
+								</Label>
+								<p className="text-xs text-muted-foreground">
+									{engine === 'tada'
+										? t('voiceProfile.tadaReferenceAudioRequired')
+										: selectedModelCard?.reference_audio_required
+											? t('voiceProfile.referenceAudioRequired')
+											: t('voiceProfile.localCloneHint')}
+								</p>
+								<div className="flex items-center gap-2">
+									<input
+										ref={localRefInputRef}
+										type="file"
+										accept="audio/*"
+										className="hidden"
+										onChange={handleLocalRefUpload}
+									/>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										onClick={() => localRefInputRef.current?.click()}
+									>
+										<Upload className="size-4 mr-1.5" />
+										{refAudioBase64
+											? t('voiceProfile.replaceAudio')
+											: t('voiceProfile.uploadAudio')}
+									</Button>
+									{refAudioBase64 && (
+										<span className="text-xs text-muted-foreground">
+											{refAudioFilename || t('voiceProfile.audioUploaded')}
+										</span>
+									)}
+								</div>
+								{engine === 'tada' && (
+									<div className="flex flex-col gap-2 mt-1">
+										<Label htmlFor="vp-ref-text">
+											{t('voiceProfile.referenceTextLabel')}
+										</Label>
+										<Input
+											id="vp-ref-text"
+											value={referenceText}
+											onChange={(e) => setReferenceText(e.target.value)}
+											placeholder={t('voiceProfile.referenceTextPlaceholder')}
+										/>
+									</div>
 								)}
-							</Label>
-							<p className="text-xs text-muted-foreground">
-								{engine === 'tada'
-									? t('voiceProfile.tadaReferenceAudioRequired')
-									: selectedModelCard?.reference_audio_required
-										? t('voiceProfile.referenceAudioRequired')
-									: t('voiceProfile.localCloneHint')}
-							</p>
-							<div className="flex items-center gap-2">
-								<input
-									ref={localRefInputRef}
-									type="file"
-									accept="audio/*"
-									className="hidden"
-									onChange={handleLocalRefUpload}
-								/>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={() => localRefInputRef.current?.click()}
-								>
-									<Upload className="size-4 mr-1.5" />
-									{refAudioBase64
-										? t('voiceProfile.replaceAudio')
-										: t('voiceProfile.uploadAudio')}
-								</Button>
-								{refAudioBase64 && (
-									<span className="text-xs text-muted-foreground">
-										{refAudioFilename || t('voiceProfile.audioUploaded')}
-									</span>
+								{cloneError && (
+									<p className="text-sm text-destructive">{cloneError}</p>
 								)}
 							</div>
-							{engine === 'tada' && (
-								<div className="flex flex-col gap-2 mt-1">
-									<Label htmlFor="vp-ref-text">
-										{t('voiceProfile.referenceTextLabel')}
-									</Label>
-									<Input
-										id="vp-ref-text"
-										value={referenceText}
-										onChange={(e) => setReferenceText(e.target.value)}
-										placeholder={t('voiceProfile.referenceTextPlaceholder')}
-									/>
-								</div>
-							)}
-							{cloneError && <p className="text-sm text-destructive">{cloneError}</p>}
-						</div>
-					)}
+						)}
 				</div>
 				<DialogFooter>
 					<Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -857,8 +852,7 @@ function VoiceProfileDialog({
 							!credentialId ||
 							!model ||
 							(canConfigureVoice && !voice.trim()) ||
-							((engine === 'tada' ||
-								selectedModelCard?.reference_audio_required) &&
+							((engine === 'tada' || selectedModelCard?.reference_audio_required) &&
 								!refAudioBase64)
 						}
 					>
