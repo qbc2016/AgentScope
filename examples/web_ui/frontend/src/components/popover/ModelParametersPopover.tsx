@@ -79,7 +79,7 @@ function resolveVoiceProfileBinding(
 	ttsGroups: Record<string, CredentialWithTTSModels[]>,
 ): ResolvedVoiceProfileBinding | null {
 	const { engine, credential_id: credentialId, model, voice } = profile.data;
-	if (!engine || !credentialId || !model || !voice) return null;
+	if (!engine || !credentialId || !model) return null;
 
 	const type = credentialTypeForEngine(engine);
 	if (!type || !isModelForEngine(model, engine)) return null;
@@ -88,11 +88,17 @@ function resolveVoiceProfileBinding(
 	const modelCard = credentialModels?.models.find((item) => item.name === model);
 	if (!modelCard) return null;
 
+	const schema = modelCard.parameter_schema as ParameterSchema | undefined;
+	// Reference-audio engines such as TADA and Chatterbox have no ``voice``
+	// parameter; only providers whose model schema exposes one require a
+	// stored voice id.
+	if (schema?.properties?.voice && !voice) return null;
+
 	return {
 		type,
 		credentialId,
 		modelName: model,
-		schema: modelCard.parameter_schema as ParameterSchema | undefined,
+		schema,
 	};
 }
 
