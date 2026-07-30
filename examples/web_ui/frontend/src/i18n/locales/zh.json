@@ -493,11 +493,6 @@
 		"voiceProfiles": "语音配置",
 		"tadaReferenceRequiredBadge": "需要参考音频",
 		"tadaReferenceRequired": "TADA 必须提供参考音频，否则不会返回音频。请创建并选择一个已上传音频的 TADA 语音配置，或者在“参数”中设置 reference_audio_path/reference_audio_base64。",
-		"voiceboxChecking": "正在检查 VoiceBox 服务和客户端绑定…",
-		"voiceboxConfigured": "VoiceBox 已连接，客户端 {{clientId}} 已绑定音色。引擎和语言可留空以继承 VoiceBox 的绑定或音色配置。",
-		"voiceboxBindingRequired": "VoiceBox 已连接。请打开 VoiceBox → 设置 → MCP，将客户端 {{clientId}} 绑定到一个音色，然后重试。",
-		"voiceboxUnavailable": "无法从 AgentScope 后端连接 {{endpoint}}。请先启动 VoiceBox 0.5.0 或更高版本；如果服务不在同一台机器，请不要使用 127.0.0.1。",
-		"voiceboxSetupRequired": "VoiceBox 是独立服务，使用前必须启动 VoiceBox 0.5.0 或更高版本。endpoint 必须能从 AgentScope 后端访问；远程服务器或容器中的 127.0.0.1 不是当前浏览器电脑。首次请求后，还需到 VoiceBox → 设置 → MCP 为 agentscope-* 客户端绑定音色。",
 		"voiceProfileUnavailable": "绑定的凭证或模型不可用。",
 		"noTts": "不使用语音合成"
 	},

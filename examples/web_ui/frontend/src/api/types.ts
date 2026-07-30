@@ -736,12 +736,3 @@ export interface ListTTSModelResponse {
 	models: TTSModelCard[];
 	total: number;
 }
-
-export interface VoiceboxClientSetupResponse {
-	client_id: string;
-	endpoint: string;
-	reachable: boolean;
-	profile_id: string | null;
-	default_engine: string | null;
-	error: string | null;
-}

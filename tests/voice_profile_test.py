@@ -686,7 +686,6 @@ class TestEngineToCredentialMapping(TestCase):
             "luxtts": "local_tts_credential",
             "tada": "local_tts_credential",
             "remote_tts": "remote_tts_credential",
-            "voicebox": "voicebox_credential",
         }
         self.assertEqual(ENGINE_TO_CREDENTIAL_TYPE, expected)
 
@@ -734,7 +733,6 @@ class TestEngineConstants(TestCase):
             "luxtts": "<1 GB VRAM",
             "tada": "CUDA recommended",
             "remote_tts": None,
-            "voicebox": None,
         }
         self.assertEqual(ENGINE_GPU_REQUIREMENT, expected)
 
@@ -750,6 +748,5 @@ class TestEngineConstants(TestCase):
             "luxtts": True,
             "tada": True,
             "remote_tts": True,
-            "voicebox": False,
         }
         self.assertEqual(ENGINE_VOICE_CLONING, expected)

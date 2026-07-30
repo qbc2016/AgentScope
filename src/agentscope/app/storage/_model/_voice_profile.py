@@ -20,7 +20,6 @@ _ENGINE_TYPE = Literal[
     "luxtts",
     "tada",
     "remote_tts",
-    "voicebox",
 ]
 
 _SOURCE_TYPE = Literal["api", "local"]
@@ -49,7 +48,6 @@ ENGINE_TO_CREDENTIAL_TYPE: dict[str, str] = {
     "luxtts": "local_tts_credential",
     "tada": "local_tts_credential",
     "remote_tts": "remote_tts_credential",
-    "voicebox": "voicebox_credential",
 }
 
 ENGINE_SOURCE: dict[str, _SOURCE_TYPE] = {
@@ -62,7 +60,6 @@ ENGINE_SOURCE: dict[str, _SOURCE_TYPE] = {
     "luxtts": "local",
     "tada": "local",
     "remote_tts": "api",
-    "voicebox": "local",
 }
 
 ENGINE_GPU_REQUIREMENT: dict[str, str | None] = {
@@ -75,7 +72,6 @@ ENGINE_GPU_REQUIREMENT: dict[str, str | None] = {
     "luxtts": "<1 GB VRAM",
     "tada": "CUDA recommended",
     "remote_tts": None,
-    "voicebox": None,
 }
 
 ENGINE_VOICE_CLONING: dict[str, bool] = {
@@ -88,7 +84,6 @@ ENGINE_VOICE_CLONING: dict[str, bool] = {
     "luxtts": True,
     "tada": True,
     "remote_tts": True,
-    "voicebox": False,
 }
 
 
@@ -105,7 +100,7 @@ class VoiceProfileData(BaseModel):
         description=(
             "TTS engine: cosyvoice, dashscope_tts, "
             "openai_tts, gemini_tts (API) or kokoro, "
-            "chatterbox, luxtts, tada, voicebox (local), "
+            "chatterbox, luxtts, tada (local), "
             "or remote_tts (OpenAI-compatible API)."
         ),
         title="Engine",
@@ -208,14 +203,13 @@ def get_missing_voice_profile_binding_fields(
         "credential_id": data.credential_id,
         "model": data.model,
     }
-    # Reference-audio and Voicebox profiles do not use a provider voice id.
-    # Their ownership is still bound to the exact engine, credential and model.
+    # Reference-audio profiles do not use a provider voice id. Their ownership
+    # is still bound to the exact engine, credential and model.
     if data.engine not in {
         "chatterbox",
         "luxtts",
         "tada",
         "remote_tts",
-        "voicebox",
     }:
         binding_fields["voice"] = data.voice
     return [

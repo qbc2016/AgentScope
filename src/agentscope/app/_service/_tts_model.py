@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """TTS model service: builds a TTSModelBase from stored credential + config."""
-import hashlib
-from typing import cast, Type
+from typing import Type
 
 from fastapi import HTTPException, status
 from pydantic import ValidationError
@@ -13,7 +12,7 @@ from ..storage._model import (
     get_missing_voice_profile_binding_fields,
 )
 from ...credential import CredentialBase, CredentialFactory
-from ...tts import TTSModelBase, TTSModelCard, VoiceboxTTSModel
+from ...tts import TTSModelBase, TTSModelCard
 
 
 def redact_credential_view(view: CredentialView) -> CredentialView:
@@ -73,16 +72,6 @@ async def get_tts_model(
         key: value for key, value in params.items() if not key.startswith("_")
     }
     parameters = tts_cls.Parameters(**params) if params else None
-
-    if issubclass(tts_cls, VoiceboxTTSModel):
-        client_id = get_voicebox_client_id(user_id, config.credential_id)
-        return VoiceboxTTSModel(
-            credential=credential,
-            model=config.model,
-            parameters=parameters,
-            client_id=client_id,
-            require_client_binding=True,
-        )
 
     return tts_cls(
         credential=credential,
@@ -161,41 +150,19 @@ def _validate_tts_parameters(
     tts_cls: Type[TTSModelBase],
     config: TTSModelConfig,
 ) -> None:
-    """Validate provider parameters and App-only Voicebox constraints."""
+    """Validate provider parameters."""
     params = {
         key: value
         for key, value in config.parameters.items()
         if not key.startswith("_")
     }
     try:
-        parameters = tts_cls.Parameters(**params)
+        tts_cls.Parameters(**params)
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameters for TTS model {config.model!r}: {e}",
         ) from e
-
-    if not issubclass(tts_cls, VoiceboxTTSModel):
-        return
-
-    voicebox_params = cast(VoiceboxTTSModel.Parameters, parameters)
-    if voicebox_params.personality:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Voicebox personality mode is not supported by AgentScope's "
-                "binary audio integration. Disable personality mode."
-            ),
-        )
-    if voicebox_params.profile is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "An explicit Voicebox profile is not allowed in AgentScope "
-                "App. Bind this AgentScope client to a profile in Voicebox "
-                "Settings -> MCP instead."
-            ),
-        )
 
 
 async def _validate_voice_binding(
@@ -347,17 +314,6 @@ def _requires_voice_profile(
     if preset_voices is None:
         preset_voices = _get_preset_voices(card)
     return not preset_voices
-
-
-def get_voicebox_client_id(user_id: str, credential_id: str) -> str:
-    """Build a stable, header-safe Voicebox binding id.
-
-    The credential id is included so separate Voicebox endpoints configured
-    by the same AgentScope user do not accidentally share a binding.
-    """
-    identity = f"{user_id}\0{credential_id}".encode()
-    digest = hashlib.sha256(identity).hexdigest()[:24]
-    return f"agentscope-{digest}"
 
 
 async def _enrich_from_profile(

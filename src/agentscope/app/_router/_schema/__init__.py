@@ -3,11 +3,7 @@
 
 from ._chat import ChatRequest, ChatTriggerResponse
 from ._model import ListModelsResponse, ListModelsRequest
-from ._tts_model import (
-    ListTTSModelsResponse,
-    ListTTSModelsRequest,
-    VoiceboxClientSetupResponse,
-)
+from ._tts_model import ListTTSModelsResponse, ListTTSModelsRequest
 from ._schedule import (
     CreateScheduleRequest,
     CreateScheduleResponse,
@@ -112,7 +108,6 @@ __all__ = [
     # TTS Model
     "ListTTSModelsRequest",
     "ListTTSModelsResponse",
-    "VoiceboxClientSetupResponse",
     # Schedule
     "CreateScheduleRequest",
     "CreateScheduleResponse",

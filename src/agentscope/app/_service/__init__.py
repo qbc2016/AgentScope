@@ -15,7 +15,6 @@ from ._knowledge_base import KnowledgeBaseService
 from ._model import get_model
 from ._tts_model import (
     get_tts_model,
-    get_voicebox_client_id,
     redact_credential_view,
     validate_tts_model_config,
 )
@@ -41,7 +40,6 @@ __all__ = [
     "get_embedding_model",
     "get_model",
     "get_tts_model",
-    "get_voicebox_client_id",
     "redact_credential_view",
     "validate_tts_model_config",
     "get_toolkit",

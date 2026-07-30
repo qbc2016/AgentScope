@@ -48,7 +48,6 @@ const ENGINE_LABELS: Record<string, string> = {
 	luxtts: 'LuxTTS (Local)',
 	tada: 'TADA (Local)',
 	remote_tts: 'Remote TTS',
-	voicebox: 'Voicebox (Local)',
 };
 
 /** Read a File as base64 string (without the data URL prefix). */
