@@ -78,6 +78,10 @@ class RemoteTTSModel(TTSModelBase):
         ] = Field(
             default="wav",
             title="Response Format",
+            description=(
+                "Requested audio encoding. The selected remote model must "
+                "support this format."
+            ),
         )
 
         speed: float = Field(
@@ -85,16 +89,27 @@ class RemoteTTSModel(TTSModelBase):
             ge=0.25,
             le=4.0,
             title="Speed",
+            description=(
+                "Speech speed multiplier passed to the remote service."
+            ),
         )
 
         language: str | None = Field(
             default=None,
             title="Language",
+            description=(
+                "Optional language code or name understood by the remote "
+                "service."
+            ),
         )
 
         instructions: str | None = Field(
             default=None,
             title="Instructions",
+            description=(
+                "Optional synthesis instructions. Support depends on the "
+                "selected remote model."
+            ),
         )
 
         task_type: str | None = Field(
@@ -109,6 +124,10 @@ class RemoteTTSModel(TTSModelBase):
         reference_audio_base64: str | None = Field(
             default=None,
             title="Reference Audio",
+            description=(
+                "Base64-encoded reference audio for voice cloning or voice "
+                "conditioning."
+            ),
         )
 
         reference_audio_media_type: Literal[
@@ -125,11 +144,16 @@ class RemoteTTSModel(TTSModelBase):
         ] = Field(
             default="audio/wav",
             title="Reference Audio Media Type",
+            description="MIME media type of the reference audio.",
         )
 
         reference_text: str | None = Field(
             default=None,
             title="Reference Text",
+            description=(
+                "Optional transcript of the reference audio, required by "
+                "some voice-cloning models."
+            ),
         )
 
     type: Literal["remote_tts"] = "remote_tts"

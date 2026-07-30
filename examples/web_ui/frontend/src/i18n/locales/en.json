@@ -496,7 +496,7 @@
 		"referenceAudioRequired": "This model requires reference audio. Create and select a voice profile with an uploaded sample.",
 		"remoteModelId": "Remote model ID",
 		"remoteModelPlaceholder": "Provider model ID",
-		"useRemoteModel": "Use",
+		"selectRemoteModel": "Select remote model",
 		"voiceProfileUnavailable": "The bound credential or model is unavailable.",
 		"noTts": "No TTS"
 	},

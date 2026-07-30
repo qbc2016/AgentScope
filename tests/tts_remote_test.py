@@ -79,6 +79,12 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
             {
                 "parameters": model.parameters.model_dump(),
                 "voice_schema": card.parameter_schema["properties"]["voice"],
+                "parameter_descriptions": {
+                    name: prop.get("description")
+                    for name, prop in card.parameter_schema[
+                        "properties"
+                    ].items()
+                },
             },
             {
                 "parameters": {
@@ -101,6 +107,36 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
                     ),
                     "title": "Voice",
                     "type": "string",
+                },
+                "parameter_descriptions": {
+                    "voice": (
+                        "Voice identifier understood by the remote service. "
+                        "Enter it manually when the endpoint does not expose "
+                        "voice discovery."
+                    ),
+                    "response_format": (
+                        "Requested audio encoding. The selected remote model "
+                        "must support this format."
+                    ),
+                    "speed": (
+                        "Speech speed multiplier passed to the remote service."
+                    ),
+                    "language": (
+                        "Optional language code or name understood by the "
+                        "remote service."
+                    ),
+                    "instructions": (
+                        "Optional synthesis instructions. Support depends on "
+                        "the selected remote model."
+                    ),
+                    "task_type": (
+                        "Optional remote task type, for example CustomVoice, "
+                        "VoiceDesign, or Base."
+                    ),
+                    "reference_text": (
+                        "Optional transcript of the reference audio, required "
+                        "by some voice-cloning models."
+                    ),
                 },
             },
         )

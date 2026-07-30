@@ -1,4 +1,4 @@
-import { ChevronDown, CircleAlert, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, CircleAlert, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type {
@@ -746,6 +746,33 @@ export function ModelParametersPopover({
 												typeof credential.data.name === 'string'
 													? credential.data.name
 													: t('model-parameters.remoteModelId');
+											const isSelected =
+												selectedTTSModel?.type ===
+													'remote_tts_credential' &&
+												selectedTTSModel.credential_id === credential.id &&
+												selectedTTSModel.model === draft.trim() &&
+												selectedTTSModel.voice_profile_id == null;
+											const selectRemoteModel = () => {
+												const modelId = draft.trim();
+												if (!modelId) return;
+												const schema = generic.parameter_schema as
+													| ParameterSchema
+													| undefined;
+												const defaults: Record<string, unknown> = {};
+												for (const [key, prop] of Object.entries(
+													schema?.properties ?? {},
+												)) {
+													if (prop.default !== undefined) {
+														defaults[key] = prop.default;
+													}
+												}
+												onTTSChange({
+													type,
+													credential_id: credential.id,
+													model: modelId,
+													parameters: defaults,
+												});
+											};
 											return (
 												<div
 													key={`${credential.id}-manual-model`}
@@ -765,46 +792,41 @@ export function ModelParametersPopover({
 																	[credential.id]: e.target.value,
 																}))
 															}
+															onKeyDown={(e) => {
+																if (e.key === 'Enter') {
+																	e.preventDefault();
+																	selectRemoteModel();
+																}
+															}}
 															placeholder={t(
 																'model-parameters.remoteModelPlaceholder',
 															)}
 														/>
 														<Button
-															size="sm"
+															type="button"
+															variant="ghost"
+															size="icon-sm"
 															disabled={!draft.trim()}
-															onClick={() => {
-																const modelId = draft.trim();
-																if (!modelId) return;
-																const schema =
-																	generic.parameter_schema as
-																		| ParameterSchema
-																		| undefined;
-																const defaults: Record<
-																	string,
-																	unknown
-																> = {};
-																for (const [
-																	key,
-																	prop,
-																] of Object.entries(
-																	schema?.properties ?? {},
-																)) {
-																	if (
-																		prop.default !== undefined
-																	) {
-																		defaults[key] =
-																			prop.default;
-																	}
-																}
-																onTTSChange({
-																	type,
-																	credential_id: credential.id,
-																	model: modelId,
-																	parameters: defaults,
-																});
-															}}
+															aria-label={t(
+																'model-parameters.selectRemoteModel',
+															)}
+															aria-pressed={isSelected}
+															tooltip={t(
+																'model-parameters.selectRemoteModel',
+															)}
+															onClick={selectRemoteModel}
 														>
-															{t('model-parameters.useRemoteModel')}
+															<span
+																className={`flex size-4 items-center justify-center rounded-sm border ${
+																	isSelected
+																		? 'border-primary bg-primary text-primary-foreground'
+																		: 'border-input'
+																}`}
+															>
+																{isSelected && (
+																	<Check className="size-3" />
+																)}
+															</span>
 														</Button>
 													</div>
 												</div>

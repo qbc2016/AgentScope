@@ -496,7 +496,7 @@
 		"referenceAudioRequired": "该模型必须提供参考音频。请创建并选择一个已上传音频的语音配置。",
 		"remoteModelId": "远端模型 ID",
 		"remoteModelPlaceholder": "服务端模型 ID",
-		"useRemoteModel": "使用",
+		"selectRemoteModel": "选择远端模型",
 		"voiceProfileUnavailable": "绑定的凭证或模型不可用。",
 		"noTts": "不使用语音合成"
 	},
