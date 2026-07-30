@@ -19,12 +19,25 @@ _ENGINE_TYPE = Literal[
     "chatterbox",
     "luxtts",
     "tada",
+    "remote_tts",
     "voicebox",
 ]
 
 _SOURCE_TYPE = Literal["api", "local"]
 _MAX_REFERENCE_AUDIO_BYTES = 10 * 1024 * 1024
 _MAX_REFERENCE_AUDIO_BASE64_CHARS = ((_MAX_REFERENCE_AUDIO_BYTES + 2) // 3) * 4
+_REFERENCE_AUDIO_MEDIA_TYPES = {
+    "audio/aac",
+    "audio/flac",
+    "audio/m4a",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    "audio/opus",
+    "audio/wav",
+    "audio/webm",
+    "audio/x-wav",
+}
 
 ENGINE_TO_CREDENTIAL_TYPE: dict[str, str] = {
     "cosyvoice": "dashscope_credential",
@@ -35,6 +48,7 @@ ENGINE_TO_CREDENTIAL_TYPE: dict[str, str] = {
     "chatterbox": "local_tts_credential",
     "luxtts": "local_tts_credential",
     "tada": "local_tts_credential",
+    "remote_tts": "remote_tts_credential",
     "voicebox": "voicebox_credential",
 }
 
@@ -47,6 +61,7 @@ ENGINE_SOURCE: dict[str, _SOURCE_TYPE] = {
     "chatterbox": "local",
     "luxtts": "local",
     "tada": "local",
+    "remote_tts": "api",
     "voicebox": "local",
 }
 
@@ -59,6 +74,7 @@ ENGINE_GPU_REQUIREMENT: dict[str, str | None] = {
     "chatterbox": "CUDA recommended",
     "luxtts": "<1 GB VRAM",
     "tada": "CUDA recommended",
+    "remote_tts": None,
     "voicebox": None,
 }
 
@@ -71,6 +87,7 @@ ENGINE_VOICE_CLONING: dict[str, bool] = {
     "chatterbox": True,
     "luxtts": True,
     "tada": True,
+    "remote_tts": True,
     "voicebox": False,
 }
 
@@ -88,7 +105,8 @@ class VoiceProfileData(BaseModel):
         description=(
             "TTS engine: cosyvoice, dashscope_tts, "
             "openai_tts, gemini_tts (API) or kokoro, "
-            "chatterbox, luxtts, tada, voicebox (local)."
+            "chatterbox, luxtts, tada, voicebox (local), "
+            "or remote_tts (OpenAI-compatible API)."
         ),
         title="Engine",
     )
@@ -142,6 +160,16 @@ class VoiceProfileData(BaseModel):
         """Reject malformed or oversized inline reference audio."""
         if metadata is None:
             return None
+        media_type = metadata.get("reference_audio_media_type")
+        if media_type is not None:
+            if (
+                not isinstance(media_type, str)
+                or media_type not in _REFERENCE_AUDIO_MEDIA_TYPES
+            ):
+                raise ValueError(
+                    "reference_audio_media_type must be a supported "
+                    "audio MIME type",
+                )
         audio_base64 = metadata.get("reference_audio_base64")
         if audio_base64 is None:
             return metadata
@@ -182,7 +210,13 @@ def get_missing_voice_profile_binding_fields(
     }
     # Reference-audio and Voicebox profiles do not use a provider voice id.
     # Their ownership is still bound to the exact engine, credential and model.
-    if data.engine not in {"chatterbox", "luxtts", "tada", "voicebox"}:
+    if data.engine not in {
+        "chatterbox",
+        "luxtts",
+        "tada",
+        "remote_tts",
+        "voicebox",
+    }:
         binding_fields["voice"] = data.voice
     return [
         name

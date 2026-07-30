@@ -504,7 +504,9 @@ class TestEnrichFromProfile(IsolatedAsyncioTestCase):
         profile = MagicMock()
         profile.data.metadata = {
             "reference_audio_base64": "AAAA",
+            "reference_audio_media_type": "audio/ogg",
             "reference_text": "hello",
+            "language": "zh",
             "lang_code": "z",
             "speed": 1.2,
         }
@@ -522,7 +524,9 @@ class TestEnrichFromProfile(IsolatedAsyncioTestCase):
             result,
             {
                 "reference_audio_base64": "AAAA",
+                "reference_audio_media_type": "audio/ogg",
                 "reference_text": "hello",
+                "language": "zh",
                 "lang_code": "z",
                 "speed": 1.2,
             },

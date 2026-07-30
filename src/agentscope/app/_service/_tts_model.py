@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """TTS model service: builds a TTSModelBase from stored credential + config."""
 import hashlib
-from typing import Type
+from typing import cast, Type
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 
-from ._access import ResourceAccessService
+from ._access import CredentialView, ResourceAccessService
 from ..storage import StorageBase, TTSModelConfig
 from ..storage._model import (
     ENGINE_TO_CREDENTIAL_TYPE,
@@ -13,6 +14,15 @@ from ..storage._model import (
 )
 from ...credential import CredentialBase, CredentialFactory
 from ...tts import TTSModelBase, TTSModelCard, VoiceboxTTSModel
+
+
+def redact_credential_view(view: CredentialView) -> CredentialView:
+    """Remove Remote TTS bearer tokens from a public credential view."""
+    if view.data.get("type") != "remote_tts_credential":
+        return view
+    redacted = view.model_copy(deep=True)
+    redacted.data.pop("api_key", None)
+    return redacted
 
 
 async def get_tts_model(
@@ -65,7 +75,7 @@ async def get_tts_model(
     parameters = tts_cls.Parameters(**params) if params else None
 
     if issubclass(tts_cls, VoiceboxTTSModel):
-        client_id = _voicebox_client_id(user_id, config.credential_id)
+        client_id = get_voicebox_client_id(user_id, config.credential_id)
         return VoiceboxTTSModel(
             credential=credential,
             model=config.model,
@@ -136,6 +146,7 @@ async def _validate_and_resolve_tts_config(
         allow_single_fallback=(credential.type != "local_tts_credential"),
     )
     card = _find_model_card(tts_cls, config.model)
+    _validate_tts_parameters(tts_cls, config)
     await _validate_voice_binding(
         user_id=user_id,
         config=config,
@@ -144,6 +155,47 @@ async def _validate_and_resolve_tts_config(
         card=card,
     )
     return credential, tts_cls
+
+
+def _validate_tts_parameters(
+    tts_cls: Type[TTSModelBase],
+    config: TTSModelConfig,
+) -> None:
+    """Validate provider parameters and App-only Voicebox constraints."""
+    params = {
+        key: value
+        for key, value in config.parameters.items()
+        if not key.startswith("_")
+    }
+    try:
+        parameters = tts_cls.Parameters(**params)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid parameters for TTS model {config.model!r}: {e}",
+        ) from e
+
+    if not issubclass(tts_cls, VoiceboxTTSModel):
+        return
+
+    voicebox_params = cast(VoiceboxTTSModel.Parameters, parameters)
+    if voicebox_params.personality:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Voicebox personality mode is not supported by AgentScope's "
+                "binary audio integration. Disable personality mode."
+            ),
+        )
+    if voicebox_params.profile is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "An explicit Voicebox profile is not allowed in AgentScope "
+                "App. Bind this AgentScope client to a profile in Voicebox "
+                "Settings -> MCP instead."
+            ),
+        )
 
 
 async def _validate_voice_binding(
@@ -164,6 +216,12 @@ async def _validate_voice_binding(
     voice = config.parameters.get("voice")
     preset_voices = _get_preset_voices(card)
     if config.voice_profile_id is None:
+        if config.type == "remote_tts_credential":
+            # Phase 1 has no remote voice-discovery endpoint. A free-form
+            # provider voice id is therefore valid and must not be mistaken
+            # for an AgentScope-owned cloned voice. Reference-audio cloning
+            # continues to require an owner-scoped Voice Profile.
+            return
         if _requires_voice_profile(card, preset_voices):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -212,7 +270,7 @@ async def _validate_voice_binding(
 
     assert data.engine is not None
     assert data.credential_id is not None
-    if credential_owner_id != user_id:
+    if credential_owner_id != user_id and data.engine != "remote_tts":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Custom voices cannot use a shared credential.",
@@ -281,7 +339,7 @@ def _requires_voice_profile(
     return not preset_voices
 
 
-def _voicebox_client_id(user_id: str, credential_id: str) -> str:
+def get_voicebox_client_id(user_id: str, credential_id: str) -> str:
     """Build a stable, header-safe Voicebox binding id.
 
     The credential id is included so separate Voicebox endpoints configured
@@ -323,7 +381,9 @@ async def _enrich_from_profile(
         meta = profile.data.metadata
         for key in (
             "reference_audio_base64",
+            "reference_audio_media_type",
             "reference_text",
+            "language",
             "lang_code",
             "speed",
         ):

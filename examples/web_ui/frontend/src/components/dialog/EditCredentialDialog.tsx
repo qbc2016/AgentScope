@@ -48,7 +48,9 @@ export function EditCredentialDialog({ open, onOpenChange, credential, onUpdated
 					const prefill: Record<string, SchemaFormValue> = {};
 					for (const [key, prop] of Object.entries(matched.properties)) {
 						if (key === 'id' || key === 'type' || prop.const !== undefined) continue;
-						if (prop.writeOnly) continue; // don't pre-fill secrets like api_key
+						const isWriteOnly =
+							prop.writeOnly || prop.anyOf?.some((variant) => variant.writeOnly);
+						if (isWriteOnly) continue; // don't pre-fill secrets like api_key
 						const existing = credential.data[key];
 						if (existing !== undefined) {
 							prefill[key] = existing as SchemaFormValue;

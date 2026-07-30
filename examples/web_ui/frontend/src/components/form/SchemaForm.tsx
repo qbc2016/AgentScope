@@ -89,7 +89,11 @@ export function SchemaForm({
 				const isRequired = schema.required?.includes(key) ?? false;
 				const type = effectiveType(prop);
 				const isBoolean = type === 'boolean';
-				const isPassword = prop.format === 'password';
+				const isPassword =
+					prop.format === 'password' ||
+					prop.anyOf?.some(
+						(variant) => (variant as JSONSchemaProperty).format === 'password',
+					);
 				const isTextarea = prop.format === 'textarea';
 				const isNumber = type === 'number' || type === 'integer';
 				const enumOpts = enumValues(prop);

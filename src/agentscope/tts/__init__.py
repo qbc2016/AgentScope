@@ -17,6 +17,7 @@ from ._local import (
     TadaTTSModel,
 )
 from ._openai import OpenAITTSModel
+from ._remote import RemoteTTSError, RemoteTTSModel
 from ._voicebox import VoiceboxTTSModel
 
 __all__ = [
@@ -32,6 +33,8 @@ __all__ = [
     "KokoroTTSModel",
     "LuxTTSModel",
     "OpenAITTSModel",
+    "RemoteTTSError",
+    "RemoteTTSModel",
     "TadaTTSModel",
     "VoiceboxTTSModel",
 ]

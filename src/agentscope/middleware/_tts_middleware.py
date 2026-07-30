@@ -4,6 +4,7 @@
 from typing import TYPE_CHECKING, AsyncGenerator, Callable
 
 from ._base import MiddlewareBase
+from .._logging import logger
 from .._utils._common import _generate_id
 from ..event import (
     DataBlockDeltaEvent,
@@ -59,55 +60,95 @@ class TTSMiddleware(MiddlewareBase):
         text_buffer: str = ""
         audio_block_id: str | None = None
         audio_media_type: str | None = None
+        tts_available = True
+        tts_entered = False
+        exit_args: tuple = (None, None, None)
 
-        async with self.tts:
+        try:
+            try:
+                # pylint: disable-next=unnecessary-dunder-call
+                await self.tts.__aenter__()
+                tts_entered = True
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "TTS setup failed; continuing the reply without audio.",
+                )
+                tts_available = False
+
             async for evt in next_handler(**input_kwargs):
                 yield evt
 
-                if isinstance(evt, TextBlockDeltaEvent):
-                    text_buffer += evt.delta
-                    if self.tts.realtime and evt.delta:
-                        tts_res = await self.tts.push(evt.delta)
-                        async for audio_evt in self._emit_chunk(
-                            agent,
-                            tts_res,
-                            audio_block_id,
-                            audio_media_type,
-                        ):
-                            if isinstance(audio_evt, DataBlockStartEvent):
-                                audio_block_id = audio_evt.block_id
-                                audio_media_type = audio_evt.media_type
-                            yield audio_evt
+                if not tts_available:
+                    continue
 
-                elif isinstance(evt, TextBlockEndEvent):
-                    text = text_buffer
+                try:
+                    if isinstance(evt, TextBlockDeltaEvent):
+                        text_buffer += evt.delta
+                        if self.tts.realtime and evt.delta:
+                            tts_res = await self.tts.push(evt.delta)
+                            async for audio_evt in self._emit_chunk(
+                                agent,
+                                tts_res,
+                                audio_block_id,
+                                audio_media_type,
+                            ):
+                                if isinstance(
+                                    audio_evt,
+                                    DataBlockStartEvent,
+                                ):
+                                    audio_block_id = audio_evt.block_id
+                                    audio_media_type = audio_evt.media_type
+                                yield audio_evt
+
+                    elif isinstance(evt, TextBlockEndEvent):
+                        text = text_buffer
+                        text_buffer = ""
+
+                        if self.tts.realtime:
+                            res = await self.tts.synthesize()
+                            async for audio_evt in self._emit_synth_result(
+                                agent,
+                                res,
+                                audio_block_id,
+                                audio_media_type,
+                            ):
+                                if isinstance(
+                                    audio_evt,
+                                    DataBlockStartEvent,
+                                ):
+                                    audio_block_id = audio_evt.block_id
+                                    audio_media_type = audio_evt.media_type
+                                yield audio_evt
+                        elif text.strip():
+                            res = await self.tts.synthesize(text)
+                            async for audio_evt in self._emit_synth_result(
+                                agent,
+                                res,
+                                audio_block_id,
+                                audio_media_type,
+                            ):
+                                if isinstance(
+                                    audio_evt,
+                                    DataBlockStartEvent,
+                                ):
+                                    audio_block_id = audio_evt.block_id
+                                    audio_media_type = audio_evt.media_type
+                                yield audio_evt
+
+                        if audio_block_id is not None:
+                            yield DataBlockEndEvent(
+                                reply_id=agent.state.reply_id,
+                                block_id=audio_block_id,
+                            )
+                        audio_block_id = None
+                        audio_media_type = None
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception(
+                        "TTS synthesis failed; disabling audio for the "
+                        "remainder of this reply.",
+                    )
+                    tts_available = False
                     text_buffer = ""
-
-                    if self.tts.realtime:
-                        res = await self.tts.synthesize()
-                        async for audio_evt in self._emit_synth_result(
-                            agent,
-                            res,
-                            audio_block_id,
-                            audio_media_type,
-                        ):
-                            if isinstance(audio_evt, DataBlockStartEvent):
-                                audio_block_id = audio_evt.block_id
-                                audio_media_type = audio_evt.media_type
-                            yield audio_evt
-                    elif text.strip():
-                        res = await self.tts.synthesize(text)
-                        async for audio_evt in self._emit_synth_result(
-                            agent,
-                            res,
-                            audio_block_id,
-                            audio_media_type,
-                        ):
-                            if isinstance(audio_evt, DataBlockStartEvent):
-                                audio_block_id = audio_evt.block_id
-                                audio_media_type = audio_evt.media_type
-                            yield audio_evt
-
                     if audio_block_id is not None:
                         yield DataBlockEndEvent(
                             reply_id=agent.state.reply_id,
@@ -115,6 +156,18 @@ class TTSMiddleware(MiddlewareBase):
                         )
                     audio_block_id = None
                     audio_media_type = None
+        except BaseException as exc:
+            exit_args = (type(exc), exc, exc.__traceback__)
+            raise
+        finally:
+            if tts_entered:
+                try:
+                    # pylint: disable-next=unnecessary-dunder-call
+                    await self.tts.__aexit__(*exit_args)
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception(
+                        "TTS shutdown failed; the text reply is unaffected.",
+                    )
 
     async def _emit_synth_result(
         self,

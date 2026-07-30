@@ -159,6 +159,48 @@ class TestTTSMiddlewareNonRealtime(IsolatedAsyncioTestCase):
         )
         tts.synthesize.assert_not_called()
 
+    async def test_tts_failure_degrades_to_text_for_remainder_of_reply(
+        self,
+    ) -> None:
+        """A TTS failure keeps the text stream alive and is not retried."""
+        tts = MagicMock(spec=TTSModelBase)
+        tts.realtime = False
+        tts.__aenter__ = AsyncMock(return_value=tts)
+        tts.__aexit__ = AsyncMock(return_value=None)
+        tts.synthesize = AsyncMock(side_effect=RuntimeError("offline"))
+
+        middleware = TTSMiddleware(tts_model=tts)
+        agent = _make_agent_stub()
+        upstream_events = [
+            TextBlockDeltaEvent(
+                reply_id="reply-1",
+                block_id="blk-1",
+                delta="first",
+            ),
+            TextBlockEndEvent(reply_id="reply-1", block_id="blk-1"),
+            TextBlockDeltaEvent(
+                reply_id="reply-1",
+                block_id="blk-2",
+                delta="second",
+            ),
+            TextBlockEndEvent(reply_id="reply-1", block_id="blk-2"),
+        ]
+
+        async def next_handler(**_kwargs: Any) -> AsyncGenerator:
+            for evt in upstream_events:
+                yield evt
+
+        emitted = [
+            evt async for evt in middleware.on_reply(agent, {}, next_handler)
+        ]
+
+        self.assertEqual(
+            [_dump(evt) for evt in emitted],
+            [_dump(evt) for evt in upstream_events],
+        )
+        tts.synthesize.assert_awaited_once_with("first")
+        tts.__aexit__.assert_awaited_once()
+
     async def test_audio_block_id_uses_configured_id_factory(self) -> None:
         """TTS audio DATA_BLOCK events use the configured ID factory."""
         import agentscope._utils._common as common

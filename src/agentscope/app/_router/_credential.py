@@ -15,7 +15,11 @@ from ._schema import (
     ListCredentialSchemasResponse,
     UpdateCredentialRequest,
 )
-from .._service import CredentialView, ResourceAccessService
+from .._service import (
+    CredentialView,
+    ResourceAccessService,
+    redact_credential_view,
+)
 from ..storage import StorageBase
 from ...credential import CredentialFactory
 
@@ -70,7 +74,13 @@ async def list_credentials(
             All visible credentials paired with editability and
             (for shared entries) redacted data.
     """
-    entries = await access.list_resource(user_id, ResourceKind.CREDENTIAL)
+    entries = [
+        redact_credential_view(entry)
+        for entry in await access.list_resource(
+            user_id,
+            ResourceKind.CREDENTIAL,
+        )
+    ]
     return ListCredentialsResponse(
         credentials=entries,
         total=len(entries),
@@ -135,13 +145,20 @@ async def update_credential(
         `HTTPException`: 404 if the credential is not visible to the
             caller; 403 if visible but only readable.
     """
-    owner_id, _ = await access.resolve_for_edit(
+    owner_id, existing = await access.resolve_for_edit(
         user_id,
         ResourceKind.CREDENTIAL,
         credential_id,
     )
 
-    credential = CredentialFactory.from_dict(body.data)
+    credential_data = dict(body.data)
+    if (
+        credential_data.get("type") == "remote_tts_credential"
+        and "api_key" not in credential_data
+        and existing.data.get("api_key") is not None
+    ):
+        credential_data["api_key"] = existing.data["api_key"]
+    credential = CredentialFactory.from_dict(credential_data)
     credential.id = credential_id
     await storage.upsert_credential(owner_id, credential)
     # ``resolve_for_edit`` proved the record existed under ``owner_id``
@@ -157,8 +174,10 @@ async def update_credential(
         )
     # Only reachable via ``resolve_for_edit``, so the caller has edit
     # permission by construction.
-    return CredentialView.model_validate(
-        {**updated.model_dump(), "editable": True},
+    return redact_credential_view(
+        CredentialView.model_validate(
+            {**updated.model_dump(), "editable": True},
+        ),
     )
 
 

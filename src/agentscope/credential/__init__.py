@@ -10,6 +10,7 @@ from ._local_tts import LocalTTSCredential
 from ._moonshot import MoonshotCredential
 from ._ollama import OllamaCredential
 from ._openai import OpenAICredential
+from ._remote_tts import RemoteTTSCredential
 from ._voicebox import VoiceboxCredential
 from ._xai import XAICredential
 from ._factory import CredentialFactory
@@ -25,6 +26,7 @@ __all__ = [
     "MoonshotCredential",
     "OllamaCredential",
     "OpenAICredential",
+    "RemoteTTSCredential",
     "VoiceboxCredential",
     "XAICredential",
     "CredentialFactory",

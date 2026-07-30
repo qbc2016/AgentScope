@@ -28,8 +28,10 @@ class VoiceboxCredential(CredentialBase):
     endpoint: str = Field(
         default="http://127.0.0.1:17493",
         description=(
-            "The Voicebox server endpoint URL. "
-            "Defaults to the standard local endpoint."
+            "Base URL of a running Voicebox 0.5.0+ server (do not append "
+            "/mcp). The URL is accessed by the AgentScope backend, not by "
+            "the browser. If AgentScope runs remotely or in a container, "
+            "127.0.0.1 refers to that server or container."
         ),
     )
     """The Voicebox server endpoint URL."""

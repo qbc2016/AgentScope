@@ -18,7 +18,12 @@ from fastapi import HTTPException
 from .._bus_ops import enqueue_run_trigger, publish_session_event
 from ..message_bus import MessageBus, MessageBusKeys
 from ..rag.knowledge_base_manager import KnowledgeBaseManagerBase
-from ..storage import StorageBase, AgentRecord, SessionRecord
+from ..storage import (
+    StorageBase,
+    AgentRecord,
+    SessionRecord,
+    TTSModelConfig,
+)
 from .._manager import BackgroundTaskManager, SchedulerManager
 from ..workspace_manager import WorkspaceManagerBase
 from ..middleware import (
@@ -284,6 +289,35 @@ class ChatService:
             inputs=UserInterruptEvent(reply_id=session.state.reply_id),
         )
 
+    async def _build_tts_middlewares(
+        self,
+        user_id: str,
+        session_id: str,
+        config: TTSModelConfig | None,
+    ) -> list[TTSMiddleware]:
+        """Build optional TTS middleware without risking the text reply."""
+        if config is None:
+            return []
+        try:
+            tts_model = await get_tts_model(
+                user_id,
+                config,
+                self._access,
+                storage=self._storage,
+            )
+        except Exception:  # pylint: disable=broad-except
+            # Existing sessions may contain stale or formerly valid TTS
+            # settings. Audio is optional, so a configuration/build failure
+            # must not make the text conversation unavailable.
+            logger.exception(
+                "Failed to initialize TTS for user_id=%s "
+                "session_id=%s; continuing without audio.",
+                user_id,
+                session_id,
+            )
+            return []
+        return [TTSMiddleware(tts_model)]
+
     async def _run_impl(
         self,
         user_id: str,
@@ -383,15 +417,13 @@ class ChatService:
         # ----------------------------------------------------------------
         # 2b. TTS middleware — inject when the session has a TTS config.
         # ----------------------------------------------------------------
-        tts_cfg = session_record.config.tts_model_config
-        if tts_cfg is not None:
-            tts_model = await get_tts_model(
+        middlewares.extend(
+            await self._build_tts_middlewares(
                 user_id,
-                tts_cfg,
-                self._access,
-                storage=self._storage,
-            )
-            middlewares.append(TTSMiddleware(tts_model))
+                session_id,
+                session_record.config.tts_model_config,
+            ),
+        )
 
         # ----------------------------------------------------------------
         # 2c. Knowledge-base middleware — inject when the session has KBs

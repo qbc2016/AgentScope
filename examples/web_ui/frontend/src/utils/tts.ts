@@ -7,6 +7,12 @@ const ENGINE_CREDENTIAL_TYPE: Record<string, string> = {
 	dashscope_tts: 'dashscope_credential',
 	openai_tts: 'openai_credential',
 	gemini_tts: 'gemini_credential',
+	kokoro: 'local_tts_credential',
+	chatterbox: 'local_tts_credential',
+	luxtts: 'local_tts_credential',
+	tada: 'local_tts_credential',
+	remote_tts: 'remote_tts_credential',
+	voicebox: 'voicebox_credential',
 };
 
 /** Return the credential provider type required by a TTS engine. */
@@ -38,6 +44,8 @@ export function isModelForEngine(modelName: string, engine: string): boolean {
 			return modelName === 'tada' || modelName.startsWith('tada');
 		case 'voicebox':
 			return modelName === 'voicebox' || modelName.startsWith('voicebox');
+		case 'remote_tts':
+			return modelName === 'remote-tts';
 		default:
 			return modelName === engine || modelName.includes(engine);
 	}

@@ -6,8 +6,10 @@ import type {
 	ModelCard,
 	TTSModelCard,
 	TTSModelConfig,
+	VoiceboxClientSetupResponse,
 	VoiceProfileRecord,
 } from '@/api';
+import { ttsModelApi } from '@/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -141,8 +143,9 @@ function BooleanField({ id, label, prop, value, onChange }: FieldProps) {
 
 function EnumField({ id, label, required, prop, value, onChange }: FieldProps) {
 	const enumValues = resolveType(prop).enumValues ?? [];
-	// TODO: experiment with using prop.description as placeholder text
 	const displayValue = value !== undefined && value !== null ? String(value) : '';
+	const unsetValue = '__agentscope_unset_parameter__';
+	const { t } = useTranslation();
 
 	return (
 		<>
@@ -153,7 +156,9 @@ function EnumField({ id, label, required, prop, value, onChange }: FieldProps) {
 			<DropdownMenu>
 				<DropdownMenuTrigger asChild>
 					<Button id={id} variant="outline" className="w-full justify-between gap-1">
-						<span className="truncate">{displayValue}</span>
+						<span className="truncate">
+							{displayValue || t('model-parameters.useDefault')}
+						</span>
 						<ChevronDown className="size-3.5 opacity-50 shrink-0" />
 					</Button>
 				</DropdownMenuTrigger>
@@ -162,7 +167,15 @@ function EnumField({ id, label, required, prop, value, onChange }: FieldProps) {
 					className="max-h-60 overflow-y-auto"
 					onPointerDown={(e) => e.stopPropagation()}
 				>
-					<DropdownMenuRadioGroup value={displayValue} onValueChange={(v) => onChange(v)}>
+					<DropdownMenuRadioGroup
+						value={displayValue || unsetValue}
+						onValueChange={(v) => onChange(v === unsetValue ? undefined : v)}
+					>
+						{!required && (
+							<DropdownMenuRadioItem value={unsetValue}>
+								{t('model-parameters.useDefault')}
+							</DropdownMenuRadioItem>
+						)}
 						{enumValues.map((opt) => (
 							<DropdownMenuRadioItem key={String(opt)} value={String(opt)}>
 								{String(opt)}
@@ -274,6 +287,8 @@ export function ModelParametersPopover({
 	onTTSChange,
 }: Props) {
 	const [values, setValues] = useState<Record<string, unknown>>({});
+	const [voiceboxSetup, setVoiceboxSetup] = useState<VoiceboxClientSetupResponse | null>(null);
+	const [voiceboxSetupLoading, setVoiceboxSetupLoading] = useState(false);
 	const { t } = useTranslation();
 	const { groups } = useAvailableModels();
 	const { groups: ttsGroups } = useAvailableTTSModels();
@@ -281,6 +296,8 @@ export function ModelParametersPopover({
 	const selectedTTSParameters = (selectedTTSModel?.parameters ?? {}) as Record<string, unknown>;
 	const isTadaSelected =
 		selectedTTSModel != null && isModelForEngine(selectedTTSModel.model, 'tada');
+	const isVoiceboxSelected = selectedTTSModel?.type === 'voicebox_credential';
+	const voiceboxCredentialId = isVoiceboxSelected ? selectedTTSModel?.credential_id : undefined;
 	const hasTadaReferenceAudio = Boolean(
 		selectedTTSParameters.reference_audio_path || selectedTTSParameters.reference_audio_base64,
 	);
@@ -296,6 +313,32 @@ export function ModelParametersPopover({
 	useEffect(() => {
 		setValues(selectedModel?.parameters ?? {});
 	}, [selectedModel?.model]);
+
+	useEffect(() => {
+		if (!voiceboxCredentialId) {
+			setVoiceboxSetup(null);
+			setVoiceboxSetupLoading(false);
+			return;
+		}
+
+		let cancelled = false;
+		setVoiceboxSetup(null);
+		setVoiceboxSetupLoading(true);
+		ttsModelApi
+			.voiceboxSetup(voiceboxCredentialId)
+			.then((setup) => {
+				if (!cancelled) setVoiceboxSetup(setup);
+			})
+			.catch(() => {
+				if (!cancelled) setVoiceboxSetup(null);
+			})
+			.finally(() => {
+				if (!cancelled) setVoiceboxSetupLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [voiceboxCredentialId]);
 
 	const handleChange = useCallback(
 		(key: string, value: unknown) => {
@@ -684,6 +727,44 @@ export function ModelParametersPopover({
 								>
 									<CircleAlert className="mt-0.5 size-4 shrink-0" />
 									<p>{t('model-parameters.tadaReferenceRequired')}</p>
+								</div>
+							</>
+						)}
+
+						{isVoiceboxSelected && (
+							<>
+								<DropdownMenuSeparator />
+								<div
+									className="mx-2 my-2 flex max-w-80 gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300"
+									onPointerDown={(e) => e.stopPropagation()}
+								>
+									<CircleAlert className="mt-0.5 size-4 shrink-0" />
+									<p>
+										{voiceboxSetupLoading
+											? t('model-parameters.voiceboxChecking')
+											: voiceboxSetup?.reachable && voiceboxSetup.profile_id
+												? t('model-parameters.voiceboxConfigured', {
+														clientId: voiceboxSetup.client_id,
+													})
+												: voiceboxSetup?.reachable
+													? t(
+															'model-parameters.voiceboxBindingRequired',
+															{
+																clientId: voiceboxSetup.client_id,
+															},
+														)
+													: voiceboxSetup
+														? t(
+																'model-parameters.voiceboxUnavailable',
+																{
+																	endpoint:
+																		voiceboxSetup.endpoint,
+																},
+															)
+														: t(
+																'model-parameters.voiceboxSetupRequired',
+															)}
+									</p>
 								</div>
 							</>
 						)}

@@ -129,12 +129,28 @@ async def _validate_voice_profile_data(
 
     assert data.engine is not None
     assert data.credential_id is not None
-    await _resolve_owned_credential(
-        access,
-        user_id,
-        data.credential_id,
-        ENGINE_TO_CREDENTIAL_TYPE[data.engine],
-    )
+    expected_type = ENGINE_TO_CREDENTIAL_TYPE[data.engine]
+    if data.engine == "remote_tts":
+        record = await access.resolve_credential(
+            user_id,
+            data.credential_id,
+        )
+        actual_type = record.data.get("type")
+        if actual_type != expected_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Credential {data.credential_id!r} has type "
+                    f"{actual_type!r}; expected {expected_type!r}."
+                ),
+            )
+    else:
+        await _resolve_owned_credential(
+            access,
+            user_id,
+            data.credential_id,
+            expected_type,
+        )
 
 
 @voice_profile_router.get(
@@ -167,7 +183,10 @@ async def list_available_engines(
     for cred in credentials:
         # Sharing a provider credential must not implicitly share every custom
         # voice in the upstream account.
-        if cred.user_id != user_id:
+        if (
+            cred.user_id != user_id
+            and cred.data.get("type") != "remote_tts_credential"
+        ):
             continue
         cred_type = cred.data.get("type")
         if cred_type:

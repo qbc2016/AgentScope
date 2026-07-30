@@ -113,6 +113,18 @@ class TestVoiceProfileModel(TestCase):
                 },
             )
 
+    def test_invalid_reference_audio_media_type_is_rejected(self) -> None:
+        """Inline reference audio accepts only known audio MIME types."""
+        with self.assertRaises(ValidationError):
+            VoiceProfileData(
+                name="Bad audio type",
+                engine="remote_tts",
+                metadata={
+                    "reference_audio_base64": "QUJD",
+                    "reference_audio_media_type": "text/plain",
+                },
+            )
+
     def test_oversized_reference_audio_is_rejected(self) -> None:
         """Decoded reference audio is capped by the backend."""
         with (
@@ -401,6 +413,36 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("voice", ctx.exception.detail)
 
+    async def test_profile_binding_must_match_credential(self) -> None:
+        """A profile cannot be sent to a different provider credential."""
+        storage = AsyncMock()
+        storage.get_voice_profile.return_value = _profile()
+
+        with self.assertRaises(HTTPException) as ctx:
+            await _validate_voice_binding(
+                user_id="user-a",
+                config=_custom_config(credential_id="credential-b"),
+                credential_owner_id="user-a",
+                storage=storage,
+                card=_model_card(["alloy"]),
+            )
+
+        self.assertEqual(
+            {
+                "status_code": ctx.exception.status_code,
+                "detail": ctx.exception.detail,
+                "headers": ctx.exception.headers,
+            },
+            {
+                "status_code": 400,
+                "detail": (
+                    "TTS config does not match voice profile 'profile-a': "
+                    "credential_id."
+                ),
+                "headers": None,
+            },
+        )
+
     async def test_exact_owned_profile_binding_is_allowed(self) -> None:
         """An owned profile with an exact binding passes validation."""
         storage = AsyncMock()
@@ -466,6 +508,51 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(ctx.exception.status_code, 403)
+
+    async def test_remote_profile_can_bind_authorized_shared_credential(
+        self,
+    ) -> None:
+        """A caller-owned profile may use an authorized remote endpoint."""
+        access = AsyncMock()
+        access.resolve_credential.return_value = CredentialRecord(
+            id="credential-remote",
+            user_id="credential-owner",
+            data={
+                "type": "remote_tts_credential",
+                "base_url": "https://tts.example/v1",
+            },
+        )
+        data = VoiceProfileData(
+            name="Remote reference",
+            engine="remote_tts",
+            model="remote-tts",
+            credential_id="credential-remote",
+            metadata={
+                "reference_audio_base64": "QUJD",
+                "reference_audio_media_type": "audio/wav",
+            },
+        )
+
+        await _validate_voice_profile_data(access, "caller", data)
+        storage = AsyncMock()
+        storage.get_voice_profile.return_value = VoiceProfileRecord(
+            id="profile-remote",
+            user_id="caller",
+            data=data,
+        )
+        await _validate_voice_binding(
+            user_id="caller",
+            config=TTSModelConfig(
+                type="remote_tts_credential",
+                credential_id="credential-remote",
+                model="remote-tts",
+                voice_profile_id="profile-remote",
+                parameters={},
+            ),
+            credential_owner_id="credential-owner",
+            storage=storage,
+            card=None,
+        )
 
     async def test_reference_audio_profile_does_not_require_voice(
         self,
@@ -572,6 +659,7 @@ class TestEngineToCredentialMapping(TestCase):
             "chatterbox": "local_tts_credential",
             "luxtts": "local_tts_credential",
             "tada": "local_tts_credential",
+            "remote_tts": "remote_tts_credential",
             "voicebox": "voicebox_credential",
         }
         self.assertEqual(ENGINE_TO_CREDENTIAL_TYPE, expected)
@@ -619,6 +707,7 @@ class TestEngineConstants(TestCase):
             "chatterbox": "CUDA recommended",
             "luxtts": "<1 GB VRAM",
             "tada": "CUDA recommended",
+            "remote_tts": None,
             "voicebox": None,
         }
         self.assertEqual(ENGINE_GPU_REQUIREMENT, expected)
@@ -634,6 +723,7 @@ class TestEngineConstants(TestCase):
             "chatterbox": True,
             "luxtts": True,
             "tada": True,
+            "remote_tts": True,
             "voicebox": False,
         }
         self.assertEqual(ENGINE_VOICE_CLONING, expected)

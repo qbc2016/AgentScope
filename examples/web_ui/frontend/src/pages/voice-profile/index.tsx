@@ -47,6 +47,7 @@ const ENGINE_LABELS: Record<string, string> = {
 	chatterbox: 'Chatterbox (Local)',
 	luxtts: 'LuxTTS (Local)',
 	tada: 'TADA (Local)',
+	remote_tts: 'Remote TTS',
 	voicebox: 'Voicebox (Local)',
 };
 
@@ -110,6 +111,7 @@ function VoiceProfileDialog({
 	const [cloneUrl, setCloneUrl] = useState('');
 	const [consentId, setConsentId] = useState('');
 	const [refAudioBase64, setRefAudioBase64] = useState<string | null>(null);
+	const [refAudioMediaType, setRefAudioMediaType] = useState('audio/wav');
 	const [refAudioFilename, setRefAudioFilename] = useState('');
 	const [referenceText, setReferenceText] = useState('');
 	const [credentialId, setCredentialId] = useState<string | null>(null);
@@ -144,6 +146,7 @@ function VoiceProfileDialog({
 			);
 			setSpeed(typeof meta?.speed === 'number' ? meta.speed : 1);
 			setRefAudioBase64((meta?.reference_audio_base64 as string) || null);
+			setRefAudioMediaType((meta?.reference_audio_media_type as string) || 'audio/wav');
 			setRefAudioFilename('');
 			setReferenceText((meta?.reference_text as string) || '');
 			setCredentialId(profile.data.credential_id || null);
@@ -155,6 +158,7 @@ function VoiceProfileDialog({
 			setKokoroLanguage('a');
 			setSpeed(1);
 			setRefAudioBase64(null);
+			setRefAudioMediaType('audio/wav');
 			setRefAudioFilename('');
 			setReferenceText('');
 			setCredentialId(null);
@@ -227,6 +231,7 @@ function VoiceProfileDialog({
 		try {
 			const base64 = await fileToBase64(file);
 			setRefAudioBase64(base64);
+			setRefAudioMediaType(file.type || 'audio/wav');
 			setRefAudioFilename(file.name);
 			setCloneError('');
 		} catch (err: unknown) {
@@ -237,19 +242,28 @@ function VoiceProfileDialog({
 		}
 	};
 
+	const selectedModelCard = useMemo(
+		() => modelOptions.find((item) => item.name === model),
+		[model, modelOptions],
+	);
+
 	const selectedModelProperties = useMemo<Record<string, Record<string, unknown>>>(() => {
 		if (!model) return {};
-		const card = modelOptions.find((m) => m.name === model);
+		const card = selectedModelCard;
 		if (!card) return {};
 		const properties = (card.parameter_schema as Record<string, unknown>)?.properties as
 			| Record<string, Record<string, unknown>>
 			| undefined;
 		return properties ?? {};
-	}, [model, modelOptions]);
+	}, [model, selectedModelCard]);
 
 	const voiceSchema = selectedModelProperties?.voice;
 	const speedSchema = selectedModelProperties?.speed;
 	const canConfigureVoice = Boolean(voiceSchema) || modelOptions.length === 0;
+	const supportsReferenceAudio = Boolean(
+		selectedModelProperties.reference_audio_base64 ||
+		selectedModelCard?.parameters_overrides?.reference_audio_base64,
+	);
 	const speedMinimum = typeof speedSchema?.minimum === 'number' ? speedSchema.minimum : 0.5;
 	const speedMaximum = typeof speedSchema?.maximum === 'number' ? speedSchema.maximum : 2;
 	const displayedVoiceOptions = useMemo(() => {
@@ -385,8 +399,9 @@ function VoiceProfileDialog({
 			if (speedSchema) {
 				metadata.speed = Math.min(speedMaximum, Math.max(speedMinimum, speed));
 			}
-			if (isLocal && canClone && refAudioBase64) {
+			if (supportsReferenceAudio && canClone && refAudioBase64) {
 				metadata.reference_audio_base64 = refAudioBase64;
+				metadata.reference_audio_media_type = refAudioMediaType;
 				if (referenceText.trim()) {
 					metadata.reference_text = referenceText.trim();
 				}
@@ -615,97 +630,102 @@ function VoiceProfileDialog({
 							</p>
 						</div>
 					)}
-					{canClone && selectedModelSupportsClone && !isLocal && (
-						<div className="flex flex-col gap-2">
-							<Label>{t('voiceProfile.cloneVoice')}</Label>
-							{engine === 'openai_tts' && (
-								<div className="flex flex-col gap-2">
-									<p className="text-xs text-muted-foreground">
-										{t('voiceProfile.openaiCloneHint')}
-									</p>
+					{canClone &&
+						selectedModelSupportsClone &&
+						!isLocal &&
+						!supportsReferenceAudio && (
+							<div className="flex flex-col gap-2">
+								<Label>{t('voiceProfile.cloneVoice')}</Label>
+								{engine === 'openai_tts' && (
+									<div className="flex flex-col gap-2">
+										<p className="text-xs text-muted-foreground">
+											{t('voiceProfile.openaiCloneHint')}
+										</p>
+										<div className="flex items-center gap-2">
+											<Input
+												value={consentId}
+												onChange={(e) => setConsentId(e.target.value)}
+												placeholder={t('voiceProfile.consentPlaceholder')}
+												className="flex-1"
+											/>
+											<input
+												ref={consentFileRef}
+												type="file"
+												accept="audio/*"
+												className="hidden"
+												onChange={handleConsentUpload}
+											/>
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												disabled={cloning || !credentialId}
+												onClick={() => consentFileRef.current?.click()}
+											>
+												{t('voiceProfile.uploadConsent')}
+											</Button>
+										</div>
+									</div>
+								)}
+								{cloneSupportsUpload ? (
 									<div className="flex items-center gap-2">
-										<Input
-											value={consentId}
-											onChange={(e) => setConsentId(e.target.value)}
-											placeholder={t('voiceProfile.consentPlaceholder')}
-											className="flex-1"
-										/>
 										<input
-											ref={consentFileRef}
+											ref={fileInputRef}
 											type="file"
 											accept="audio/*"
 											className="hidden"
-											onChange={handleConsentUpload}
+											onChange={handleCloneUpload}
 										/>
 										<Button
 											type="button"
 											variant="outline"
 											size="sm"
 											disabled={cloning || !credentialId}
-											onClick={() => consentFileRef.current?.click()}
+											onClick={() => fileInputRef.current?.click()}
 										>
-											{t('voiceProfile.uploadConsent')}
+											{cloning ? (
+												<Loader2 className="size-4 mr-1.5 animate-spin" />
+											) : (
+												<Upload className="size-4 mr-1.5" />
+											)}
+											{cloning
+												? t('voiceProfile.cloning')
+												: t('voiceProfile.uploadAudio')}
 										</Button>
 									</div>
-								</div>
-							)}
-							{cloneSupportsUpload ? (
-								<div className="flex items-center gap-2">
-									<input
-										ref={fileInputRef}
-										type="file"
-										accept="audio/*"
-										className="hidden"
-										onChange={handleCloneUpload}
-									/>
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										disabled={cloning || !credentialId}
-										onClick={() => fileInputRef.current?.click()}
-									>
-										{cloning ? (
-											<Loader2 className="size-4 mr-1.5 animate-spin" />
-										) : (
-											<Upload className="size-4 mr-1.5" />
-										)}
-										{cloning
-											? t('voiceProfile.cloning')
-											: t('voiceProfile.uploadAudio')}
-									</Button>
-								</div>
-							) : (
-								<div className="flex flex-col gap-2">
-									<Textarea
-										value={cloneUrl}
-										onChange={(e) => setCloneUrl(e.target.value)}
-										placeholder={t('voiceProfile.cloneUrlPlaceholder')}
-										rows={3}
-										className="text-sm break-all resize-none"
-									/>
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										disabled={cloning || !cloneUrl.trim() || !credentialId}
-										onClick={handleCloneFromUrl}
-									>
-										{cloning ? (
-											<Loader2 className="size-4 mr-1.5 animate-spin" />
-										) : (
-											<Upload className="size-4 mr-1.5" />
-										)}
-										{cloning
-											? t('voiceProfile.cloning')
-											: t('voiceProfile.clone')}
-									</Button>
-								</div>
-							)}
-							{cloneError && <p className="text-sm text-destructive">{cloneError}</p>}
-						</div>
-					)}
-					{isLocal && canClone && selectedModelSupportsClone && (
+								) : (
+									<div className="flex flex-col gap-2">
+										<Textarea
+											value={cloneUrl}
+											onChange={(e) => setCloneUrl(e.target.value)}
+											placeholder={t('voiceProfile.cloneUrlPlaceholder')}
+											rows={3}
+											className="text-sm break-all resize-none"
+										/>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											disabled={cloning || !cloneUrl.trim() || !credentialId}
+											onClick={handleCloneFromUrl}
+										>
+											{cloning ? (
+												<Loader2 className="size-4 mr-1.5 animate-spin" />
+											) : (
+												<Upload className="size-4 mr-1.5" />
+											)}
+											{cloning
+												? t('voiceProfile.cloning')
+												: t('voiceProfile.clone')}
+										</Button>
+									</div>
+								)}
+								{cloneError && (
+									<p className="text-sm text-destructive">{cloneError}</p>
+								)}
+							</div>
+						)}
+					{supportsReferenceAudio && canClone && selectedModelSupportsClone && (
 						<div className="flex flex-col gap-2">
 							<Label>
 								{t('voiceProfile.referenceAudio')}

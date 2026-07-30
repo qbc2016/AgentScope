@@ -1,0 +1,25 @@
+name: remote-tts
+label: Remote TTS
+status: active
+voice_cloning: true
+
+input_types:
+  - text/plain
+
+output_types:
+  - audio/wav
+  - audio/mpeg
+  - audio/flac
+  - audio/pcm
+  - audio/opus
+  - audio/aac
+
+parameter_overrides:
+  voice:
+    description: >-
+      Voice identifier understood by the remote service. Phase 1 does not
+      discover remote voices, so enter the provider's voice ID manually.
+  reference_audio_base64:
+    hidden: true
+  reference_audio_media_type:
+    hidden: true

@@ -277,7 +277,7 @@ export interface JSONSchemaProperty {
 	description?: string;
 	default?: unknown;
 	const?: unknown;
-	anyOf?: Array<{ type: string }>;
+	anyOf?: JSONSchemaProperty[];
 	enum?: unknown[];
 	title?: string;
 	writeOnly?: boolean;
@@ -735,4 +735,13 @@ export interface TTSModelCard {
 export interface ListTTSModelResponse {
 	models: TTSModelCard[];
 	total: number;
+}
+
+export interface VoiceboxClientSetupResponse {
+	client_id: string;
+	endpoint: string;
+	reachable: boolean;
+	profile_id: string | null;
+	default_engine: string | null;
+	error: string | null;
 }

@@ -11,3 +11,5 @@ output_types:
 parameter_overrides:
   profile:
     hidden: true
+  personality:
+    hidden: true
