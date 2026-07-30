@@ -14,6 +14,7 @@ from ._index_worker import IndexWorker
 from ._knowledge_base import KnowledgeBaseService
 from ._model import get_model
 from ._tts_model import (
+    discover_tts_models,
     get_tts_model,
     redact_credential_view,
     validate_tts_model_config,
@@ -39,6 +40,7 @@ __all__ = [
     "SubagentHitlProjector",
     "get_embedding_model",
     "get_model",
+    "discover_tts_models",
     "get_tts_model",
     "redact_credential_view",
     "validate_tts_model_config",

@@ -42,15 +42,6 @@ class RemoteTTSCredential(CredentialBase):
     )
     """Request timeout."""
 
-    served_model: str | None = Field(
-        default=None,
-        description=(
-            "Model name sent to the endpoint when using the generic "
-            "'remote-tts' model card."
-        ),
-    )
-    """Optional model name used by the Phase 1 static model card."""
-
     @field_validator("base_url")
     @classmethod
     def _validate_base_url(cls, value: str) -> str:
@@ -71,15 +62,6 @@ class RemoteTTSCredential(CredentialBase):
                 "not /audio/speech",
             )
         return normalized
-
-    @field_validator("served_model")
-    @classmethod
-    def _normalize_served_model(cls, value: str | None) -> str | None:
-        """Normalize an optional served model name."""
-        if value is None:
-            return None
-        normalized = value.strip()
-        return normalized or None
 
     @classmethod
     def get_chat_model_class(cls) -> Type:

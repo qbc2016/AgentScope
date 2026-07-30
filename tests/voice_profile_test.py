@@ -216,6 +216,21 @@ def _model_card(
     )
 
 
+def _remote_reference_card() -> TTSModelCard:
+    """Build a discovered remote model that requires reference audio."""
+    return TTSModelCard(
+        name="tada",
+        label="Remote TADA",
+        voice_cloning=True,
+        reference_audio_required=True,
+        parameter_schema={
+            "type": "object",
+            "properties": {},
+        },
+        parameters_overrides={},
+    )
+
+
 def _custom_config(
     *,
     profile_id: str | None = "profile-a",
@@ -551,7 +566,7 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
         data = VoiceProfileData(
             name="Remote reference",
             engine="remote_tts",
-            model="remote-tts",
+            model="tada",
             credential_id="credential-remote",
             metadata={
                 "reference_audio_base64": "QUJD",
@@ -559,7 +574,11 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
             },
         )
 
-        await _validate_voice_profile_data(access, "caller", data)
+        with patch(
+            "agentscope.app._router._voice_profile.discover_tts_models",
+            new=AsyncMock(return_value=[]),
+        ):
+            await _validate_voice_profile_data(access, "caller", data)
         storage = AsyncMock()
         storage.get_voice_profile.return_value = VoiceProfileRecord(
             id="profile-remote",
@@ -571,13 +590,75 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
             config=TTSModelConfig(
                 type="remote_tts_credential",
                 credential_id="credential-remote",
-                model="remote-tts",
+                model="tada",
                 voice_profile_id="profile-remote",
                 parameters={},
             ),
             credential_owner_id="credential-owner",
             storage=storage,
             card=None,
+        )
+
+    async def test_remote_reference_audio_is_enforced_by_backend(
+        self,
+    ) -> None:
+        """Profile writes and TTS configs reject missing required audio."""
+        access = AsyncMock()
+        access.resolve_credential.return_value = CredentialRecord(
+            id="credential-reference",
+            user_id="user-a",
+            data={
+                "type": "remote_tts_credential",
+                "base_url": "https://tts.example/v1",
+            },
+        )
+        card = _remote_reference_card()
+        data = VoiceProfileData(
+            name="Missing reference",
+            engine="remote_tts",
+            model="tada",
+            credential_id="credential-reference",
+        )
+
+        with (
+            patch(
+                "agentscope.app._router._voice_profile.discover_tts_models",
+                new=AsyncMock(return_value=[card]),
+            ),
+            self.assertRaises(HTTPException) as profile_context,
+        ):
+            await _validate_voice_profile_data(access, "user-a", data)
+
+        storage = AsyncMock()
+        config = TTSModelConfig(
+            type="remote_tts_credential",
+            credential_id="credential-reference",
+            model="tada",
+            parameters={},
+        )
+        with (
+            patch(
+                "agentscope.app._service._tts_model.discover_tts_models",
+                new=AsyncMock(return_value=[card]),
+            ),
+            self.assertRaises(HTTPException) as config_context,
+        ):
+            await validate_tts_model_config(
+                "user-a",
+                config,
+                access,
+                storage,
+            )
+
+        self.assertEqual(profile_context.exception.status_code, 400)
+        self.assertIn(
+            "requires reference audio",
+            profile_context.exception.detail,
+        )
+        self.assertEqual(config_context.exception.status_code, 400)
+        self.assertIn(
+            "requires reference audio",
+            config_context.exception.detail,
         )
 
     async def test_reference_audio_profile_does_not_require_voice(

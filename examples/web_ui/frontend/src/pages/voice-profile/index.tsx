@@ -171,26 +171,39 @@ function VoiceProfileDialog({
 			setCredentialId(null);
 			return;
 		}
-		// Auto-select credential for this engine
 		const engineInfo = engineDetails.find((d) => d.name === engine);
 		const creds = engineInfo?.credentials || [];
 		setCredentialId((prev) => {
 			if (prev && creds.some((c) => c.id === prev)) return prev;
 			return creds.length === 1 ? creds[0].id : null;
 		});
+	}, [engine, engineDetails]);
 
+	useEffect(() => {
+		if (!engine || !credentialId) {
+			setModelOptions([]);
+			return;
+		}
 		const credType = credentialTypeForEngine(engine);
 		if (!credType) {
 			setModelOptions([]);
 			return;
 		}
+		setModelOptions([]);
 		setModelsLoading(true);
 		ttsModelApi
-			.list(credType)
+			.list(
+				credType,
+				credType === 'remote_tts_credential' ? credentialId : undefined,
+			)
 			.then((res) => {
 				const filtered = res.models.filter((m) => isModelForEngine(m.name, engine!));
 				setModelOptions(filtered);
 				setModel((prev) => {
+					if (engine === 'remote_tts') {
+						if (prev && prev !== 'remote-tts') return prev;
+						return filtered.find((item) => item.name !== 'remote-tts')?.name;
+					}
 					const inList = filtered.some((m) => m.name === prev);
 					if (inList) return prev;
 					const engineInfo = engineDetails.find((d) => d.name === engine);
@@ -203,7 +216,7 @@ function VoiceProfileDialog({
 			})
 			.catch(() => setModelOptions([]))
 			.finally(() => setModelsLoading(false));
-	}, [engine, engineDetails]);
+	}, [credentialId, engine, engineDetails]);
 
 	const canClone = engine
 		? (engineDetails.find((d) => d.name === engine)?.voice_cloning ?? false)
@@ -213,7 +226,10 @@ function VoiceProfileDialog({
 		engine === 'openai_tts'
 			? true
 			: model
-				? (modelOptions.find((m) => m.name === model)?.voice_cloning ?? false)
+				? (modelOptions.find((m) => m.name === model)?.voice_cloning ??
+					(engine === 'remote_tts' &&
+						modelOptions.find((m) => m.name === 'remote-tts')?.voice_cloning) ??
+					false)
 				: false;
 
 	const cloneSupportsUpload = engine === 'dashscope_tts' || engine === 'openai_tts';
@@ -242,8 +258,12 @@ function VoiceProfileDialog({
 	};
 
 	const selectedModelCard = useMemo(
-		() => modelOptions.find((item) => item.name === model),
-		[model, modelOptions],
+		() =>
+			modelOptions.find((item) => item.name === model) ??
+			(engine === 'remote_tts'
+				? modelOptions.find((item) => item.name === 'remote-tts')
+				: undefined),
+		[engine, model, modelOptions],
 	);
 
 	const selectedModelProperties = useMemo<Record<string, Record<string, unknown>>>(() => {
@@ -261,7 +281,8 @@ function VoiceProfileDialog({
 	const canConfigureVoice = Boolean(voiceSchema) || modelOptions.length === 0;
 	const supportsReferenceAudio = Boolean(
 		selectedModelProperties.reference_audio_base64 ||
-		selectedModelCard?.parameters_overrides?.reference_audio_base64,
+			selectedModelCard?.parameters_overrides?.reference_audio_base64 ||
+			selectedModelCard?.reference_audio_required,
 	);
 	const speedMinimum = typeof speedSchema?.minimum === 'number' ? speedSchema.minimum : 0.5;
 	const speedMaximum = typeof speedSchema?.maximum === 'number' ? speedSchema.maximum : 2;
@@ -389,6 +410,10 @@ function VoiceProfileDialog({
 			setCloneError(t('voiceProfile.tadaReferenceAudioRequired'));
 			return;
 		}
+		if (selectedModelCard?.reference_audio_required && !refAudioBase64) {
+			setCloneError(t('voiceProfile.referenceAudioRequired'));
+			return;
+		}
 		setSaving(true);
 		try {
 			const metadata: Record<string, unknown> = {};
@@ -498,7 +523,11 @@ function VoiceProfileDialog({
 									</Label>
 									<Select
 										value={credentialId || undefined}
-										onValueChange={(val) => setCredentialId(val)}
+										onValueChange={(val) => {
+											setCredentialId(val);
+											setModel(undefined);
+											setVoice('');
+										}}
 									>
 										<SelectTrigger id="vp-credential">
 											<SelectValue
@@ -521,7 +550,35 @@ function VoiceProfileDialog({
 					{engine && (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="vp-model">{t('voiceProfile.model')}</Label>
-							{modelsLoading ? (
+							{engine === 'remote_tts' ? (
+								<>
+									<Input
+										id="vp-model"
+										list="vp-remote-model-options"
+										value={model || ''}
+										onChange={(e) =>
+											setModel(e.target.value || undefined)
+										}
+										placeholder={t(
+											'voiceProfile.remoteModelPlaceholder',
+										)}
+									/>
+									<datalist id="vp-remote-model-options">
+										{modelOptions
+											.filter((item) => item.name !== 'remote-tts')
+											.map((item) => (
+												<option key={item.name} value={item.name}>
+													{item.label}
+												</option>
+											))}
+									</datalist>
+									<p className="text-xs text-muted-foreground">
+										{modelsLoading
+											? t('voiceProfile.loadingModels')
+											: t('voiceProfile.remoteModelHint')}
+									</p>
+								</>
+							) : modelsLoading ? (
 								<div className="flex items-center gap-2 text-sm text-muted-foreground">
 									<Loader2 className="size-4 animate-spin" />
 									{t('voiceProfile.loadingModels')}
@@ -724,17 +781,23 @@ function VoiceProfileDialog({
 								)}
 							</div>
 						)}
-					{supportsReferenceAudio && canClone && selectedModelSupportsClone && (
+					{supportsReferenceAudio &&
+						canClone &&
+						(selectedModelSupportsClone ||
+							selectedModelCard?.reference_audio_required) && (
 						<div className="flex flex-col gap-2">
 							<Label>
 								{t('voiceProfile.referenceAudio')}
-								{engine === 'tada' && (
+								{(engine === 'tada' ||
+									selectedModelCard?.reference_audio_required) && (
 									<span className="text-destructive ml-0.5">*</span>
 								)}
 							</Label>
 							<p className="text-xs text-muted-foreground">
 								{engine === 'tada'
 									? t('voiceProfile.tadaReferenceAudioRequired')
+									: selectedModelCard?.reference_audio_required
+										? t('voiceProfile.referenceAudioRequired')
 									: t('voiceProfile.localCloneHint')}
 							</p>
 							<div className="flex items-center gap-2">
@@ -788,13 +851,15 @@ function VoiceProfileDialog({
 						disabled={
 							saving ||
 							enginesLoading ||
-							modelsLoading ||
+							(engine !== 'remote_tts' && modelsLoading) ||
 							!name.trim() ||
 							!engine ||
 							!credentialId ||
 							!model ||
 							(canConfigureVoice && !voice.trim()) ||
-							(engine === 'tada' && !refAudioBase64)
+							((engine === 'tada' ||
+								selectedModelCard?.reference_audio_required) &&
+								!refAudioBase64)
 						}
 					>
 						{saving ? t('voiceProfile.saving') : t('voiceProfile.save')}

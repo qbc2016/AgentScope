@@ -42,7 +42,7 @@ export function isModelForEngine(modelName: string, engine: string): boolean {
 		case 'tada':
 			return modelName === 'tada' || modelName.startsWith('tada');
 		case 'remote_tts':
-			return modelName === 'remote-tts';
+			return modelName.trim().length > 0;
 		default:
 			return modelName === engine || modelName.includes(engine);
 	}

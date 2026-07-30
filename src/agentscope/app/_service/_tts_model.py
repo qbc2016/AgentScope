@@ -1,18 +1,131 @@
 # -*- coding: utf-8 -*-
 """TTS model service: builds a TTSModelBase from stored credential + config."""
+import asyncio
+from functools import partial
+from time import monotonic
 from typing import Type
 
 from fastapi import HTTPException, status
 from pydantic import ValidationError
 
 from ._access import CredentialView, ResourceAccessService
-from ..storage import StorageBase, TTSModelConfig
+from ..storage import CredentialRecord, StorageBase, TTSModelConfig
 from ..storage._model import (
     ENGINE_TO_CREDENTIAL_TYPE,
     get_missing_voice_profile_binding_fields,
 )
 from ...credential import CredentialBase, CredentialFactory
 from ...tts import TTSModelBase, TTSModelCard
+
+_DISCOVERY_CACHE_TTL_SECONDS = 60.0
+_DISCOVERY_CACHE_MAX_ENTRIES = 256
+_DiscoveryCacheKey = tuple[str, str, str]
+_discovery_cache: dict[
+    _DiscoveryCacheKey,
+    tuple[float, list[TTSModelCard]],
+] = {}
+_discovery_inflight: dict[
+    _DiscoveryCacheKey,
+    asyncio.Task[list[TTSModelCard]],
+] = {}
+
+
+async def discover_tts_models(
+    credential_record: CredentialRecord,
+    credential: CredentialBase | None = None,
+) -> list[TTSModelCard]:
+    """Discover model cards with credential-scoped short-lived caching.
+
+    The cache key contains the credential owner, ID, and ``updated_at``
+    revision. Shared callers can therefore reuse public capability metadata
+    without mixing different credentials or retaining results after an edit.
+    """
+    credential = credential or CredentialFactory.from_dict(
+        credential_record.data,
+    )
+    if credential.type != "remote_tts_credential":
+        return await _discover_tts_models_uncached(credential)
+
+    cache_key = (
+        credential_record.user_id,
+        credential_record.id,
+        credential_record.updated_at.isoformat(),
+    )
+    now = monotonic()
+    _prune_discovery_cache(now, cache_key)
+    cached = _discovery_cache.get(cache_key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+
+    task = _discovery_inflight.get(cache_key)
+    if task is None:
+        task = asyncio.create_task(
+            _discover_tts_models_uncached(credential),
+        )
+        _discovery_inflight[cache_key] = task
+        task.add_done_callback(
+            partial(_cache_discovery_result, cache_key),
+        )
+    try:
+        models = await asyncio.shield(task)
+    finally:
+        if task.done() and _discovery_inflight.get(cache_key) is task:
+            _discovery_inflight.pop(cache_key, None)
+
+    _discovery_cache[cache_key] = (
+        monotonic() + _DISCOVERY_CACHE_TTL_SECONDS,
+        models,
+    )
+    return models
+
+
+def _cache_discovery_result(
+    cache_key: _DiscoveryCacheKey,
+    task: asyncio.Task[list[TTSModelCard]],
+) -> None:
+    """Store a completed discovery even if its HTTP caller disconnected."""
+    if _discovery_inflight.get(cache_key) is task:
+        _discovery_inflight.pop(cache_key, None)
+    if task.cancelled():
+        return
+    try:
+        models = task.result()
+    except Exception:  # pylint: disable=broad-exception-caught
+        return
+    now = monotonic()
+    _prune_discovery_cache(now, cache_key)
+    _discovery_cache[cache_key] = (
+        now + _DISCOVERY_CACHE_TTL_SECONDS,
+        models,
+    )
+
+
+async def _discover_tts_models_uncached(
+    credential: CredentialBase,
+) -> list[TTSModelCard]:
+    """Run provider discovery without caching."""
+    models: list[TTSModelCard] = []
+    for tts_cls in credential.get_tts_model_classes():
+        models.extend(await tts_cls.discover_models(credential))
+    return models
+
+
+def _prune_discovery_cache(
+    now: float,
+    current_key: _DiscoveryCacheKey,
+) -> None:
+    """Remove expired and obsolete credential revisions from the cache."""
+    owner_id, credential_id, _ = current_key
+    for key, (expires_at, _) in list(_discovery_cache.items()):
+        same_credential = key[:2] == (owner_id, credential_id)
+        if expires_at <= now or (same_credential and key != current_key):
+            _discovery_cache.pop(key, None)
+    if len(_discovery_cache) >= _DISCOVERY_CACHE_MAX_ENTRIES:
+        oldest_key = min(
+            _discovery_cache,
+            key=lambda key: _discovery_cache[key][0],
+        )
+        _discovery_cache.pop(oldest_key, None)
 
 
 def redact_credential_view(view: CredentialView) -> CredentialView:
@@ -119,6 +232,17 @@ async def _validate_and_resolve_tts_config(
         )
 
     credential = CredentialFactory.from_dict(credential_record.data)
+    if (
+        credential.type == "remote_tts_credential"
+        and config.model == "remote-tts"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Remote TTS requires a concrete model ID. Reconfigure this "
+                "TTS selection and enter the model served by the endpoint."
+            ),
+        )
     tts_classes = credential.get_tts_model_classes()
     if not tts_classes:
         raise HTTPException(
@@ -135,6 +259,19 @@ async def _validate_and_resolve_tts_config(
         allow_single_fallback=(credential.type != "local_tts_credential"),
     )
     card = _find_model_card(tts_cls, config.model)
+    if credential.type == "remote_tts_credential":
+        discovered_cards = await discover_tts_models(
+            credential_record,
+            credential,
+        )
+        card = next(
+            (
+                candidate
+                for candidate in discovered_cards
+                if candidate.name == config.model
+            ),
+            None,
+        )
     _validate_tts_parameters(tts_cls, config)
     await _validate_voice_binding(
         user_id=user_id,
@@ -184,6 +321,17 @@ async def _validate_voice_binding(
     preset_voices = _get_preset_voices(card)
     if config.voice_profile_id is None:
         if (
+            card is not None
+            and card.reference_audio_required
+            and not _has_reference_audio(config.parameters)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"TTS model {config.model!r} requires reference audio."
+                ),
+            )
+        if (
             config.type == "local_tts_credential"
             and config.model == "chatterbox"
             and config.parameters.get("variant", "turbo")
@@ -194,10 +342,9 @@ async def _validate_voice_binding(
             # clone-only and continues through the profile requirement below.
             return
         if config.type == "remote_tts_credential":
-            # Phase 1 has no remote voice-discovery endpoint. A free-form
-            # provider voice id is therefore valid and must not be mistaken
-            # for an AgentScope-owned cloned voice. Reference-audio cloning
-            # continues to require an owner-scoped Voice Profile.
+            # Remote endpoints may expose discovered presets or accept a
+            # provider-specific free-form voice ID. Neither should be treated
+            # as an AgentScope-owned cloned voice.
             return
         if _requires_voice_profile(card, preset_voices):
             raise HTTPException(
@@ -274,6 +421,28 @@ async def _validate_voice_binding(
                 + "."
             ),
         )
+    if (
+        card is not None
+        and card.reference_audio_required
+        and not _has_reference_audio(config.parameters)
+        and not _has_reference_audio(data.metadata or {})
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Voice profile {profile.id!r} requires reference audio "
+                f"for TTS model {config.model!r}."
+            ),
+        )
+
+
+def _has_reference_audio(values: dict) -> bool:
+    """Return whether a parameter or metadata mapping contains audio."""
+    for key in ("reference_audio_base64", "reference_audio_path"):
+        value = values.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def _find_model_card(

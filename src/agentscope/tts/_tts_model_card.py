@@ -62,6 +62,13 @@ class TTSModelCard(BaseModel):
     )
     """Whether the model supports voice cloning."""
 
+    reference_audio_required: bool = Field(
+        default=False,
+        description="Whether synthesis requires a reference audio sample.",
+        title="Reference Audio Required",
+    )
+    """Whether the model requires reference audio for every synthesis."""
+
     parameter_schema: dict
     """The parameters schema."""
 
@@ -137,6 +144,10 @@ class TTSModelCard(BaseModel):
             output_types=config.get("output_types", ["audio/wav"]),
             realtime=config.get("realtime", False),
             voice_cloning=config.get("voice_cloning", False),
+            reference_audio_required=config.get(
+                "reference_audio_required",
+                False,
+            ),
             parameter_schema=final_schema,
             parameters_overrides=config.get("parameter_overrides", {}),
         )

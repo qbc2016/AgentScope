@@ -6,5 +6,9 @@ export const modelApi = {
 };
 
 export const ttsModelApi = {
-	list: (provider: string) => client.get<ListTTSModelResponse>('/tts-model/', { provider }),
+	list: (provider?: string, credentialId?: string) =>
+		client.get<ListTTSModelResponse>('/tts-model/', {
+			...(provider ? { provider } : {}),
+			...(credentialId ? { credential_id: credentialId } : {}),
+		}),
 };

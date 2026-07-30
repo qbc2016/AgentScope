@@ -183,6 +183,20 @@ class TTSModelBase:
 
         return model_cards
 
+    @classmethod
+    async def discover_models(
+        cls,
+        credential: CredentialBase,
+    ) -> list["TTSModelCard"]:
+        """Discover models available through a concrete credential.
+
+        Static providers keep using their packaged model cards. Remote
+        providers can override this method to query the credential's
+        endpoint without changing the caller-facing model abstraction.
+        """
+        del credential
+        return cls.list_models()
+
     @abstractmethod
     async def synthesize(
         self,

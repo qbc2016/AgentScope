@@ -175,7 +175,10 @@ function DetailPanel({ credential, schema, onEdit, onDelete }: DetailPanelProps)
 				.then((res) => res.models)
 				.catch(() => [] as ModelCard[]),
 			ttsModelApi
-				.list(type)
+				.list(
+					type,
+					type === 'remote_tts_credential' ? credential.id : undefined,
+				)
 				.then((res) => res.models)
 				.catch(() => [] as TTSModelCard[]),
 		])

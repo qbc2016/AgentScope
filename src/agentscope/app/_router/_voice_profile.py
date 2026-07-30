@@ -12,7 +12,7 @@ from ..deps import (
     get_resource_access_service,
     get_storage,
 )
-from .._service import ResourceAccessService
+from .._service import ResourceAccessService, discover_tts_models
 from ..storage import StorageBase, VoiceProfileData, VoiceProfileRecord
 from ..storage._model import (
     ENGINE_GPU_REQUIREMENT,
@@ -143,6 +143,41 @@ async def _validate_voice_profile_data(
                     f"Credential {data.credential_id!r} has type "
                     f"{actual_type!r}; expected {expected_type!r}."
                 ),
+            )
+        assert data.model is not None
+        if data.model == "remote-tts":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Remote TTS voice profiles require a concrete model ID."
+                ),
+            )
+        credential = CredentialFactory.from_dict(record.data)
+        card = next(
+            (
+                candidate
+                for candidate in await discover_tts_models(
+                    record,
+                    credential,
+                )
+                if candidate.name == data.model
+            ),
+            None,
+        )
+        reference_audio = (data.metadata or {}).get(
+            "reference_audio_base64",
+        )
+        if (
+            card is not None
+            and card.reference_audio_required
+            and (
+                not isinstance(reference_audio, str)
+                or not reference_audio.strip()
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(f"TTS model {data.model!r} requires reference audio."),
             )
     else:
         await _resolve_owned_credential(

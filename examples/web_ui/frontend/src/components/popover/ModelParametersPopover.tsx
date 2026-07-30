@@ -83,7 +83,11 @@ function resolveVoiceProfileBinding(
 	if (!type || !isModelForEngine(model, engine)) return null;
 
 	const credentialModels = ttsGroups[type]?.find((item) => item.credential.id === credentialId);
-	const modelCard = credentialModels?.models.find((item) => item.name === model);
+	const modelCard =
+		credentialModels?.models.find((item) => item.name === model) ??
+		(type === 'remote_tts_credential'
+			? credentialModels?.models.find((item) => item.name === 'remote-tts')
+			: undefined);
 	if (!modelCard) return null;
 
 	const schema = modelCard.parameter_schema as ParameterSchema | undefined;
@@ -291,6 +295,7 @@ export function ModelParametersPopover({
 	onTTSChange,
 }: Props) {
 	const [values, setValues] = useState<Record<string, unknown>>({});
+	const [remoteModelDrafts, setRemoteModelDrafts] = useState<Record<string, string>>({});
 	const { t } = useTranslation();
 	const { groups } = useAvailableModels();
 	const { groups: ttsGroups } = useAvailableTTSModels();
@@ -298,12 +303,21 @@ export function ModelParametersPopover({
 	const selectedTTSParameters = (selectedTTSModel?.parameters ?? {}) as Record<string, unknown>;
 	const isTadaSelected =
 		selectedTTSModel != null && isModelForEngine(selectedTTSModel.model, 'tada');
+	const selectedTTSCard = selectedTTSModel
+		? ttsGroups[selectedTTSModel.type]
+				?.find((item) => item.credential.id === selectedTTSModel.credential_id)
+				?.models.find((item) => item.name === selectedTTSModel.model)
+		: undefined;
 	const hasTadaReferenceAudio = Boolean(
 		selectedTTSParameters.reference_audio_path || selectedTTSParameters.reference_audio_base64,
 	);
-	const hasSelectedVoiceProfile = Boolean(selectedTTSParameters._voice_profile_id);
-	const showTadaReferenceWarning =
-		isTadaSelected && !hasSelectedVoiceProfile && !hasTadaReferenceAudio;
+	const hasSelectedVoiceProfile = Boolean(
+		selectedTTSModel?.voice_profile_id || selectedTTSParameters._voice_profile_id,
+	);
+	const selectedRequiresReference =
+		isTadaSelected || selectedTTSCard?.reference_audio_required === true;
+	const showReferenceWarning =
+		selectedRequiresReference && !hasSelectedVoiceProfile && !hasTadaReferenceAudio;
 
 	const schema = modelCard?.parameter_schema as ParameterSchema | undefined;
 	const properties = schema?.properties ?? {};
@@ -313,6 +327,24 @@ export function ModelParametersPopover({
 	useEffect(() => {
 		setValues(selectedModel?.parameters ?? {});
 	}, [selectedModel?.model]);
+
+	useEffect(() => {
+		const credentialIds = new Set(
+			(ttsGroups.remote_tts_credential ?? []).map(
+				(item) => item.credential.id,
+			),
+		);
+		setRemoteModelDrafts((current) => {
+			const next = Object.fromEntries(
+				Object.entries(current).filter(([credentialId]) =>
+					credentialIds.has(credentialId),
+				),
+			);
+			return Object.keys(next).length === Object.keys(current).length
+				? current
+				: next;
+		});
+	}, [ttsGroups]);
 
 	const handleChange = useCallback(
 		(key: string, value: unknown) => {
@@ -616,15 +648,26 @@ export function ModelParametersPopover({
 									{items.flatMap(({ credential, models }) =>
 										models
 											.filter((m) => {
-												// Hide models with no preset voices
+												// Clone-only provider models require a Voice
+												// Profile. Remote endpoints additionally allow
+												// free-form provider voice IDs.
 												const ps = m.parameter_schema as
 													| ParameterSchema
 													| undefined;
 												const voiceProp = ps?.properties?.voice;
 												if (!voiceProp) return true;
 												const { enumValues } = resolveType(voiceProp);
-												return enumValues !== null && enumValues.length > 0;
+												return type === 'remote_tts_credential'
+													? enumValues === null ||
+															enumValues.length > 0
+													: enumValues !== null &&
+															enumValues.length > 0;
 											})
+											.filter(
+												(m) =>
+													type !== 'remote_tts_credential' ||
+													m.name !== 'remote-tts',
+											)
 											.map((m) => {
 												const hasActiveProfile =
 													selectedTTSModel != null &&
@@ -666,13 +709,14 @@ export function ModelParametersPopover({
 														}}
 													>
 														{m.label}
-														{isModelForEngine(m.name, 'tada') && (
+														{(isModelForEngine(m.name, 'tada') ||
+															m.reference_audio_required) && (
 															<Badge
 																variant="destructive"
 																className="ml-1.5 text-[10px] px-1 py-0"
 															>
 																{t(
-																	'model-parameters.tadaReferenceRequiredBadge',
+																	'model-parameters.referenceAudioRequiredBadge',
 																)}
 															</Badge>
 														)}
@@ -688,11 +732,113 @@ export function ModelParametersPopover({
 												);
 											}),
 									)}
+									{type === 'remote_tts_credential' &&
+										items.map(({ credential, models }) => {
+											const generic = models.find(
+												(item) => item.name === 'remote-tts',
+											);
+											if (!generic) return null;
+											const selectedManualModel =
+												selectedTTSModel?.type ===
+													'remote_tts_credential' &&
+												selectedTTSModel.credential_id ===
+													credential.id &&
+												!models.some(
+													(item) =>
+														item.name ===
+														selectedTTSModel.model,
+												)
+													? selectedTTSModel.model
+													: '';
+											const draft =
+												remoteModelDrafts[credential.id] ??
+												selectedManualModel;
+											const credentialName =
+												typeof credential.data.name === 'string'
+													? credential.data.name
+													: t('model-parameters.remoteModelId');
+											return (
+												<div
+													key={`${credential.id}-manual-model`}
+													className="mx-2 my-2 flex max-w-80 flex-col gap-2 rounded-md border p-2"
+													onPointerDown={(e) =>
+														e.stopPropagation()
+													}
+													onKeyDown={(e) =>
+														e.stopPropagation()
+													}
+												>
+													<p className="text-xs font-medium">
+														{credentialName}
+													</p>
+													<div className="flex gap-2">
+														<Input
+															value={draft}
+															onChange={(e) =>
+																setRemoteModelDrafts(
+																	(current) => ({
+																		...current,
+																		[credential.id]:
+																			e.target.value,
+																	}),
+																)
+															}
+															placeholder={t(
+																'model-parameters.remoteModelPlaceholder',
+															)}
+														/>
+														<Button
+															size="sm"
+															disabled={!draft.trim()}
+															onClick={() => {
+																const modelId =
+																	draft.trim();
+																if (!modelId) return;
+																const schema =
+																	generic.parameter_schema as
+																		| ParameterSchema
+																		| undefined;
+																const defaults: Record<
+																	string,
+																	unknown
+																> = {};
+																for (const [
+																	key,
+																	prop,
+																] of Object.entries(
+																	schema?.properties ??
+																		{},
+																)) {
+																	if (
+																		prop.default !==
+																		undefined
+																	) {
+																		defaults[key] =
+																			prop.default;
+																	}
+																}
+																onTTSChange({
+																	type,
+																	credential_id:
+																		credential.id,
+																	model: modelId,
+																	parameters: defaults,
+																});
+															}}
+														>
+															{t(
+																'model-parameters.useRemoteModel',
+															)}
+														</Button>
+													</div>
+												</div>
+											);
+										})}
 								</div>
 							))
 						)}
 
-						{showTadaReferenceWarning && (
+						{showReferenceWarning && (
 							<>
 								<DropdownMenuSeparator />
 								<div
@@ -700,7 +846,13 @@ export function ModelParametersPopover({
 									onPointerDown={(e) => e.stopPropagation()}
 								>
 									<CircleAlert className="mt-0.5 size-4 shrink-0" />
-									<p>{t('model-parameters.tadaReferenceRequired')}</p>
+									<p>
+										{isTadaSelected
+											? t('model-parameters.tadaReferenceRequired')
+											: t(
+													'model-parameters.referenceAudioRequired',
+												)}
+									</p>
 								</div>
 							</>
 						)}
@@ -736,6 +888,17 @@ export function ModelParametersPopover({
 												selModel = models.find(
 													(m) => m.name === selectedTTSModel.model,
 												);
+												if (
+													!selModel &&
+													selType ===
+														'remote_tts_credential'
+												) {
+													selModel = models.find(
+														(m) =>
+															m.name ===
+															'remote-tts',
+													);
+												}
 												if (selModel) break;
 											}
 											if (!selModel) return null;

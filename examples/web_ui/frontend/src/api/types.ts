@@ -728,6 +728,7 @@ export interface TTSModelCard {
 	output_types: string[];
 	realtime: boolean;
 	voice_cloning: boolean;
+	reference_audio_required: boolean;
 	parameter_schema: Record<string, unknown>;
 	parameters_overrides: Record<string, Record<string, unknown>>;
 }

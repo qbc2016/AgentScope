@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """OpenAI-compatible remote TTS model implementation."""
+import asyncio
 import base64
+import copy
 import json
 import uuid
 from typing import Any, AsyncGenerator, Literal
@@ -9,8 +11,9 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .._tts_base import TTSModelBase
+from .._tts_model_card import TTSModelCard
 from .._tts_response import TTSResponse
-from ...credential import RemoteTTSCredential
+from ...credential import CredentialBase, RemoteTTSCredential
 from ...message import Base64Source, DataBlock
 
 
@@ -22,6 +25,13 @@ _DEFAULT_MEDIA_TYPES = {
     "opus": "audio/opus",
     "aac": "audio/aac",
 }
+_MAX_DISCOVERED_MODELS = 200
+_MAX_DISCOVERED_VOICES = 500
+_MAX_VOICE_DISCOVERY_MODELS = 32
+_MAX_CONCURRENT_VOICE_REQUESTS = 8
+_DISCOVERY_DEADLINE_SECONDS = 15.0
+_DISCOVERY_REQUEST_TIMEOUT_SECONDS = 10.0
+_DISCOVERY_UNSUPPORTED_STATUS = {404, 405, 501}
 
 
 class RemoteTTSError(RuntimeError):
@@ -87,6 +97,15 @@ class RemoteTTSModel(TTSModelBase):
             title="Instructions",
         )
 
+        task_type: str | None = Field(
+            default=None,
+            title="Task Type",
+            description=(
+                "Optional remote task type, for example CustomVoice, "
+                "VoiceDesign, or Base."
+            ),
+        )
+
         reference_audio_base64: str | None = Field(
             default=None,
             title="Reference Audio",
@@ -121,7 +140,7 @@ class RemoteTTSModel(TTSModelBase):
     def __init__(
         self,
         credential: RemoteTTSCredential,
-        model: str = "remote-tts",
+        model: str,
         parameters: "RemoteTTSModel.Parameters | None" = None,
         stream: bool = False,
     ) -> None:
@@ -137,13 +156,13 @@ class RemoteTTSModel(TTSModelBase):
 
     def _build_payload(self, text: str) -> dict[str, Any]:
         """Build an explicit allowlist of remote request fields."""
-        remote_model = (
-            self.credential.served_model
-            if self.model == "remote-tts" and self.credential.served_model
-            else self.model
-        )
+        if self.model == "remote-tts":
+            raise ValueError(
+                "Remote TTS requires a concrete model ID. Configure the "
+                "model in the TTS settings instead of using 'remote-tts'.",
+            )
         payload: dict[str, Any] = {
-            "model": remote_model,
+            "model": self.model,
             "input": text,
             "voice": self.parameters.voice,
             "response_format": self.parameters.response_format,
@@ -153,6 +172,8 @@ class RemoteTTSModel(TTSModelBase):
             payload["language"] = self.parameters.language
         if self.parameters.instructions:
             payload["instructions"] = self.parameters.instructions
+        if self.parameters.task_type:
+            payload["task_type"] = self.parameters.task_type
         if self.parameters.reference_audio_base64:
             payload["ref_audio"] = (
                 f"data:{self.parameters.reference_audio_media_type};base64,"
@@ -161,6 +182,289 @@ class RemoteTTSModel(TTSModelBase):
         if self.parameters.reference_text:
             payload["ref_text"] = self.parameters.reference_text
         return payload
+
+    @classmethod
+    async def discover_models(
+        cls,
+        credential: CredentialBase,
+    ) -> list[TTSModelCard]:
+        """Return endpoint-specific model cards when discovery is available.
+
+        Discovery is an optional convenience. Any network, authorization,
+        protocol, or compatibility failure falls back to the generic card so
+        callers can still enter a concrete model ID manually.
+        """
+        generic_cards = cls.list_models()
+        if not generic_cards:
+            return []
+        generic = generic_cards[0]
+        if not isinstance(credential, RemoteTTSCredential):
+            return [generic]
+        headers: dict[str, str] = {}
+        if credential.api_key is not None:
+            token = credential.api_key.get_secret_value()
+            headers["Authorization"] = f"Bearer {token}"
+
+        cards: list[TTSModelCard] = []
+        try:
+            async with asyncio.timeout(_DISCOVERY_DEADLINE_SECONDS):
+                async with httpx.AsyncClient(
+                    timeout=min(
+                        credential.timeout,
+                        _DISCOVERY_REQUEST_TIMEOUT_SECONDS,
+                    ),
+                    follow_redirects=False,
+                ) as client:
+                    (
+                        models,
+                        supports_voice_discovery,
+                    ) = await cls._discover_model_items(
+                        client,
+                        credential.base_url.rstrip("/"),
+                        headers,
+                    )
+                    if not models:
+                        return [generic]
+
+                    voice_candidates: list[tuple[TTSModelCard, str]] = []
+                    for item in models[:_MAX_DISCOVERED_MODELS]:
+                        card = cls._model_card_from_remote(
+                            generic,
+                            item,
+                        )
+                        if card is None or card.name == generic.name:
+                            continue
+                        cards.append(card)
+                        if (
+                            supports_voice_discovery
+                            and "voices" not in item
+                            and not card.reference_audio_required
+                            and len(voice_candidates)
+                            < _MAX_VOICE_DISCOVERY_MODELS
+                        ):
+                            voice_candidates.append((card, card.name))
+
+                    semaphore = asyncio.Semaphore(
+                        _MAX_CONCURRENT_VOICE_REQUESTS,
+                    )
+                    async with asyncio.TaskGroup() as task_group:
+                        for card, model_id in voice_candidates:
+                            task_group.create_task(
+                                cls._enrich_card_voices(
+                                    client,
+                                    credential.base_url.rstrip("/"),
+                                    headers,
+                                    card,
+                                    model_id,
+                                    semaphore,
+                                ),
+                            )
+        except TimeoutError:
+            # Cards are built before optional voice enrichment. A slow voice
+            # endpoint therefore degrades to free-form voice input instead of
+            # discarding already discovered model IDs.
+            return [*cards, generic]
+        except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+            return [*cards, generic] if cards else [generic]
+        return [*cards, generic]
+
+    @classmethod
+    async def _enrich_card_voices(
+        cls,
+        client: httpx.AsyncClient,
+        base_url: str,
+        headers: dict[str, str],
+        card: TTSModelCard,
+        model_id: str,
+        semaphore: asyncio.Semaphore,
+    ) -> None:
+        """Add optional voice choices without blocking other model cards."""
+        async with semaphore:
+            voices = await cls._discover_voice_ids(
+                client,
+                base_url,
+                headers,
+                model_id,
+            )
+        if not voices:
+            return
+        properties = card.parameter_schema.get("properties", {})
+        voice_property = properties.get("voice")
+        if isinstance(voice_property, dict):
+            voice_property["enum"] = voices
+            voice_property["default"] = voices[0]
+
+    @classmethod
+    async def _discover_model_items(
+        cls,
+        client: httpx.AsyncClient,
+        base_url: str,
+        headers: dict[str, str],
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Query capability discovery, then fall back to OpenAI models."""
+        for path in ("/audio/models", "/models"):
+            try:
+                response = await client.get(
+                    f"{base_url}{path}",
+                    headers=headers,
+                )
+                if response.status_code in _DISCOVERY_UNSUPPORTED_STATUS:
+                    continue
+                if not response.is_success:
+                    continue
+                items = cls._extract_items(response.json())
+                normalized = [
+                    item
+                    for item in items
+                    if isinstance(item, dict)
+                    and isinstance(item.get("id"), str)
+                    and item["id"].strip()
+                ]
+                if normalized:
+                    return normalized, path == "/audio/models"
+            except (
+                httpx.HTTPError,
+                ValueError,
+                TypeError,
+                json.JSONDecodeError,
+            ):
+                # Malformed or unsupported capability discovery must not
+                # prevent the standard /models fallback.
+                continue
+        return [], False
+
+    @staticmethod
+    def _extract_items(payload: Any) -> list[Any]:
+        """Extract a list from common OpenAI and capability response shapes."""
+        if isinstance(payload, list):
+            return payload
+        if not isinstance(payload, dict):
+            return []
+        for key in ("data", "models", "voices"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+        return []
+
+    @classmethod
+    def _model_card_from_remote(
+        cls,
+        generic: TTSModelCard,
+        item: dict[str, Any],
+    ) -> TTSModelCard | None:
+        """Convert remote capability metadata into an AgentScope model card."""
+        model_id = item["id"].strip()
+        if not model_id:
+            return None
+
+        schema = copy.deepcopy(generic.parameter_schema)
+        properties = schema.setdefault("properties", {})
+
+        formats = cls._string_list(item.get("response_formats"))
+        if formats:
+            supported_formats = [
+                value for value in formats if value in _DEFAULT_MEDIA_TYPES
+            ]
+            if supported_formats and "response_format" in properties:
+                properties["response_format"]["enum"] = supported_formats
+                properties["response_format"]["default"] = supported_formats[0]
+        else:
+            supported_formats = ["wav"]
+
+        languages = cls._string_list(item.get("languages"))
+        if languages and "language" in properties:
+            properties["language"]["enum"] = languages
+
+        task_types = cls._string_list(item.get("task_types"))
+        if task_types and "task_type" in properties:
+            properties["task_type"]["enum"] = task_types
+
+        voices = cls._voice_ids(item.get("voices"))
+        reference_required = item.get("reference_audio_required") is True
+        if voices and "voice" in properties:
+            properties["voice"]["enum"] = voices
+            properties["voice"]["default"] = voices[0]
+        elif reference_required:
+            properties.pop("voice", None)
+
+        output_types = [
+            _DEFAULT_MEDIA_TYPES[value]
+            for value in supported_formats
+            if value in _DEFAULT_MEDIA_TYPES
+        ]
+        return TTSModelCard(
+            name=model_id,
+            label=(
+                item.get("label")
+                if isinstance(item.get("label"), str)
+                else model_id
+            ),
+            status="active",
+            input_types=["text/plain"],
+            output_types=output_types or ["audio/wav"],
+            # ``TTSModelCard.realtime`` means streaming *input*. A remote
+            # endpoint advertising streaming output does not change the
+            # adapter's input lifecycle.
+            realtime=False,
+            voice_cloning=item.get("voice_cloning") is True,
+            reference_audio_required=reference_required,
+            parameter_schema=schema,
+            parameters_overrides=generic.parameters_overrides,
+        )
+
+    @classmethod
+    async def _discover_voice_ids(
+        cls,
+        client: httpx.AsyncClient,
+        base_url: str,
+        headers: dict[str, str],
+        model_id: str,
+    ) -> list[str]:
+        """Discover optional voice choices for one model."""
+        try:
+            response = await client.get(
+                f"{base_url}/audio/voices",
+                headers=headers,
+                params={"model": model_id},
+            )
+            if not response.is_success:
+                return []
+            return cls._voice_ids(cls._extract_items(response.json()))
+        except (
+            httpx.HTTPError,
+            ValueError,
+            TypeError,
+            json.JSONDecodeError,
+        ):
+            return []
+
+    @staticmethod
+    def _string_list(value: Any) -> list[str]:
+        """Return a bounded, de-duplicated list of non-empty strings."""
+        if not isinstance(value, list):
+            return []
+        result: list[str] = []
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                normalized = item.strip()
+                if normalized not in result:
+                    result.append(normalized)
+        return result[:_MAX_DISCOVERED_VOICES]
+
+    @classmethod
+    def _voice_ids(cls, value: Any) -> list[str]:
+        """Extract voice IDs from strings or voice metadata objects."""
+        if not isinstance(value, list):
+            return []
+        raw_ids = [
+            item
+            if isinstance(item, str)
+            else item.get("id")
+            if isinstance(item, dict)
+            else None
+            for item in value
+        ]
+        return cls._string_list(raw_ids)
 
     def _headers(
         self,

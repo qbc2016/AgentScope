@@ -9,7 +9,7 @@ export interface CredentialWithTTSModels {
 }
 
 /**
- * Fetches all credentials and their available TTS models, grouped by provider type.
+ * Fetches endpoint-specific TTS models for each concrete credential.
  * Credentials/providers that expose no TTS models are omitted.
  */
 export function useAvailableTTSModels() {
@@ -23,6 +23,7 @@ export function useAvailableTTSModels() {
 		try {
 			const { credentials } = await credentialApi.list();
 			const result: Record<string, CredentialWithTTSModels[]> = {};
+			const remoteCredentials: CredentialView[] = [];
 
 			await Promise.all(
 				credentials.map(async (credential) => {
@@ -30,10 +31,12 @@ export function useAvailableTTSModels() {
 					if (!type) return;
 					if (!result[type]) result[type] = [];
 					try {
+						const isRemote = type === 'remote_tts_credential';
 						const { models } = await ttsModelApi.list(type);
 						if (models.length > 0) {
 							result[type].push({ credential, models });
 						}
+						if (isRemote) remoteCredentials.push(credential);
 					} catch {
 						// Provider doesn't support TTS — skip silently
 					}
@@ -46,6 +49,32 @@ export function useAvailableTTSModels() {
 			}
 
 			setGroups(result);
+
+			// Remote discovery only enriches the already usable manual model
+			// entry. Publish each result independently so a slow or unavailable
+			// endpoint cannot hide the other credentials.
+			await Promise.all(
+				remoteCredentials.map(async (credential) => {
+					try {
+						const { models } = await ttsModelApi.list(
+							'remote_tts_credential',
+							credential.id,
+						);
+						setGroups((current) => ({
+							...current,
+							remote_tts_credential: (
+								current.remote_tts_credential ?? []
+							).map((item) =>
+								item.credential.id === credential.id
+									? { credential, models }
+									: item,
+							),
+						}));
+					} catch {
+						// Manual model IDs remain available from the static card.
+					}
+				}),
+			);
 		} catch (e) {
 			setError(e as Error);
 		} finally {

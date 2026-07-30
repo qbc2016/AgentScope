@@ -17,8 +17,8 @@ output_types:
 parameter_overrides:
   voice:
     description: >-
-      Voice identifier understood by the remote service. Phase 1 does not
-      discover remote voices, so enter the provider's voice ID manually.
+      Voice identifier understood by the remote service. Enter it manually
+      when the endpoint does not expose voice discovery.
   reference_audio_base64:
     hidden: true
   reference_audio_media_type:
