@@ -252,17 +252,12 @@ function VoiceProfileDialog({
 	const canConfigureVoice = Boolean(voiceSchema) || modelOptions.length === 0;
 	const speedMinimum = typeof speedSchema?.minimum === 'number' ? speedSchema.minimum : 0.5;
 	const speedMaximum = typeof speedSchema?.maximum === 'number' ? speedSchema.maximum : 2;
-	const displayedVoiceOptions = useMemo(
-		() => {
-			const voiceOptions = (voiceSchema?.enum as string[] | undefined) || [];
-			return engine === 'kokoro'
-				? voiceOptions.filter(
-						(option) => kokoroLanguageFromVoice(option) === kokoroLanguage,
-					)
-				: voiceOptions;
-		},
-		[engine, kokoroLanguage, voiceSchema],
-	);
+	const displayedVoiceOptions = useMemo(() => {
+		const voiceOptions = (voiceSchema?.enum as string[] | undefined) || [];
+		return engine === 'kokoro'
+			? voiceOptions.filter((option) => kokoroLanguageFromVoice(option) === kokoroLanguage)
+			: voiceOptions;
+	}, [engine, kokoroLanguage, voiceSchema]);
 
 	useEffect(() => {
 		if (engine !== 'kokoro' || displayedVoiceOptions.length === 0) return;
