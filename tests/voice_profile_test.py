@@ -35,7 +35,11 @@ from agentscope.app.storage._model._voice_profile import (
     ENGINE_GPU_REQUIREMENT,
     ENGINE_VOICE_CLONING,
 )
-from agentscope.tts import DashScopeTTSModel, TTSModelCard
+from agentscope.tts import (
+    ChatterboxTTSModel,
+    DashScopeTTSModel,
+    TTSModelCard,
+)
 
 
 class TestVoiceProfileModel(TestCase):
@@ -266,6 +270,28 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
             credential_owner_id="user-b",
             storage=storage,
             card=_model_card(["alloy"], voice_cloning=True),
+        )
+
+        storage.get_voice_profile.assert_not_called()
+
+    async def test_chatterbox_default_variant_does_not_require_profile(
+        self,
+    ) -> None:
+        """Chatterbox Turbo can synthesize with its built-in voice."""
+        card = ChatterboxTTSModel.list_models()[0]
+        storage = AsyncMock()
+
+        await _validate_voice_binding(
+            user_id="user-a",
+            config=TTSModelConfig(
+                type="local_tts_credential",
+                credential_id="credential-local",
+                model="chatterbox",
+                parameters={},
+            ),
+            credential_owner_id="user-a",
+            storage=storage,
+            card=card,
         )
 
         storage.get_voice_profile.assert_not_called()

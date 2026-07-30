@@ -216,6 +216,16 @@ async def _validate_voice_binding(
     voice = config.parameters.get("voice")
     preset_voices = _get_preset_voices(card)
     if config.voice_profile_id is None:
+        if (
+            config.type == "local_tts_credential"
+            and config.model == "chatterbox"
+            and config.parameters.get("variant", "turbo")
+            in {"turbo", "multilingual"}
+        ):
+            # Chatterbox is a hybrid model: Turbo (the default) and
+            # Multilingual can use their built-in voice, while English is
+            # clone-only and continues through the profile requirement below.
+            return
         if config.type == "remote_tts_credential":
             # Phase 1 has no remote voice-discovery endpoint. A free-form
             # provider voice id is therefore valid and must not be mistaken

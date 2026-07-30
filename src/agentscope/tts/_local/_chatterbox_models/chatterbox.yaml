@@ -9,4 +9,8 @@ input_types:
 output_types:
   - audio/wav
 
-parameter_overrides: {}
+parameter_overrides:
+  reference_audio_path:
+    hidden: true
+  reference_audio_base64:
+    hidden: true

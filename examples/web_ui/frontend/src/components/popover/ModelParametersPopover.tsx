@@ -783,7 +783,7 @@ export function ModelParametersPopover({
 									<DropdownMenuSubTrigger>
 										{t('model-parameters.ttsParameters')}
 									</DropdownMenuSubTrigger>
-									<DropdownMenuSubContent className="w-72 max-h-96 overflow-y-auto p-3">
+									<DropdownMenuSubContent className="w-72 max-w-[calc(100vw-1rem)] max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto p-3">
 										<div className="mb-3">
 											<p className="text-sm font-medium">
 												{t('model-parameters.title')}
