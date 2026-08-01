@@ -438,3 +438,13 @@ ChannelLifecycleDispatcher(每节点常驻):唯一动作 = 对账
 - **Feishu SDK 连接方案**(§8 阶段四):公开入口 vs 私有隔离,取决于 SDK 重连能力是否够用,实连时定。
 - **凭据加密密钥来源**:复用应用级 KMS/env 的具体 hook 形式,与运维确认。
 - **收集权租约 TTL / response_timeout 具体值**:压测后定。
+
+---
+
+## 11. 未完成功能(TODO)
+
+实现完成后仍未做的功能项(验证类缺口——端到端实测——需真实 Redis + bot,另计):
+
+- **[3] 流式发送到平台**:边生成边在同一气泡/卡片内更新。飞书 CardKit(`lark_oapi.api.cardkit.v1`,建流式卡片 + 全量 PUT 增量渲染,10次/秒)与钉钉 AI Card 原生支持;Discord 无原生,只能 `message.edit` 粗粒度模拟(受编辑限流)。需:`ChannelCapability.streaming` 加回、`_collect` 按节奏吐增量、`ChannelBase` 加流式发送接口,不支持的平台降级为收集完发一条。
+- **[5] 凭据静态加密**:`ChannelRecord.credentials` 目前明文存 Redis。按 credential schema 的 `format:password` 字段加密,密钥复用应用级 KMS/env(见 §10)。
+- **[6] 媒体走 BlobStore**:附件字节目前 base64 内联在 `DataBlock`、经 Redis 缓冲(`_media.py`)。大文件应卸载到 `BlobStore`,缓冲/inbox 只留引用。
