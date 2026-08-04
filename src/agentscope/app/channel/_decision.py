@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """Apply a tool-approval decision: freeze the card and resume the run.
 
-Shared by the gateway (a user's card click) and the presenter (auto-deny
-when a platform cannot present a confirmation). The resumed run produces
-its continuation output like any channel run — it emits a fresh outbound
-signal, and a presenter forwards it — so this function only updates the
-card and triggers the resume; it does not collect the reply itself.
+Shared by the gateway (a user's card click) and the dispatcher (auto-deny
+when a platform cannot present a confirmation). It only updates the card
+and triggers the resume; the dispatcher's forward loop streams the reply.
 """
 from ...event import ConfirmResult, UserConfirmResultEvent
 from .._bus_ops import enqueue_run_trigger
@@ -23,15 +21,11 @@ async def resume_after_decision(
     """Freeze the confirmation card, then resume the parked run.
 
     Args:
-        bus (`MessageBus`):
-            The application message bus.
-        channel (`ChannelBase`):
-            The channel that will update the card (the one handling the
-            click, or the presenter's local channel for auto-deny).
-        pending (`_PendingConfirm`):
-            The parked-request context.
-        approved (`bool`):
-            The user's decision.
+        bus (`MessageBus`): The application message bus.
+        channel (`ChannelBase`): The channel that updates the card (the
+            click handler, or the dispatcher's local channel on auto-deny).
+        pending (`_PendingConfirm`): The parked-request context.
+        approved (`bool`): The user's decision.
     """
     if pending.ref:
         await channel.update_confirm(

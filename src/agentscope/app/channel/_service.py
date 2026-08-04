@@ -53,7 +53,18 @@ class ChannelService:
         presentation: ReplyPresentation,
         enabled: bool = True,
     ) -> ChannelRecord:
-        """Create a channel, rejecting a bot already bound elsewhere."""
+        """Create a channel, rejecting a bot already bound elsewhere.
+
+        Args:
+            user_id (`str`): Owner of the channel.
+            channel_type (`str`): Registered platform type id.
+            credentials (`dict`): Platform credentials.
+            platform_config (`dict`): Platform behaviour options.
+            routing (`RoutingConfig`): Inbound routing rules.
+            session (`SessionSettings`): Derived-session settings.
+            presentation (`ReplyPresentation`): Reply-rendering options.
+            enabled (`bool`): Whether to start the channel immediately.
+        """
         bot_id = self._types.extract_platform_bot_id(
             channel_type,
             credentials,
@@ -98,10 +109,12 @@ class ChannelService:
         return record
 
     async def update(self, channel_id: str, updates: dict) -> ChannelRecord:
-        """Apply routing/session/presentation/enabled changes.
+        """Apply routing/session/presentation/enabled changes; credentials
+        and channel_type are immutable (delete and recreate to change).
 
-        Credentials and channel_type are immutable — change them by
-        deleting and recreating (keeps the bot-id index consistent).
+        Args:
+            channel_id (`str`): The channel to update.
+            updates (`dict`): Field changes to apply.
         """
         record = await self._require(channel_id)
         updates.pop("credentials", None)
@@ -122,11 +135,20 @@ class ChannelService:
         channel_id: str,
         enabled: bool,
     ) -> ChannelRecord:
-        """Enable or disable a channel."""
+        """Enable or disable a channel.
+
+        Args:
+            channel_id (`str`): The channel to toggle.
+            enabled (`bool`): The new enabled state.
+        """
         return await self.update(channel_id, {"enabled": enabled})
 
     async def delete(self, channel_id: str) -> None:
-        """Delete a channel and clear its bot-id index."""
+        """Delete a channel and clear its bot-id index.
+
+        Args:
+            channel_id (`str`): The channel to delete.
+        """
         record = await self._require(channel_id)
         bot_id = self._types.extract_platform_bot_id(
             record.channel_type,

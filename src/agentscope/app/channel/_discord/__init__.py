@@ -107,7 +107,11 @@ class DiscordChannel(ChannelBase):
 
         @self._client.event
         async def on_message(message: "discord.Message") -> None:
-            """discord.py inbound-message hook."""
+            """discord.py inbound-message hook.
+
+            Args:
+                message (`discord.Message`): The inbound message.
+            """
             await self._on_message(message)
 
     async def start_listening(self) -> None:
@@ -134,15 +138,11 @@ class DiscordChannel(ChannelBase):
     # -- Inbound --
 
     async def _on_message(self, message: "discord.Message") -> None:
-        """Normalise an inbound message and emit it.
-
-        Ignores the bot's own messages; in a server channel with
-        ``only_at_reply`` skips non-mentioning messages and strips the
-        bot mention; downloads each attachment into a ``DataBlock``.
+        """Normalise an inbound message and emit it — ignoring own
+        messages, honouring ``only_at_reply``, downloading attachments.
 
         Args:
-            message (`discord.Message`):
-                The inbound discord.py message.
+            message (`discord.Message`): The inbound discord.py message.
         """
         if message.author.id == self._client.user.id:
             return  # ignore our own messages
@@ -247,9 +247,12 @@ class DiscordChannel(ChannelBase):
         if channel is None:
             return None
         tool = req.tool_calls[0] if req.tool_calls else None
-        body = f"🛡️ 工具执行需要确认\n**工具:** `{tool.name if tool else 'tool'}`"
+        body = (
+            "🛡️ Tool execution needs approval\n"
+            f"**Tool:** `{tool.name if tool else 'tool'}`"
+        )
         if tool:
-            body += f"\n**参数:** {str(tool.input)[:800]}"
+            body += f"\n**Arguments:** {str(tool.input)[:800]}"
         message = await channel.send(
             content=body,
             view=self._build_view(req.id),
@@ -272,7 +275,7 @@ class DiscordChannel(ChannelBase):
             return
         try:
             message = await channel.fetch_message(int(message_id))
-            resolved = "✅ 已允许执行" if outcome == "approved" else "🚫 已拒绝"
+            resolved = "✅ Approved" if outcome == "approved" else "🚫 Denied"
             await message.edit(content=resolved, view=None)
         except Exception:  # pylint: disable=broad-except
             logger.debug("Discord update_confirm failed")
@@ -341,7 +344,7 @@ class DiscordChannel(ChannelBase):
                 super().__init__(timeout=None)
 
             @discord.ui.button(
-                label="✅ 允许执行",
+                label="✅ Approve",
                 style=discord.ButtonStyle.green,
             )
             async def approve(
@@ -349,17 +352,27 @@ class DiscordChannel(ChannelBase):
                 interaction: "discord.Interaction",
                 _button: "discord.ui.Button",
             ) -> None:
-                """Emit an approve decision."""
+                """Emit an approve decision.
+
+                Args:
+                    interaction (`discord.Interaction`): The click.
+                    _button (`discord.ui.Button`): The clicked button.
+                """
                 await interaction.response.defer()
                 await channel._decide(request_id, True)
 
-            @discord.ui.button(label="❌ 拒绝", style=discord.ButtonStyle.red)
+            @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.red)
             async def deny(
                 self,
                 interaction: "discord.Interaction",
                 _button: "discord.ui.Button",
             ) -> None:
-                """Emit a deny decision."""
+                """Emit a deny decision.
+
+                Args:
+                    interaction (`discord.Interaction`): The click.
+                    _button (`discord.ui.Button`): The clicked button.
+                """
                 await interaction.response.defer()
                 await channel._decide(request_id, False)
 

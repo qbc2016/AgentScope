@@ -34,7 +34,12 @@ class _PendingConfirm(BaseModel):
     """Handle returned by ``present_confirm`` (for ``update_confirm``)."""
 
     async def save(self, bus: MessageBus, request_id: str) -> None:
-        """Persist this record under ``request_id``."""
+        """Persist this record under ``request_id``.
+
+        Args:
+            bus (`MessageBus`): The shared message bus.
+            request_id (`str`): The opaque approval token key.
+        """
         await bus.registry_set(
             MessageBusKeys.channel_pending_confirm(),
             request_id,
@@ -48,7 +53,12 @@ class _PendingConfirm(BaseModel):
         bus: MessageBus,
         request_id: str,
     ) -> "_PendingConfirm | None":
-        """Load and remove the record for ``request_id`` (single-use)."""
+        """Load and remove the record for ``request_id`` (single-use).
+
+        Args:
+            bus (`MessageBus`): The shared message bus.
+            request_id (`str`): The opaque approval token key.
+        """
         ns = MessageBusKeys.channel_pending_confirm()
         raw = await bus.registry_get(ns, request_id)
         if raw is None:

@@ -52,7 +52,11 @@ class ChannelTypeRegistry:
             self.register(channel_cls)
 
     def register(self, channel_cls: type["ChannelBase"]) -> None:
-        """Register a channel class under its ``channel_type``."""
+        """Register a channel class under its ``channel_type``.
+
+        Args:
+            channel_cls (`type[ChannelBase]`): The channel class to add.
+        """
         channel_type = channel_cls.channel_type
         if not channel_type:
             raise ValueError(
@@ -62,11 +66,19 @@ class ChannelTypeRegistry:
         self._classes[channel_type] = channel_cls
 
     def get(self, channel_type: str) -> type["ChannelBase"] | None:
-        """Return the channel class for a type, or ``None``."""
+        """Return the channel class for a type, or ``None``.
+
+        Args:
+            channel_type (`str`): The platform type id.
+        """
         return self._classes.get(channel_type)
 
     def has_type(self, channel_type: str) -> bool:
-        """Whether a type is registered."""
+        """Whether a type is registered.
+
+        Args:
+            channel_type (`str`): The platform type id.
+        """
         return channel_type in self._classes
 
     def create_channel(
@@ -76,11 +88,14 @@ class ChannelTypeRegistry:
         credentials: dict,
         config: dict,
     ) -> "ChannelBase":
-        """Build a channel instance from stored credentials/config.
+        """Validate stored credentials/config against the class's nested
+        models and build the channel instance.
 
-        Validates ``credentials`` / ``config`` against the class's nested
-        models, then calls its uniform ``(channel_id, credentials,
-        config)`` constructor.
+        Args:
+            channel_type (`str`): The platform type id.
+            channel_id (`str`): The instance's unique id.
+            credentials (`dict`): Raw credentials to validate.
+            config (`dict`): Raw platform options to validate.
 
         Raises:
             `ValueError`: If ``channel_type`` is not registered.
@@ -101,7 +116,11 @@ class ChannelTypeRegistry:
         self,
         channel_cls: type["ChannelBase"],
     ) -> ChannelTypeSchema:
-        """Build the frontend schema for one channel class."""
+        """Build the frontend schema for one channel class.
+
+        Args:
+            channel_cls (`type[ChannelBase]`): The channel class.
+        """
         return ChannelTypeSchema(
             channel_type=channel_cls.channel_type,
             display_name=channel_cls.display_name or channel_cls.channel_type,
@@ -119,7 +138,12 @@ class ChannelTypeRegistry:
         channel_type: str,
         credentials: dict,
     ) -> str:
-        """Read the bot-identifying credential field, for uniqueness."""
+        """Read the bot-identifying credential field, for uniqueness.
+
+        Args:
+            channel_type (`str`): The platform type id.
+            credentials (`dict`): Raw credentials to read the bot id from.
+        """
         channel_cls = self._classes.get(channel_type)
         if channel_cls is None or not channel_cls.platform_bot_id_field:
             raise ValueError(

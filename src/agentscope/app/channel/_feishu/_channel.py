@@ -222,18 +222,25 @@ class FeishuChannel(ChannelBase):
         assert loop is not None  # set in start_listening before this runs
 
         def on_message(data: "P2ImMessageReceiveV1") -> None:
-            """Bridge an inbound message onto the app loop."""
+            """Bridge an inbound message onto the app loop.
+
+            Args:
+                data (`P2ImMessageReceiveV1`): The SDK message event.
+            """
             asyncio.run_coroutine_threadsafe(self._on_message(data), loop)
 
         def on_card_action(
             data: "P2CardActionTrigger",
         ) -> "P2CardActionTriggerResponse":
-            """Handle a card click; return the toast ack."""
+            """Handle a card click; return the toast ack.
+
+            Args:
+                data (`P2CardActionTrigger`): The SDK card-action event.
+            """
             return self._on_card_action(data, loop)
 
         def ignore(_data: object) -> None:
-            """No-op for subscribed events we don't act on (e.g. the
-            reaction events our own 'OnIt' reaction triggers), so the SDK
+            """No-op for subscribed events we don't act on, so the SDK
             doesn't log 'processor not found'."""
 
         handler = (
@@ -254,15 +261,8 @@ class FeishuChannel(ChannelBase):
         def run() -> None:
             """Run the blocking WS client on this thread's own loop."""
             try:
-                # lark_oapi.ws.client keeps ONE module-global event loop
-                # (captured at import) and drives client.start() with it.
-                # Imported while the app loop runs, that global points at
-                # the running main loop → run_until_complete raises "event
-                # loop is already running". Give this thread its own loop
-                # and repoint the SDK global at a thread-local proxy, so
-                # every access resolves to the current thread's loop —
-                # letting several Feishu bots run on one node without
-                # sharing (or racing) a single global loop.
+                # lark's ws client drives one import-time global loop; give
+                # this thread its own loop + a proxy so bots don't share it.
                 import lark_oapi.ws.client as _ws_client
 
                 asyncio.set_event_loop(asyncio.new_event_loop())
@@ -306,12 +306,8 @@ class FeishuChannel(ChannelBase):
         self,
         data: "P2ImMessageReceiveV1",
     ) -> ChannelEvent | None:
-        """Convert an inbound Feishu message into a ``ChannelEvent``.
-
-        Media messages are downloaded into a ``DataBlock``; unsupported
-        types get a short reply and are dropped; in a group with
-        ``only_at_reply`` non-mentioning text is skipped and the mention
-        is stripped.
+        """Convert an inbound Feishu message into a ``ChannelEvent``,
+        downloading media and honouring ``only_at_reply`` in groups.
 
         Args:
             data (`P2ImMessageReceiveV1`):
@@ -444,9 +440,8 @@ class FeishuChannel(ChannelBase):
             )
 
     # -- Streaming (Feishu CardKit) --
-    # NOTE: end-to-end streaming needs a real bot to verify; on any API
-    # failure ``stream_start`` returns None and the gateway falls back to
-    # a single ``send_response``.
+    # NOTE: needs a real bot to verify end-to-end; on any API failure
+    # ``stream_start`` returns None and the gateway sends once instead.
 
     async def stream_start(self, event: ChannelEvent) -> str | None:
         """Create a streaming card and send it, returning its card id.
@@ -679,9 +674,21 @@ class FeishuChannel(ChannelBase):
         Returns:
             `list[ToolBase]`: The Feishu agent tools.
         """
-        from ._tools import build_feishu_tools
+        from ._tools import (
+            ListChatMembers,
+            ListChats,
+            SendFile,
+            SendImage,
+            SendMessage,
+        )
 
-        return build_feishu_tools(self, workspace)
+        return [
+            ListChats(self),
+            ListChatMembers(self),
+            SendMessage(self),
+            SendFile(self, workspace),
+            SendImage(self, workspace),
+        ]
 
     # -- Agent-tool operations (act on chats/users other than the current) --
 
@@ -826,10 +833,8 @@ class FeishuChannel(ChannelBase):
         *,
         _retried: bool = False,
     ) -> str | None:
-        """Multipart upload (file/image); returns the resource key.
-
-        The JSON ``_api`` helper can't do multipart, so this posts the
-        form directly and mirrors its one-shot token refresh on expiry.
+        """Multipart upload (file/image), returning the resource key; the
+        JSON ``_api`` helper can't do multipart, so this posts directly.
 
         Args:
             url (`str`): The upload endpoint.

@@ -64,12 +64,17 @@ class ChannelGateway:
         event: ChannelEvent | ChannelConfirmationResultEvent,
         channel: ChannelBase,
     ) -> None:
-        """Handle one inbound event (message or confirmation decision)."""
+        """Handle one inbound event (message or confirmation decision).
+
+        Args:
+            event (`ChannelEvent | ChannelConfirmationResultEvent`): The
+                inbound message or card-click decision.
+            channel (`ChannelBase`): The originating channel, for replies.
+        """
         try:
             if isinstance(event, ChannelConfirmationResultEvent):
-                # A card click: take the parked request and resume the
-                # run. A missing record means it was already handled or
-                # GC'd — the decision is stale, so ignore it.
+                # Card click: take the parked request and resume. A
+                # missing record is a stale decision — ignore it.
                 pending = await _PendingConfirm.take(
                     self._bus,
                     event.request_id,
@@ -100,10 +105,8 @@ class ChannelGateway:
     # -- Message path --
 
     async def _handle_message(self, event: ChannelEvent) -> None:
-        """Route an inbound message to its session and deliver it.
-
-        Aggregates buffered media, then either injects a hint into a
-        live run or starts a fresh user turn on an idle session.
+        """Aggregate buffered media, then inject a hint into a live run
+        or start a fresh user turn on an idle session.
 
         Args:
             event (`ChannelEvent`): The normalised inbound message.
@@ -160,13 +163,11 @@ class ChannelGateway:
         self,
         event: ChannelEvent,
     ) -> list[TextBlock | DataBlock] | None:
-        """Merge buffered attachments with this message.
+        """Merge buffered attachments with this message: media-only
+        buffers and returns ``None``; the next text drains and combines.
 
-        On IM platforms an image and its caption arrive as separate
-        messages. A media-only message is buffered (keyed by
-        channel/chat/user so any node can pick it up) and returns
-        ``None``; the next message carrying text drains the buffer and
-        returns the combined multimodal content.
+        Args:
+            event (`ChannelEvent`): The inbound message.
         """
         key = MessageBusKeys.channel_media_buffer(
             event.channel_id,
@@ -196,7 +197,14 @@ class ChannelGateway:
         session_id: str,
         chat_id: str,
     ) -> None:
-        """Create the derived session if absent (idempotent across nodes)."""
+        """Create the derived session if absent (idempotent across nodes).
+
+        Args:
+            record (`ChannelRecord`): The owning channel record.
+            agent_id (`str`): The resolved target agent.
+            session_id (`str`): The derived session id.
+            chat_id (`str`): The originating platform chat.
+        """
         existing = await self._storage.get_session(
             user_id=record.user_id,
             agent_id=agent_id,

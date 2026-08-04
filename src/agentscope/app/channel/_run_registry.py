@@ -13,8 +13,8 @@ from ._base import ChannelBase
 
 @dataclass
 class ChannelInstance:
-    """A running channel and its listener task, tagged with the config
-    version it was started from (for reconcile)."""
+    """A running channel, its listener task, and the config version it
+    was started from (for reconcile)."""
 
     channel: ChannelBase
     task: asyncio.Task
@@ -29,15 +29,28 @@ class ChannelRunRegistry:
         self._entries: dict[str, ChannelInstance] = {}
 
     def put(self, channel_id: str, instance: ChannelInstance) -> None:
-        """Register a running instance."""
+        """Register a running instance.
+
+        Args:
+            channel_id (`str`): The channel id key.
+            instance (`ChannelInstance`): The running instance to store.
+        """
         self._entries[channel_id] = instance
 
     def pop(self, channel_id: str) -> ChannelInstance | None:
-        """Remove and return an instance, if present."""
+        """Remove and return an instance, if present.
+
+        Args:
+            channel_id (`str`): The channel id to remove.
+        """
         return self._entries.pop(channel_id, None)
 
     def get(self, channel_id: str) -> ChannelInstance | None:
-        """Return an instance, if present."""
+        """Return an instance, if present.
+
+        Args:
+            channel_id (`str`): The channel id to look up.
+        """
         return self._entries.get(channel_id)
 
     def ids(self) -> set[str]:

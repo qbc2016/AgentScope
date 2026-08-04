@@ -170,11 +170,12 @@ class ChannelBase(ABC):
         credentials: "ChannelBase.Credentials",
         config: "ChannelBase.Config",
     ) -> None:
-        """Build a channel from one channel's validated credentials.
+        """Build a channel from its validated credentials and config.
 
-        The registry calls this uniformly with the channel's validated
-        :class:`Credentials` / :class:`Config`; subclasses override it to
-        read their own fields.
+        Args:
+            channel_id (`str`): This channel instance's unique id.
+            credentials (`ChannelBase.Credentials`): Validated secrets.
+            config (`ChannelBase.Config`): Validated platform options.
         """
 
     capabilities: ChannelCapability = ChannelCapability()
@@ -193,11 +194,8 @@ class ChannelBase(ABC):
 
     @abstractmethod
     async def start_listening(self) -> None:
-        """Establish the long-lived connection and loop receiving events.
-
-        For each inbound payload, normalise it into a ``ChannelEvent`` or
-        ``ChannelConfirmationResultEvent`` and ``await self._emit(event)``.
-        Implementations should include automatic reconnection.
+        """Connect and loop receiving events, normalising each into a
+        ``ChannelEvent`` and ``await self._emit(event)`` (auto-reconnect).
         """
 
     # -- Outbound (agent service → platform). Gateway-invoked. --
@@ -208,17 +206,11 @@ class ChannelBase(ABC):
         event: ChannelEvent,
         content: list[TextBlock | DataBlock],
     ) -> None:
-        """Send an agent reply back to the platform.
-
-        ``content`` mirrors the inbound shape, so multimodal replies use
-        the same path; the platform decides how to render each block and
-        degrades per :attr:`ChannelCapability` (e.g. a placeholder when
-        ``image`` is unsupported). Over-long text is split per
-        ``capabilities.max_message_length``.
+        """Send an agent reply back to the platform, splitting over-long
+        text per ``capabilities.max_message_length``.
 
         Args:
-            event (`ChannelEvent`): The original inbound event, for reply
-                routing (chat_id / message id).
+            event (`ChannelEvent`): The inbound event, for reply routing.
             content (`list[TextBlock | DataBlock]`): Blocks to send.
         """
 
@@ -227,19 +219,16 @@ class ChannelBase(ABC):
         event: ChannelEvent,
         req: RequireUserConfirmEvent,
     ) -> str | None:
-        """Present a tool-approval request to the user.
+        """Present a tool-approval request; embed ``req.id`` so the
+        decision returns as a ``ChannelConfirmationResultEvent``.
 
-        Render however the platform allows (interactive card, or a plain
-        "reply yes/no" message) — read ``req.tool_calls`` for what to
-        show. Embed ``req.id`` so the eventual decision can be delivered
-        back as a ``ChannelConfirmationResultEvent`` carrying the same
-        ``request_id``.
+        Args:
+            event (`ChannelEvent`): The inbound event, for reply routing.
+            req (`RequireUserConfirmEvent`): The approval request to show.
 
         Returns:
-            `str | None`: An opaque handle (e.g. the card message id) for
-            a later :meth:`update_confirm`, or ``None`` if this platform
-            cannot present a confirmation — in which case the gateway
-            treats the approval as denied. Default: ``None``.
+            `str | None`: Opaque handle for :meth:`update_confirm`, or
+            ``None`` if unsupported (the gateway then auto-denies).
         """
         return None
 
@@ -248,10 +237,8 @@ class ChannelBase(ABC):
         ref: str,
         outcome: Literal["approved", "denied"],
     ) -> None:
-        """Update a previously presented confirmation to its final state.
-
-        E.g. freeze a card's colour, or post a text acknowledgement. A
-        platform that cannot update may no-op. Default: no-op.
+        """Update a presented confirmation to its final state (e.g. freeze
+        a card). A platform that cannot update may no-op. Default: no-op.
 
         Args:
             ref (`str`): The handle returned by :meth:`present_confirm`.
@@ -262,14 +249,11 @@ class ChannelBase(ABC):
         self,
         event: ChannelEvent,
     ) -> str | None:
-        """Open a live-updating reply message and return a handle.
+        """Open a live-updating reply message and return a handle, or
+        ``None`` to fall back to a single :meth:`send_response`.
 
-        Called once, when the first output arrives, if
-        ``capabilities.streaming`` is set. Return an opaque handle for
-        the later :meth:`stream_update` / :meth:`stream_end` calls, or
-        ``None`` if the platform cannot stream right now — in which case
-        the gateway falls back to a single :meth:`send_response` when the
-        reply is complete. Default: ``None``.
+        Args:
+            event (`ChannelEvent`): The inbound event, for reply routing.
         """
         return None
 
@@ -278,11 +262,11 @@ class ChannelBase(ABC):
         ref: str,
         content: list[TextBlock | DataBlock],
     ) -> None:
-        """Update the live message with the accumulated content so far.
+        """Update the live message with the content so far (best-effort).
 
-        Called at a throttled rate as the reply grows. ``ref`` is the
-        handle from :meth:`stream_start`. Best-effort: a failed update is
-        skipped, not fatal. Default: no-op.
+        Args:
+            ref (`str`): The handle from :meth:`stream_start`.
+            content (`list[TextBlock | DataBlock]`): Accumulated blocks.
         """
 
     async def stream_end(
@@ -306,8 +290,13 @@ class ChannelBase(ABC):
     ) -> str | None:
         """Add an emoji reaction to the inbound message (e.g. "OnIt").
 
-        Returns an opaque reaction id for later removal, or ``None`` if
-        reactions are unsupported. Default: ``None``.
+        Args:
+            event (`ChannelEvent`): The inbound event to react to.
+            emoji_type (`str`): Platform emoji/reaction key.
+
+        Returns:
+            `str | None`: Reaction id for removal, or ``None`` if
+            unsupported.
         """
         return None
 
@@ -316,16 +305,18 @@ class ChannelBase(ABC):
         event: ChannelEvent,
         reaction_id: str,
     ) -> None:
-        """Remove a reaction added by :meth:`add_reaction`. Default: no-op."""
+        """Remove a reaction added by :meth:`add_reaction`. Default: no-op.
+
+        Args:
+            event (`ChannelEvent`): The inbound event that was reacted to.
+            reaction_id (`str`): The id returned by :meth:`add_reaction`.
+        """
 
     # -- Lifecycle & wiring (manager-invoked) --
 
     async def validate(self) -> None:
-        """Check the credentials can connect, raising on failure.
-
-        Called once at channel creation so a bad connection fails the
-        request instead of the dispatcher retrying silently in the
-        background. Default: no-op.
+        """Check the credentials can connect, raising on failure; called
+        once at creation so a bad config fails fast. Default: no-op.
         """
 
     async def on_start(self) -> None:
@@ -337,18 +328,17 @@ class ChannelBase(ABC):
     def bind(self, emit: EmitFn) -> None:
         """Inject the gateway entry point used to dispatch inbound events.
 
-        Called by the channel runtime during startup. The channel uses
-        ``await self._emit(event)`` and must not access gateway internals.
+        Args:
+            emit (`EmitFn`): Gateway callback invoked as
+                ``await self._emit(event)``; no other gateway access.
         """
         self._emit = emit
 
     # -- Optional management-UI helpers --
 
     async def list_bot_chats(self) -> list[dict]:
-        """Fetch the chats/groups the bot is in from the platform.
-
-        Returns dicts with at least ``chat_id`` and ``name``. Default:
-        empty (unsupported).
+        """Fetch the bot's chats/groups as dicts with at least ``chat_id``
+        and ``name``. Default: empty (unsupported).
         """
         return []
 
@@ -358,22 +348,21 @@ class ChannelBase(ABC):
         self,
         workspace: "WorkspaceBase",
     ) -> list["ToolBase"]:
-        """Platform tools this channel exposes to the agent as callable.
-
-        Lets an agent act on the platform from inside a run — e.g. send a
-        file to a *different* user or group than the current conversation.
-        The channel runtime attaches whatever this returns to the toolkit
-        of a session that originates from this channel. Default: none.
+        """Platform tools exposed to the agent — e.g. send a file to a
+        different user/group than the conversation. Default: none.
 
         Args:
-            workspace (`WorkspaceBase`):
-                The calling session's workspace, so tools that send files
-                read them from the agent's workspace rather than the host.
+            workspace (`WorkspaceBase`): The calling session's workspace,
+                so file-sending tools read from it, not the host.
         """
         return []
 
     def _split_long_message(self, text: str) -> list[str]:
-        """Split text into chunks within the platform length limit."""
+        """Split text into chunks within the platform length limit.
+
+        Args:
+            text (`str`): The text to split.
+        """
         limit = self.capabilities.max_message_length
         if len(text) <= limit:
             return [text]

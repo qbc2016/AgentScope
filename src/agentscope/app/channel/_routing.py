@@ -21,8 +21,10 @@ _SESSION_NAMESPACE = uuid5(NAMESPACE_URL, "agentscope.channel.session")
 def _binding_matches(event: ChannelEvent, binding: ChannelBinding) -> bool:
     """Whether ``binding`` matches ``event`` (``"*"`` matches anything).
 
-    ``chat_id`` / ``user_id`` map to first-class event fields; any other
-    ``match_key`` is looked up in ``event.metadata`` (e.g. ``chat_type``).
+    Args:
+        event (`ChannelEvent`): The inbound event.
+        binding (`ChannelBinding`): The rule; ``chat_id``/``user_id`` map
+            to event fields, other keys to ``event.metadata``.
     """
     if binding.match_value == "*":
         return True
@@ -37,13 +39,8 @@ def _binding_matches(event: ChannelEvent, binding: ChannelBinding) -> bool:
 
 
 def resolve(event: ChannelEvent, record: ChannelRecord) -> tuple[str, str]:
-    """Resolve an event to ``(agent_id, session_id)``.
-
-    Picks the first matching binding (``RoutingConfig`` guarantees a
-    trailing catch-all, so the fallback to the last is defensive), then
-    derives a stable session id from ``(channel, agent, scope_key)``. The
-    session id embeds ``agent_id``, so different agents never share a
-    session even at the same scope.
+    """Resolve an event to ``(agent_id, session_id)`` via the first
+    matching binding and a stable id from ``(channel, agent, scope_key)``.
 
     Args:
         event (`ChannelEvent`): The inbound event.

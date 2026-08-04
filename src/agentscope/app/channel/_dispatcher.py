@@ -66,12 +66,8 @@ _CollectResult = tuple[str, dict | None]
 
 
 class _Streamer:
-    """Drive a channel's live-updating reply, with a safe fallback.
-
-    ``stream_start`` is attempted on the first update; if the platform
-    declines (returns ``None``) or any call raises, streaming disables
-    itself and the caller falls back to a single ``send_response``.
-    """
+    """Drive a channel's live-updating reply; if ``stream_start`` declines
+    or any call raises, it disables itself so the caller sends once."""
 
     def __init__(self, channel: ChannelBase, event: ChannelEvent) -> None:
         """Bind the target channel and the synthetic send event.
@@ -170,11 +166,11 @@ class ChannelLifecycleDispatcher:
         self._forward_tasks: set[asyncio.Task] = set()
 
     def get_local_channel(self, channel_id: str) -> ChannelBase | None:
-        """Return this node's live channel for ``channel_id``, if running.
+        """Return this node's live channel for ``channel_id``, if running —
+        how a channel-originated run's agent tools reach it.
 
-        Since every node runs every enabled channel (no sharding), the
-        node handling a channel-originated run holds that channel
-        locally — this is how its agent tools reach it.
+        Args:
+            channel_id (`str`): The channel to look up.
         """
         inst = self._registry.get(channel_id)
         return inst.channel if inst else None
@@ -300,13 +296,8 @@ class ChannelLifecycleDispatcher:
                 backoff = min(backoff * 2, 30.0)
 
     async def _outbound(self) -> None:
-        """Drain channel-output signals; forward each run's reply.
-
-        Eager drain first (catch signals published while this node was
-        down), then drain on each signal. The durable queue plus a
-        per-run forward lease make the at-least-once drain effectively
-        once, even though every node hosting the channel drains it.
-        """
+        """Drain channel-output signals and forward each run's reply; the
+        per-run lease makes the at-least-once drain effectively once."""
         await self._drain_outbound()
         backoff = 1.0
         while True:
@@ -335,9 +326,8 @@ class ChannelLifecycleDispatcher:
         for _entry_id, job in jobs:
             inst = self._registry.get(job.get("channel_id", ""))
             if inst is None:
-                # Not hosted here (disabled / reconcile lag). Under
-                # no-sharding every node hosts every enabled channel, so
-                # this is a stale signal — drop it.
+                # Not hosted here (reconcile lag). Under no-sharding every
+                # node hosts every enabled channel, so drop this stale one.
                 continue
             task = asyncio.create_task(
                 self._forward(job, inst.channel),
@@ -361,9 +351,8 @@ class ChannelLifecycleDispatcher:
         record = await self._storage.get_channel(job["channel_id"])
         if record is None:
             return
-        # Dedup across nodes: the outbound queue drain is at-least-once
-        # (every node hosting the channel drains it), so claim a per-run
-        # lease first — only the winner forwards, the rest skip.
+        # Dedup across nodes: the drain is at-least-once, so claim a
+        # per-run lease first — only the winner forwards, the rest skip.
         lock_key = MessageBusKeys.channel_forward_lease(job["session_id"])
         if not await self._bus.try_lock(
             lock_key,
@@ -421,7 +410,11 @@ class ChannelLifecycleDispatcher:
         started = False
 
         async def apply(evt: dict) -> _CollectResult | None:
-            """Fold one event; return a terminal result or ``None``."""
+            """Fold one event; return a terminal result or ``None``.
+
+            Args:
+                evt (`dict`): One session event to fold into the reply.
+            """
             nonlocal started
             etype = evt.get("type", "")
             if etype == EventType.REPLY_START:
@@ -628,7 +621,11 @@ class ChannelLifecycleDispatcher:
     # -- Read APIs (for the router) --
 
     async def get_status(self, channel_id: str) -> dict:
-        """Aggregate the per-node liveness view of a channel."""
+        """Aggregate the per-node liveness view of a channel.
+
+        Args:
+            channel_id (`str`): The channel to report on.
+        """
         nodes = await self._bus.registry_getall(
             MessageBusKeys.channel_liveness(channel_id),
         )
@@ -642,12 +639,20 @@ class ChannelLifecycleDispatcher:
         }
 
     async def list_bot_chats(self, channel_id: str) -> list[dict]:
-        """Chats the bot is in, via the local channel if running."""
+        """Chats the bot is in, via the local channel if running.
+
+        Args:
+            channel_id (`str`): The channel to query.
+        """
         inst = self._registry.get(channel_id)
         return await inst.channel.list_bot_chats() if inst else []
 
     async def list_seen_chat_ids(self, channel_id: str) -> list[str]:
-        """Chat_ids passively recorded from inbound messages."""
+        """Chat_ids passively recorded from inbound messages.
+
+        Args:
+            channel_id (`str`): The channel to list seen chats for.
+        """
         fields = await self._bus.registry_getall(
             MessageBusKeys.channel_seen_chats(channel_id),
         )
@@ -658,7 +663,13 @@ class ChannelLifecycleDispatcher:
         event: ChannelEvent | ChannelConfirmationResultEvent,
         channel_id: str,
     ) -> None:
-        """Route an event through the gateway (used by tests)."""
+        """Route an event through the gateway (used by tests).
+
+        Args:
+            event (`ChannelEvent | ChannelConfirmationResultEvent`): The
+                event to route.
+            channel_id (`str`): The channel whose gateway handles it.
+        """
         inst = self._registry.get(channel_id)
         if inst:
             await self._gateway.process(event, inst.channel)

@@ -32,26 +32,13 @@ if TYPE_CHECKING:
     from ._channel import FeishuChannel
 
 
-def build_feishu_tools(
-    channel: "FeishuChannel",
-    workspace: "WorkspaceBase",
-) -> list[ToolBase]:
-    """Instantiate every Feishu agent tool bound to ``channel``.
-
-    File-sending tools also take the session's ``workspace`` so they read
-    their payload from the agent's workspace, not the host filesystem.
-    """
-    return [
-        ListChats(channel),
-        ListChatMembers(channel),
-        SendMessage(channel),
-        SendFile(channel, workspace),
-        SendImage(channel, workspace),
-    ]
-
-
 def _ack(data: dict | None, what: str) -> ToolChunk:
-    """Turn a Feishu send response into a success/error chunk."""
+    """Turn a Feishu send response into a success/error chunk.
+
+    Args:
+        data (`dict | None`): The platform send response.
+        what (`str`): Short label of what was sent, for the message.
+    """
     if data and data.get("code") == 0:
         return ToolChunk(content=[TextBlock(text=f"Sent {what}.")])
     msg = (data or {}).get("msg") or "the platform rejected the request"
@@ -62,12 +49,8 @@ def _ack(data: dict | None, what: str) -> ToolChunk:
 
 
 class _FeishuTool(ToolBase):
-    """Shared base: holds the channel and a read/write permission split.
-
-    Discovery tools (``is_read_only=True``) are allowed outright. Send
-    tools reach people/groups outside the current conversation, so they
-    default to ASK — routing through the channel's own confirmation UI.
-    """
+    """Shared base holding the channel: discovery tools are allowed
+    outright, send tools default to ASK (they reach other chats/users)."""
 
     is_concurrency_safe: bool = False
     is_state_injected: bool = False
@@ -89,7 +72,12 @@ class _FeishuTool(ToolBase):
         tool_input: dict[str, Any],
         context: PermissionContext,
     ) -> PermissionDecision:
-        """Allow reads; ask before sending to another chat/user."""
+        """Allow reads; ask before sending to another chat/user.
+
+        Args:
+            tool_input (`dict[str, Any]`): The proposed tool call args.
+            context (`PermissionContext`): The session permission context.
+        """
         if self.is_read_only:
             return PermissionDecision(
                 behavior=PermissionBehavior.ALLOW,
@@ -121,11 +109,11 @@ class _FeishuFileTool(_FeishuTool):
         self._workspace = workspace
 
     def _resolve(self, path: str) -> str:
-        """Map an agent-supplied path to a backend-side workspace path.
+        """Map an agent path (``workspace://``, relative, or in-sandbox
+        absolute) to a backend workspace path — never the host.
 
-        Accepts a ``workspace://`` reference, a workspace-relative path,
-        or an absolute in-sandbox path — all resolved against the
-        session's workspace, never the host.
+        Args:
+            path (`str`): The agent-supplied path.
         """
         backend = self._workspace.get_backend()
         if path.startswith("workspace://"):
@@ -136,7 +124,11 @@ class _FeishuFileTool(_FeishuTool):
         return backend.join_path(self._workspace.workdir, path)
 
     async def _read(self, path: str) -> bytes:
-        """Read ``path`` from the workspace as bytes."""
+        """Read ``path`` from the workspace as bytes.
+
+        Args:
+            path (`str`): The agent-supplied path to read.
+        """
         return await self._workspace.get_backend().read_file(
             self._resolve(path),
         )
@@ -176,7 +168,11 @@ class ListChats(_FeishuTool):
     input_schema: dict = _ListChatsParams.model_json_schema()
 
     async def __call__(self, query: str | None = None) -> ToolChunk:
-        """Return the bot's chats filtered by ``query``."""
+        """Return the bot's chats filtered by ``query``.
+
+        Args:
+            query (`str | None`): Case-insensitive name filter, or all.
+        """
         chats = await self._channel.list_bot_chats()
         needle = (query or "").lower()
         items = [
@@ -221,7 +217,11 @@ class ListChatMembers(_FeishuTool):
     input_schema: dict = _ListChatMembersParams.model_json_schema()
 
     async def __call__(self, chat_id: str) -> ToolChunk:
-        """Return the members of ``chat_id`` as address pairs."""
+        """Return the members of ``chat_id`` as address pairs.
+
+        Args:
+            chat_id (`str`): The group's chat_id from a ListChats result.
+        """
         members = await self._channel.list_chat_members(chat_id)
         items = [
             {
@@ -283,7 +283,13 @@ class SendMessage(_FeishuTool):
         receive_id_type: str,
         text: str,
     ) -> ToolChunk:
-        """Send ``text`` to ``receive_id``."""
+        """Send ``text`` to ``receive_id``.
+
+        Args:
+            receive_id (`str`): Target id from a discovery result.
+            receive_id_type (`str`): ``"chat_id"`` or ``"open_id"``.
+            text (`str`): The message text to send.
+        """
         data = await self._channel.send_message_to(
             receive_id,
             receive_id_type,
@@ -339,7 +345,13 @@ class SendFile(_FeishuFileTool):
         receive_id: str,
         receive_id_type: str,
     ) -> ToolChunk:
-        """Read ``path`` from the workspace and send it to ``receive_id``."""
+        """Read ``path`` from the workspace and send it to ``receive_id``.
+
+        Args:
+            path (`str`): Workspace path of the file to send.
+            receive_id (`str`): Target id from a discovery result.
+            receive_id_type (`str`): ``"chat_id"`` or ``"open_id"``.
+        """
         try:
             raw = await self._read(path)
         except Exception as e:  # pylint: disable=broad-except
@@ -401,7 +413,13 @@ class SendImage(_FeishuFileTool):
         receive_id: str,
         receive_id_type: str,
     ) -> ToolChunk:
-        """Read the image at ``path`` from the workspace and send it."""
+        """Read the image at ``path`` from the workspace and send it.
+
+        Args:
+            path (`str`): Workspace path of the image to send.
+            receive_id (`str`): Target id from a discovery result.
+            receive_id_type (`str`): ``"chat_id"`` or ``"open_id"``.
+        """
         try:
             raw = await self._read(path)
         except Exception as e:  # pylint: disable=broad-except
