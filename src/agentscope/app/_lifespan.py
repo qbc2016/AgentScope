@@ -13,6 +13,7 @@ from ._manager import (
     WakeupDispatcher,
 )
 from ._service import (
+    ChannelService,
     ChatService,
     IndexSweeper,
     IndexTaskConsumer,
@@ -110,7 +111,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from .channel import (
             ChannelGateway,
             ChannelLifecycleDispatcher,
-            ChannelService,
         )
 
         channel_type_registry = app.state.channel_type_registry

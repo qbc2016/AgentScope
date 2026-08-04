@@ -16,8 +16,8 @@ from ..storage import (
     SessionSettings,
     StorageBase,
 )
-from ._errors import ChannelError
-from ._registry import ChannelTypeRegistry
+from ..channel._errors import ChannelError
+from ..channel._registry import ChannelTypeRegistry
 
 
 class ChannelService:

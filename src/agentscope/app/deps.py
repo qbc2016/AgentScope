@@ -5,7 +5,6 @@ from fastapi import Header, HTTPException, Request, status
 from .workspace_manager import WorkspaceManagerBase
 from .channel import (
     ChannelLifecycleDispatcher,
-    ChannelService,
     ChannelTypeRegistry,
 )
 from ._manager import (
@@ -14,6 +13,7 @@ from ._manager import (
     SchedulerManager,
 )
 from ._service import (
+    ChannelService,
     ChatService,
     KnowledgeBaseService,
     ResourceAccessService,

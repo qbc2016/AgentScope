@@ -3,8 +3,9 @@
 
 Channels translate a platform (Feishu, ...) to/from normalised events;
 the stateless :class:`ChannelGateway` orchestrates each event;
-:class:`ChannelService` owns CRUD; :class:`ChannelLifecycleDispatcher`
-keeps this node's live instances reconciled with storage.
+:class:`~agentscope.app._service.ChannelService` owns CRUD;
+:class:`ChannelLifecycleDispatcher` keeps this node's live instances
+reconciled with storage.
 """
 from ._base import (
     ChannelBase,
@@ -16,7 +17,6 @@ from ._dispatcher import ChannelLifecycleDispatcher
 from ._errors import ChannelError
 from ._gateway import ChannelGateway
 from ._registry import ChannelTypeRegistry, ChannelTypeSchema
-from ._service import ChannelService
 from ._discord import DiscordChannel
 from ._feishu import FeishuChannel
 
@@ -28,7 +28,6 @@ __all__ = [
     "ChannelEvent",
     "ChannelGateway",
     "ChannelLifecycleDispatcher",
-    "ChannelService",
     "ChannelTypeRegistry",
     "ChannelTypeSchema",
     "DiscordChannel",

@@ -145,13 +145,13 @@ class ChannelBase(ABC):
       that channel's validated ``Credentials`` / ``Config``.
     """
 
-    channel_type: str = ""
+    channel_type: str
     """Unique platform type id (e.g. ``"feishu"``). Subclasses set this."""
 
-    display_name: str = ""
+    display_name: str
     """Human-readable platform name for the management UI."""
 
-    platform_bot_id_field: str = ""
+    platform_bot_id_field: str
     """Credential field that uniquely identifies the bot, used to reject
     binding the same bot to two channels."""
 

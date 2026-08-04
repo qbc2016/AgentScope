@@ -17,9 +17,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..channel import (
     ChannelError,
     ChannelLifecycleDispatcher,
-    ChannelService,
     ChannelTypeRegistry,
 )
+from .._service import ChannelService
 from ..deps import (
     get_channel_dispatcher,
     get_channel_service,
