@@ -683,9 +683,9 @@ class FeishuChannel(ChannelBase):
         )
 
         return [
-            ListChats(self),
-            ListChatMembers(self),
-            SendMessage(self),
+            ListChats(self, workspace),
+            ListChatMembers(self, workspace),
+            SendMessage(self, workspace),
             SendFile(self, workspace),
             SendImage(self, workspace),
         ]
