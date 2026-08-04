@@ -12,8 +12,7 @@
     GET    /channels/{id}/status        Aggregated runtime status
     GET    /channels/{id}/chat_ids      Known chats (for routing config)
 """
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..channel import (
     ChannelError,
@@ -21,95 +20,37 @@ from ..channel import (
     ChannelService,
     ChannelTypeRegistry,
 )
-from ..deps import get_current_user_id, get_storage
-from ..storage import (
-    ChannelRecord,
-    ReplyPresentation,
-    RoutingConfig,
-    SessionSettings,
-    StorageBase,
+from ..deps import (
+    get_channel_dispatcher,
+    get_channel_service,
+    get_channel_type_registry,
+    get_current_user_id,
+    get_storage,
+)
+from ..storage import ChannelRecord, StorageBase
+from ._schema import (
+    ChannelResponse,
+    CreateChannelRequest,
+    UpdateChannelRequest,
 )
 
 channel_router = APIRouter(prefix="/channels", tags=["channels"])
-
-
-# -- Schemas --
-
-
-class CreateChannelRequest(BaseModel):
-    """Body for creating a channel."""
-
-    channel_type: str
-    credentials: dict
-    platform_config: dict = Field(default_factory=dict)
-    routing: RoutingConfig
-    session: SessionSettings
-    presentation: ReplyPresentation = Field(default_factory=ReplyPresentation)
-    enabled: bool = True
-
-
-class UpdateChannelRequest(BaseModel):
-    """Body for updating a channel (immutable: type/credentials)."""
-
-    routing: RoutingConfig | None = None
-    session: SessionSettings | None = None
-    presentation: ReplyPresentation | None = None
-    enabled: bool | None = None
-
-
-class ChannelResponse(BaseModel):
-    """Channel details (credentials omitted)."""
-
-    id: str
-    channel_type: str
-    user_id: str
-    platform_bot_id: str
-    enabled: bool
-    platform_config: dict
-    routing: RoutingConfig
-    session: SessionSettings
-    presentation: ReplyPresentation
-    created_at: str
-    updated_at: str
-
-
-# -- Dependencies --
-
-
-def _service(request: Request) -> ChannelService:
-    svc = getattr(request.app.state, "channel_service", None)
-    if svc is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Channel feature is not enabled.",
-        )
-    return svc
-
-
-def _runtime(request: Request) -> ChannelLifecycleDispatcher:
-    rt = getattr(request.app.state, "channel_runtime", None)
-    if rt is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Channel feature is not enabled.",
-        )
-    return rt
-
-
-def _type_registry(request: Request) -> ChannelTypeRegistry:
-    reg = getattr(request.app.state, "channel_type_registry", None)
-    if reg is None:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Channel feature is not enabled.",
-        )
-    return reg
 
 
 def _to_response(
     record: ChannelRecord,
     registry: ChannelTypeRegistry,
 ) -> ChannelResponse:
+    """Project a stored record into a client response (credentials hidden).
+
+    Args:
+        record (`ChannelRecord`): The stored channel record.
+        registry (`ChannelTypeRegistry`): Used to derive the display-only
+            ``platform_bot_id`` from the credentials.
+
+    Returns:
+        `ChannelResponse`: The safe, client-facing view.
+    """
     try:
         bot_id = registry.extract_platform_bot_id(
             record.channel_type,
@@ -137,6 +78,20 @@ async def _owned(
     user_id: str,
     storage: StorageBase,
 ) -> ChannelRecord:
+    """Load a channel and assert the caller owns it.
+
+    Args:
+        channel_id (`str`): The channel to load.
+        user_id (`str`): The caller.
+        storage (`StorageBase`): Application storage.
+
+    Returns:
+        `ChannelRecord`: The owned record.
+
+    Raises:
+        `HTTPException`: 404 if it does not exist, 403 if owned by
+        someone else.
+    """
     record = await storage.get_channel(channel_id)
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Channel not found.")
@@ -145,12 +100,9 @@ async def _owned(
     return record
 
 
-# -- Endpoints --
-
-
 @channel_router.get("/types")
 async def list_channel_types(
-    registry: ChannelTypeRegistry = Depends(_type_registry),
+    registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
 ) -> list[dict]:
     """List supported channel types with their JSON schemas."""
     return [t.model_dump() for t in registry.list_types()]
@@ -159,7 +111,7 @@ async def list_channel_types(
 @channel_router.get("/")
 async def list_channels(
     storage: StorageBase = Depends(get_storage),
-    registry: ChannelTypeRegistry = Depends(_type_registry),
+    registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> list[ChannelResponse]:
     """List channels owned by the current user."""
@@ -170,8 +122,8 @@ async def list_channels(
 @channel_router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_channel(
     body: CreateChannelRequest,
-    service: ChannelService = Depends(_service),
-    registry: ChannelTypeRegistry = Depends(_type_registry),
+    service: ChannelService = Depends(get_channel_service),
+    registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
     """Create a channel."""
@@ -197,7 +149,7 @@ async def create_channel(
 async def get_channel(
     channel_id: str,
     storage: StorageBase = Depends(get_storage),
-    registry: ChannelTypeRegistry = Depends(_type_registry),
+    registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
     """Get channel details."""
@@ -210,8 +162,8 @@ async def update_channel(
     channel_id: str,
     body: UpdateChannelRequest,
     storage: StorageBase = Depends(get_storage),
-    service: ChannelService = Depends(_service),
-    registry: ChannelTypeRegistry = Depends(_type_registry),
+    service: ChannelService = Depends(get_channel_service),
+    registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
     """Update routing / session / presentation / enabled."""
@@ -236,7 +188,7 @@ async def update_channel(
 async def delete_channel(
     channel_id: str,
     storage: StorageBase = Depends(get_storage),
-    service: ChannelService = Depends(_service),
+    service: ChannelService = Depends(get_channel_service),
     user_id: str = Depends(get_current_user_id),
 ) -> None:
     """Delete a channel."""
@@ -248,7 +200,7 @@ async def delete_channel(
 async def enable_channel(
     channel_id: str,
     storage: StorageBase = Depends(get_storage),
-    service: ChannelService = Depends(_service),
+    service: ChannelService = Depends(get_channel_service),
     user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Enable a channel."""
@@ -261,7 +213,7 @@ async def enable_channel(
 async def disable_channel(
     channel_id: str,
     storage: StorageBase = Depends(get_storage),
-    service: ChannelService = Depends(_service),
+    service: ChannelService = Depends(get_channel_service),
     user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Disable a channel."""
@@ -274,26 +226,26 @@ async def disable_channel(
 async def channel_status(
     channel_id: str,
     storage: StorageBase = Depends(get_storage),
-    runtime: ChannelLifecycleDispatcher = Depends(_runtime),
+    dispatcher: ChannelLifecycleDispatcher = Depends(get_channel_dispatcher),
     user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Aggregated multi-node runtime status."""
     await _owned(channel_id, user_id, storage)
-    return await runtime.get_status(channel_id)
+    return await dispatcher.get_status(channel_id)
 
 
 @channel_router.get("/{channel_id}/chat_ids")
 async def list_chat_ids(
     channel_id: str,
     storage: StorageBase = Depends(get_storage),
-    runtime: ChannelLifecycleDispatcher = Depends(_runtime),
+    dispatcher: ChannelLifecycleDispatcher = Depends(get_channel_dispatcher),
     user_id: str = Depends(get_current_user_id),
 ) -> list[dict]:
     """Known chats for routing config: platform list ∪ passively seen."""
     await _owned(channel_id, user_id, storage)
     results: list[dict] = []
     platform_ids: set[str] = set()
-    for chat in await runtime.list_bot_chats(channel_id):
+    for chat in await dispatcher.list_bot_chats(channel_id):
         cid = chat.get("chat_id", "")
         if cid:
             platform_ids.add(cid)
@@ -304,7 +256,7 @@ async def list_chat_ids(
                     "source": "platform",
                 },
             )
-    for cid in await runtime.list_seen_chat_ids(channel_id):
+    for cid in await dispatcher.list_seen_chat_ids(channel_id):
         if cid not in platform_ids:
             results.append({"chat_id": cid, "name": "", "source": "recorded"})
     return results

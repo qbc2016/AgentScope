@@ -1,33 +1,10 @@
 # -*- coding: utf-8 -*-
 """Model service: builds a ChatModelBase from stored credential + config."""
-from typing import Type
 from ._access import ResourceAccessService
 from ..storage import ChatModelConfig
 from ...credential import CredentialFactory
 from ...model import ChatModelBase
 from ..._logging import logger
-
-
-def _get_model_input_types(
-    model_cls: Type[ChatModelBase],
-    model_name: str,
-) -> list[str] | None:
-    """Look up ``input_types`` from the built-in model card for *model_name*.
-
-    Returns ``None`` when no matching card is found (e.g. custom models)
-    so callers can fall back to the formatter's default.
-    """
-    try:
-        for card in model_cls.list_models():
-            if card.name == model_name:
-                return card.input_types
-    except Exception:
-        logger.debug(
-            "Failed to look up model card for %s, "
-            "using formatter defaults.",
-            model_name,
-        )
-    return None
 
 
 async def get_model(
@@ -80,8 +57,17 @@ async def get_model(
         parameters=parameters,
     )
 
-    input_types = _get_model_input_types(model_cls, config.model)
-    if input_types is not None and hasattr(model, "formatter"):
-        model.formatter.input_types = input_types
+    # Override the formatter's input types with the built-in model card's
+    # when one matches; custom models have no card, so keep the default.
+    try:
+        for card in model_cls.list_models():
+            if card.name == config.model:
+                model.formatter.input_types = card.input_types
+                break
+    except Exception:  # pylint: disable=broad-except
+        logger.debug(
+            "Failed to look up model card for %s, using formatter defaults.",
+            config.model,
+        )
 
     return model

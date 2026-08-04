@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """Schema models for the agent service."""
 
+from ._channel import (
+    ChannelResponse,
+    CreateChannelRequest,
+    UpdateChannelRequest,
+)
 from ._chat import ChatRequest, ChatTriggerResponse
 from ._hub import HubInfo
 from ._hub_mcp import InstallMCPRequest, MCPView, UpdateMCPRequest
@@ -93,6 +98,10 @@ __all__ = [
     "CreateAgentResponse",
     "UpdateAgentRequest",
     "ListSchedulesResponse",
+    # Channel
+    "ChannelResponse",
+    "CreateChannelRequest",
+    "UpdateChannelRequest",
     # Chat
     "ChatRequest",
     "ChatTriggerResponse",

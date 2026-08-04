@@ -52,7 +52,7 @@ async def get_toolkit(
     resource_access_service: ResourceAccessService,
     extra_factory: AgentToolFactory | None = None,
     sub_agent_templates: dict[str, SubAgentTemplate] | None = None,
-    channel_runtime: "ChannelLifecycleDispatcher | None" = None,
+    channel_dispatcher: "ChannelLifecycleDispatcher | None" = None,
 ) -> Toolkit:
     """Assemble the complete :class:`Toolkit` for one chat turn.
 
@@ -129,7 +129,7 @@ optional):
             Passed to the ``AgentCreate`` tool so it can route to
             the appropriate template when a ``subagent_type`` is
             specified by the leader agent.
-        channel_runtime (`ChannelLifecycleDispatcher | None`, optional):
+        channel_dispatcher (`ChannelLifecycleDispatcher | None`, optional):
             The node's channel dispatcher. When the session came from a
             channel, its local channel is resolved through this to attach
             that channel's platform tools. ``None`` disables them.
@@ -258,8 +258,8 @@ time or interval"
     # channel, ask that channel (resolved locally; every node runs every
     # channel) for the tools it lets the agent call, e.g. send a file to
     # another user. Mirrors ``workspace.list_tools`` / ``mw.list_tools``.
-    if session_record.source_channel_id and channel_runtime is not None:
-        channel = channel_runtime.get_local_channel(
+    if session_record.source_channel_id and channel_dispatcher is not None:
+        channel = channel_dispatcher.get_local_channel(
             session_record.source_channel_id,
         )
         if channel is not None:

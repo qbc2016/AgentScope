@@ -32,10 +32,10 @@ from .._base import (
     ChannelConfirmationResultEvent,
 )
 from ._card_templates import (
-    build_approval_card,
-    build_resolved_card,
-    build_toast,
-    parse_action,
+    _build_approval_card,
+    _build_resolved_card,
+    _build_toast,
+    _parse_action,
 )
 
 if TYPE_CHECKING:
@@ -331,9 +331,9 @@ class FeishuChannel(ChannelBase):
     ) -> "P2CardActionTriggerResponse":
         """Emit the click as a decision event; ack with a toast."""
         action = getattr(getattr(data.event, "action", None), "value", None)
-        parsed = parse_action(action)
+        parsed = _parse_action(action)
         if parsed is None:
-            return build_toast(False)
+            return _build_toast(False)
         request_id, approved = parsed
         if self._emit:
             asyncio.run_coroutine_threadsafe(
@@ -346,7 +346,7 @@ class FeishuChannel(ChannelBase):
                 ),
                 loop,
             )
-        return build_toast(approved)
+        return _build_toast(approved)
 
     # -- Outbound (gateway → platform) --
 
@@ -443,7 +443,7 @@ class FeishuChannel(ChannelBase):
         req: RequireUserConfirmEvent,
     ) -> str | None:
         tool = req.tool_calls[0] if req.tool_calls else None
-        card = build_approval_card(
+        card = _build_approval_card(
             req.id,
             tool.name if tool else "tool",
             str(tool.input)[:800] if tool else "",
@@ -460,7 +460,7 @@ class FeishuChannel(ChannelBase):
             f"{_API}/im/v1/messages/{ref}",
             {
                 "msg_type": "interactive",
-                "content": build_resolved_card(outcome),
+                "content": _build_resolved_card(outcome),
             },
         )
 

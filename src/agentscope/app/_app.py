@@ -25,7 +25,7 @@ from ._router import (
     workspace_router,
 )
 from ._types import AgentMiddlewareFactory, AgentToolFactory, SubAgentTemplate
-from .channel import ChannelBase
+from .channel import ChannelBase, ChannelTypeRegistry
 from .message_bus import MessageBus
 from .storage import StorageBase
 from ..agent import Agent
@@ -266,11 +266,12 @@ def create_app(
     app.state.resource_access_policy = (
         resource_access_policy or DenyAllResourceAccessPolicy()
     )
-    # Channel types this service allows.  Adapter classes self-describe
-    # their credentials / config, so the registry is built from them.
-    # Empty by default — the channel feature is off until the caller
-    # opts in by passing at least one adapter class.
-    app.state.channels = channels or []
+    # Channel types this service allows. A channel class self-describes
+    # its credentials / config, so the registry is built straight from
+    # the list — it has no lifecycle, so it lives on app.state directly
+    # rather than being created in the lifespan. Empty by default: the
+    # channel feature is off until the caller passes at least one class.
+    app.state.channel_type_registry = ChannelTypeRegistry(channels or [])
     app.state.mcp_hubs = _index_hubs(mcp_hubs, "MCP")
     app.state.skill_hubs = _index_hubs(skill_hubs, "skill")
 

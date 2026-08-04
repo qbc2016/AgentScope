@@ -95,7 +95,7 @@ class ChatService:
         custom_subagent_templates: dict[str, SubAgentTemplate] | None = None,
         custom_agent_cls: type[Agent] | None = None,
         extra_projectors: list[EventProjector] | None = None,
-        channel_runtime: "ChannelLifecycleDispatcher | None" = None,
+        channel_dispatcher: "ChannelLifecycleDispatcher | None" = None,
     ) -> None:
         """Initialize chat service.
 
@@ -154,7 +154,7 @@ class ChatService:
                 injection style). Each is invoked once per produced
                 event to mirror a UI feed onto another session; see
                 :class:`~agentscope.app._types.EventProjector`.
-            channel_runtime (`ChannelLifecycleDispatcher | None`, \
+            channel_dispatcher (`ChannelLifecycleDispatcher | None`, \
 optional):
                 The node's channel dispatcher, forwarded to
                 :func:`get_toolkit` so a channel-originated session's
@@ -169,7 +169,7 @@ optional):
         self._knowledge_base_manager = knowledge_base_manager
         self._extra_agent_middlewares = extra_agent_middlewares
         self._extra_agent_tools = extra_agent_tools
-        self._channel_runtime = channel_runtime
+        self._channel_dispatcher = channel_dispatcher
         self._sub_agent_templates = custom_subagent_templates
         self._agent_cls = custom_agent_cls or Agent
         self._projection = SessionProjection(message_bus)
@@ -667,7 +667,7 @@ optional):
                 resource_access_service=self._access,
                 extra_factory=self._extra_agent_tools,
                 sub_agent_templates=self._sub_agent_templates,
-                channel_runtime=self._channel_runtime,
+                channel_dispatcher=self._channel_dispatcher,
             )
 
             # ----------------------------------------------------------------

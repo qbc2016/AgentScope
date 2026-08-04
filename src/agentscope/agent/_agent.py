@@ -1678,10 +1678,7 @@ class Agent:
                         f"tool results or thinking blocks.",
                     )
 
-                # Swap data blocks the model can't read inline for a hint,
-                # so the LLM at least knows a file arrived (and where it is
-                # saved, when we can save it). The deepcopy above makes
-                # in-place edits safe.
+                # Handle the unsupported input data
                 supported = self.model.formatter.supported_input_media_types
                 for i, block in enumerate(msg.content):
                     if not isinstance(block, DataBlock) or any(
@@ -1689,27 +1686,28 @@ class Agent:
                         for pattern in supported
                     ):
                         continue
-                    name = block.name or "file"
+
+                    # Convert unsupported input data block into a text block,
+                    # and offload it into the workspace
+                    url = ""
                     if isinstance(block.source, URLSource):
                         url = str(block.source.url)
                     elif self.offloader is not None:
                         saved = await self.offloader.offload_data_block(block)
-                        url = (
-                            str(saved.source.url)
-                            if isinstance(saved.source, URLSource)
-                            else ""
-                        )
-                    else:
-                        url = ""
+                        if isinstance(saved.source, URLSource):
+                            url = str(saved.source.url)
+
+                    name = f"named '{block.name}' " if block.name else ""
                     if url:
                         text = (
-                            f"<system-reminder>An attached file {name} is "
+                            f"<system-reminder>An attached file {name}is "
                             f"saved into {url}.</system-reminder>"
                         )
                     else:
                         text = (
                             f"<system-reminder>An unsupported input file "
-                            f"named {name} is attached.</system-reminder>"
+                            f"{name}is attached with media type "
+                            f"'{block.source.media_type}'.</system-reminder>"
                         )
                     msg.content[i] = TextBlock(type="text", text=text)
 

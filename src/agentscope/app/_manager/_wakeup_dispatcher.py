@@ -181,7 +181,7 @@ class WakeupDispatcher:
                 MessageBusKeys.wakeup_queue(),
                 max_count=64,
             )
-            entries = [payload for _entry_id, payload in raw_entries]
+            entries = [payload for _, payload in raw_entries]
         except Exception:  # pylint: disable=broad-except
             logger.exception("WakeupDispatcher: dequeue_wakeups failed.")
             return

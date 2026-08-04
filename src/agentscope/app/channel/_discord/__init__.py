@@ -74,7 +74,16 @@ class DiscordChannel(ChannelBase):
         credentials: "DiscordChannel.Credentials",
         config: "DiscordChannel.Config",
     ) -> None:
-        """Read the bot token and options from the validated models."""
+        """Read the bot token and options from the validated models.
+
+        Args:
+            channel_id (`str`):
+                This channel instance's unique id.
+            credentials (`DiscordChannel.Credentials`):
+                Validated bot credentials (token + application id).
+            config (`DiscordChannel.Config`):
+                Validated platform options.
+        """
         self._channel_id = channel_id
         self._bot_token = credentials.bot_token
         self._only_at_reply = config.only_at_reply
@@ -125,94 +134,70 @@ class DiscordChannel(ChannelBase):
     # -- Inbound --
 
     async def _on_message(self, message: "discord.Message") -> None:
-        """Normalise an inbound message and emit it, ignoring our own."""
+        """Normalise an inbound message and emit it.
+
+        Ignores the bot's own messages; in a server channel with
+        ``only_at_reply`` skips non-mentioning messages and strips the
+        bot mention; downloads each attachment into a ``DataBlock``.
+
+        Args:
+            message (`discord.Message`):
+                The inbound discord.py message.
+        """
         if message.author.id == self._client.user.id:
             return  # ignore our own messages
         try:
-            event = await self._normalize(message)
-            if event and self._emit:
-                await self._emit(event)
+            is_dm = message.guild is None
+            me = self._client.user
+            if (
+                not is_dm
+                and self._only_at_reply
+                and me not in message.mentions
+            ):
+                return
+
+            text = message.content or ""
+            for token in (f"<@{me.id}>", f"<@!{me.id}>"):
+                text = text.replace(token, "")
+            text = text.strip()
+
+            content: list[TextBlock | DataBlock] = []
+            for attachment in message.attachments:
+                try:
+                    data = await attachment.read()
+                except Exception:  # pylint: disable=broad-except
+                    logger.debug("Discord attachment download failed")
+                    continue
+                content.append(
+                    DataBlock(
+                        source=Base64Source(
+                            data=base64.b64encode(data).decode("ascii"),
+                            media_type=attachment.content_type
+                            or "application/octet-stream",
+                        ),
+                        name=attachment.filename,
+                    ),
+                )
+            if text:
+                content.append(TextBlock(text=text))
+            if not content or not self._emit:
+                return
+
+            await self._emit(
+                ChannelEvent(
+                    channel_id=self._channel_id,
+                    channel_user_id=str(message.author.id),
+                    chat_id=str(message.channel.id),
+                    channel_message_id=str(message.id),
+                    content=content,
+                    metadata={"chat_type": "dm" if is_dm else "guild"},
+                ),
+            )
         except Exception:  # pylint: disable=broad-except
             logger.exception(
                 "Discord '%s' message handling failed",
                 self._channel_id,
             )
-
-    async def _normalize(
-        self,
-        message: "discord.Message",
-    ) -> ChannelEvent | None:
-        """Convert a discord.py message into a ``ChannelEvent``.
-
-        In a server channel with ``only_at_reply``, non-mentioning
-        messages are skipped; the bot mention is stripped from the text.
-        Attachments become ``DataBlock``\\ s.
-
-        Args:
-            message (`discord.Message`):
-                The inbound discord.py message.
-
-        Returns:
-            `ChannelEvent | None`:
-                The normalised event, or ``None`` when there is nothing
-                to act on (ignored mention / empty content).
-        """
-        is_dm = message.guild is None
-        me = self._client.user
-        if not is_dm and self._only_at_reply and me not in message.mentions:
-            return None
-
-        text = message.content or ""
-        for token in (f"<@{me.id}>", f"<@!{me.id}>"):
-            text = text.replace(token, "")
-        text = text.strip()
-
-        content: list[TextBlock | DataBlock] = []
-        for attachment in message.attachments:
-            block = await self._attachment_block(attachment)
-            if block:
-                content.append(block)
-        if text:
-            content.append(TextBlock(text=text))
-        if not content:
-            return None
-
-        return ChannelEvent(
-            channel_id=self._channel_id,
-            channel_user_id=str(message.author.id),
-            chat_id=str(message.channel.id),
-            channel_message_id=str(message.id),
-            content=content,
-            metadata={"chat_type": "dm" if is_dm else "guild"},
-        )
-
-    async def _attachment_block(
-        self,
-        attachment: "discord.Attachment",
-    ) -> DataBlock | None:
-        """Download an attachment into a base64 ``DataBlock`` (best-effort).
-
-        Args:
-            attachment (`discord.Attachment`):
-                The discord.py attachment to download.
-
-        Returns:
-            `DataBlock | None`:
-                The block, or ``None`` if the download failed.
-        """
-        try:
-            data = await attachment.read()
-            return DataBlock(
-                source=Base64Source(
-                    data=base64.b64encode(data).decode("ascii"),
-                    media_type=attachment.content_type
-                    or "application/octet-stream",
-                ),
-                name=attachment.filename,
-            )
-        except Exception:  # pylint: disable=broad-except
-            logger.debug("Discord attachment download failed")
-            return None
 
     # -- Outbound --
 

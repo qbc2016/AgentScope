@@ -104,26 +104,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Channel wiring is built here (before ChatService) so the chat
         # service can hand the dispatcher to get_toolkit: a session that
         # came from a channel gets that channel's platform tools. The
-        # reconcile/heartbeat loops are still started later, via the
-        # dispatcher's lifespan context.
+        # type registry has no lifecycle and was built in create_app; the
+        # reconcile/heartbeat loops start later via the dispatcher's
+        # lifespan context.
         from .channel import (
             ChannelGateway,
             ChannelLifecycleDispatcher,
             ChannelService,
-            ChannelTypeRegistry,
         )
 
-        channel_type_registry = ChannelTypeRegistry(
-            getattr(app.state, "channels", None),
-        )
-        channel_runtime = ChannelLifecycleDispatcher(
+        channel_type_registry = app.state.channel_type_registry
+        channel_dispatcher = ChannelLifecycleDispatcher(
             storage=storage,
             message_bus=message_bus,
             type_registry=channel_type_registry,
             gateway=ChannelGateway(storage=storage, message_bus=message_bus),
         )
-        app.state.channel_runtime = channel_runtime
-        app.state.channel_type_registry = channel_type_registry
+        app.state.channel_dispatcher = channel_dispatcher
         app.state.channel_service = ChannelService(
             storage=storage,
             message_bus=message_bus,
@@ -142,7 +139,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             extra_agent_tools=app.state.extra_agent_tools,
             custom_subagent_templates=app.state.custom_subagent_templates,
             custom_agent_cls=app.state.custom_agent_cls,
-            channel_runtime=channel_runtime,
+            channel_dispatcher=channel_dispatcher,
         )
         app.state.chat_service = chat_service
 
@@ -231,6 +228,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         # Start the channel reconcile/heartbeat/outbound loops (the
         # dispatcher itself was built above, before ChatService).
-        await stack.enter_async_context(channel_runtime.lifespan())
+        await stack.enter_async_context(channel_dispatcher.lifespan())
 
         yield
