@@ -1,5 +1,13 @@
 import type { ContentBlock, TextBlock } from '@agentscope-ai/agentscope/message';
-import { Paperclip, Send, Loader2, Square, type LucideIcon, XIcon, FileText } from 'lucide-react';
+import {
+	Paperclip,
+	Loader2,
+	Square,
+	type LucideIcon,
+	XIcon,
+	FileText,
+	ArrowUp,
+} from 'lucide-react';
 import mime from 'mime';
 import React, {
 	useState,
@@ -252,7 +260,7 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 				};
 			}
 			return {
-				icon: Send,
+				icon: ArrowUp,
 				tooltip: t('textInput.send'),
 				disabled: disabled || !value.trim() || hasProcessing,
 				onClick: handleSend,

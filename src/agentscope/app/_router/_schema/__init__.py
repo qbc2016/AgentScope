@@ -2,6 +2,21 @@
 """Schema models for the agent service."""
 
 from ._chat import ChatRequest, ChatTriggerResponse
+from ._hub import HubInfo
+from ._hub_mcp import InstallMCPRequest, MCPView, UpdateMCPRequest
+from ._hub_skill import SkillView
+from ._workspace import (
+    AddFromLibraryRequest,
+    AddFromLibraryResponse,
+    AddSkillRequest,
+    AddSkillsFromLibraryRequest,
+    MCPClientStatus,
+    ToolInfo,
+)
+from ._embedding_model import (
+    ListEmbeddingModelsResponse,
+    ListEmbeddingModelsRequest,
+)
 from ._model import ListModelsResponse, ListModelsRequest
 from ._tts_model import ListTTSModelsResponse, ListTTSModelsRequest
 from ._schedule import (
@@ -57,6 +72,19 @@ from ._session import (
 )
 
 __all__ = [
+    # Hub
+    "HubInfo",
+    "InstallMCPRequest",
+    "MCPView",
+    "UpdateMCPRequest",
+    "SkillView",
+    # Workspace
+    "AddFromLibraryRequest",
+    "AddFromLibraryResponse",
+    "AddSkillRequest",
+    "AddSkillsFromLibraryRequest",
+    "MCPClientStatus",
+    "ToolInfo",
     # Agent
     "AgentSchemaResponse",
     "AgentSchemaV2Response",
@@ -90,6 +118,8 @@ __all__ = [
     "UpdateKnowledgeBaseRequest",
     "UploadKnowledgeDocumentResponse",
     # Model
+    "ListEmbeddingModelsRequest",
+    "ListEmbeddingModelsResponse",
     "ListModelsRequest",
     "ListModelsResponse",
     # TTS Model
