@@ -1,0 +1,55 @@
+# -*- coding: utf-8 -*-
+"""Apply a tool-approval decision: freeze the card and resume the run.
+
+Shared by the gateway (a user's card click) and the presenter (auto-deny
+when a platform cannot present a confirmation). The resumed run produces
+its continuation output like any channel run — it emits a fresh outbound
+signal, and a presenter forwards it — so this function only updates the
+card and triggers the resume; it does not collect the reply itself.
+"""
+from ...event import ConfirmResult, UserConfirmResultEvent
+from .._bus_ops import enqueue_run_trigger
+from ..message_bus import MessageBus, MessageBusKeys
+from ._base import ChannelBase
+from ._pending import PendingConfirm
+
+
+async def resume_after_decision(
+    bus: MessageBus,
+    adapter: ChannelBase,
+    pending: PendingConfirm,
+    approved: bool,
+) -> None:
+    """Freeze the confirmation card, then resume the parked run.
+
+    Args:
+        bus (`MessageBus`):
+            The application message bus.
+        adapter (`ChannelBase`):
+            The adapter that will update the card (the one handling the
+            click, or the presenter's local adapter for auto-deny).
+        pending (`PendingConfirm`):
+            The parked-request context.
+        approved (`bool`):
+            The user's decision.
+    """
+    if pending.ref:
+        await adapter.update_confirm(
+            pending.ref,
+            "approved" if approved else "denied",
+        )
+    results = [
+        ConfirmResult(confirmed=approved, tool_call=tc)
+        for tc in pending.tool_calls
+    ]
+    await enqueue_run_trigger(
+        bus,
+        user_id=pending.user_id,
+        session_id=pending.session_id,
+        agent_id=pending.agent_id,
+        kind=MessageBusKeys.WAKEUP_KIND_RESUME,
+        inputs=UserConfirmResultEvent(
+            reply_id=pending.reply_id,
+            confirm_results=results,
+        ),
+    )

@@ -20,6 +20,7 @@ from ._router import (
     workspace_router,
 )
 from ._types import AgentMiddlewareFactory, AgentToolFactory, SubAgentTemplate
+from .channel import ChannelBase
 from .message_bus import MessageBus
 from .storage import StorageBase
 from ..agent import Agent
@@ -58,6 +59,7 @@ def create_app(
     custom_subagent_templates: list[SubAgentTemplate] | None = None,
     custom_agent_cls: Type[Agent] | None = None,
     resource_access_policy: ResourceAccessPolicyBase | None = None,
+    channels: list[Type[ChannelBase]] | None = None,
     title: str = "AgentScope",
     version: str = __version__,
 ) -> FastAPI:
@@ -187,6 +189,15 @@ def create_app(
             user. When ``None`` (default), a
             :class:`DenyAllResourceAccessPolicy` is installed which
             preserves the historical owner-isolated behavior.
+        channels (`list[Type[ChannelBase]] | None`, optional):
+            Channel adapter classes this service allows (e.g.
+            ``[FeishuChannel, DiscordChannel]``).  Each class
+            self-describes its ``channel_type``, credentials and config,
+            so the service registers it without a separate table; pass a
+            custom :class:`~agentscope.app.channel.ChannelBase` subclass
+            to add a platform.  When ``None`` (default), no channel types
+            are registered and the channel feature stays off until the
+            caller opts in by passing at least one adapter class.
         title (`str`, defaults to ``"AgentScope"``):
             OpenAPI title shown in the docs UI.
         version (`str`, defaults to the package version):
@@ -214,6 +225,11 @@ def create_app(
     app.state.resource_access_policy = (
         resource_access_policy or DenyAllResourceAccessPolicy()
     )
+    # Channel types this service allows.  Adapter classes self-describe
+    # their credentials / config, so the registry is built from them.
+    # Empty by default — the channel feature is off until the caller
+    # opts in by passing at least one adapter class.
+    app.state.channels = channels or []
 
     # Parser / chunker / blob-store defaults only make sense when the
     # KB feature is actually enabled.  When ``knowledge_base_manager`` is

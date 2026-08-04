@@ -658,3 +658,13 @@ class RedisMessageBus(MessageBus):
         """
         result = await self._client.exists(key)
         return bool(result)
+
+    async def try_lock(self, key: str, *, ttl_secs: int = 600) -> bool:
+        """Non-blocking claim via ``SET key NX EX``. See base."""
+        return bool(
+            await self._client.set(key, "1", nx=True, ex=ttl_secs),
+        )
+
+    async def unlock(self, key: str) -> None:
+        """Release a ``try_lock`` claim (best-effort ``DEL``)."""
+        await self._client.delete(key)

@@ -111,7 +111,8 @@
 			"team": "Team",
 			"team_message": "Team",
 			"schedule": "Schedule",
-			"system": "System"
+			"system": "System",
+			"channel": "Channel"
 		},
 		"error": {
 			"title": "Reply failed",

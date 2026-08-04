@@ -386,6 +386,17 @@ class InMemoryMessageBus(MessageBus):
         """
         return key in self._lock_holders
 
+    async def try_lock(self, key: str, *, ttl_secs: int = 600) -> bool:
+        """Non-blocking claim on ``key``. See base."""
+        if key in self._lock_holders:
+            return False
+        self._lock_holders[key] = "1"
+        return True
+
+    async def unlock(self, key: str) -> None:
+        """Release a ``try_lock`` claim."""
+        self._lock_holders.pop(key, None)
+
     # ------------------------------------------------------------------
     # Mode F — registry map
     # ------------------------------------------------------------------

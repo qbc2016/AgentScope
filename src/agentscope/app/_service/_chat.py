@@ -15,10 +15,14 @@ import asyncio
 
 from fastapi import HTTPException
 
-from .._bus_ops import enqueue_run_trigger, publish_session_event
+from .._bus_ops import (
+    enqueue_channel_output,
+    enqueue_run_trigger,
+    publish_session_event,
+)
 from ..message_bus import MessageBus, MessageBusKeys
 from ..rag.knowledge_base_manager import KnowledgeBaseManagerBase
-from ..storage import StorageBase, AgentRecord, SessionRecord
+from ..storage import StorageBase, AgentRecord, SessionRecord, SessionSource
 from .._manager import BackgroundTaskManager, SchedulerManager
 from ..workspace_manager import WorkspaceManagerBase
 from ..middleware import (
@@ -282,6 +286,28 @@ class ChatService:
             inputs=UserInterruptEvent(reply_id=session.state.reply_id),
         )
 
+    async def _signal_channel_output(
+        self,
+        session_record: SessionRecord,
+        user_id: str,
+        session_id: str,
+        agent_id: str,
+    ) -> None:
+        """Signal the channel output forwarder for a channel-bound run."""
+        if (
+            session_record.source == SessionSource.CHANNEL
+            and session_record.source_channel_id
+            and session_record.source_chat_id
+        ):
+            await enqueue_channel_output(
+                self._message_bus,
+                session_id=session_id,
+                channel_id=session_record.source_channel_id,
+                chat_id=session_record.source_chat_id,
+                user_id=user_id,
+                agent_id=agent_id,
+            )
+
     async def _run_impl(  # pylint: disable=too-many-statements
         self,
         user_id: str,
@@ -542,6 +568,15 @@ class ChatService:
             lock_key,
             ttl_secs=MessageBusKeys.SESSION_RUN_TTL_SECS,
         ):
+            # Channel-bound run: signal the output forwarder so the reply
+            # is streamed back to the platform chat. Covers scheduled /
+            # background wakes, not just inbound channel messages.
+            await self._signal_channel_output(
+                session_record,
+                user_id,
+                session_id,
+                agent_id,
+            )
             reply_msg: Msg | None = None
             try:
                 if input_msg is None or isinstance(input_msg, (Msg, list)):

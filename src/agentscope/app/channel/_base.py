@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, Field
 
+from ...event import RequireUserConfirmEvent
 from ...message import TextBlock, DataBlock
 
 
@@ -40,6 +41,10 @@ class ChannelEvent(BaseModel):
 
     channel_user_id: str
     """Platform-side unique user identifier."""
+
+    channel_user_name: str = ""
+    """Platform-side user display name, when the adapter can provide it
+    cheaply; the gateway falls back to ``channel_user_id`` otherwise."""
 
     chat_id: str
     """Platform-side chat/group identifier. Drives session grouping and
@@ -92,19 +97,6 @@ class ConfirmDecisionEvent(BaseModel):
     """Platform-side id of whoever made the decision (for audit)."""
 
 
-class ConfirmPrompt(BaseModel):
-    """What to show the user when requesting tool approval.
-
-    Purely semantic — no platform/card concept. The adapter decides how
-    to render it (interactive card, plain-text prompt, ...).
-    """
-
-    request_id: str
-    tool_name: str
-    summary: str = ""
-    """A short, possibly-truncated summary of the tool call's input."""
-
-
 class ChannelCapability(BaseModel):
     """Platform capability declaration for gateway degradation decisions.
 
@@ -119,12 +111,64 @@ class ChannelCapability(BaseModel):
     """Whether the platform can present an interactive confirmation UI.
     When ``False``, tool approvals are auto-denied (no surface to ask)."""
 
+    streaming: bool = False
+    """Whether the platform can update one reply message in place as the
+    agent generates it. When ``False``, the reply is sent once, complete
+    (see :meth:`ChannelBase.stream_start`)."""
+
     max_message_length: int = 4000
     """Max characters per message; longer replies are split before send."""
 
 
 class ChannelBase(ABC):
-    """Abstract base for platform channel adapters."""
+    """Abstract base for platform channel adapters.
+
+    A subclass fully describes its platform type on the class itself, so
+    the service can register it from :func:`~agentscope.app.create_app`
+    (``channels=[FeishuChannel, ...]``) without a separate registry
+    table:
+
+    - :attr:`channel_type` / :attr:`display_name` /
+      :attr:`platform_bot_id_field` — type metadata;
+    - nested :class:`Credentials` / :class:`Config` — the credential and
+      option models, overridden by each subclass; the service renders
+      their JSON Schema as frontend forms and validates against them;
+    - ``__init__(channel_id, credentials, config)`` — the uniform
+      construction contract; instances are built per stored channel with
+      that channel's validated ``Credentials`` / ``Config``.
+    """
+
+    channel_type: str = ""
+    """Unique platform type id (e.g. ``"feishu"``). Subclasses set this."""
+
+    display_name: str = ""
+    """Human-readable platform name for the management UI."""
+
+    platform_bot_id_field: str = ""
+    """Credential field that uniquely identifies the bot, used to reject
+    binding the same bot to two channels."""
+
+    class Credentials(BaseModel):
+        """Secret connection fields (app id, tokens, ...). Subclasses
+        override with their own fields; mark a field secret with
+        ``json_schema_extra={"format": "password"}``."""
+
+    class Config(BaseModel):
+        """Non-secret per-channel behaviour switches. Subclasses override;
+        left empty when the platform exposes no options."""
+
+    def __init__(
+        self,
+        channel_id: str,
+        credentials: "ChannelBase.Credentials",
+        config: "ChannelBase.Config",
+    ) -> None:
+        """Build an adapter from one channel's validated credentials.
+
+        The registry calls this uniformly with the channel's validated
+        :class:`Credentials` / :class:`Config`; subclasses override it to
+        read their own fields.
+        """
 
     capabilities: ChannelCapability = ChannelCapability()
 
@@ -174,14 +218,15 @@ class ChannelBase(ABC):
     async def present_confirm(  # pylint: disable=unused-argument
         self,
         event: ChannelEvent,
-        prompt: ConfirmPrompt,
+        req: RequireUserConfirmEvent,
     ) -> str | None:
         """Present a tool-approval request to the user.
 
         Render however the platform allows (interactive card, or a plain
-        "reply yes/no" message). Embed ``prompt.request_id`` so the
-        eventual decision can be delivered back as a
-        ``ConfirmDecisionEvent``.
+        "reply yes/no" message) — read ``req.tool_calls`` for what to
+        show. Embed ``req.id`` so the eventual decision can be delivered
+        back as a ``ConfirmDecisionEvent`` carrying the same
+        ``request_id``.
 
         Returns:
             `str | None`: An opaque handle (e.g. the card message id) for
@@ -206,6 +251,47 @@ class ChannelBase(ABC):
             outcome (`str`): ``"approved"`` or ``"denied"``.
         """
 
+    async def stream_start(  # pylint: disable=unused-argument
+        self,
+        event: ChannelEvent,
+    ) -> str | None:
+        """Open a live-updating reply message and return a handle.
+
+        Called once, when the first output arrives, if
+        ``capabilities.streaming`` is set. Return an opaque handle for
+        the later :meth:`stream_update` / :meth:`stream_end` calls, or
+        ``None`` if the platform cannot stream right now — in which case
+        the gateway falls back to a single :meth:`send_response` when the
+        reply is complete. Default: ``None``.
+        """
+        return None
+
+    async def stream_update(
+        self,
+        ref: str,
+        content: list[TextBlock | DataBlock],
+    ) -> None:
+        """Update the live message with the accumulated content so far.
+
+        Called at a throttled rate as the reply grows. ``ref`` is the
+        handle from :meth:`stream_start`. Best-effort: a failed update is
+        skipped, not fatal. Default: no-op.
+        """
+
+    async def stream_end(
+        self,
+        ref: str,
+        content: list[TextBlock | DataBlock],
+    ) -> None:
+        """Finalise the live message with the complete content.
+
+        Default: no-op.
+
+        Args:
+            ref (`str`): The handle returned by :meth:`stream_start`.
+            content (`list[TextBlock | DataBlock]`): The full reply.
+        """
+
     async def add_reaction(  # pylint: disable=unused-argument
         self,
         event: ChannelEvent,
@@ -226,6 +312,14 @@ class ChannelBase(ABC):
         """Remove a reaction added by :meth:`add_reaction`. Default: no-op."""
 
     # -- Lifecycle & wiring (manager-invoked) --
+
+    async def validate(self) -> None:
+        """Check the credentials can connect, raising on failure.
+
+        Called once at channel creation so a bad connection fails the
+        request instead of the dispatcher retrying silently in the
+        background. Default: no-op.
+        """
 
     async def on_start(self) -> None:
         """Initialise resources (HTTP clients, tokens, ...). Default: no-op."""

@@ -53,7 +53,7 @@ export function defaultChannelForm(agentId = ''): ChannelFormValue {
 		],
 		chatModelConfig: null,
 		fallbackChatModelConfig: null,
-		permissionMode: 'dont_ask' as PermissionMode,
+		permissionMode: 'default' as PermissionMode,
 		showToolProcess: false,
 		showThinking: false,
 	};

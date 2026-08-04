@@ -16,11 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..channel import (
+    ChannelError,
     ChannelLifecycleDispatcher,
-    ChannelNotFoundError,
     ChannelService,
     ChannelTypeRegistry,
-    DuplicateBotError,
 )
 from ..deps import get_current_user_id
 from ..storage import (
@@ -186,10 +185,10 @@ async def create_channel(
             presentation=body.presentation,
             enabled=body.enabled,
         )
+    except ChannelError as e:
+        raise HTTPException(e.status_code, str(e)) from e
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-    except DuplicateBotError as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
     return _to_response(record, registry)
 
 
@@ -223,8 +222,8 @@ async def update_channel(
         )
     try:
         record = await service.update(channel_id, updates)
-    except ChannelNotFoundError as e:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ChannelError as e:
+        raise HTTPException(e.status_code, str(e)) from e
     return _to_response(record, registry)
 
 

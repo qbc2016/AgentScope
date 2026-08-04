@@ -16,7 +16,7 @@ from ..storage import (
     SessionSettings,
     StorageBase,
 )
-from ._errors import ChannelNotFoundError, DuplicateBotError
+from ._errors import ChannelError
 from ._registry import ChannelTypeRegistry
 
 
@@ -62,11 +62,26 @@ class ChannelService:
             bot_id,
         )
         if existing:
-            raise DuplicateBotError(bot_id, existing)
+            raise ChannelError(
+                f"Bot '{bot_id}' already registered as channel "
+                f"'{existing}'.",
+                409,
+            )
+
+        channel_id = _generate_id()
+        # Fail fast if the credentials can't connect, rather than letting
+        # the dispatcher retry silently in the background.
+        adapter = self._types.create_channel(
+            channel_type,
+            channel_id,
+            credentials,
+            platform_config,
+        )
+        await adapter.validate()
 
         now = datetime.now().isoformat()
         record = ChannelRecord(
-            id=_generate_id(),
+            id=channel_id,
             channel_type=channel_type,
             user_id=user_id,
             enabled=enabled,
@@ -119,7 +134,7 @@ class ChannelService:
     async def _require(self, channel_id: str) -> ChannelRecord:
         record = await self._storage.get_channel(channel_id)
         if record is None:
-            raise ChannelNotFoundError(channel_id)
+            raise ChannelError(f"Channel '{channel_id}' not found.", 404)
         return record
 
     def _bot_id(self, channel_type: str, credentials: dict) -> str:

@@ -19,14 +19,16 @@ import json
 import threading
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from ...._logging import logger
+from ....event import RequireUserConfirmEvent
 from ....message import Base64Source, DataBlock, TextBlock
 from .._base import (
     ChannelBase,
     ChannelCapability,
     ChannelEvent,
     ConfirmDecisionEvent,
-    ConfirmPrompt,
 )
 from ._card_templates import (
     build_approval_card,
@@ -38,42 +40,102 @@ from ._card_templates import (
 _API = "https://open.feishu.cn/open-apis"
 _TOKEN_EXPIRED_CODES = frozenset({99991663, 99991664})
 _MEDIA_TYPES = frozenset({"image", "audio", "media", "file"})
+_STREAM_ELEMENT_ID = "md"
+
+
+class _ThreadLoopProxy:
+    """Forward attribute access to the *current thread's* event loop.
+
+    ``lark_oapi.ws.client`` drives ``client.start()`` off one module-
+    global ``loop``. Replacing that global with this proxy makes every
+    ``loop.<attr>`` resolve to the loop of whichever thread is calling —
+    so multiple Feishu WS threads (one per bot) each use their own loop
+    instead of sharing one global.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(asyncio.get_event_loop(), name)
+
+
+_THREAD_LOOP_PROXY = _ThreadLoopProxy()
 
 
 class FeishuChannel(ChannelBase):
     """Feishu platform adapter (SDK long-connection mode)."""
+
+    channel_type = "feishu"
+    display_name = "Feishu (Lark)"
+    platform_bot_id_field = "app_id"
+
+    class Credentials(BaseModel):
+        """Feishu bot application credentials."""
+
+        app_id: str = Field(title="App ID", description="Feishu App ID")
+        app_secret: str = Field(
+            title="App Secret",
+            description="Feishu App Secret",
+            json_schema_extra={"format": "password"},
+        )
+
+    class Config(BaseModel):
+        """Feishu platform options."""
+
+        only_at_reply: bool = Field(
+            default=True,
+            title="Reply only when mentioned",
+            description="In group chats, reply only when the bot is "
+            "@mentioned",
+        )
 
     capabilities = ChannelCapability(
         text=True,
         markdown=True,
         image=True,
         interactive=True,
+        streaming=True,
         max_message_length=4000,
     )
 
     def __init__(
         self,
         channel_id: str,
-        app_id: str,
-        app_secret: str,
-        *,
-        only_at_reply: bool = True,
+        credentials: "FeishuChannel.Credentials",
+        config: "FeishuChannel.Config",
     ) -> None:
         self._channel_id = channel_id
-        self._app_id = app_id
-        self._app_secret = app_secret
-        self._only_at_reply = only_at_reply
+        self._app_id = credentials.app_id
+        self._app_secret = credentials.app_secret
+        self._only_at_reply = config.only_at_reply
         self._http: Any = None
         self._token: str | None = None
         self._ws_thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stream_seq: dict[str, int] = {}
 
     @property
     def channel_id(self) -> str:
         return self._channel_id
 
     # -- Lifecycle --
+
+    async def validate(self) -> None:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            resp = await http.post(
+                f"{_API}/auth/v3/tenant_access_token/internal",
+                json={
+                    "app_id": self._app_id,
+                    "app_secret": self._app_secret,
+                },
+            )
+        data = resp.json()
+        if data.get("code") != 0:
+            raise ValueError(
+                f"Feishu credential check failed: "
+                f"{data.get('msg') or 'invalid app_id / app_secret'}",
+            )
 
     async def on_start(self) -> None:
         import httpx
@@ -127,10 +189,17 @@ class FeishuChannel(ChannelBase):
         def on_card_action(data: Any) -> Any:
             return self._on_card_action(data, loop)
 
+        def ignore(_data: Any) -> None:
+            """No-op for subscribed events we don't act on (e.g. the
+            reaction events our own 'OnIt' reaction triggers), so the SDK
+            doesn't log 'processor not found'."""
+
         handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(on_message)
             .register_p2_card_action_trigger(on_card_action)
+            .register_p2_im_message_reaction_created_v1(ignore)
+            .register_p2_im_message_reaction_deleted_v1(ignore)
             .build()
         )
         client = lark.ws.Client(
@@ -142,7 +211,20 @@ class FeishuChannel(ChannelBase):
 
         def run() -> None:
             try:
-                client.start()  # public entry; owns its own event loop
+                # lark_oapi.ws.client keeps ONE module-global event loop
+                # (captured at import) and drives client.start() with it.
+                # Imported while the app loop runs, that global points at
+                # the running main loop → run_until_complete raises "event
+                # loop is already running". Give this thread its own loop
+                # and repoint the SDK global at a thread-local proxy, so
+                # every access resolves to the current thread's loop —
+                # letting several Feishu bots run on one node without
+                # sharing (or racing) a single global loop.
+                import lark_oapi.ws.client as _ws_client
+
+                asyncio.set_event_loop(asyncio.new_event_loop())
+                _ws_client.loop = _THREAD_LOOP_PROXY
+                client.start()  # blocks on this thread's loop until closed
             except Exception:  # pylint: disable=broad-except
                 if not self._stop.is_set():
                     logger.exception(
@@ -263,15 +345,88 @@ class FeishuChannel(ChannelBase):
                 part,
             )
 
+    # -- Streaming (Feishu CardKit) --
+    # NOTE: end-to-end streaming needs a real bot to verify; on any API
+    # failure ``stream_start`` returns None and the gateway falls back to
+    # a single ``send_response``.
+
+    async def stream_start(self, event: ChannelEvent) -> str | None:
+        card_json = json.dumps(
+            {
+                "schema": "2.0",
+                "config": {"streaming_mode": True},
+                "body": {
+                    "elements": [
+                        {
+                            "tag": "markdown",
+                            "element_id": _STREAM_ELEMENT_ID,
+                            "content": "",
+                        },
+                    ],
+                },
+            },
+        )
+        created = await self._api(
+            "POST",
+            f"{_API}/cardkit/v1/cards",
+            {"type": "card_json", "data": card_json},
+        )
+        if not created or created.get("code") != 0:
+            return None
+        card_id = created.get("data", {}).get("card_id")
+        if not card_id:
+            return None
+        sent = await self._send(
+            event.channel_message_id,
+            event.chat_id,
+            "interactive",
+            json.dumps({"type": "card", "data": {"card_id": card_id}}),
+        )
+        if not sent or sent.get("code") != 0:
+            return None
+        self._stream_seq[card_id] = 0
+        return card_id
+
+    async def stream_update(
+        self,
+        ref: str,
+        content: list[TextBlock | DataBlock],
+    ) -> None:
+        await self._push_stream(ref, content)
+
+    async def stream_end(
+        self,
+        ref: str,
+        content: list[TextBlock | DataBlock],
+    ) -> None:
+        await self._push_stream(ref, content)
+        self._stream_seq.pop(ref, None)
+
+    async def _push_stream(
+        self,
+        card_id: str,
+        content: list[TextBlock | DataBlock],
+    ) -> None:
+        text = "".join(b.text for b in content if isinstance(b, TextBlock))
+        seq = self._stream_seq.get(card_id, 0) + 1
+        self._stream_seq[card_id] = seq
+        await self._api(
+            "PUT",
+            f"{_API}/cardkit/v1/cards/{card_id}/elements/"
+            f"{_STREAM_ELEMENT_ID}/content",
+            {"content": text, "sequence": seq},
+        )
+
     async def present_confirm(
         self,
         event: ChannelEvent,
-        prompt: ConfirmPrompt,
+        req: RequireUserConfirmEvent,
     ) -> str | None:
+        tool = req.tool_calls[0] if req.tool_calls else None
         card = build_approval_card(
-            prompt.request_id,
-            prompt.tool_name,
-            prompt.summary,
+            req.id,
+            tool.name if tool else "tool",
+            str(tool.input)[:800] if tool else "",
         )
         return await self._send_card(
             event.channel_message_id,
@@ -469,7 +624,7 @@ class FeishuChannel(ChannelBase):
                     data=base64.b64encode(resp.content).decode("ascii"),
                     media_type=resp.headers.get("content-type", default_mime),
                 ),
-                name=msg_type,
+                name=content.get("file_name") or msg_type,
             )
         except Exception:  # pylint: disable=broad-except
             logger.debug("Feishu media download failed")

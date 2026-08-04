@@ -246,3 +246,25 @@ class MessageBusKeys:
         subscriber happens to be offline.
         """
         return cls._INDEX_TASKS_SIGNAL
+
+    # ------------------------------------------------------------------
+    # Channel output forwarding — a durable queue of "a channel session
+    # is producing output" signals. Each node running channel adapters
+    # drains it; the node that pops a signal (and hosts that channel)
+    # subscribes to the session's event stream and forwards the reply
+    # back to the platform chat. Queue + atomic pop → exactly one node
+    # forwards, even though every node runs the adapter.
+    # ------------------------------------------------------------------
+
+    _CHANNEL_OUTBOUND_QUEUE = "agentscope:channel:outbound"
+    _CHANNEL_OUTBOUND_SIGNAL = "agentscope:channel:outbound:wake"
+
+    @classmethod
+    def channel_outbound_queue(cls) -> str:
+        """Durable queue of channel output-forward signals."""
+        return cls._CHANNEL_OUTBOUND_QUEUE
+
+    @classmethod
+    def channel_outbound_signal(cls) -> str:
+        """Pub/sub nudge for channel output-forward consumers."""
+        return cls._CHANNEL_OUTBOUND_SIGNAL

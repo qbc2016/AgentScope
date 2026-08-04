@@ -1,24 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Channel module configuration."""
-from __future__ import annotations
+"""Channel subsystem tuning constants."""
 
-from pydantic import BaseModel
+# Maximum seconds the presenter waits for an agent reply.
+RESPONSE_TIMEOUT_SECS = 60.0
 
+# Workspace bound to channel-created sessions.
+WORKSPACE_ID = "default"
 
-class ChannelConfig(BaseModel):
-    """Module-level configuration for the Channel subsystem."""
-
-    response_timeout: float = 60.0
-    """Maximum seconds a collector waits for an agent reply."""
-
-    workspace_id: str = "default"
-    """Workspace bound to channel-created sessions. The per-channel model
-    config is required on the record, so there is no model default here
-    (see docs/design_channel_redesign.md decision #2)."""
-
-    reconcile_interval: float = 60.0
-    """Seconds between periodic reconcile sweeps in the lifecycle
-    dispatcher (a fallback under lost lifecycle notifications)."""
-
-    liveness_ttl: int = 30
-    """TTL (seconds) of a node's per-channel status heartbeat."""
+# TTL (seconds) of a node's per-channel status heartbeat.
+LIVENESS_TTL_SECS = 30

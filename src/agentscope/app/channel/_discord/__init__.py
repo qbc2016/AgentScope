@@ -15,14 +15,16 @@ import asyncio
 import base64
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from ...._logging import logger
+from ....event import RequireUserConfirmEvent
 from ....message import Base64Source, DataBlock, TextBlock
 from .._base import (
     ChannelBase,
     ChannelCapability,
     ChannelEvent,
     ConfirmDecisionEvent,
-    ConfirmPrompt,
 )
 
 # Discord's hard limit is 2000 characters per message.
@@ -31,6 +33,29 @@ _MAX_LEN = 2000
 
 class DiscordChannel(ChannelBase):
     """Discord platform adapter."""
+
+    channel_type = "discord"
+    display_name = "Discord"
+    platform_bot_id_field = "application_id"
+
+    class Credentials(BaseModel):
+        """Discord bot credentials."""
+
+        bot_token: str = Field(
+            title="Bot Token",
+            json_schema_extra={"format": "password"},
+        )
+        application_id: str = Field(title="Application ID")
+
+    class Config(BaseModel):
+        """Discord platform options."""
+
+        only_at_reply: bool = Field(
+            default=True,
+            title="Reply only when mentioned",
+            description="In server channels, reply only when the bot is "
+            "@mentioned",
+        )
 
     capabilities = ChannelCapability(
         text=True,
@@ -43,13 +68,12 @@ class DiscordChannel(ChannelBase):
     def __init__(
         self,
         channel_id: str,
-        bot_token: str,
-        *,
-        only_at_reply: bool = True,
+        credentials: "DiscordChannel.Credentials",
+        config: "DiscordChannel.Config",
     ) -> None:
         self._channel_id = channel_id
-        self._bot_token = bot_token
-        self._only_at_reply = only_at_reply
+        self._bot_token = credentials.bot_token
+        self._only_at_reply = config.only_at_reply
         self._client: Any = None
         self._discord: Any = None
         self._stopped = False
@@ -171,17 +195,18 @@ class DiscordChannel(ChannelBase):
     async def present_confirm(
         self,
         event: ChannelEvent,
-        prompt: ConfirmPrompt,
+        req: RequireUserConfirmEvent,
     ) -> str | None:
         channel = await self._channel(event.chat_id)
         if channel is None:
             return None
-        body = f"🛡️ 工具执行需要确认\n**工具:** `{prompt.tool_name}`"
-        if prompt.summary:
-            body += f"\n**参数:** {prompt.summary[:800]}"
+        tool = req.tool_calls[0] if req.tool_calls else None
+        body = f"🛡️ 工具执行需要确认\n**工具:** `{tool.name if tool else 'tool'}`"
+        if tool:
+            body += f"\n**参数:** {str(tool.input)[:800]}"
         message = await channel.send(
             content=body,
-            view=self._build_view(prompt.request_id),
+            view=self._build_view(req.id),
         )
         return f"{channel.id}:{message.id}"
 

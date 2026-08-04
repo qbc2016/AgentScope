@@ -183,6 +183,8 @@ class StorageBase(ABC):
         session_id: str | None = None,
         source: SessionSource = SessionSource.USER,
         source_schedule_id: str | None = None,
+        source_chat_id: str | None = None,
+        source_channel_id: str | None = None,
     ) -> SessionRecord:
         """Create or update a session for a (user, agent) pair.
 

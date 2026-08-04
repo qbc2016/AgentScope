@@ -14,11 +14,12 @@ from typing import AsyncIterator
 
 from ..._logging import logger
 from ..._utils._common import _generate_id
-from ..message_bus import MessageBus
+from ..message_bus import MessageBus, MessageBusKeys
 from ..storage import ChannelRecord, StorageBase
 from ._base import ChannelEvent, ConfirmDecisionEvent
-from ._config import ChannelConfig
+from ._config import LIVENESS_TTL_SECS
 from ._gateway import ChannelGateway
+from ._presenter import ChannelPresenter
 from ._registry import ChannelTypeRegistry
 from ._run_registry import ChannelInstance, ChannelRunRegistry
 from ._seen_chats import list_seen_chat_ids
@@ -38,16 +39,16 @@ class ChannelLifecycleDispatcher:
         message_bus: MessageBus,
         type_registry: ChannelTypeRegistry,
         gateway: ChannelGateway,
-        config: ChannelConfig | None = None,
     ) -> None:
         self._storage = storage
         self._bus = message_bus
         self._types = type_registry
         self._gateway = gateway
-        self._config = config or ChannelConfig()
         self._registry = ChannelRunRegistry()
         self._node_id = _generate_id()
         self._tasks: list[asyncio.Task] = []
+        self._presenter = ChannelPresenter(storage, message_bus)
+        self._forward_tasks: set[asyncio.Task] = set()
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:
@@ -56,13 +57,18 @@ class ChannelLifecycleDispatcher:
         self._tasks = [
             asyncio.create_task(self._listen(), name="channel-lifecycle"),
             asyncio.create_task(self._periodic(), name="channel-heartbeat"),
+            asyncio.create_task(self._outbound(), name="channel-outbound"),
         ]
         try:
             yield
         finally:
-            for task in self._tasks:
+            for task in (*self._tasks, *self._forward_tasks):
                 task.cancel()
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+            await asyncio.gather(
+                *self._tasks,
+                *self._forward_tasks,
+                return_exceptions=True,
+            )
             for cid in self._registry.ids():
                 await self._stop(cid)
 
@@ -152,9 +158,56 @@ class ChannelLifecycleDispatcher:
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30.0)
 
+    async def _outbound(self) -> None:
+        """Drain channel-output signals; forward each run's reply.
+
+        Eager drain first (catch signals published while this node was
+        down), then drain on each signal. The durable queue plus a
+        per-run forward lease make the at-least-once drain effectively
+        once, even though every node hosting the channel drains it.
+        """
+        await self._drain_outbound()
+        backoff = 1.0
+        while True:
+            try:
+                async for _ in self._bus.subscribe(
+                    MessageBusKeys.channel_outbound_signal(),
+                ):
+                    backoff = 1.0
+                    await self._drain_outbound()
+            except asyncio.CancelledError:  # pylint: disable=try-except-raise
+                raise
+            except Exception:  # pylint: disable=broad-except
+                logger.warning("channel outbound subscription lost")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+
+    async def _drain_outbound(self) -> None:
+        """Forward every queued output signal this node can serve."""
+        try:
+            jobs = await self._bus.queue_drain(
+                MessageBusKeys.channel_outbound_queue(),
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("channel outbound drain failed")
+            return
+        for _entry_id, job in jobs:
+            inst = self._registry.get(job.get("channel_id", ""))
+            if inst is None:
+                # Not hosted here (disabled / reconcile lag). Under
+                # no-sharding every node hosts every enabled channel, so
+                # this is a stale signal — drop it.
+                continue
+            task = asyncio.create_task(
+                self._presenter.forward(job, inst.adapter),
+                name=f"channel-forward:{job.get('session_id', '')}",
+            )
+            self._forward_tasks.add(task)
+            task.add_done_callback(self._forward_tasks.discard)
+
     async def _periodic(self) -> None:
         """Periodic reconcile + status heartbeat (self-heals lost events)."""
-        interval = max(5.0, self._config.liveness_ttl / 2)
+        interval = max(5.0, LIVENESS_TTL_SECS / 2)
         while True:
             await asyncio.sleep(interval)
             await self.reconcile()
@@ -175,7 +228,7 @@ class ChannelLifecycleDispatcher:
                     _liveness_ns(cid),
                     self._node_id,
                     status,
-                    ttl_secs=self._config.liveness_ttl,
+                    ttl_secs=LIVENESS_TTL_SECS,
                 )
             except Exception:  # pylint: disable=broad-except
                 pass

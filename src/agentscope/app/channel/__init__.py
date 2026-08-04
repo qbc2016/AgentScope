@@ -12,52 +12,26 @@ from ._base import (
     ChannelCapability,
     ChannelEvent,
     ConfirmDecisionEvent,
-    ConfirmPrompt,
 )
-from ._config import ChannelConfig
 from ._dispatcher import ChannelLifecycleDispatcher
-from ._errors import (
-    ChannelConnectionError,
-    ChannelError,
-    ChannelNotFoundError,
-    DuplicateBotError,
-)
+from ._errors import ChannelError
 from ._gateway import ChannelGateway
-from ._registry import (
-    ChannelTypeRegistry,
-    ChannelTypeSchema,
-    DingTalkCredentials,
-    DiscordCredentials,
-    FeishuChannelConfig,
-    FeishuCredentials,
-    WeComCredentials,
-)
-from ._routing import resolve
+from ._registry import ChannelTypeRegistry, ChannelTypeSchema
 from ._service import ChannelService
-from ._seen_chats import list_seen_chat_ids, record_chat_id
+from ._discord import DiscordChannel
+from ._feishu import FeishuChannel
 
 __all__ = [
     "ChannelBase",
     "ChannelCapability",
-    "ChannelConfig",
-    "ChannelConnectionError",
     "ChannelError",
     "ChannelEvent",
     "ChannelGateway",
     "ChannelLifecycleDispatcher",
-    "ChannelNotFoundError",
     "ChannelService",
     "ChannelTypeRegistry",
     "ChannelTypeSchema",
     "ConfirmDecisionEvent",
-    "ConfirmPrompt",
-    "DingTalkCredentials",
-    "DiscordCredentials",
-    "DuplicateBotError",
-    "FeishuChannelConfig",
-    "FeishuCredentials",
-    "WeComCredentials",
-    "list_seen_chat_ids",
-    "record_chat_id",
-    "resolve",
+    "DiscordChannel",
+    "FeishuChannel",
 ]

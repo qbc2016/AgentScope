@@ -12,7 +12,6 @@ from pydantic import BaseModel
 
 from ...message import ToolCallBlock
 from ..message_bus import MessageBus
-from ._base import ChannelEvent
 
 _PENDING_NS = "agentscope:channel:pending_confirm"
 # Loose GC only — there is no approval timeout; a decision may arrive
@@ -26,10 +25,12 @@ class PendingConfirm(BaseModel):
     session_id: str
     agent_id: str
     user_id: str
+    channel_id: str
+    """Owning channel — locates the record on decision."""
+    chat_id: str
+    """Platform chat, for routing the continuation reply."""
     reply_id: str
     tool_calls: list[ToolCallBlock]
-    event: ChannelEvent
-    """Original inbound event, for routing the continuation reply."""
     ref: str | None = None
     """Handle returned by ``present_confirm`` (for ``update_confirm``)."""
 

@@ -111,7 +111,8 @@
 			"team": "团队",
 			"team_message": "团队消息",
 			"schedule": "定时任务",
-			"system": "系统消息"
+			"system": "系统消息",
+			"channel": "渠道"
 		},
 		"error": {
 			"title": "回复失败",

@@ -3,6 +3,7 @@ import * as React from 'react';
 
 import type { ChannelTypeSchema } from '@/api';
 import { channelApi } from '@/api';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -41,7 +42,16 @@ export function CreateChannelDialog({ open, onOpenChange, onCreated }: Props) {
 			setError('');
 			channelApi
 				.listTypes()
-				.then(setChannelTypes)
+				.then((types) => {
+					setChannelTypes(types);
+					// Default to the first enabled type when the initial
+					// channelType is not among the service's enabled types.
+					setForm((f) =>
+						types.some((ct) => ct.channel_type === f.channelType)
+							? f
+							: { ...f, channelType: types[0]?.channel_type ?? f.channelType },
+					);
+				})
 				.catch(() => {});
 		}
 	}, [open, agents]);
@@ -83,7 +93,11 @@ export function CreateChannelDialog({ open, onOpenChange, onCreated }: Props) {
 						agents={agentList}
 						channelTypes={channelTypes}
 					/>
-					{error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+					{error && (
+						<Alert variant="destructive" className="mt-2">
+							<AlertDescription>{error}</AlertDescription>
+						</Alert>
+					)}
 				</div>
 
 				<DialogFooter>
