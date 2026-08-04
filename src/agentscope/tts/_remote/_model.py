@@ -71,10 +71,13 @@ class RemoteTTSModel(TTSModelBase):
             ),
         )
 
-        voice: str = Field(
-            default="default",
+        voice: str | None = Field(
+            default=None,
             title="Voice",
-            description="Preset voice or remote voice identifier.",
+            description=(
+                "Preset voice or remote voice identifier. Required unless "
+                "the selected remote model does not use a voice."
+            ),
         )
 
         response_format: Literal[
@@ -195,13 +198,28 @@ class RemoteTTSModel(TTSModelBase):
                 "Remote TTS requires a concrete model ID. Configure the "
                 "Model field in the TTS parameters.",
             )
+        voice = (
+            self.parameters.voice.strip()
+            if isinstance(self.parameters.voice, str)
+            else ""
+        )
+        voice_optional = bool(self.parameters.reference_audio_base64) or (
+            self.parameters.task_type == "VoiceDesign"
+        )
+        if not voice and not voice_optional:
+            raise ValueError(
+                "Remote TTS requires a concrete voice ID. Select a voice "
+                "discovered from the endpoint or enter one in the TTS "
+                "parameters.",
+            )
         payload: dict[str, Any] = {
             "model": remote_model,
             "input": text,
-            "voice": self.parameters.voice,
             "response_format": self.parameters.response_format,
             "speed": self.parameters.speed,
         }
+        if voice:
+            payload["voice"] = voice
         if self.parameters.language:
             payload["language"] = self.parameters.language
         if self.parameters.instructions:
@@ -249,10 +267,7 @@ class RemoteTTSModel(TTSModelBase):
                     ),
                     follow_redirects=False,
                 ) as client:
-                    (
-                        models,
-                        supports_voice_discovery,
-                    ) = await cls._discover_model_items(
+                    models = await cls._discover_model_items(
                         client,
                         credential.base_url.rstrip("/"),
                         headers,
@@ -270,8 +285,7 @@ class RemoteTTSModel(TTSModelBase):
                             continue
                         cards.append(card)
                         if (
-                            supports_voice_discovery
-                            and "voices" not in item
+                            "voices" not in item
                             and not card.reference_audio_required
                             and len(voice_candidates)
                             < _MAX_VOICE_DISCOVERY_MODELS
@@ -334,7 +348,7 @@ class RemoteTTSModel(TTSModelBase):
         client: httpx.AsyncClient,
         base_url: str,
         headers: dict[str, str],
-    ) -> tuple[list[dict[str, Any]], bool]:
+    ) -> list[dict[str, Any]]:
         """Query capability discovery, then fall back to OpenAI models."""
         for path in ("/audio/models", "/models"):
             try:
@@ -355,7 +369,7 @@ class RemoteTTSModel(TTSModelBase):
                     and item["id"].strip()
                 ]
                 if normalized:
-                    return normalized, path == "/audio/models"
+                    return normalized
             except (
                 httpx.HTTPError,
                 ValueError,
@@ -365,7 +379,7 @@ class RemoteTTSModel(TTSModelBase):
                 # Malformed or unsupported capability discovery must not
                 # prevent the standard /models fallback.
                 continue
-        return [], False
+        return []
 
     @staticmethod
     def _extract_items(payload: Any) -> list[Any]:

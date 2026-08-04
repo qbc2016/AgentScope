@@ -17,8 +17,9 @@ output_types:
 parameter_overrides:
   voice:
     description: >-
-      Voice identifier understood by the remote service. Enter it manually
-      when the endpoint does not expose voice discovery.
+      Voice identifier understood by the remote service. Select a discovered
+      voice or enter it manually when the endpoint does not expose voice
+      discovery.
   reference_audio_base64:
     hidden: true
   reference_audio_media_type:

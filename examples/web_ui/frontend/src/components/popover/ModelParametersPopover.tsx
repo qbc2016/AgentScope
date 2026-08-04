@@ -91,10 +91,14 @@ function resolveVoiceProfileBinding(
 	if (!modelCard) return null;
 
 	const schema = modelCard.parameter_schema as ParameterSchema | undefined;
+	const metadata = profile.data.metadata as Record<string, unknown> | null;
+	const referenceAudio = metadata?.reference_audio_base64;
+	const hasReferenceAudio =
+		typeof referenceAudio === 'string' && referenceAudio.trim().length > 0;
 	// Reference-audio engines such as TADA and Chatterbox have no ``voice``
-	// parameter; only providers whose model schema exposes one require a
-	// stored voice id.
-	if (schema?.properties?.voice && !voice) return null;
+	// parameter. Remote model discovery may still expose a generic ``voice``
+	// parameter, so an uploaded reference sample also satisfies the binding.
+	if (schema?.properties?.voice && !voice && !hasReferenceAudio) return null;
 
 	return {
 		type,
@@ -538,6 +542,19 @@ export function ModelParametersPopover({
 														}
 													}
 												}
+												const profileMetadata = vp.data.metadata as Record<
+													string,
+													unknown
+												> | null;
+												const profileReferenceAudio =
+													profileMetadata?.reference_audio_base64;
+												if (
+													!vp.data.voice &&
+													typeof profileReferenceAudio === 'string' &&
+													profileReferenceAudio.trim().length > 0
+												) {
+													delete params.voice;
+												}
 												if (
 													vp.data.voice &&
 													(!binding.schema?.properties ||
@@ -572,12 +589,7 @@ export function ModelParametersPopover({
 														}
 													}
 												}
-												const profileSpeed = (
-													vp.data.metadata as Record<
-														string,
-														unknown
-													> | null
-												)?.speed;
+												const profileSpeed = profileMetadata?.speed;
 												if (typeof profileSpeed === 'number') {
 													params.speed = profileSpeed;
 												}

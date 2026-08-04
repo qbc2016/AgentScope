@@ -115,14 +115,17 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
                     "reference_text": None,
                 },
                 "voice_schema": {
-                    "default": "default",
+                    "anyOf": [
+                        {"type": "string"},
+                        {"type": "null"},
+                    ],
+                    "default": None,
                     "description": (
                         "Voice identifier understood by the remote service. "
-                        "Enter it manually when the endpoint does not expose "
-                        "voice discovery."
+                        "Select a discovered voice or enter it manually when "
+                        "the endpoint does not expose voice discovery."
                     ),
                     "title": "Voice",
-                    "type": "string",
                 },
                 "parameter_descriptions": {
                     "model": (
@@ -132,8 +135,8 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
                     ),
                     "voice": (
                         "Voice identifier understood by the remote service. "
-                        "Enter it manually when the endpoint does not expose "
-                        "voice discovery."
+                        "Select a discovered voice or enter it manually when "
+                        "the endpoint does not expose voice discovery."
                     ),
                     "response_format": (
                         "Requested audio encoding. The selected remote model "
@@ -265,6 +268,54 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
             },
         )
 
+    async def test_rejects_missing_remote_voice_before_request(self) -> None:
+        """The generic adapter must not send an invented default voice."""
+        model = RemoteTTSModel(
+            credential=RemoteTTSCredential(
+                base_url="https://tts.example/v1",
+            ),
+            model="provider-model",
+            parameters=RemoteTTSModel.Parameters(),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "requires a concrete voice ID",
+        ):
+            await model.synthesize("hello")
+
+    async def test_reference_audio_does_not_require_remote_voice(self) -> None:
+        """Clone-only remote models can synthesize without a voice ID."""
+        model = RemoteTTSModel(
+            credential=RemoteTTSCredential(
+                base_url="https://tts.example/v1",
+            ),
+            model="clone-only-model",
+            parameters=RemoteTTSModel.Parameters(
+                reference_audio_base64="QUJD",
+            ),
+        )
+        client = self._mock_client(
+            httpx.Response(
+                200,
+                content=b"audio-bytes",
+                headers={"Content-Type": "audio/wav"},
+            ),
+        )
+
+        with patch(
+            "agentscope.tts._remote._model.httpx.AsyncClient",
+            return_value=client,
+        ):
+            await model.synthesize("hello")
+
+        payload = client.post.await_args.kwargs["json"]
+        self.assertNotIn("voice", payload)
+        self.assertEqual(
+            payload["ref_audio"],
+            "data:audio/wav;base64,QUJD",
+        )
+
     async def test_remote_error_is_actionable_and_redacted(self) -> None:
         """Status, request id, and message survive without leaking API key."""
         credential = RemoteTTSCredential(
@@ -274,6 +325,7 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
         model = RemoteTTSModel(
             credential=credential,
             model="provider-model",
+            parameters=RemoteTTSModel.Parameters(voice="speaker-a"),
         )
         response = httpx.Response(
             400,
@@ -438,6 +490,7 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
                 200,
                 json={"data": [{"id": "standard-model"}]},
             ),
+            httpx.Response(404),
         ]
 
         with patch(
@@ -456,7 +509,71 @@ class TestRemoteTTSModel(IsolatedAsyncioTestCase):
                 "urls": [
                     "https://tts.example/v1/audio/models",
                     "https://tts.example/v1/models",
+                    "https://tts.example/v1/audio/voices",
                 ],
+            },
+        )
+
+    async def test_discovers_vllm_voices_after_models_fallback(self) -> None:
+        """vLLM exposes models and voices through separate endpoints."""
+        credential = RemoteTTSCredential(
+            base_url="http://127.0.0.1:8091/v1",
+        )
+        client = AsyncMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.get.side_effect = [
+            httpx.Response(404),
+            httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": ("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
+                        },
+                    ],
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "voices": ["aiden", "dylan", "vivian"],
+                    "uploaded_voices": [],
+                },
+            ),
+        ]
+
+        with patch(
+            "agentscope.tts._remote._model.httpx.AsyncClient",
+            return_value=client,
+        ):
+            cards = await RemoteTTSModel.discover_models(credential)
+
+        discovered = cards[0]
+        voice_schema = discovered.parameter_schema["properties"]["voice"]
+        self.assertEqual(
+            {
+                "models": [card.name for card in cards],
+                "voices": voice_schema["enum"],
+                "default_voice": voice_schema["default"],
+                "urls": [call.args[0] for call in client.get.await_args_list],
+                "voice_model": client.get.await_args_list[2].kwargs["params"][
+                    "model"
+                ],
+            },
+            {
+                "models": [
+                    "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                    "remote-tts",
+                ],
+                "voices": ["aiden", "dylan", "vivian"],
+                "default_voice": "aiden",
+                "urls": [
+                    "http://127.0.0.1:8091/v1/audio/models",
+                    "http://127.0.0.1:8091/v1/models",
+                    "http://127.0.0.1:8091/v1/audio/voices",
+                ],
+                "voice_model": ("Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"),
             },
         )
 

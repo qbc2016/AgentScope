@@ -281,6 +281,7 @@ function VoiceProfileDialog({
 		selectedModelCard?.parameters_overrides?.reference_audio_base64 ||
 		selectedModelCard?.reference_audio_required,
 	);
+	const hasReferenceAudioProfile = supportsReferenceAudio && Boolean(refAudioBase64);
 	const speedMinimum = typeof speedSchema?.minimum === 'number' ? speedSchema.minimum : 0.5;
 	const speedMaximum = typeof speedSchema?.maximum === 'number' ? speedSchema.maximum : 2;
 	const displayedVoiceOptions = useMemo(() => {
@@ -775,9 +776,7 @@ function VoiceProfileDialog({
 							</div>
 						)}
 					{supportsReferenceAudio &&
-						canClone &&
-						(selectedModelSupportsClone ||
-							selectedModelCard?.reference_audio_required) && (
+						(canClone || selectedModelCard?.reference_audio_required) && (
 							<div className="flex flex-col gap-2">
 								<Label>
 									{t('voiceProfile.referenceAudio')}
@@ -818,7 +817,7 @@ function VoiceProfileDialog({
 										</span>
 									)}
 								</div>
-								{engine === 'tada' && (
+								{(engine === 'tada' || engine === 'remote_tts') && (
 									<div className="flex flex-col gap-2 mt-1">
 										<Label htmlFor="vp-ref-text">
 											{t('voiceProfile.referenceTextLabel')}
@@ -851,7 +850,7 @@ function VoiceProfileDialog({
 							!engine ||
 							!credentialId ||
 							!model ||
-							(canConfigureVoice && !voice.trim()) ||
+							(canConfigureVoice && !voice.trim() && !hasReferenceAudioProfile) ||
 							((engine === 'tada' || selectedModelCard?.reference_audio_required) &&
 								!refAudioBase64)
 						}

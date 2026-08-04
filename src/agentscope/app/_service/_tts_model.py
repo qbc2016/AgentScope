@@ -518,11 +518,10 @@ async def _enrich_from_profile(
     engine-specific synthesis parameters from its metadata into
     ``params``.
 
-    Local TTS models accept ``reference_audio_base64`` directly
-    in their Parameters and handle decoding internally during
-    synthesis. The audio is stored as base64 (not as a file
-    path) so that multi-node deployments can access it from
-    any machine without shared filesystem.
+    Local and remote TTS models accept ``reference_audio_base64`` directly
+    in their Parameters and handle decoding or forwarding during synthesis.
+    The audio is stored as base64 (not as a file path) so that multi-node
+    deployments can access it from any machine without shared filesystem.
 
     Values explicitly set in the TTS config parameters take
     precedence over the profile metadata.
