@@ -16,7 +16,7 @@ from ..._logging import logger
 from ..._utils._common import _generate_id
 from ..message_bus import MessageBus, MessageBusKeys
 from ..storage import ChannelRecord, StorageBase
-from ._base import ChannelEvent, ConfirmDecisionEvent
+from ._base import ChannelBase, ChannelEvent, ConfirmDecisionEvent
 from ._config import LIVENESS_TTL_SECS
 from ._gateway import ChannelGateway
 from ._presenter import ChannelPresenter
@@ -49,6 +49,16 @@ class ChannelLifecycleDispatcher:
         self._tasks: list[asyncio.Task] = []
         self._presenter = ChannelPresenter(storage, message_bus)
         self._forward_tasks: set[asyncio.Task] = set()
+
+    def get_local_adapter(self, channel_id: str) -> ChannelBase | None:
+        """Return this node's live adapter for ``channel_id``, if running.
+
+        Since every node runs every enabled channel (no sharding), the
+        node handling a channel-originated run holds that channel's
+        adapter locally — this is how agent tools reach it.
+        """
+        inst = self._registry.get(channel_id)
+        return inst.adapter if inst else None
 
     @asynccontextmanager
     async def lifespan(self) -> AsyncIterator[None]:

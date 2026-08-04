@@ -16,12 +16,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from ...event import RequireUserConfirmEvent
 from ...message import TextBlock, DataBlock
+
+if TYPE_CHECKING:
+    from ...tool import ToolBase
+    from ...workspace import WorkspaceBase
 
 
 # Signature of the gateway entry point injected into an adapter.
@@ -342,6 +346,26 @@ class ChannelBase(ABC):
 
         Returns dicts with at least ``chat_id`` and ``name``. Default:
         empty (unsupported).
+        """
+        return []
+
+    # -- Agent-callable tools --
+
+    async def list_tools(  # pylint: disable=unused-argument
+        self,
+        workspace: "WorkspaceBase",
+    ) -> list["ToolBase"]:
+        """Platform tools this channel exposes to the agent as callable.
+
+        Lets an agent act on the platform from inside a run — e.g. send a
+        file to a *different* user or group than the current conversation.
+        The channel runtime attaches whatever this returns to the toolkit
+        of a session that originates from this channel. Default: none.
+
+        Args:
+            workspace (`WorkspaceBase`):
+                The calling session's workspace, so tools that send files
+                read them from the agent's workspace rather than the host.
         """
         return []
 

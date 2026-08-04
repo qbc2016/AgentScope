@@ -7,6 +7,7 @@ the stateless :class:`ChannelGateway` orchestrates each event;
 keeps this node's live instances reconciled with storage. See
 ``docs/design_channel_redesign.md``.
 """
+from ._agent_tools import ChannelAgentToolFactory
 from ._base import (
     ChannelBase,
     ChannelCapability,
@@ -22,6 +23,7 @@ from ._discord import DiscordChannel
 from ._feishu import FeishuChannel
 
 __all__ = [
+    "ChannelAgentToolFactory",
     "ChannelBase",
     "ChannelCapability",
     "ChannelError",

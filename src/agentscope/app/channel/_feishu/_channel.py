@@ -497,7 +497,155 @@ class FeishuChannel(ChannelBase):
             page_token = payload.get("page_token", "")
         return results
 
+    async def list_tools(self, workspace: Any) -> list:
+        """Expose the Feishu send/discovery tools to the agent.
+
+        ``workspace`` is the calling session's workspace; the send-file
+        tools read their payload from it.
+        """
+        from ._tools import build_feishu_tools
+
+        return build_feishu_tools(self, workspace)
+
+    # -- Agent-tool operations (act on chats/users other than the current) --
+
+    async def send_message_to(
+        self,
+        receive_id: str,
+        receive_id_type: str,
+        text: str,
+    ) -> dict | None:
+        """Send a plain-text message to an arbitrary receive_id."""
+        return await self._api(
+            "POST",
+            f"{_API}/im/v1/messages?receive_id_type={receive_id_type}",
+            {
+                "receive_id": receive_id,
+                "msg_type": "text",
+                "content": json.dumps({"text": text}),
+            },
+        )
+
+    async def send_file_to(
+        self,
+        receive_id: str,
+        receive_id_type: str,
+        data: bytes,
+        file_name: str,
+    ) -> dict | None:
+        """Upload a file (→ file_key) then send it to a receive_id."""
+        file_key = await self._upload(
+            f"{_API}/im/v1/files",
+            {"file_type": "stream", "file_name": file_name},
+            {"file": (file_name, data)},
+            "file_key",
+        )
+        if not file_key:
+            return None
+        return await self._api(
+            "POST",
+            f"{_API}/im/v1/messages?receive_id_type={receive_id_type}",
+            {
+                "receive_id": receive_id,
+                "msg_type": "file",
+                "content": json.dumps({"file_key": file_key}),
+            },
+        )
+
+    async def send_image_to(
+        self,
+        receive_id: str,
+        receive_id_type: str,
+        data: bytes,
+    ) -> dict | None:
+        """Upload an image (→ image_key) then send it to a receive_id."""
+        image_key = await self._upload(
+            f"{_API}/im/v1/images",
+            {"image_type": "message"},
+            {"image": ("image", data)},
+            "image_key",
+        )
+        if not image_key:
+            return None
+        return await self._api(
+            "POST",
+            f"{_API}/im/v1/messages?receive_id_type={receive_id_type}",
+            {
+                "receive_id": receive_id,
+                "msg_type": "image",
+                "content": json.dumps({"image_key": image_key}),
+            },
+        )
+
+    async def list_chat_members(self, chat_id: str) -> list[dict]:
+        """List a group's members as ``{open_id, name}`` dicts."""
+        results: list[dict] = []
+        page_token = ""
+        while True:
+            url = (
+                f"{_API}/im/v1/chats/{chat_id}/members"
+                f"?member_id_type=open_id&page_size=100"
+            )
+            if page_token:
+                url += f"&page_token={page_token}"
+            data = await self._api("GET", url)
+            if not data or data.get("code") != 0:
+                break
+            payload = data.get("data", {})
+            for item in payload.get("items", []):
+                results.append(
+                    {
+                        "open_id": item.get("member_id", ""),
+                        "name": item.get("name", ""),
+                    },
+                )
+            if not payload.get("has_more"):
+                break
+            page_token = payload.get("page_token", "")
+        return results
+
     # -- Feishu API helpers --
+
+    async def _upload(
+        self,
+        url: str,
+        data: dict,
+        files: dict,
+        key: str,
+        *,
+        _retried: bool = False,
+    ) -> str | None:
+        """Multipart upload (file/image); returns the resource key.
+
+        The JSON ``_api`` helper can't do multipart, so this posts the
+        form directly and mirrors its one-shot token refresh on expiry.
+        """
+        if not self._http or not self._token:
+            return None
+        try:
+            resp = await self._http.post(
+                url,
+                headers={"Authorization": f"Bearer {self._token}"},
+                data=data,
+                files=files,
+            )
+            body = resp.json()
+            if body.get("code") == 0:
+                return body.get("data", {}).get(key)
+            if not _retried and body.get("code") in _TOKEN_EXPIRED_CODES:
+                await self._refresh_token()
+                return await self._upload(
+                    url,
+                    data,
+                    files,
+                    key,
+                    _retried=True,
+                )
+            logger.warning("Feishu upload failed: %s", body.get("msg"))
+            return None
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("Feishu upload request failed")
+            return None
 
     async def _refresh_token(self) -> None:
         resp = await self._http.post(

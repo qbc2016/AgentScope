@@ -93,6 +93,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.resource_access_service = resource_access_service
 
+        # Channel-originated runs get their source channel's platform
+        # tools (send file to another user, list groups, ...) appended to
+        # the deployment's own ``extra_agent_tools``. The dispatcher that
+        # owns the local adapters is built further down, so the factory
+        # reads it lazily from ``app.state`` at run time.
+        from .channel import ChannelAgentToolFactory
+
+        agent_tool_factory = ChannelAgentToolFactory(
+            storage=storage,
+            workspace_manager=workspace_manager,
+            get_runtime=lambda: getattr(app.state, "channel_runtime", None),
+            inner=app.state.extra_agent_tools,
+        )
+
         chat_service = ChatService(
             storage=storage,
             workspace_manager=workspace_manager,
@@ -102,7 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             resource_access_service=resource_access_service,
             knowledge_base_manager=knowledge_base_manager,
             extra_agent_middlewares=app.state.extra_agent_middlewares,
-            extra_agent_tools=app.state.extra_agent_tools,
+            extra_agent_tools=agent_tool_factory,
             custom_subagent_templates=app.state.custom_subagent_templates,
             custom_agent_cls=app.state.custom_agent_cls,
         )
