@@ -28,13 +28,14 @@ interface ChatContentProps {
 	msgs: Msg[];
 	/**
 	 * Reply lifecycle phase from ``useMessages`` — forwarded to
-	 * ``TextInput`` so the single send / stop button can pick its
-	 * icon, tooltip, disabled state and click handler from one source.
+	 * ``TextInput`` so it can show a separate Stop action while keeping
+	 * Send available for queued turns.
 	 */
 	phase: ReplyPhase;
 	/** Number of locally submitted user turns waiting to start. */
 	queuedCount: number;
 	queuedItems: ChatQueueItem[];
+	queueReorderDisabled: boolean;
 	disabled: boolean;
 	onSend: (content: ContentBlock[]) => Promise<void> | void;
 	onUserConfirm: (
@@ -70,6 +71,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	phase,
 	queuedCount,
 	queuedItems,
+	queueReorderDisabled,
 	disabled,
 	onSend,
 	onUserConfirm,
@@ -152,6 +154,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 				</FlipCard>
 				<QueuedMessages
 					items={queuedItems}
+					reorderDisabled={queueReorderDisabled}
 					onUpdate={onUpdateQueued}
 					onDelete={onDeleteQueued}
 					onMove={onMoveQueued}

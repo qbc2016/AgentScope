@@ -68,11 +68,9 @@ interface TextInputProps {
 	 */
 	fileProcessor: (file: File) => Promise<ContentBlock | null>;
 	/**
-	 * The current reply lifecycle phase from ``useMessages``. Drives the
-	 * send / stop button in one shot:
-	 *   - ``idle`` — Send (enabled when there is content to send)
-	 *   - ``streaming`` — Stop (click to interrupt)
-	 *   - ``interrupting`` — Stop (disabled while the interrupt is in flight)
+	 * The current reply lifecycle phase from ``useMessages``. A running
+	 * reply adds a separate Stop action while Send remains available for
+	 * appending another turn to the queue.
 	 */
 	phase?: ReplyPhase;
 	/** Number of accepted user turns that have not started a reply yet. */
@@ -107,6 +105,8 @@ const TEXTAREA_PADDING_X_PX = 12;
  * @param root0.autoComplete - Function to provide autocomplete suggestions.
  * @param root0.disabled - Whether the input is disabled.
  * @param root0.className - Additional CSS classes for styling.
+ * @param root0.queuedCount - Accepted turns waiting to start.
+ * @param root0.onInterrupt - Stops the currently active reply.
  * @returns A TextInput component.
  */
 export const TextInput = forwardRef<TextInputRef, TextInputProps>(
@@ -224,14 +224,20 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 				}
 			});
 
+			const submittedValue = value;
+			const submittedFiles = files;
 			setSubmitting(true);
+			// Start a fresh draft immediately. If the request fails, merge the
+			// submitted draft back without erasing anything typed meanwhile.
+			setValue('');
+			setFiles([]);
 			try {
-				await onSend?.(blocks);
-				setValue('');
-				setFiles([]);
+				await onSend(blocks);
 			} catch {
-				// The API layer already reports the error. Keep the draft
-				// intact so the user can retry without retyping.
+				// The API layer reports the error; restore both the failed turn
+				// and any new draft content so neither is silently lost.
+				setValue((current) => (current ? `${submittedValue}\n${current}` : submittedValue));
+				setFiles((current) => [...submittedFiles, ...current]);
 			} finally {
 				setSubmitting(false);
 			}

@@ -1178,6 +1178,62 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
         self.assertEqual(chat.calls[0]["input_msg"].id, "after-hitl")
 
 
+class TestChatInputClaimReliability(IsolatedAsyncioTestCase):
+    """Internal claim transitions favor correctness over UI latency."""
+
+    async def test_transitions_outwait_foreground_mutation_timeout(
+        self,
+    ) -> None:
+        """Claim state cannot fail merely because UI holds the lock."""
+
+        class _SlowMutationLockBus(_FakeBus):
+            @asynccontextmanager
+            async def acquire_lock(
+                self,
+                key: str,
+                *,
+                ttl_secs: int = 600,
+            ) -> AsyncGenerator[None, None]:
+                del ttl_secs
+                if key == MessageBusKeys.chat_input_mutation_lock("s"):
+                    await asyncio.sleep(0.02)
+                yield
+
+        bus = _SlowMutationLockBus()
+        dispatcher = WakeupDispatcher(
+            message_bus=bus,
+            storage=_FakeStorage(),
+            chat_service=_FakeChatService(),
+            chat_run_registry=ChatRunRegistry(),
+        )
+        payload = {"id": "queued", "input": {}}
+
+        with patch.object(
+            MessageBusKeys,
+            "CHAT_INPUT_MUTATION_TIMEOUT_SECS",
+            0.001,
+        ):
+            await dispatcher._set_chat_input_claim_state(
+                "s",
+                payload,
+                "input_persisted",
+            )
+            self.assertTrue(
+                await bus.registry_exists(
+                    MessageBusKeys.chat_input_inflight_registry(),
+                    "s",
+                ),
+            )
+            await dispatcher._finish_chat_input_claim("s")
+
+        self.assertFalse(
+            await bus.registry_exists(
+                MessageBusKeys.chat_input_inflight_registry(),
+                "s",
+            ),
+        )
+
+
 class TestWakeupDispatcherLifecycle(IsolatedAsyncioTestCase):
     """Tests covering the ``__aenter__`` / ``__aexit__`` ACM behaviour."""
 

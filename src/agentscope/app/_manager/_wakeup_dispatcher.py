@@ -1046,6 +1046,11 @@ class WakeupDispatcher:
     ) -> None:
         """Persist a claim state transition under the mutation mutex.
 
+        Internal claim transitions wait for the mutex without the short
+        foreground queue timeout. Once an input has been claimed, abandoning
+        this transition on ordinary UI contention could make recovery infer
+        the wrong execution state.
+
         Args:
             session_id (`str`):
                 Session that owns the in-flight claim.
@@ -1054,11 +1059,11 @@ class WakeupDispatcher:
             state (`str`):
                 Durable state to store for the claim.
 
-        Raises:
-            `ChatQueueBusyError`:
-                The session mutation lock cannot be acquired promptly.
         """
-        async with chat_input_mutation(self._bus, session_id):
+        async with self._bus.acquire_lock(
+            MessageBusKeys.chat_input_mutation_lock(session_id),
+            ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
+        ):
             await self._bus.registry_set(
                 MessageBusKeys.chat_input_inflight_registry(),
                 session_id,
@@ -1068,15 +1073,19 @@ class WakeupDispatcher:
     async def _finish_chat_input_claim(self, session_id: str) -> None:
         """Acknowledge one claim and garbage-collect an empty marker.
 
+        This terminal acknowledgement uses the reliable internal mutation
+        path rather than the bounded foreground path. The operations are
+        idempotent, so callers may safely retry after an ambiguous bus error.
+
         Args:
             session_id (`str`):
                 Session whose in-flight claim has reached a terminal state.
 
-        Raises:
-            `ChatQueueBusyError`:
-                The session mutation lock cannot be acquired promptly.
         """
-        async with chat_input_mutation(self._bus, session_id):
+        async with self._bus.acquire_lock(
+            MessageBusKeys.chat_input_mutation_lock(session_id),
+            ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
+        ):
             await self._bus.registry_del(
                 MessageBusKeys.chat_input_inflight_registry(),
                 session_id,

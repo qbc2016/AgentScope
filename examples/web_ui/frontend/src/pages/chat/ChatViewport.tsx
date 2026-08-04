@@ -161,6 +161,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		phase,
 		queuedCount,
 		queuedItems,
+		queueReorderDisabled,
 		send,
 		updateQueued,
 		deleteQueued,
@@ -637,6 +638,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 									phase={phase}
 									queuedCount={queuedCount}
 									queuedItems={queuedItems}
+									queueReorderDisabled={queueReorderDisabled}
 									disabled={selectedModel === null}
 									onSend={send}
 									onUserConfirm={onUserConfirm}

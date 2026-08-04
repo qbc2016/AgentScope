@@ -9,15 +9,21 @@ import type {
 	UserConfirmResultEvent,
 } from '@agentscope-ai/agentscope/event';
 import { appendEvent, AssistantMsg, UserMsg } from '@agentscope-ai/agentscope/message';
-import type { Msg, ContentBlock, TextBlock } from '@agentscope-ai/agentscope/message';
+import type { Msg, ContentBlock } from '@agentscope-ai/agentscope/message';
 import type { ToolCallBlock } from '@agentscope-ai/agentscope/message';
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 
-import { sessionApi } from '@/api';
-import { chatApi } from '@/api';
+import { chatApi, sessionApi } from '@/api';
 import type { ChatQueueItem } from '@/api/chat';
 import { useAudioManager } from '@/context/AudioContext';
+import {
+	getQueueMessages,
+	type ChatInputStartedValue,
+	type ChatInputTerminalValue,
+	useChatQueue,
+} from '@/hooks/useChatQueue';
+import { useTranslation } from '@/i18n/useI18n';
 
 /**
  * One pending subagent HITL request, projected from a team *member*
@@ -62,9 +68,10 @@ const hitlKey = (e: { worker_session_id: string; reply_id: string }) =>
  *
  * - ``idle`` — no in-flight reply; the send button is enabled.
  * - ``streaming`` — a reply is in progress (either actively producing
- *   events or parked awaiting HITL). The send button is replaced by a
- *   Stop button. The parked-vs-generating distinction is not tracked
- *   here; HITL cards render themselves from message content when a
+ *   events or parked awaiting HITL). A separate Stop button is shown,
+ *   while Send remains available to enqueue another turn. The
+ *   parked-vs-generating distinction is not tracked here; HITL cards
+ *   render themselves from message content when a
  *   ``RequireUserConfirmEvent`` block is present.
  * - ``interrupting`` — the user has requested a stop and we are
  *   waiting for the backend's terminating ``ReplyEndEvent``. Stop
@@ -90,9 +97,9 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
  *   background retrigger, team member message, …).
  *
  * The hook opens the SSE connection immediately after fetching
- * history. User input and human-in-the-loop confirmations are sent
- * via ``POST /chat/`` (fire-and-forget); the resulting events arrive
- * through the already-open SSE connection.
+ * history. Ordinary user input is accepted into the backend FIFO;
+ * human-in-the-loop confirmations use fire-and-forget control triggers.
+ * Resulting events arrive through the already-open SSE connection.
  *
  * ``phase`` is driven by event content, not HTTP lifecycle: it moves
  * to ``streaming`` on ``ReplyStartEvent`` and back to ``idle`` on
@@ -103,8 +110,8 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
  * @param agentId - The agent whose session to subscribe. ``null`` to
  *   skip.
  * @param sessionId - The session to subscribe. ``null`` to skip.
- * @returns Object with ``msgs``, ``loading``, ``phase``, ``error``,
- *   ``send``, ``onUserConfirm``, and ``abort``.
+ * @returns Message/reply state, editable queue state and mutations, HITL
+ *   handlers, send/interrupt actions, loading state, and the latest error.
  */
 export function useMessages(
 	agentId: string | null,
@@ -126,16 +133,29 @@ export function useMessages(
 		onStateUpdated?: (value: Record<string, unknown>) => void;
 	},
 ) {
+	const { t } = useTranslation();
 	const [msgs, setMsgs] = useState<Msg[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [phase, setPhase] = useState<ReplyPhase>('idle');
 	const [error, setError] = useState<Error | null>(null);
-	const [queuedItems, setQueuedItems] = useState<ChatQueueItem[]>([]);
-	const [optimisticConversationIds, setOptimisticConversationIds] = useState<Set<string>>(
-		new Set(),
-	);
 	// Pending subagent HITL cards projected onto this (leader) session.
 	const [subagentHitl, setSubagentHitl] = useState<SubagentHitlEntry[]>([]);
+	const {
+		items: queuedItems,
+		visibleCount: queuedCount,
+		pendingCount: pendingQueueCount,
+		reorderDisabled: queueReorderDisabled,
+		addOptimistic,
+		acceptOptimistic,
+		rollbackOptimistic,
+		applyQueueSnapshot,
+		startItem,
+		finishItem,
+		updateQueued,
+		deleteQueued,
+		moveQueued,
+		reorderQueued,
+	} = useChatQueue(agentId, sessionId, setError);
 
 	const msgsRef = useRef<Msg[]>([]);
 	const currentReplyRef = useRef<Msg | null>(null);
@@ -144,23 +164,6 @@ export function useMessages(
 	// Timer that reverts ``interrupting`` back to ``idle`` if the
 	// terminating REPLY_END never arrives (dropped SSE frame, etc.).
 	const interruptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const queuedItemsRef = useRef<ChatQueueItem[]>([]);
-	// IDs of idle-path messages already shown optimistically in the
-	// conversation. Matching queue rows stay hidden until started so the
-	// same input is not rendered in both places during the server roundtrip.
-	const optimisticConversationIdsRef = useRef<Set<string>>(new Set());
-
-	const updateQueuedItems = useCallback((items: ChatQueueItem[]) => {
-		queuedItemsRef.current = items;
-		setQueuedItems(items);
-	}, []);
-
-	const updateOptimisticConversationIds = useCallback((update: (ids: Set<string>) => void) => {
-		const next = new Set(optimisticConversationIdsRef.current);
-		update(next);
-		optimisticConversationIdsRef.current = next;
-		setOptimisticConversationIds(next);
-	}, []);
 
 	const clearInterruptTimer = useCallback(() => {
 		if (interruptTimerRef.current !== null) {
@@ -182,16 +185,6 @@ export function useMessages(
 			setMsgs([...msgsRef.current]);
 		});
 	}, []);
-
-	const queueMessages = useCallback((items: ChatQueueItem[]): Msg[] => {
-		return items.flatMap((item) => (Array.isArray(item.input) ? item.input : [item.input]));
-	}, []);
-
-	/** Pending turns stay in the queue panel until the backend starts them. */
-	const applyQueueSnapshot = useCallback(
-		(items: ChatQueueItem[]) => updateQueuedItems(items),
-		[updateQueuedItems],
-	);
 
 	/** Apply a single AgentEvent to the in-progress reply. */
 	const processEvent = useCallback(
@@ -218,92 +211,33 @@ export function useMessages(
 					const v = custom.value as { worker_session_id: string; reply_id: string };
 					setSubagentHitl((prev) => prev.filter((x) => hitlKey(x) !== hitlKey(v)));
 				} else if (custom.name === 'chat_input_started') {
-					const value = custom.value as {
-						queue_item_id?: string;
-						message_ids?: string[];
-						queue_item?: ChatQueueItem;
-					};
-					const startedIds = new Set(value.message_ids ?? []);
-					updateOptimisticConversationIds((ids) => {
-						for (const messageId of startedIds) ids.delete(messageId);
-					});
-					const localItem = queuedItemsRef.current.find(
-						(item) =>
-							item.id === value.queue_item_id ||
-							(item.id.startsWith('optimistic:') &&
-								queueMessages([item]).some((msg) => startedIds.has(msg.id))),
-					);
-					const startedItem = value.queue_item ?? localItem;
+					const startedItem = startItem(custom.value as ChatInputStartedValue);
 					if (startedItem) {
 						const existingIds = new Set(msgsRef.current.map((msg) => msg.id));
 						msgsRef.current = [
 							...msgsRef.current,
-							...queueMessages([startedItem]).filter(
+							...getQueueMessages([startedItem]).filter(
 								(msg) => !existingIds.has(msg.id),
 							),
 						];
 						scheduleUpdate();
 					}
-					updateQueuedItems(
-						queuedItemsRef.current.filter(
-							(item) =>
-								item.id !== value.queue_item_id &&
-								!(
-									item.id.startsWith('optimistic:') &&
-									queueMessages([item]).some((msg) => startedIds.has(msg.id))
-								),
-						),
-					);
 				} else if (custom.name === 'chat_queue_changed') {
 					const value = custom.value as { items?: ChatQueueItem[] };
 					applyQueueSnapshot(value.items ?? []);
 				} else if (custom.name === 'chat_input_failed') {
-					const value = custom.value as {
-						message?: string;
-						message_ids?: string[];
-						queue_item_id?: string;
-					};
-					const failedIds = new Set(value.message_ids ?? []);
-					updateQueuedItems(
-						queuedItemsRef.current.filter(
-							(item) =>
-								item.id !== value.queue_item_id &&
-								!queueMessages([item]).some((msg) => failedIds.has(msg.id)),
-						),
-					);
-					updateOptimisticConversationIds((ids) => {
-						for (const messageId of failedIds) {
-							ids.delete(messageId);
-						}
-					});
-					const failure = new Error(
-						value.message ?? 'The queued message could not be processed.',
-					);
+					const value = custom.value as ChatInputTerminalValue;
+					finishItem(value);
+					const failure = new Error(value.message ?? t('chatQueue.processFailed'));
 					clearInterruptTimer();
 					currentReplyRef.current = null;
 					setPhase('idle');
 					setError(failure);
 					toast.error(failure.message);
 				} else if (custom.name === 'chat_input_cancelled') {
-					const value = custom.value as {
-						message?: string;
-						message_ids?: string[];
-						queue_item_id?: string;
-					};
-					const cancelledIds = new Set(value.message_ids ?? []);
-					updateQueuedItems(
-						queuedItemsRef.current.filter(
-							(item) =>
-								item.id !== value.queue_item_id &&
-								!queueMessages([item]).some((msg) => cancelledIds.has(msg.id)),
-						),
-					);
-					updateOptimisticConversationIds((ids) => {
-						for (const messageId of cancelledIds) {
-							ids.delete(messageId);
-						}
-					});
-					const message = value.message ?? 'Queued message processing was interrupted.';
+					const value = custom.value as ChatInputTerminalValue;
+					finishItem(value);
+					const message = value.message ?? t('chatQueue.processingCancelled');
 					clearInterruptTimer();
 					currentReplyRef.current = null;
 					setPhase('idle');
@@ -359,10 +293,10 @@ export function useMessages(
 			scheduleUpdate,
 			audioManager,
 			clearInterruptTimer,
-			updateQueuedItems,
-			queueMessages,
+			startItem,
 			applyQueueSnapshot,
-			updateOptimisticConversationIds,
+			finishItem,
+			t,
 		],
 	);
 
@@ -375,8 +309,6 @@ export function useMessages(
 		clearInterruptTimer();
 		setPhase('idle');
 		setSubagentHitl([]);
-		updateQueuedItems([]);
-		updateOptimisticConversationIds((ids) => ids.clear());
 		audioManager?.disposeAll();
 
 		if (!agentId || !sessionId) return;
@@ -385,48 +317,13 @@ export function useMessages(
 		abortRef.current = controller;
 		let cancelled = false;
 
-		const refreshQueue = async () => {
-			try {
-				const queue = await chatApi.queue(agentId, sessionId, true);
-				if (cancelled) return;
-				const optimistic = queuedItemsRef.current.filter((item) =>
-					item.id.startsWith('optimistic:'),
-				);
-				const serverMessageIds = new Set(
-					queueMessages(queue.items).map((message) => message.id),
-				);
-				updateQueuedItems([
-					...queue.items,
-					...optimistic.filter(
-						(item) =>
-							!queueMessages([item]).some((message) =>
-								serverMessageIds.has(message.id),
-							),
-					),
-				]);
-			} catch {
-				// Queue snapshots are a periodic repair path for missed
-				// live-only events. A transient failure is retried later.
-			}
-		};
-		const queueRefreshTimer = window.setInterval(() => void refreshQueue(), 15_000);
-		const refreshQueueOnFocus = () => void refreshQueue();
-		window.addEventListener('focus', refreshQueueOnFocus);
-		window.addEventListener('online', refreshQueueOnFocus);
-
 		(async () => {
 			// 1. Fetch persisted history
 			setLoading(true);
 			try {
-				const [{ messages, is_running }, queue] = await Promise.all([
-					sessionApi.messages(sessionId, agentId),
-					chatApi
-						.queue(agentId, sessionId, true)
-						.catch(() => ({ items: [] as ChatQueueItem[] })),
-				]);
+				const { messages, is_running } = await sessionApi.messages(sessionId, agentId);
 				if (cancelled) return;
 				msgsRef.current = messages;
-				applyQueueSnapshot(queue.items);
 				// If a reply is in flight (running on a worker) OR the
 				// tail msg is parked on a pending tool_call (awaiting
 				// user confirmation / external execution), initialise the
@@ -470,25 +367,11 @@ export function useMessages(
 
 		return () => {
 			cancelled = true;
-			window.clearInterval(queueRefreshTimer);
-			window.removeEventListener('focus', refreshQueueOnFocus);
-			window.removeEventListener('online', refreshQueueOnFocus);
 			controller.abort();
 			abortRef.current = null;
 			clearInterruptTimer();
 		};
-	}, [
-		agentId,
-		sessionId,
-		scheduleUpdate,
-		processEvent,
-		audioManager,
-		clearInterruptTimer,
-		updateQueuedItems,
-		applyQueueSnapshot,
-		updateOptimisticConversationIds,
-		queueMessages,
-	]);
+	}, [agentId, sessionId, scheduleUpdate, processEvent, audioManager, clearInterruptTimer]);
 
 	/**
 	 * Send a user message. The first idle input appears in the conversation
@@ -502,44 +385,24 @@ export function useMessages(
 			if (!agentId || !sessionId) return;
 
 			const userMsg = UserMsg({ name: 'user', content });
-			const optimisticId = `optimistic:${crypto.randomUUID()}`;
-			const showInConversationImmediately =
-				phase === 'idle' && queuedItemsRef.current.length === 0;
+			const showInConversationImmediately = phase === 'idle' && pendingQueueCount === 0;
 			if (showInConversationImmediately) {
-				updateOptimisticConversationIds((ids) => ids.add(userMsg.id));
 				msgsRef.current = [...msgsRef.current, userMsg];
 				scheduleUpdate();
 			}
-			updateQueuedItems([
-				...queuedItemsRef.current,
-				{
-					id: optimisticId,
-					created_at: userMsg.created_at,
-					input: userMsg,
-				},
-			]);
+			const optimisticId = addOptimistic(userMsg, showInConversationImmediately);
 			try {
 				const response = await chatApi.trigger({
 					agent_id: agentId,
 					session_id: sessionId,
 					input: userMsg,
 				});
-				const queueItemId = response.queue_item_id;
-				if (queueItemId) {
-					updateQueuedItems(
-						queuedItemsRef.current.map((item) =>
-							item.id === optimisticId ? { ...item, id: queueItemId } : item,
-						),
-					);
-				}
+				acceptOptimistic(optimisticId, response.queue_item_id);
 			} catch (e) {
 				// The server never accepted this input. Remove the
 				// optimistic queue row and restore the caller's draft.
-				updateQueuedItems(
-					queuedItemsRef.current.filter((item) => item.id !== optimisticId),
-				);
+				rollbackOptimistic(optimisticId, userMsg.id);
 				if (showInConversationImmediately) {
-					updateOptimisticConversationIds((ids) => ids.delete(userMsg.id));
 					msgsRef.current = msgsRef.current.filter((msg) => msg.id !== userMsg.id);
 					scheduleUpdate();
 				}
@@ -551,109 +414,12 @@ export function useMessages(
 			agentId,
 			sessionId,
 			phase,
+			pendingQueueCount,
 			scheduleUpdate,
-			updateQueuedItems,
-			updateOptimisticConversationIds,
+			addOptimistic,
+			acceptOptimistic,
+			rollbackOptimistic,
 		],
-	);
-
-	/** Replace the editable text of one still-pending queue item. */
-	const updateQueued = useCallback(
-		async (itemId: string, text: string) => {
-			if (!agentId || !sessionId) return;
-			const item = queuedItemsRef.current.find((candidate) => candidate.id === itemId);
-			if (!item || Array.isArray(item.input)) {
-				throw new Error('Only a single pending message can be edited.');
-			}
-
-			let replacedText = false;
-			const content: ContentBlock[] = [];
-			for (const block of item.input.content) {
-				if (block.type !== 'text') {
-					content.push(block);
-				} else if (!replacedText) {
-					replacedText = true;
-					content.push({ ...block, text });
-				}
-			}
-			if (!replacedText) {
-				const now = new Date().toISOString();
-				const textBlock: TextBlock = {
-					id: crypto.randomUUID(),
-					type: 'text',
-					text,
-					created_at: now,
-					finished_at: now,
-				};
-				content.unshift(textBlock);
-			}
-			const updatedInput: Msg = { ...item.input, content };
-			try {
-				const response = await chatApi.updateQueued(itemId, {
-					agent_id: agentId,
-					session_id: sessionId,
-					input: updatedInput,
-				});
-				applyQueueSnapshot(response.items);
-			} catch (e) {
-				setError(e as Error);
-				throw e;
-			}
-		},
-		[agentId, sessionId, applyQueueSnapshot],
-	);
-
-	/** Delete one still-pending queue item. */
-	const deleteQueued = useCallback(
-		async (itemId: string) => {
-			if (!agentId || !sessionId) return;
-			try {
-				const response = await chatApi.deleteQueued(itemId, agentId, sessionId);
-				applyQueueSnapshot(response.items);
-			} catch (e) {
-				setError(e as Error);
-				throw e;
-			}
-		},
-		[agentId, sessionId, applyQueueSnapshot],
-	);
-
-	/** Persist an exact pending-item permutation and reconcile conflicts. */
-	const reorderQueued = useCallback(
-		async (itemIds: string[]) => {
-			if (!agentId || !sessionId) return;
-			try {
-				const response = await chatApi.reorderQueued(agentId, sessionId, itemIds);
-				applyQueueSnapshot(response.items);
-			} catch (e) {
-				setError(e as Error);
-				// A 409 means another client or the dispatcher changed the
-				// queue. Refresh before allowing another reorder attempt.
-				try {
-					const response = await chatApi.queue(agentId, sessionId);
-					applyQueueSnapshot(response.items);
-				} catch {
-					// Preserve the original mutation error. The API client
-					// reports a refresh failure independently.
-				}
-				throw e;
-			}
-		},
-		[agentId, sessionId, applyQueueSnapshot],
-	);
-
-	/** Move one pending item by a single position. */
-	const moveQueued = useCallback(
-		async (itemId: string, direction: -1 | 1) => {
-			const current = queuedItemsRef.current;
-			const index = current.findIndex((item) => item.id === itemId);
-			const nextIndex = index + direction;
-			if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return;
-			const reordered = [...current];
-			[reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
-			await reorderQueued(reordered.map((item) => item.id));
-		},
-		[reorderQueued],
 	);
 
 	/**
@@ -796,21 +562,13 @@ export function useMessages(
 		[agentId, sessionId],
 	);
 
-	const visibleQueuedItems = useMemo(
-		() =>
-			queuedItems.filter(
-				(item) =>
-					!queueMessages([item]).some((msg) => optimisticConversationIds.has(msg.id)),
-			),
-		[optimisticConversationIds, queueMessages, queuedItems],
-	);
-
 	return {
 		msgs,
 		loading,
 		phase,
-		queuedItems: visibleQueuedItems,
-		queuedCount: visibleQueuedItems.length,
+		queuedItems,
+		queuedCount,
+		queueReorderDisabled,
 		updateQueued,
 		deleteQueued,
 		moveQueued,
