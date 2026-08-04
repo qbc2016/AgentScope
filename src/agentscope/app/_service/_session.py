@@ -596,7 +596,7 @@ class SessionService:
         )
 
     async def _purge_bus(self, session_ids: list[str]) -> None:
-        """Drop bus state (events log + inbox) for each id concurrently.
+        """Drop bus state (events log + queues) for each id concurrently.
 
         Args:
             session_ids (`list[str]`):
@@ -615,6 +615,17 @@ class SessionService:
         )
         await self._bus.queue_delete(
             MessageBusKeys.inbox(session_id),
+        )
+        await self._bus.queue_delete(
+            MessageBusKeys.chat_inputs(session_id),
+        )
+        await self._bus.registry_del(
+            MessageBusKeys.chat_input_pending_registry(),
+            session_id,
+        )
+        await self._bus.registry_del(
+            MessageBusKeys.chat_input_inflight_registry(),
+            session_id,
         )
         await self._bus.registry_drop(
             MessageBusKeys.bg_tasks(session_id),

@@ -156,11 +156,24 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 		}
 	}, []);
 
-	const { msgs, phase, send, onUserConfirm, onSubagentConfirm, subagentHitl, interrupt } =
-		useMessages(agentId, sessionId, {
-			onTeamUpdated: handleTeamUpdated,
-			onStateUpdated: handleStateUpdated,
-		});
+	const {
+		msgs,
+		phase,
+		queuedCount,
+		queuedItems,
+		send,
+		updateQueued,
+		deleteQueued,
+		moveQueued,
+		reorderQueued,
+		onUserConfirm,
+		onSubagentConfirm,
+		subagentHitl,
+		interrupt,
+	} = useMessages(agentId, sessionId, {
+		onTeamUpdated: handleTeamUpdated,
+		onStateUpdated: handleStateUpdated,
+	});
 	const {
 		mcps,
 		loading: mcpsLoading,
@@ -622,10 +635,16 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 									className={'max-w-[var(--chat-content-w)] w-full'}
 									msgs={msgs}
 									phase={phase}
+									queuedCount={queuedCount}
+									queuedItems={queuedItems}
 									disabled={selectedModel === null}
 									onSend={send}
 									onUserConfirm={onUserConfirm}
 									onInterrupt={interrupt}
+									onUpdateQueued={updateQueued}
+									onDeleteQueued={deleteQueued}
+									onMoveQueued={moveQueued}
+									onReorderQueued={reorderQueued}
 									footerSlot={
 										subagentHitl.length > 0 ? (
 											<SubagentHitlCard

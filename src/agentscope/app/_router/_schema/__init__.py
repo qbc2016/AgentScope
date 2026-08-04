@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 """Schema models for the agent service."""
 
-from ._chat import ChatRequest, ChatTriggerResponse
+from ._chat import (
+    ChatRequest,
+    ChatTriggerResponse,
+    ChatQueueItem,
+    ChatQueueResponse,
+    ReorderChatQueueRequest,
+    UpdateChatQueueItemRequest,
+)
 from ._hub import HubInfo
 from ._hub_mcp import InstallMCPRequest, MCPView, UpdateMCPRequest
 from ._hub_skill import SkillView
@@ -92,6 +99,10 @@ __all__ = [
     # Chat
     "ChatRequest",
     "ChatTriggerResponse",
+    "ChatQueueItem",
+    "ChatQueueResponse",
+    "ReorderChatQueueRequest",
+    "UpdateChatQueueItemRequest",
     # Credential
     "CreateCredentialRequest",
     "CreateCredentialResponse",

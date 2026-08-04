@@ -6,9 +6,11 @@ import {
 } from '@agentscope-ai/agentscope/message';
 import React, { useMemo } from 'react';
 
+import type { ChatQueueItem } from '@/api/chat';
 import { ASMessageBubble } from '@/components/chat/ASMessageBubble.tsx';
 import { ConfirmCard } from '@/components/chat/ConfirmCard.tsx';
 import { FlipCard } from '@/components/chat/FlipCard.tsx';
+import { QueuedMessages } from '@/components/chat/QueuedMessages.tsx';
 import { TextInput } from '@/components/chat/TextInput.tsx';
 import {
 	MessageScroller,
@@ -30,8 +32,11 @@ interface ChatContentProps {
 	 * icon, tooltip, disabled state and click handler from one source.
 	 */
 	phase: ReplyPhase;
+	/** Number of locally submitted user turns waiting to start. */
+	queuedCount: number;
+	queuedItems: ChatQueueItem[];
 	disabled: boolean;
-	onSend: (content: ContentBlock[]) => void;
+	onSend: (content: ContentBlock[]) => Promise<void> | void;
 	onUserConfirm: (
 		toolCall: ToolCallBlock,
 		confirm: boolean,
@@ -42,6 +47,10 @@ interface ChatContentProps {
 	className?: string;
 	/** Called when the user clicks the stop button. */
 	onInterrupt?: () => void;
+	onUpdateQueued: (itemId: string, text: string) => Promise<void>;
+	onDeleteQueued: (itemId: string) => Promise<void>;
+	onMoveQueued: (itemId: string, direction: -1 | 1) => Promise<void>;
+	onReorderQueued: (itemIds: string[]) => Promise<void>;
 	/**
 	 * Optional content pinned at the bottom of the chat — between the
 	 * message scroll area and the text input (e.g. pending subagent HITL
@@ -59,12 +68,18 @@ interface ChatContentProps {
 const ChatContentComponent: React.FC<ChatContentProps> = ({
 	msgs,
 	phase,
+	queuedCount,
+	queuedItems,
 	disabled,
 	onSend,
 	onUserConfirm,
 	autoComplete,
 	className,
 	onInterrupt,
+	onUpdateQueued,
+	onDeleteQueued,
+	onMoveQueued,
+	onReorderQueued,
 	footerSlot,
 	allowedInputTypes,
 	fileProcessor,
@@ -135,6 +150,13 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 						footerSlot
 					)}
 				</FlipCard>
+				<QueuedMessages
+					items={queuedItems}
+					onUpdate={onUpdateQueued}
+					onDelete={onDeleteQueued}
+					onMove={onMoveQueued}
+					onReorder={onReorderQueued}
+				/>
 				<TextInput
 					className="min-w-full max-w-full w-full"
 					onSend={onSend}
@@ -143,6 +165,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 					allowedInputTypes={allowedInputTypes}
 					fileProcessor={fileProcessor}
 					phase={phase}
+					queuedCount={queuedCount}
 					onInterrupt={onInterrupt}
 				/>{' '}
 			</div>

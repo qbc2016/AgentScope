@@ -17,6 +17,7 @@ dependency.
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator
@@ -143,7 +144,7 @@ class InMemoryMessageBus(MessageBus):
                 The synthetic entry id assigned to this entry.
         """
         entry_id = self._next_id()
-        self._queues[key].append((entry_id, payload))
+        self._queues[key].append((entry_id, deepcopy(payload)))
         return entry_id
 
     async def queue_drain(
@@ -168,9 +169,54 @@ class InMemoryMessageBus(MessageBus):
         q = self._queues.get(key)
         if not q:
             return []
-        drained = q[:max_count]
+        drained = deepcopy(q[:max_count])
         del q[:max_count]
         return drained
+
+    async def queue_read(
+        self,
+        key: str,
+        max_count: int = 100,
+    ) -> list[tuple[str, dict]]:
+        """Return queue entries without removing them.
+
+        Args:
+            key (`str`):
+                Queue identifier.
+            max_count (`int`, defaults to ``100``):
+                Maximum number of oldest-first entries to return.
+
+        Returns:
+            `list[tuple[str, dict]]`:
+                Deep-copied ``(entry_id, payload)`` pairs.
+        """
+        return deepcopy(self._queues.get(key, [])[:max_count])
+
+    async def queue_replace(
+        self,
+        key: str,
+        payloads: list[dict],
+    ) -> list[str]:
+        """Replace a queue while preserving the supplied payload order.
+
+        Args:
+            key (`str`):
+                Queue identifier.
+            payloads (`list[dict]`):
+                Complete replacement contents in oldest-first order.
+
+        Returns:
+            `list[str]`:
+                Fresh transport-level ids assigned to the new entries.
+        """
+        entries = [
+            (self._next_id(), deepcopy(payload)) for payload in payloads
+        ]
+        if entries:
+            self._queues[key] = entries
+        else:
+            self._queues.pop(key, None)
+        return [entry_id for entry_id, _payload in entries]
 
     async def queue_delete(self, key: str) -> None:
         """Delete the drain queue at ``key``.
