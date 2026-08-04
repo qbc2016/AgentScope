@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Discord channel adapter (discord.py, gateway WebSocket).
+"""Discord channel (discord.py, gateway WebSocket).
 
 discord.py is async-native and runs on the app event loop, so — unlike
 Feishu — there is no thread bridging: ``on_message`` and button callbacks
@@ -7,7 +7,7 @@ Feishu — there is no thread bridging: ``on_message`` and button callbacks
 click emits a ``ChannelConfirmationResultEvent`` and the gateway later
 resolves the message via :meth:`update_confirm`.
 
-Note: this adapter opens one gateway connection per node. Discord's own
+Note: this channel opens one gateway connection per node. Discord's own
 model expects one connection per shard; running many nodes for one bot
 needs shard coordination, which is out of scope here.
 """
@@ -35,7 +35,7 @@ _MAX_LEN = 2000
 
 
 class DiscordChannel(ChannelBase):
-    """Discord platform adapter."""
+    """Discord platform channel."""
 
     channel_type = "discord"
     display_name = "Discord"
@@ -331,10 +331,13 @@ class DiscordChannel(ChannelBase):
         # pylint: disable=protected-access
         import discord
 
-        adapter = self
+        channel = self
 
         class _ApprovalView(discord.ui.View):
+            """A persistent (never-timing-out) allow/deny button view."""
+
             def __init__(self) -> None:
+                """Build the view with no timeout."""
                 super().__init__(timeout=None)
 
             @discord.ui.button(
@@ -348,7 +351,7 @@ class DiscordChannel(ChannelBase):
             ) -> None:
                 """Emit an approve decision."""
                 await interaction.response.defer()
-                await adapter._decide(request_id, True)
+                await channel._decide(request_id, True)
 
             @discord.ui.button(label="❌ 拒绝", style=discord.ButtonStyle.red)
             async def deny(
@@ -358,7 +361,7 @@ class DiscordChannel(ChannelBase):
             ) -> None:
                 """Emit a deny decision."""
                 await interaction.response.defer()
-                await adapter._decide(request_id, False)
+                await channel._decide(request_id, False)
 
         return _ApprovalView()
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""In-process table of live channel adapter instances.
+"""In-process table of live channel instances.
 
 A dumb container, mirroring :class:`ChatRunRegistry`: it only stores;
 :class:`ChannelLifecycleDispatcher` is the sole writer. Read by the
@@ -13,10 +13,10 @@ from ._base import ChannelBase
 
 @dataclass
 class ChannelInstance:
-    """A running adapter and its listener task, tagged with the config
+    """A running channel and its listener task, tagged with the config
     version it was started from (for reconcile)."""
 
-    adapter: ChannelBase
+    channel: ChannelBase
     task: asyncio.Task
     version: str
 
@@ -25,6 +25,7 @@ class ChannelRunRegistry:
     """Maps ``channel_id`` to its live :class:`ChannelInstance`."""
 
     def __init__(self) -> None:
+        """Start with an empty table."""
         self._entries: dict[str, ChannelInstance] = {}
 
     def put(self, channel_id: str, instance: ChannelInstance) -> None:

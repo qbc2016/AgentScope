@@ -15,9 +15,10 @@ from agentscope.app.channel._base import (
     ChannelCapability,
     ChannelEvent,
 )
+from agentscope.app.channel._dispatcher import ChannelLifecycleDispatcher
 from agentscope.app.channel._gateway import ChannelGateway
-from agentscope.app.channel._pending import PendingConfirm
-from agentscope.app.channel._presenter import ChannelPresenter
+from agentscope.app.channel._pending import _PendingConfirm
+from agentscope.app.channel._registry import ChannelTypeRegistry
 from agentscope.app.message_bus import InMemoryMessageBus, MessageBusKeys
 from agentscope.app.storage import (
     ChannelBinding,
@@ -90,9 +91,9 @@ async def _collect(
     streaming: bool = False,
     **presentation: Any,
 ) -> tuple[tuple[str, dict | None], _FakeChannel]:
-    """Seed a session-events replay log, then fold it via the presenter.
+    """Seed a session-events replay log, then fold it via the dispatcher.
 
-    The presenter subscribes first, then replays the log — seeding the
+    The dispatcher subscribes first, then replays the log — seeding the
     log (including the terminal event) is enough to exercise the fold
     without a live producer.
     """
@@ -100,9 +101,14 @@ async def _collect(
     key = MessageBusKeys.session_events(_SESSION_ID)
     for event in events:
         await bus.log_append(key, event)
-    presenter = ChannelPresenter(storage=None, message_bus=bus)
+    dispatcher = ChannelLifecycleDispatcher(
+        storage=None,
+        message_bus=bus,
+        type_registry=ChannelTypeRegistry([]),
+        gateway=ChannelGateway(storage=None, message_bus=bus),
+    )
     channel = _FakeChannel(streaming=streaming)
-    result = await presenter._collect(
+    result = await dispatcher._collect(
         _SESSION_ID,
         _record(**presentation),
         channel,
@@ -249,7 +255,7 @@ class PendingConfirmTest(IsolatedAsyncioTestCase):
 
     async def test_save_take_roundtrip(self) -> None:
         bus = InMemoryMessageBus()
-        pending = PendingConfirm(
+        pending = _PendingConfirm(
             session_id="s",
             agent_id="a",
             user_id="u",
@@ -260,9 +266,9 @@ class PendingConfirmTest(IsolatedAsyncioTestCase):
             ref="card-1",
         )
         await pending.save(bus, "req-1")
-        loaded = await PendingConfirm.take(bus, "req-1")
+        loaded = await _PendingConfirm.take(bus, "req-1")
         self.assertIsNotNone(loaded)
         assert loaded is not None
         self.assertEqual(loaded.ref, "card-1")
         # Single-use: gone after take.
-        self.assertIsNone(await PendingConfirm.take(bus, "req-1"))
+        self.assertIsNone(await _PendingConfirm.take(bus, "req-1"))

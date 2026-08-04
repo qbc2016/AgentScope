@@ -12,5 +12,12 @@ class ChannelError(Exception):
     """
 
     def __init__(self, message: str, status_code: int = 400) -> None:
+        """Bind the error message and the HTTP status to surface.
+
+        Args:
+            message (`str`): The human-readable error.
+            status_code (`int`, defaults to 400): The HTTP status the
+                router should return.
+        """
         super().__init__(message)
         self.status_code = status_code

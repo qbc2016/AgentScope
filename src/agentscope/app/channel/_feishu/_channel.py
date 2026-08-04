@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Feishu (Lark) channel adapter — new ChannelBase interface.
+"""Feishu (Lark) channel — new ChannelBase interface.
 
 Translates the Feishu platform to/from normalised events and emits them
 via the injected gateway callback. Confirmation is two-phase: a card
@@ -65,6 +65,14 @@ class _ThreadLoopProxy:
     """
 
     def __getattr__(self, name: str) -> Any:
+        """Resolve any attribute on the current thread's event loop.
+
+        Args:
+            name (`str`): The loop attribute the SDK is reaching for.
+
+        Returns:
+            `Any`: The attribute from ``asyncio.get_event_loop()``.
+        """
         return getattr(asyncio.get_event_loop(), name)
 
 
@@ -72,7 +80,7 @@ _THREAD_LOOP_PROXY = _ThreadLoopProxy()
 
 
 class FeishuChannel(ChannelBase):
-    """Feishu platform adapter (SDK long-connection mode)."""
+    """Feishu platform channel (SDK long-connection mode)."""
 
     channel_type = "feishu"
     display_name = "Feishu (Lark)"
@@ -113,6 +121,16 @@ class FeishuChannel(ChannelBase):
         credentials: "FeishuChannel.Credentials",
         config: "FeishuChannel.Config",
     ) -> None:
+        """Read the credentials and options from the validated models.
+
+        Args:
+            channel_id (`str`):
+                This channel instance's unique id.
+            credentials (`FeishuChannel.Credentials`):
+                Validated app id + secret.
+            config (`FeishuChannel.Config`):
+                Validated platform options.
+        """
         self._channel_id = channel_id
         self._app_id = credentials.app_id
         self._app_secret = credentials.app_secret
@@ -126,11 +144,13 @@ class FeishuChannel(ChannelBase):
 
     @property
     def channel_id(self) -> str:
+        """The unique channel instance identifier."""
         return self._channel_id
 
     # -- Lifecycle --
 
     async def validate(self) -> None:
+        """Check the credentials can fetch a token, raising on failure."""
         import httpx
 
         async with httpx.AsyncClient(timeout=10.0) as http:
@@ -149,12 +169,14 @@ class FeishuChannel(ChannelBase):
             )
 
     async def on_start(self) -> None:
+        """Open the HTTP client and fetch the first tenant access token."""
         import httpx
 
         self._http = httpx.AsyncClient(timeout=30.0)
         await self._refresh_token()
 
     async def on_stop(self) -> None:
+        """Stop the WS thread and close the HTTP client."""
         self._stop.set()
         if self._ws_thread and self._ws_thread.is_alive():
             self._ws_thread.join(timeout=5.0)
@@ -183,6 +205,11 @@ class FeishuChannel(ChannelBase):
             await asyncio.sleep(backoff)
 
     def _launch_ws_thread(self) -> threading.Thread:
+        """Start the lark WS client on a daemon thread with its own loop.
+
+        Returns:
+            `threading.Thread`: The started WS thread (daemon).
+        """
         try:
             import lark_oapi as lark
         except ImportError as e:
@@ -195,11 +222,13 @@ class FeishuChannel(ChannelBase):
         assert loop is not None  # set in start_listening before this runs
 
         def on_message(data: "P2ImMessageReceiveV1") -> None:
+            """Bridge an inbound message onto the app loop."""
             asyncio.run_coroutine_threadsafe(self._on_message(data), loop)
 
         def on_card_action(
             data: "P2CardActionTrigger",
         ) -> "P2CardActionTriggerResponse":
+            """Handle a card click; return the toast ack."""
             return self._on_card_action(data, loop)
 
         def ignore(_data: object) -> None:
@@ -223,6 +252,7 @@ class FeishuChannel(ChannelBase):
         )
 
         def run() -> None:
+            """Run the blocking WS client on this thread's own loop."""
             try:
                 # lark_oapi.ws.client keeps ONE module-global event loop
                 # (captured at import) and drives client.start() with it.
@@ -256,7 +286,12 @@ class FeishuChannel(ChannelBase):
     # -- Inbound (WS thread → app loop) --
 
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
-        """Normalise an inbound message and emit it (media or text)."""
+        """Normalise an inbound message and emit it (media or text).
+
+        Args:
+            data (`P2ImMessageReceiveV1`):
+                The inbound message-receive event from the SDK.
+        """
         try:
             event = await self._normalize(data)
             if event and self._emit:
@@ -271,6 +306,22 @@ class FeishuChannel(ChannelBase):
         self,
         data: "P2ImMessageReceiveV1",
     ) -> ChannelEvent | None:
+        """Convert an inbound Feishu message into a ``ChannelEvent``.
+
+        Media messages are downloaded into a ``DataBlock``; unsupported
+        types get a short reply and are dropped; in a group with
+        ``only_at_reply`` non-mentioning text is skipped and the mention
+        is stripped.
+
+        Args:
+            data (`P2ImMessageReceiveV1`):
+                The inbound message-receive event.
+
+        Returns:
+            `ChannelEvent | None`:
+                The normalised event, or ``None`` when there is nothing
+                to act on.
+        """
         message = getattr(data.event, "message", None)
         sender = getattr(data.event, "sender", None)
         if message is None or sender is None:
@@ -301,7 +352,15 @@ class FeishuChannel(ChannelBase):
                 metadata=meta,
             )
         if msg_type != "text":
-            await self._reply(message_id, chat_id, f"暂不支持 {msg_type} 消息。")
+            if message_id or chat_id:
+                await self._send(
+                    message_id,
+                    chat_id,
+                    "text",
+                    json.dumps(
+                        {"text": f"Unsupported message type: {msg_type}."},
+                    ),
+                )
             return None
 
         content = json.loads(message.content or "{}")
@@ -329,7 +388,17 @@ class FeishuChannel(ChannelBase):
         data: "P2CardActionTrigger",
         loop: asyncio.AbstractEventLoop,
     ) -> "P2CardActionTriggerResponse":
-        """Emit the click as a decision event; ack with a toast."""
+        """Emit the click as a decision event; ack with a toast.
+
+        Args:
+            data (`P2CardActionTrigger`):
+                The card-action event carrying the button value.
+            loop (`asyncio.AbstractEventLoop`):
+                The app loop to bridge the emitted event onto.
+
+        Returns:
+            `P2CardActionTriggerResponse`: The synchronous toast ack.
+        """
         action = getattr(getattr(data.event, "action", None), "value", None)
         parsed = _parse_action(action)
         if parsed is None:
@@ -355,14 +424,23 @@ class FeishuChannel(ChannelBase):
         event: ChannelEvent,
         content: list[TextBlock | DataBlock],
     ) -> None:
+        """Send an agent reply back to the originating chat, split if long.
+
+        Args:
+            event (`ChannelEvent`):
+                The inbound event, for reply-referencing / chat id.
+            content (`list[TextBlock | DataBlock]`):
+                Reply blocks; the text blocks are concatenated and sent.
+        """
         text = "".join(b.text for b in content if isinstance(b, TextBlock))
         if not text:
             return
         for part in self._split_long_message(text):
-            await self._send_text(
+            await self._send(
                 event.channel_message_id,
                 event.chat_id,
-                part,
+                "text",
+                json.dumps({"text": part}),
             )
 
     # -- Streaming (Feishu CardKit) --
@@ -371,6 +449,18 @@ class FeishuChannel(ChannelBase):
     # a single ``send_response``.
 
     async def stream_start(self, event: ChannelEvent) -> str | None:
+        """Create a streaming card and send it, returning its card id.
+
+        Args:
+            event (`ChannelEvent`):
+                The inbound event, for reply-referencing / chat id.
+
+        Returns:
+            `str | None`:
+                The card id for :meth:`stream_update` / :meth:`stream_end`,
+                or ``None`` if the platform could not start streaming (the
+                caller then falls back to a single ``send_response``).
+        """
         card_json = json.dumps(
             {
                 "schema": "2.0",
@@ -412,6 +502,12 @@ class FeishuChannel(ChannelBase):
         ref: str,
         content: list[TextBlock | DataBlock],
     ) -> None:
+        """Push the accumulated content to the streaming card.
+
+        Args:
+            ref (`str`): The card id from :meth:`stream_start`.
+            content (`list[TextBlock | DataBlock]`): Content so far.
+        """
         await self._push_stream(ref, content)
 
     async def stream_end(
@@ -419,6 +515,12 @@ class FeishuChannel(ChannelBase):
         ref: str,
         content: list[TextBlock | DataBlock],
     ) -> None:
+        """Push the final content and drop the card's sequence counter.
+
+        Args:
+            ref (`str`): The card id from :meth:`stream_start`.
+            content (`list[TextBlock | DataBlock]`): The full reply.
+        """
         await self._push_stream(ref, content)
         self._stream_seq.pop(ref, None)
 
@@ -427,6 +529,12 @@ class FeishuChannel(ChannelBase):
         card_id: str,
         content: list[TextBlock | DataBlock],
     ) -> None:
+        """Write the current text to the card with a rising sequence.
+
+        Args:
+            card_id (`str`): The streaming card id.
+            content (`list[TextBlock | DataBlock]`): Content to render.
+        """
         text = "".join(b.text for b in content if isinstance(b, TextBlock))
         seq = self._stream_seq.get(card_id, 0) + 1
         self._stream_seq[card_id] = seq
@@ -442,19 +550,43 @@ class FeishuChannel(ChannelBase):
         event: ChannelEvent,
         req: RequireUserConfirmEvent,
     ) -> str | None:
+        """Post an approval card and return its message id (or ``None``).
+
+        Args:
+            event (`ChannelEvent`):
+                The inbound event, for reply-referencing / chat id.
+            req (`RequireUserConfirmEvent`):
+                The approval request; its ``id`` is embedded in the card
+                and its first tool call is shown.
+
+        Returns:
+            `str | None`:
+                The card's message id for :meth:`update_confirm`, or
+                ``None`` if it could not be sent.
+        """
         tool = req.tool_calls[0] if req.tool_calls else None
         card = _build_approval_card(
             req.id,
             tool.name if tool else "tool",
             str(tool.input)[:800] if tool else "",
         )
-        return await self._send_card(
+        data = await self._send(
             event.channel_message_id,
             event.chat_id,
+            "interactive",
             card,
         )
+        if data and data.get("code") == 0:
+            return data.get("data", {}).get("message_id")
+        return None
 
     async def update_confirm(self, ref: str, outcome: str) -> None:
+        """Replace the approval card with its resolved state.
+
+        Args:
+            ref (`str`): The card message id from :meth:`present_confirm`.
+            outcome (`str`): ``"approved"`` or ``"denied"``.
+        """
         await self._api(
             "PATCH",
             f"{_API}/im/v1/messages/{ref}",
@@ -469,6 +601,15 @@ class FeishuChannel(ChannelBase):
         event: ChannelEvent,
         emoji_type: str,
     ) -> str | None:
+        """Add an emoji reaction to the inbound message.
+
+        Args:
+            event (`ChannelEvent`): The message to react to.
+            emoji_type (`str`): The Feishu emoji type (e.g. ``"OnIt"``).
+
+        Returns:
+            `str | None`: The reaction id for removal, or ``None``.
+        """
         if not event.channel_message_id:
             return None
         data = await self._api(
@@ -485,6 +626,12 @@ class FeishuChannel(ChannelBase):
         event: ChannelEvent,
         reaction_id: str,
     ) -> None:
+        """Remove a reaction previously added by :meth:`add_reaction`.
+
+        Args:
+            event (`ChannelEvent`): The reacted-to message.
+            reaction_id (`str`): The reaction id to remove.
+        """
         if not event.channel_message_id:
             return
         await self._api(
@@ -494,6 +641,7 @@ class FeishuChannel(ChannelBase):
         )
 
     async def list_bot_chats(self) -> list[dict]:
+        """List the chats the bot is in as ``{chat_id, name, chat_type}``."""
         results: list[dict] = []
         page_token = ""
         while True:
@@ -523,8 +671,13 @@ class FeishuChannel(ChannelBase):
     ) -> list["ToolBase"]:
         """Expose the Feishu send/discovery tools to the agent.
 
-        ``workspace`` is the calling session's workspace; the send-file
-        tools read their payload from it.
+        Args:
+            workspace (`WorkspaceBase`):
+                The calling session's workspace; the send-file tools read
+                their payload from it.
+
+        Returns:
+            `list[ToolBase]`: The Feishu agent tools.
         """
         from ._tools import build_feishu_tools
 
@@ -538,7 +691,16 @@ class FeishuChannel(ChannelBase):
         receive_id_type: str,
         text: str,
     ) -> dict | None:
-        """Send a plain-text message to an arbitrary receive_id."""
+        """Send a plain-text message to an arbitrary receive_id.
+
+        Args:
+            receive_id (`str`): The recipient id.
+            receive_id_type (`str`): ``"chat_id"`` / ``"open_id"`` / etc.
+            text (`str`): The message text.
+
+        Returns:
+            `dict | None`: The Feishu API response, or ``None`` on error.
+        """
         return await self._api(
             "POST",
             f"{_API}/im/v1/messages?receive_id_type={receive_id_type}",
@@ -556,7 +718,17 @@ class FeishuChannel(ChannelBase):
         data: bytes,
         file_name: str,
     ) -> dict | None:
-        """Upload a file (→ file_key) then send it to a receive_id."""
+        """Upload a file (→ file_key) then send it to a receive_id.
+
+        Args:
+            receive_id (`str`): The recipient id.
+            receive_id_type (`str`): ``"chat_id"`` / ``"open_id"`` / etc.
+            data (`bytes`): The file bytes.
+            file_name (`str`): The file's display name.
+
+        Returns:
+            `dict | None`: The send response, or ``None`` on error.
+        """
         file_key = await self._upload(
             f"{_API}/im/v1/files",
             {"file_type": "stream", "file_name": file_name},
@@ -581,7 +753,16 @@ class FeishuChannel(ChannelBase):
         receive_id_type: str,
         data: bytes,
     ) -> dict | None:
-        """Upload an image (→ image_key) then send it to a receive_id."""
+        """Upload an image (→ image_key) then send it to a receive_id.
+
+        Args:
+            receive_id (`str`): The recipient id.
+            receive_id_type (`str`): ``"chat_id"`` / ``"open_id"`` / etc.
+            data (`bytes`): The image bytes.
+
+        Returns:
+            `dict | None`: The send response, or ``None`` on error.
+        """
         image_key = await self._upload(
             f"{_API}/im/v1/images",
             {"image_type": "message"},
@@ -601,7 +782,14 @@ class FeishuChannel(ChannelBase):
         )
 
     async def list_chat_members(self, chat_id: str) -> list[dict]:
-        """List a group's members as ``{open_id, name}`` dicts."""
+        """List a group's members as ``{open_id, name}`` dicts.
+
+        Args:
+            chat_id (`str`): The group whose members to list.
+
+        Returns:
+            `list[dict]`: One ``{open_id, name}`` per member.
+        """
         results: list[dict] = []
         page_token = ""
         while True:
@@ -642,6 +830,17 @@ class FeishuChannel(ChannelBase):
 
         The JSON ``_api`` helper can't do multipart, so this posts the
         form directly and mirrors its one-shot token refresh on expiry.
+
+        Args:
+            url (`str`): The upload endpoint.
+            data (`dict`): The multipart form fields.
+            files (`dict`): The multipart file part(s).
+            key (`str`): The response data key to return (``file_key`` /
+                ``image_key``).
+            _retried (`bool`): Internal — set on the post-refresh retry.
+
+        Returns:
+            `str | None`: The resource key, or ``None`` on error.
         """
         if not self._http or not self._token:
             return None
@@ -671,6 +870,7 @@ class FeishuChannel(ChannelBase):
             return None
 
     async def _refresh_token(self) -> None:
+        """Fetch a fresh tenant access token and cache it."""
         resp = await self._http.post(
             f"{_API}/auth/v3/tenant_access_token/internal",
             json={"app_id": self._app_id, "app_secret": self._app_secret},
@@ -689,7 +889,17 @@ class FeishuChannel(ChannelBase):
         *,
         _retried: bool = False,
     ) -> dict | None:
-        """Authenticated Feishu request; refreshes the token once on expiry."""
+        """Authenticated JSON Feishu request; refreshes token once on expiry.
+
+        Args:
+            method (`str`): HTTP method.
+            url (`str`): The full endpoint URL.
+            body (`dict | None`): The JSON body, if any.
+            _retried (`bool`): Internal — set on the post-refresh retry.
+
+        Returns:
+            `dict | None`: The parsed response, or ``None`` on error.
+        """
         if not self._http or not self._token:
             return None
         headers = {
@@ -715,25 +925,6 @@ class FeishuChannel(ChannelBase):
             logger.debug("Feishu API %s request failed", method)
             return None
 
-    async def _send_text(
-        self,
-        reply_to: str | None,
-        chat_id: str,
-        text: str,
-    ) -> None:
-        await self._send(reply_to, chat_id, "text", json.dumps({"text": text}))
-
-    async def _send_card(
-        self,
-        reply_to: str | None,
-        chat_id: str,
-        card: str,
-    ) -> str | None:
-        data = await self._send(reply_to, chat_id, "interactive", card)
-        if data and data.get("code") == 0:
-            return data.get("data", {}).get("message_id")
-        return None
-
     async def _send(
         self,
         reply_to: str | None,
@@ -741,7 +932,22 @@ class FeishuChannel(ChannelBase):
         msg_type: str,
         content: str,
     ) -> dict | None:
-        """Send a message — as a reply when possible, else to the chat."""
+        """Send a message — as a reply when possible, else to the chat.
+
+        Args:
+            reply_to (`str | None`):
+                Inbound message id to reply to; when falsy the message is
+                sent to ``chat_id`` instead.
+            chat_id (`str`):
+                Target chat id (used when not replying).
+            msg_type (`str`):
+                Feishu message type (``"text"`` / ``"interactive"`` / …).
+            content (`str`):
+                The already-serialised message content JSON.
+
+        Returns:
+            `dict | None`: The Feishu API response, or ``None`` on error.
+        """
         if reply_to:
             return await self._api(
                 "POST",
@@ -754,21 +960,23 @@ class FeishuChannel(ChannelBase):
             {"receive_id": chat_id, "msg_type": msg_type, "content": content},
         )
 
-    async def _reply(
-        self,
-        message_id: str,
-        chat_id: str,
-        text: str,
-    ) -> None:
-        if message_id or chat_id:
-            await self._send_text(message_id, chat_id, text)
-
     async def _download_media(
         self,
         message: "EventMessage",
         msg_type: str,
     ) -> DataBlock | None:
-        """Download a media resource into a base64 ``DataBlock``."""
+        """Download a media resource into a base64 ``DataBlock``.
+
+        Args:
+            message (`EventMessage`):
+                The inbound message carrying the resource key.
+            msg_type (`str`):
+                The Feishu message type (``image`` / ``file`` / ``audio``
+                / ``media``), selecting the resource endpoint + mime.
+
+        Returns:
+            `DataBlock | None`: The downloaded block, or ``None`` on error.
+        """
         content = json.loads(getattr(message, "content", None) or "{}")
         key = content.get("image_key") or content.get("file_key") or ""
         if not key:

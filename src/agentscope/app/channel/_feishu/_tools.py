@@ -62,7 +62,7 @@ def _ack(data: dict | None, what: str) -> ToolChunk:
 
 
 class _FeishuTool(ToolBase):
-    """Shared base: holds the adapter and a read/write permission split.
+    """Shared base: holds the channel and a read/write permission split.
 
     Discovery tools (``is_read_only=True``) are allowed outright. Send
     tools reach people/groups outside the current conversation, so they
@@ -76,6 +76,11 @@ class _FeishuTool(ToolBase):
     mcp_name: str | None = None
 
     def __init__(self, channel: "FeishuChannel") -> None:
+        """Bind the running channel the tool acts through.
+
+        Args:
+            channel (`FeishuChannel`): The live channel to send / query.
+        """
         super().__init__()
         self._channel = channel
 
@@ -105,6 +110,13 @@ class _FeishuFileTool(_FeishuTool):
         channel: "FeishuChannel",
         workspace: "WorkspaceBase",
     ) -> None:
+        """Bind the channel and the session workspace to read files from.
+
+        Args:
+            channel (`FeishuChannel`): The live channel to send through.
+            workspace (`WorkspaceBase`): The session workspace the file
+                payload is read from.
+        """
         super().__init__(channel)
         self._workspace = workspace
 

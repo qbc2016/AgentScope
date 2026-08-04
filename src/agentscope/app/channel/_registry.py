@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """Channel type registry — the set of platform types a service allows.
 
-A channel *type* is fully described by its adapter class (see
+A channel *type* is fully described by its channel class (see
 :class:`~agentscope.app.channel.ChannelBase`): the class carries its
 ``channel_type`` id, ``platform_bot_id_field``, and nested
 ``Credentials`` / ``Config`` models. The registry is built from the
-adapter classes passed to :func:`~agentscope.app.create_app` via
+channel classes passed to :func:`~agentscope.app.create_app` via
 ``channels=[...]`` and exposes them to the service — frontend form
 schemas, bot-uniqueness checks, and per-record instance construction.
 """
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 class ChannelTypeSchema(BaseModel):
     """Frontend-facing metadata for one channel type.
 
-    Generated from an adapter class. ``credentials_schema`` /
+    Generated from a channel class. ``credentials_schema`` /
     ``config_schema`` are JSON Schemas the frontend renders as forms.
     """
 
@@ -40,11 +40,11 @@ class ChannelTypeRegistry:
         self,
         channels: list[type["ChannelBase"]] | None = None,
     ) -> None:
-        """Build the registry from a list of adapter classes.
+        """Build the registry from a list of channel classes.
 
         Args:
             channels (`list[type[ChannelBase]] | None`):
-                Adapter classes to allow. Passed through from
+                Channel classes to allow. Passed through from
                 ``create_app(channels=[...])``.
         """
         self._classes: dict[str, type["ChannelBase"]] = {}
@@ -52,7 +52,7 @@ class ChannelTypeRegistry:
             self.register(channel_cls)
 
     def register(self, channel_cls: type["ChannelBase"]) -> None:
-        """Register an adapter class under its ``channel_type``."""
+        """Register a channel class under its ``channel_type``."""
         channel_type = channel_cls.channel_type
         if not channel_type:
             raise ValueError(
@@ -62,7 +62,7 @@ class ChannelTypeRegistry:
         self._classes[channel_type] = channel_cls
 
     def get(self, channel_type: str) -> type["ChannelBase"] | None:
-        """Return the adapter class for a type, or ``None``."""
+        """Return the channel class for a type, or ``None``."""
         return self._classes.get(channel_type)
 
     def has_type(self, channel_type: str) -> bool:
@@ -76,7 +76,7 @@ class ChannelTypeRegistry:
         credentials: dict,
         config: dict,
     ) -> "ChannelBase":
-        """Build an adapter instance from stored credentials/config.
+        """Build a channel instance from stored credentials/config.
 
         Validates ``credentials`` / ``config`` against the class's nested
         models, then calls its uniform ``(channel_id, credentials,
@@ -101,7 +101,7 @@ class ChannelTypeRegistry:
         self,
         channel_cls: type["ChannelBase"],
     ) -> ChannelTypeSchema:
-        """Build the frontend schema for one adapter class."""
+        """Build the frontend schema for one channel class."""
         return ChannelTypeSchema(
             channel_type=channel_cls.channel_type,
             display_name=channel_cls.display_name or channel_cls.channel_type,

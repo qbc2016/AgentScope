@@ -11,13 +11,13 @@ from ...event import ConfirmResult, UserConfirmResultEvent
 from .._bus_ops import enqueue_run_trigger
 from ..message_bus import MessageBus, MessageBusKeys
 from ._base import ChannelBase
-from ._pending import PendingConfirm
+from ._pending import _PendingConfirm
 
 
 async def resume_after_decision(
     bus: MessageBus,
-    adapter: ChannelBase,
-    pending: PendingConfirm,
+    channel: ChannelBase,
+    pending: _PendingConfirm,
     approved: bool,
 ) -> None:
     """Freeze the confirmation card, then resume the parked run.
@@ -25,16 +25,16 @@ async def resume_after_decision(
     Args:
         bus (`MessageBus`):
             The application message bus.
-        adapter (`ChannelBase`):
-            The adapter that will update the card (the one handling the
-            click, or the presenter's local adapter for auto-deny).
-        pending (`PendingConfirm`):
+        channel (`ChannelBase`):
+            The channel that will update the card (the one handling the
+            click, or the presenter's local channel for auto-deny).
+        pending (`_PendingConfirm`):
             The parked-request context.
         approved (`bool`):
             The user's decision.
     """
     if pending.ref:
-        await adapter.update_confirm(
+        await channel.update_confirm(
             pending.ref,
             "approved" if approved else "denied",
         )

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Channel module — connect AgentScope agents to IM platforms.
 
-Adapters translate a platform (Feishu, ...) to/from normalised events;
+Channels translate a platform (Feishu, ...) to/from normalised events;
 the stateless :class:`ChannelGateway` orchestrates each event;
 :class:`ChannelService` owns CRUD; :class:`ChannelLifecycleDispatcher`
 keeps this node's live instances reconciled with storage.

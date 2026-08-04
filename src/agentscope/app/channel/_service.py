@@ -3,7 +3,7 @@
 
 Validates, writes the record, and publishes a lifecycle notification so
 every node's :class:`ChannelLifecycleDispatcher` reconciles its running
-instances against storage. Holds no adapter instances.
+instances against storage. Holds no channel instances.
 """
 from datetime import datetime
 
@@ -29,6 +29,14 @@ class ChannelService:
         message_bus: MessageBus,
         type_registry: ChannelTypeRegistry,
     ) -> None:
+        """Bind storage, the message bus, and the channel type registry.
+
+        Args:
+            storage (`StorageBase`): Application storage.
+            message_bus (`MessageBus`): For lifecycle notifications.
+            type_registry (`ChannelTypeRegistry`): Validates types and
+                builds instances for the pre-create connection check.
+        """
         self._storage = storage
         self._bus = message_bus
         self._types = type_registry
@@ -63,13 +71,13 @@ class ChannelService:
         channel_id = _generate_id()
         # Fail fast if the credentials can't connect, rather than letting
         # the dispatcher retry silently in the background.
-        adapter = self._types.create_channel(
+        channel = self._types.create_channel(
             channel_type,
             channel_id,
             credentials,
             platform_config,
         )
-        await adapter.validate()
+        await channel.validate()
 
         now = datetime.now().isoformat()
         record = ChannelRecord(
@@ -130,12 +138,26 @@ class ChannelService:
     # -- internals --
 
     async def _require(self, channel_id: str) -> ChannelRecord:
+        """Load a channel record or raise a 404 ``ChannelError``.
+
+        Args:
+            channel_id (`str`): The channel to load.
+
+        Returns:
+            `ChannelRecord`: The record.
+        """
         record = await self._storage.get_channel(channel_id)
         if record is None:
             raise ChannelError(f"Channel '{channel_id}' not found.", 404)
         return record
 
     async def _notify(self, channel_id: str) -> None:
+        """Publish a lifecycle notification (best-effort).
+
+        Args:
+            channel_id (`str`): The changed channel; reconcile re-reads
+                storage, so the payload is only a nudge.
+        """
         try:
             await self._bus.publish(
                 MessageBusKeys.channel_lifecycle(),

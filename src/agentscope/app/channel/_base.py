@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Channel base abstractions: events, capability, and the adapter base.
+"""Channel base abstractions: events, capability, and the channel base.
 
-An adapter has exactly three concerns: keep a long-lived connection,
+A channel has exactly three concerns: keep a long-lived connection,
 normalise platform payloads into :class:`ChannelEvent` /
 :class:`ChannelConfirmationResultEvent` and emit them, and send the
 gateway's outbound instructions back to the platform.
 
-The adapter never imports or holds the gateway; it receives an ``emit``
+The channel never imports or holds the gateway; it receives an ``emit``
 callback via :meth:`ChannelBase.bind` and calls it. The gateway, in
-turn, only ever calls the narrow outbound methods on the adapter
+turn, only ever calls the narrow outbound methods on the channel
 (``send_response`` / ``present_confirm`` / ``update_confirm`` /
 reactions) — never its lifecycle methods.
 """
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from ...workspace import WorkspaceBase
 
 
-# Signature of the gateway entry point injected into an adapter.
+# Signature of the gateway entry point injected into a channel.
 EmitFn = Callable[
     ["ChannelEvent | ChannelConfirmationResultEvent"],
     Awaitable[None],
@@ -50,7 +50,7 @@ class ChannelEvent(BaseModel):
     """Platform-side unique user identifier."""
 
     channel_user_name: str = ""
-    """Platform-side user display name, when the adapter can provide it
+    """Platform-side user display name, when the channel can provide it
     cheaply; the gateway falls back to ``channel_user_id`` otherwise."""
 
     chat_id: str
@@ -93,7 +93,7 @@ class ChannelConfirmationResultEvent(BaseModel):
     """Source channel instance identifier."""
 
     request_id: str
-    """Opaque token echoed back from the confirmation UI. The adapter
+    """Opaque token echoed back from the confirmation UI. The channel
     round-trips it without understanding it; the gateway uses it to look
     up the persisted pending-confirm context."""
 
@@ -128,7 +128,7 @@ class ChannelCapability(BaseModel):
 
 
 class ChannelBase(ABC):
-    """Abstract base for platform channel adapters.
+    """Abstract base for platform channels.
 
     A subclass fully describes its platform type on the class itself, so
     the service can register it from :func:`~agentscope.app.create_app`
@@ -170,7 +170,7 @@ class ChannelBase(ABC):
         credentials: "ChannelBase.Credentials",
         config: "ChannelBase.Config",
     ) -> None:
-        """Build an adapter from one channel's validated credentials.
+        """Build a channel from one channel's validated credentials.
 
         The registry calls this uniformly with the channel's validated
         :class:`Credentials` / :class:`Config`; subclasses override it to
@@ -180,7 +180,7 @@ class ChannelBase(ABC):
     capabilities: ChannelCapability = ChannelCapability()
 
     _emit: EmitFn | None = None
-    """Gateway entry point, injected by :meth:`bind`. Adapters dispatch
+    """Gateway entry point, injected by :meth:`bind`. Channels dispatch
     normalised events via ``await self._emit(event)`` and must not access
     any other gateway state."""
 
@@ -337,7 +337,7 @@ class ChannelBase(ABC):
     def bind(self, emit: EmitFn) -> None:
         """Inject the gateway entry point used to dispatch inbound events.
 
-        Called by the channel runtime during startup. The adapter uses
+        Called by the channel runtime during startup. The channel uses
         ``await self._emit(event)`` and must not access gateway internals.
         """
         self._emit = emit

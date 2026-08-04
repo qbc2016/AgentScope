@@ -18,7 +18,7 @@ from ..message_bus import MessageBus, MessageBusKeys
 _PENDING_TTL = 24 * 3600
 
 
-class PendingConfirm(BaseModel):
+class _PendingConfirm(BaseModel):
     """Resume context for one parked tool-approval request."""
 
     session_id: str
@@ -47,7 +47,7 @@ class PendingConfirm(BaseModel):
         cls,
         bus: MessageBus,
         request_id: str,
-    ) -> "PendingConfirm | None":
+    ) -> "_PendingConfirm | None":
         """Load and remove the record for ``request_id`` (single-use)."""
         ns = MessageBusKeys.channel_pending_confirm()
         raw = await bus.registry_get(ns, request_id)

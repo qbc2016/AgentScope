@@ -10,11 +10,11 @@ messages and confirmation-card clicks. It is deliberately thin:
 - a **card click** takes the parked request and resumes the run.
 
 The gateway does **not** collect or send the reply. Output flows the
-other way: a channel-bound run emits an outbound signal, and a
-:class:`~agentscope.app.channel.ChannelPresenter` (on the node hosting
-the adapter) subscribes to the run's event stream and streams the reply
-back — so scheduled / background runs reach the channel too, not just
-inbound messages.
+other way: a channel-bound run emits an outbound signal, and the
+:class:`~agentscope.app.channel.ChannelLifecycleDispatcher` (on the node
+hosting the channel) subscribes to the run's event stream and streams
+the reply back — so scheduled / background runs reach the channel too,
+not just inbound messages.
 """
 import json
 
@@ -34,7 +34,7 @@ from ..storage import (
 from ._base import ChannelBase, ChannelEvent, ChannelConfirmationResultEvent
 from ._config import WORKSPACE_ID
 from ._decision import resume_after_decision
-from ._pending import PendingConfirm
+from ._pending import _PendingConfirm
 from ._routing import resolve
 
 _ERROR_REPLY = "❌ Service error, please try again later."
@@ -50,6 +50,12 @@ class ChannelGateway:
         storage: StorageBase,
         message_bus: MessageBus,
     ) -> None:
+        """Bind storage and the message bus.
+
+        Args:
+            storage (`StorageBase`): Application storage.
+            message_bus (`MessageBus`): Application message bus.
+        """
         self._storage = storage
         self._bus = message_bus
 
@@ -64,7 +70,7 @@ class ChannelGateway:
                 # A card click: take the parked request and resume the
                 # run. A missing record means it was already handled or
                 # GC'd — the decision is stale, so ignore it.
-                pending = await PendingConfirm.take(
+                pending = await _PendingConfirm.take(
                     self._bus,
                     event.request_id,
                 )
@@ -94,6 +100,14 @@ class ChannelGateway:
     # -- Message path --
 
     async def _handle_message(self, event: ChannelEvent) -> None:
+        """Route an inbound message to its session and deliver it.
+
+        Aggregates buffered media, then either injects a hint into a
+        live run or starts a fresh user turn on an idle session.
+
+        Args:
+            event (`ChannelEvent`): The normalised inbound message.
+        """
         record = await self._storage.get_channel(event.channel_id)
         if record is None:
             logger.error("No channel record for %s", event.channel_id)
@@ -131,8 +145,8 @@ class ChannelGateway:
             return
 
         await self._ensure_session(record, agent_id, session_id, event.chat_id)
-        # Deliver as a genuine user turn; the run's output is streamed back
-        # by a ChannelPresenter, not collected here.
+        # Deliver as a genuine user turn; the run's output is streamed
+        # back by the dispatcher's forward loop, not collected here.
         await enqueue_run_trigger(
             self._bus,
             user_id=record.user_id,
