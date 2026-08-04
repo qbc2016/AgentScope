@@ -17,6 +17,7 @@ misses the start of the reply nor double-counts the seam.
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from functools import partial
 from typing import Any, AsyncIterator
 
@@ -33,7 +34,6 @@ from ._decision import resume_after_decision
 from ._gateway import ChannelGateway
 from ._pending import _PendingConfirm
 from ._registry import ChannelTypeRegistry
-from ._run_registry import ChannelInstance, ChannelRunRegistry
 
 _NO_TEXT_REPLY = "(Agent returned no text content)"
 _AGENT_ERROR_REPLY = (
@@ -137,6 +137,16 @@ class _Streamer:
             return False
 
 
+@dataclass
+class ChannelInstance:
+    """A running channel, its listener task, and the config version it
+    was started from (for reconcile)."""
+
+    channel: ChannelBase
+    task: asyncio.Task
+    version: str
+
+
 class ChannelLifecycleDispatcher:
     """Reconciles this node's channel instances against storage."""
 
@@ -160,7 +170,7 @@ class ChannelLifecycleDispatcher:
         self._bus = message_bus
         self._types = type_registry
         self._gateway = gateway
-        self._registry = ChannelRunRegistry()
+        self._instances: dict[str, ChannelInstance] = {}
         self._node_id = _generate_id()
         self._tasks: list[asyncio.Task] = []
         self._forward_tasks: set[asyncio.Task] = set()
@@ -172,7 +182,7 @@ class ChannelLifecycleDispatcher:
         Args:
             channel_id (`str`): The channel to look up.
         """
-        inst = self._registry.get(channel_id)
+        inst = self._instances.get(channel_id)
         return inst.channel if inst else None
 
     @asynccontextmanager
@@ -194,7 +204,7 @@ class ChannelLifecycleDispatcher:
                 *self._forward_tasks,
                 return_exceptions=True,
             )
-            for cid in self._registry.ids():
+            for cid in set(self._instances):
                 await self._stop(cid)
 
     # -- Reconcile --
@@ -208,11 +218,11 @@ class ChannelLifecycleDispatcher:
             return
         desired = {r.id: r for r in records if r.enabled}
 
-        for cid in self._registry.ids() - set(desired):
+        for cid in set(self._instances) - set(desired):
             await self._stop(cid)
 
         for cid, record in desired.items():
-            inst = self._registry.get(cid)
+            inst = self._instances.get(cid)
             if (
                 inst is None
                 or inst.version != record.updated_at
@@ -241,9 +251,10 @@ class ChannelLifecycleDispatcher:
                 channel.start_listening(),
                 name=f"channel-listener:{record.id}",
             )
-            self._registry.put(
-                record.id,
-                ChannelInstance(channel, task, record.updated_at),
+            self._instances[record.id] = ChannelInstance(
+                channel,
+                task,
+                record.updated_at,
             )
             logger.info(
                 "channel '%s' (%s) started",
@@ -259,7 +270,7 @@ class ChannelLifecycleDispatcher:
         Args:
             channel_id (`str`): The channel to stop; a no-op if not here.
         """
-        inst = self._registry.pop(channel_id)
+        inst = self._instances.pop(channel_id, None)
         if inst is None:
             return
         inst.task.cancel()
@@ -324,7 +335,7 @@ class ChannelLifecycleDispatcher:
             logger.exception("channel outbound drain failed")
             return
         for _entry_id, job in jobs:
-            inst = self._registry.get(job.get("channel_id", ""))
+            inst = self._instances.get(job.get("channel_id", ""))
             if inst is None:
                 # Not hosted here (reconcile lag). Under no-sharding every
                 # node hosts every enabled channel, so drop this stale one.
@@ -599,7 +610,7 @@ class ChannelLifecycleDispatcher:
 
     async def _heartbeat(self) -> None:
         """Refresh this node's per-channel liveness status (with TTL)."""
-        for cid, inst in self._registry.items():
+        for cid, inst in self._instances.items():
             status = "running"
             if inst.task.done():
                 exc = (
@@ -644,7 +655,7 @@ class ChannelLifecycleDispatcher:
         Args:
             channel_id (`str`): The channel to query.
         """
-        inst = self._registry.get(channel_id)
+        inst = self._instances.get(channel_id)
         return await inst.channel.list_bot_chats() if inst else []
 
     async def list_seen_chat_ids(self, channel_id: str) -> list[str]:
@@ -670,6 +681,6 @@ class ChannelLifecycleDispatcher:
                 event to route.
             channel_id (`str`): The channel whose gateway handles it.
         """
-        inst = self._registry.get(channel_id)
+        inst = self._instances.get(channel_id)
         if inst:
             await self._gateway.process(event, inst.channel)
