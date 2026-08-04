@@ -3,10 +3,11 @@
 
 Translates the Feishu platform to/from normalised events and emits them
 via the injected gateway callback. Confirmation is two-phase: a card
-click is emitted as a ``ConfirmDecisionEvent`` (same entry as messages);
-the gateway later resolves the card via :meth:`update_confirm`. No
-in-process approval futures or attachment buffers — media aggregation
-and pending state live in the gateway / shared storage.
+click is emitted as a ``ChannelConfirmationResultEvent`` (same entry as
+messages); the gateway later resolves the card via
+:meth:`update_confirm`. No in-process approval futures or attachment
+buffers — media aggregation and pending state live in the gateway /
+shared storage.
 
 The WebSocket runs in a background thread (the lark SDK owns its own
 event loop); inbound events are bridged to the app loop with
@@ -17,7 +18,7 @@ import asyncio
 import base64
 import json
 import threading
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -28,7 +29,7 @@ from .._base import (
     ChannelBase,
     ChannelCapability,
     ChannelEvent,
-    ConfirmDecisionEvent,
+    ChannelConfirmationResultEvent,
 )
 from ._card_templates import (
     build_approval_card,
@@ -36,6 +37,16 @@ from ._card_templates import (
     build_toast,
     parse_action,
 )
+
+if TYPE_CHECKING:
+    import httpx
+    from lark_oapi.api.im.v1 import EventMessage, P2ImMessageReceiveV1
+    from lark_oapi.event.callback.model.p2_card_action_trigger import (
+        P2CardActionTrigger,
+        P2CardActionTriggerResponse,
+    )
+    from .....tool import ToolBase
+    from .....workspace import WorkspaceBase
 
 _API = "https://open.feishu.cn/open-apis"
 _TOKEN_EXPIRED_CODES = frozenset({99991663, 99991664})
@@ -106,7 +117,7 @@ class FeishuChannel(ChannelBase):
         self._app_id = credentials.app_id
         self._app_secret = credentials.app_secret
         self._only_at_reply = config.only_at_reply
-        self._http: Any = None
+        self._http: "httpx.AsyncClient | None" = None
         self._token: str | None = None
         self._ws_thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -183,13 +194,15 @@ class FeishuChannel(ChannelBase):
         loop = self._loop
         assert loop is not None  # set in start_listening before this runs
 
-        def on_message(data: Any) -> None:
+        def on_message(data: "P2ImMessageReceiveV1") -> None:
             asyncio.run_coroutine_threadsafe(self._on_message(data), loop)
 
-        def on_card_action(data: Any) -> Any:
+        def on_card_action(
+            data: "P2CardActionTrigger",
+        ) -> "P2CardActionTriggerResponse":
             return self._on_card_action(data, loop)
 
-        def ignore(_data: Any) -> None:
+        def ignore(_data: object) -> None:
             """No-op for subscribed events we don't act on (e.g. the
             reaction events our own 'OnIt' reaction triggers), so the SDK
             doesn't log 'processor not found'."""
@@ -242,7 +255,7 @@ class FeishuChannel(ChannelBase):
 
     # -- Inbound (WS thread → app loop) --
 
-    async def _on_message(self, data: Any) -> None:
+    async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
         """Normalise an inbound message and emit it (media or text)."""
         try:
             event = await self._normalize(data)
@@ -254,7 +267,10 @@ class FeishuChannel(ChannelBase):
                 self._channel_id,
             )
 
-    async def _normalize(self, data: Any) -> ChannelEvent | None:
+    async def _normalize(
+        self,
+        data: "P2ImMessageReceiveV1",
+    ) -> ChannelEvent | None:
         message = getattr(data.event, "message", None)
         sender = getattr(data.event, "sender", None)
         if message is None or sender is None:
@@ -308,8 +324,12 @@ class FeishuChannel(ChannelBase):
             metadata=meta,
         )
 
-    def _on_card_action(self, data: Any, loop: Any) -> Any:
-        """Emit the click as a ConfirmDecisionEvent; ack with a toast."""
+    def _on_card_action(
+        self,
+        data: "P2CardActionTrigger",
+        loop: asyncio.AbstractEventLoop,
+    ) -> "P2CardActionTriggerResponse":
+        """Emit the click as a decision event; ack with a toast."""
         action = getattr(getattr(data.event, "action", None), "value", None)
         parsed = parse_action(action)
         if parsed is None:
@@ -318,7 +338,7 @@ class FeishuChannel(ChannelBase):
         if self._emit:
             asyncio.run_coroutine_threadsafe(
                 self._emit(
-                    ConfirmDecisionEvent(
+                    ChannelConfirmationResultEvent(
                         channel_id=self._channel_id,
                         request_id=request_id,
                         approved=approved,
@@ -497,7 +517,10 @@ class FeishuChannel(ChannelBase):
             page_token = payload.get("page_token", "")
         return results
 
-    async def list_tools(self, workspace: Any) -> list:
+    async def list_tools(
+        self,
+        workspace: "WorkspaceBase",
+    ) -> list["ToolBase"]:
         """Expose the Feishu send/discovery tools to the agent.
 
         ``workspace`` is the calling session's workspace; the send-file
@@ -742,7 +765,7 @@ class FeishuChannel(ChannelBase):
 
     async def _download_media(
         self,
-        message: Any,
+        message: "EventMessage",
         msg_type: str,
     ) -> DataBlock | None:
         """Download a media resource into a base64 ``DataBlock``."""

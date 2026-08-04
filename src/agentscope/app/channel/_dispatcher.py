@@ -4,8 +4,7 @@
 One per node. Storage is the source of truth; this dispatcher makes the
 node's live adapter set match the enabled records, driven by lifecycle
 notifications and a periodic sweep (which also self-heals lost
-notifications and refreshes the status heartbeat). See
-``docs/design_channel_redesign.md`` §7.
+notifications and refreshes the status heartbeat).
 """
 import asyncio
 from contextlib import asynccontextmanager
@@ -16,18 +15,12 @@ from ..._logging import logger
 from ..._utils._common import _generate_id
 from ..message_bus import MessageBus, MessageBusKeys
 from ..storage import ChannelRecord, StorageBase
-from ._base import ChannelBase, ChannelEvent, ConfirmDecisionEvent
+from ._base import ChannelBase, ChannelEvent, ChannelConfirmationResultEvent
 from ._config import LIVENESS_TTL_SECS
 from ._gateway import ChannelGateway
 from ._presenter import ChannelPresenter
 from ._registry import ChannelTypeRegistry
 from ._run_registry import ChannelInstance, ChannelRunRegistry
-from ._seen_chats import list_seen_chat_ids
-from ._service import LIFECYCLE_CHANNEL
-
-
-def _liveness_ns(channel_id: str) -> str:
-    return f"agentscope:channel:liveness:{channel_id}"
 
 
 class ChannelLifecycleDispatcher:
@@ -50,12 +43,12 @@ class ChannelLifecycleDispatcher:
         self._presenter = ChannelPresenter(storage, message_bus)
         self._forward_tasks: set[asyncio.Task] = set()
 
-    def get_local_adapter(self, channel_id: str) -> ChannelBase | None:
-        """Return this node's live adapter for ``channel_id``, if running.
+    def get_local_channel(self, channel_id: str) -> ChannelBase | None:
+        """Return this node's live channel for ``channel_id``, if running.
 
         Since every node runs every enabled channel (no sharding), the
-        node handling a channel-originated run holds that channel's
-        adapter locally — this is how agent tools reach it.
+        node handling a channel-originated run holds that channel
+        locally — this is how its agent tools reach it.
         """
         inst = self._registry.get(channel_id)
         return inst.adapter if inst else None
@@ -158,7 +151,9 @@ class ChannelLifecycleDispatcher:
         backoff = 1.0
         while True:
             try:
-                async for _ in self._bus.subscribe(LIFECYCLE_CHANNEL):
+                async for _ in self._bus.subscribe(
+                    MessageBusKeys.channel_lifecycle(),
+                ):
                     backoff = 1.0
                     await self.reconcile()
             except asyncio.CancelledError:  # pylint: disable=try-except-raise
@@ -235,7 +230,7 @@ class ChannelLifecycleDispatcher:
                 status = "error" if exc else "stopped"
             try:
                 await self._bus.registry_set(
-                    _liveness_ns(cid),
+                    MessageBusKeys.channel_liveness(cid),
                     self._node_id,
                     status,
                     ttl_secs=LIVENESS_TTL_SECS,
@@ -247,7 +242,9 @@ class ChannelLifecycleDispatcher:
 
     async def get_status(self, channel_id: str) -> dict:
         """Aggregate the per-node liveness view of a channel."""
-        nodes = await self._bus.registry_getall(_liveness_ns(channel_id))
+        nodes = await self._bus.registry_getall(
+            MessageBusKeys.channel_liveness(channel_id),
+        )
         if not nodes:
             return {"status": "stopped", "nodes": []}
         return {
@@ -264,11 +261,14 @@ class ChannelLifecycleDispatcher:
 
     async def list_seen_chat_ids(self, channel_id: str) -> list[str]:
         """Chat_ids passively recorded from inbound messages."""
-        return await list_seen_chat_ids(self._bus, channel_id)
+        fields = await self._bus.registry_getall(
+            MessageBusKeys.channel_seen_chats(channel_id),
+        )
+        return sorted(fields.keys())
 
     async def dispatch(
         self,
-        event: ChannelEvent | ConfirmDecisionEvent,
+        event: ChannelEvent | ChannelConfirmationResultEvent,
         channel_id: str,
     ) -> None:
         """Route an event through the gateway (used by tests)."""

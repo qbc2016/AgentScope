@@ -14,7 +14,7 @@ other way: a channel-bound run emits an outbound signal, and a
 :class:`~agentscope.app.channel.ChannelPresenter` (on the node hosting
 the adapter) subscribes to the run's event stream and streams the reply
 back — so scheduled / background runs reach the channel too, not just
-inbound messages. See ``docs/design_channel_redesign.md``.
+inbound messages.
 """
 import json
 
@@ -31,15 +31,15 @@ from ..storage import (
     SessionSource,
     StorageBase,
 )
-from ._base import ChannelBase, ChannelEvent, ConfirmDecisionEvent
+from ._base import ChannelBase, ChannelEvent, ChannelConfirmationResultEvent
 from ._config import WORKSPACE_ID
 from ._decision import resume_after_decision
-from ._media import buffer_blocks, drain_blocks
-from ._pending import take_pending
+from ._pending import PendingConfirm
 from ._routing import resolve
-from ._seen_chats import record_chat_id
 
 _ERROR_REPLY = "❌ Service error, please try again later."
+# How long a media-only message waits for its accompanying text message.
+_MEDIA_BUFFER_TTL_SECS = 300
 
 
 class ChannelGateway:
@@ -53,17 +53,28 @@ class ChannelGateway:
         self._storage = storage
         self._bus = message_bus
 
-    # -- Public entry point --
-
     async def process(
         self,
-        event: ChannelEvent | ConfirmDecisionEvent,
+        event: ChannelEvent | ChannelConfirmationResultEvent,
         channel: ChannelBase,
     ) -> None:
         """Handle one inbound event (message or confirmation decision)."""
         try:
-            if isinstance(event, ConfirmDecisionEvent):
-                await self._handle_decision(event, channel)
+            if isinstance(event, ChannelConfirmationResultEvent):
+                # A card click: take the parked request and resume the
+                # run. A missing record means it was already handled or
+                # GC'd — the decision is stale, so ignore it.
+                pending = await PendingConfirm.take(
+                    self._bus,
+                    event.request_id,
+                )
+                if pending is not None:
+                    await resume_after_decision(
+                        self._bus,
+                        channel,
+                        pending,
+                        event.approved,
+                    )
             else:
                 await self._handle_message(event)
         except Exception:  # pylint: disable=broad-except
@@ -72,7 +83,13 @@ class ChannelGateway:
                 event.channel_id,
             )
             if isinstance(event, ChannelEvent):
-                await self._safe_send(channel, event, _ERROR_REPLY)
+                try:
+                    await channel.send_response(
+                        event,
+                        [TextBlock(text=_ERROR_REPLY)],
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception("Failed to send channel error notice")
 
     # -- Message path --
 
@@ -83,7 +100,12 @@ class ChannelGateway:
             return
 
         agent_id, session_id = resolve(event, record)
-        await record_chat_id(self._bus, event.channel_id, event.chat_id)
+        if event.chat_id:
+            await self._bus.registry_set(
+                MessageBusKeys.channel_seen_chats(event.channel_id),
+                event.chat_id,
+                "1",
+            )
 
         content = await self._aggregate_media(event)
         if content is None:
@@ -126,46 +148,30 @@ class ChannelGateway:
     ) -> list[TextBlock | DataBlock] | None:
         """Merge buffered attachments with this message.
 
-        A media-only message is buffered and returns ``None`` (nothing to
-        run yet); a message with text drains the buffer and returns the
-        combined content.
+        On IM platforms an image and its caption arrive as separate
+        messages. A media-only message is buffered (keyed by
+        channel/chat/user so any node can pick it up) and returns
+        ``None``; the next message carrying text drains the buffer and
+        returns the combined multimodal content.
         """
-        data_blocks = [b for b in event.content if isinstance(b, DataBlock)]
-        has_text = any(isinstance(b, TextBlock) for b in event.content)
-        if not has_text:
-            if data_blocks:
-                await buffer_blocks(
-                    self._bus,
-                    event.channel_id,
-                    event.chat_id,
-                    event.channel_user_id,
-                    data_blocks,
-                )
-            return None
-        buffered = await drain_blocks(
-            self._bus,
+        key = MessageBusKeys.channel_media_buffer(
             event.channel_id,
             event.chat_id,
             event.channel_user_id,
         )
+        has_text = any(isinstance(b, TextBlock) for b in event.content)
+        if not has_text:
+            for block in event.content:
+                if isinstance(block, DataBlock):
+                    await self._bus.queue_push(
+                        key,
+                        block.model_dump(mode="json"),
+                        ttl_secs=_MEDIA_BUFFER_TTL_SECS,
+                    )
+            return None
+        entries = await self._bus.queue_drain(key)
+        buffered = [DataBlock.model_validate(p) for _id, p in entries]
         return [*buffered, *event.content]
-
-    # -- Confirmation click --
-
-    async def _handle_decision(
-        self,
-        event: ConfirmDecisionEvent,
-        channel: ChannelBase,
-    ) -> None:
-        pending = await take_pending(self._bus, event.request_id)
-        if pending is None:
-            return  # already handled or GC'd — the decision is stale
-        await resume_after_decision(
-            self._bus,
-            channel,
-            pending,
-            event.approved,
-        )
 
     # -- Session creation (deterministic id, idempotent) --
 
@@ -211,16 +217,3 @@ class ChannelGateway:
             source_chat_id=chat_id,
             source_channel_id=record.id,
         )
-
-    # -- Helpers --
-
-    async def _safe_send(
-        self,
-        channel: ChannelBase,
-        event: ChannelEvent,
-        text: str,
-    ) -> None:
-        try:
-            await channel.send_response(event, [TextBlock(text=text)])
-        except Exception:  # pylint: disable=broad-except
-            logger.exception("Failed to send error notice to channel")

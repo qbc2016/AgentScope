@@ -4,15 +4,13 @@
 Adapters translate a platform (Feishu, ...) to/from normalised events;
 the stateless :class:`ChannelGateway` orchestrates each event;
 :class:`ChannelService` owns CRUD; :class:`ChannelLifecycleDispatcher`
-keeps this node's live instances reconciled with storage. See
-``docs/design_channel_redesign.md``.
+keeps this node's live instances reconciled with storage.
 """
-from ._agent_tools import ChannelAgentToolFactory
 from ._base import (
     ChannelBase,
     ChannelCapability,
+    ChannelConfirmationResultEvent,
     ChannelEvent,
-    ConfirmDecisionEvent,
 )
 from ._dispatcher import ChannelLifecycleDispatcher
 from ._errors import ChannelError
@@ -23,9 +21,9 @@ from ._discord import DiscordChannel
 from ._feishu import FeishuChannel
 
 __all__ = [
-    "ChannelAgentToolFactory",
     "ChannelBase",
     "ChannelCapability",
+    "ChannelConfirmationResultEvent",
     "ChannelError",
     "ChannelEvent",
     "ChannelGateway",
@@ -33,7 +31,6 @@ __all__ = [
     "ChannelService",
     "ChannelTypeRegistry",
     "ChannelTypeSchema",
-    "ConfirmDecisionEvent",
     "DiscordChannel",
     "FeishuChannel",
 ]

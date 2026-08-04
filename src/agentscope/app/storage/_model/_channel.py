@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""The channel storage model.
-
-See ``docs/design_channel_redesign.md`` for the full design. Key points:
+"""The channel storage model. Key points:
 
 - Routing is one concept: an ordered list of :class:`ChannelBinding`.
   Each rule matches an inbound event and yields two outputs — which
@@ -29,9 +27,7 @@ class SessionScope(str, Enum):
     """How inbound messages are grouped into agent sessions.
 
     Scope is chat-centric: the session key is a projection of the
-    ``(chat_id, user_id)`` pair. See ``docs/design_channel_redesign.md``
-    §3 for why cross-chat (per-user) and global (main) scopes were
-    dropped.
+    ``(chat_id, user_id)`` pair.
     """
 
     PER_CHAT = "per_chat"
@@ -184,10 +180,10 @@ class ChannelRecord(BaseModel):
     """Platform credentials (app_id, app_secret, ...). Fields marked
     ``format: password`` in the type's credential schema are secret.
 
-    NOTE: at-rest encryption is a documented future hook (see
-    ``docs/design_channel_redesign.md`` §10); today these are masked at
-    the API boundary. ``platform_bot_id`` is NOT stored here — it is
-    extracted from these credentials on write for the uniqueness index.
+    NOTE: at-rest encryption is a documented future hook; today these
+    are masked at the API boundary. ``platform_bot_id`` is NOT stored
+    here — it is extracted from these credentials on write for the
+    uniqueness index.
     """
 
     platform_config: dict[str, Any] = Field(default_factory=dict)

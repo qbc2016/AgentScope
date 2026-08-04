@@ -50,23 +50,15 @@ def build_feishu_tools(
     ]
 
 
-def _ok(text: str) -> ToolChunk:
-    return ToolChunk(content=[TextBlock(text=text)])
-
-
-def _err(text: str) -> ToolChunk:
-    return ToolChunk(
-        content=[TextBlock(text=text)],
-        state=ToolResultState.ERROR,
-    )
-
-
 def _ack(data: dict | None, what: str) -> ToolChunk:
     """Turn a Feishu send response into a success/error chunk."""
     if data and data.get("code") == 0:
-        return _ok(f"Sent {what}.")
+        return ToolChunk(content=[TextBlock(text=f"Sent {what}.")])
     msg = (data or {}).get("msg") or "the platform rejected the request"
-    return _err(f"Failed to send {what}: {msg}")
+    return ToolChunk(
+        content=[TextBlock(text=f"Failed to send {what}: {msg}")],
+        state=ToolResultState.ERROR,
+    )
 
 
 class _FeishuTool(ToolBase):
@@ -184,7 +176,9 @@ class ListChats(_FeishuTool):
             for chat in chats
             if not needle or needle in (chat.get("name", "") or "").lower()
         ]
-        return _ok(json.dumps(items, ensure_ascii=False))
+        return ToolChunk(
+            content=[TextBlock(text=json.dumps(items, ensure_ascii=False))],
+        )
 
 
 class _ListChatMembersParams(ParamsBase):
@@ -225,7 +219,9 @@ class ListChatMembers(_FeishuTool):
             }
             for member in members
         ]
-        return _ok(json.dumps(items, ensure_ascii=False))
+        return ToolChunk(
+            content=[TextBlock(text=json.dumps(items, ensure_ascii=False))],
+        )
 
 
 # -- Send (write; ASK-gated) --
@@ -335,7 +331,12 @@ class SendFile(_FeishuFileTool):
         try:
             raw = await self._read(path)
         except Exception as e:  # pylint: disable=broad-except
-            return _err(f"SendFile: cannot read {path!r}: {e}")
+            return ToolChunk(
+                content=[
+                    TextBlock(text=f"SendFile: cannot read {path!r}: {e}"),
+                ],
+                state=ToolResultState.ERROR,
+            )
         data = await self._channel.send_file_to(
             receive_id,
             receive_id_type,
@@ -392,7 +393,12 @@ class SendImage(_FeishuFileTool):
         try:
             raw = await self._read(path)
         except Exception as e:  # pylint: disable=broad-except
-            return _err(f"SendImage: cannot read {path!r}: {e}")
+            return ToolChunk(
+                content=[
+                    TextBlock(text=f"SendImage: cannot read {path!r}: {e}"),
+                ],
+                state=ToolResultState.ERROR,
+            )
         data = await self._channel.send_image_to(
             receive_id,
             receive_id_type,

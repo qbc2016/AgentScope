@@ -16,12 +16,7 @@ from agentscope.app.channel._base import (
     ChannelEvent,
 )
 from agentscope.app.channel._gateway import ChannelGateway
-from agentscope.app.channel._media import buffer_blocks, drain_blocks
-from agentscope.app.channel._pending import (
-    PendingConfirm,
-    save_pending,
-    take_pending,
-)
+from agentscope.app.channel._pending import PendingConfirm
 from agentscope.app.channel._presenter import ChannelPresenter
 from agentscope.app.message_bus import InMemoryMessageBus, MessageBusKeys
 from agentscope.app.storage import (
@@ -215,41 +210,38 @@ class MediaBufferTest(IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_buffer_then_drain(self) -> None:
-        bus = InMemoryMessageBus()
-        await buffer_blocks(bus, "c", "chat", "u", [self._img("a.png")])
-        await buffer_blocks(bus, "c", "chat", "u", [self._img("b.png")])
-        drained = await drain_blocks(bus, "c", "chat", "u")
-        self.assertEqual(len(drained), 2)
-        # Second drain is empty.
-        self.assertEqual(await drain_blocks(bus, "c", "chat", "u"), [])
+    def _media_event(self, name: str) -> ChannelEvent:
+        return ChannelEvent(
+            channel_id="c",
+            channel_user_id="u",
+            chat_id="chat",
+            content=[self._img(name)],
+        )
 
     async def test_aggregate_media_only_buffers(self) -> None:
         bus = InMemoryMessageBus()
         gw = ChannelGateway(storage=None, message_bus=bus)
-        event = ChannelEvent(
-            channel_id="c",
-            channel_user_id="u",
-            chat_id="chat",
-            content=[self._img("a.png")],
+        self.assertIsNone(
+            await gw._aggregate_media(self._media_event("a.png")),
         )
-        self.assertIsNone(await gw._aggregate_media(event))
 
-    async def test_aggregate_text_drains_buffer(self) -> None:
+    async def test_aggregate_text_drains_buffered_media(self) -> None:
         bus = InMemoryMessageBus()
         gw = ChannelGateway(storage=None, message_bus=bus)
-        await buffer_blocks(bus, "c", "chat", "u", [self._img("a.png")])
-        event = ChannelEvent(
-            channel_id="c",
-            channel_user_id="u",
-            chat_id="chat",
-            content=[TextBlock(text="look")],
+        await gw._aggregate_media(self._media_event("a.png"))
+        await gw._aggregate_media(self._media_event("b.png"))
+        content = await gw._aggregate_media(
+            ChannelEvent(
+                channel_id="c",
+                channel_user_id="u",
+                chat_id="chat",
+                content=[TextBlock(text="look")],
+            ),
         )
-        content = await gw._aggregate_media(event)
         assert content is not None
-        self.assertEqual(len(content), 2)  # buffered image + text
+        self.assertEqual(len(content), 3)  # two buffered images + text
         self.assertIsInstance(content[0], DataBlock)
-        self.assertIsInstance(content[1], TextBlock)
+        self.assertIsInstance(content[-1], TextBlock)
 
 
 class PendingConfirmTest(IsolatedAsyncioTestCase):
@@ -267,10 +259,10 @@ class PendingConfirmTest(IsolatedAsyncioTestCase):
             tool_calls=[],
             ref="card-1",
         )
-        await save_pending(bus, "req-1", pending)
-        loaded = await take_pending(bus, "req-1")
+        await pending.save(bus, "req-1")
+        loaded = await PendingConfirm.take(bus, "req-1")
         self.assertIsNotNone(loaded)
         assert loaded is not None
         self.assertEqual(loaded.ref, "card-1")
         # Single-use: gone after take.
-        self.assertIsNone(await take_pending(bus, "req-1"))
+        self.assertIsNone(await PendingConfirm.take(bus, "req-1"))

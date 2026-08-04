@@ -591,7 +591,7 @@ class StorageBase(ABC):
     # Optional capability: channels require the distributed message bus
     # (locks / pub-sub / queues), so only bus-backed stores (Redis)
     # implement these. Other backends inherit the NotImplementedError
-    # default. See docs/design_channel_redesign.md §5.
+    # default.
     # ------------------------------------------------------------------
 
     async def upsert_channel(

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Channel base abstractions: events, capability, and the adapter base.
 
-See ``docs/design_channel_redesign.md`` §4. An adapter has exactly three
-concerns: keep a long-lived connection, normalise platform payloads into
-:class:`ChannelEvent` / :class:`ConfirmDecisionEvent` and emit them, and
-send the gateway's outbound instructions back to the platform.
+An adapter has exactly three concerns: keep a long-lived connection,
+normalise platform payloads into :class:`ChannelEvent` /
+:class:`ChannelConfirmationResultEvent` and emit them, and send the
+gateway's outbound instructions back to the platform.
 
 The adapter never imports or holds the gateway; it receives an ``emit``
 callback via :meth:`ChannelBase.bind` and calls it. The gateway, in
@@ -29,7 +29,10 @@ if TYPE_CHECKING:
 
 
 # Signature of the gateway entry point injected into an adapter.
-EmitFn = Callable[["ChannelEvent | ConfirmDecisionEvent"], Awaitable[None]]
+EmitFn = Callable[
+    ["ChannelEvent | ChannelConfirmationResultEvent"],
+    Awaitable[None],
+]
 
 
 class ChannelEvent(BaseModel):
@@ -78,7 +81,7 @@ class ChannelEvent(BaseModel):
         )
 
 
-class ConfirmDecisionEvent(BaseModel):
+class ChannelConfirmationResultEvent(BaseModel):
     """A user's decision on a pending tool-approval, delivered inbound.
 
     This enters through the *same* gateway entry point as messages (a
@@ -193,7 +196,7 @@ class ChannelBase(ABC):
         """Establish the long-lived connection and loop receiving events.
 
         For each inbound payload, normalise it into a ``ChannelEvent`` or
-        ``ConfirmDecisionEvent`` and ``await self._emit(event)``.
+        ``ChannelConfirmationResultEvent`` and ``await self._emit(event)``.
         Implementations should include automatic reconnection.
         """
 
@@ -229,7 +232,7 @@ class ChannelBase(ABC):
         Render however the platform allows (interactive card, or a plain
         "reply yes/no" message) — read ``req.tool_calls`` for what to
         show. Embed ``req.id`` so the eventual decision can be delivered
-        back as a ``ConfirmDecisionEvent`` carrying the same
+        back as a ``ChannelConfirmationResultEvent`` carrying the same
         ``request_id``.
 
         Returns:

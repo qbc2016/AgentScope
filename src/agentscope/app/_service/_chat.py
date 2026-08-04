@@ -12,6 +12,7 @@ that wants them subscribes through the
 ``GET /sessions/{sid}/stream`` SSE endpoint.
 """
 import asyncio
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
@@ -61,6 +62,9 @@ from ..._utils._common import _generate_id
 from ...message import AssistantMsg, Msg, ToolCallState
 from ...permission import AdditionalWorkingDirectory
 
+if TYPE_CHECKING:
+    from ..channel import ChannelLifecycleDispatcher
+
 
 class ChatService:
     """Run an agent against a session, persisting input/reply messages
@@ -91,6 +95,7 @@ class ChatService:
         custom_subagent_templates: dict[str, SubAgentTemplate] | None = None,
         custom_agent_cls: type[Agent] | None = None,
         extra_projectors: list[EventProjector] | None = None,
+        channel_runtime: "ChannelLifecycleDispatcher | None" = None,
     ) -> None:
         """Initialize chat service.
 
@@ -149,6 +154,11 @@ class ChatService:
                 injection style). Each is invoked once per produced
                 event to mirror a UI feed onto another session; see
                 :class:`~agentscope.app._types.EventProjector`.
+            channel_runtime (`ChannelLifecycleDispatcher | None`, \
+optional):
+                The node's channel dispatcher, forwarded to
+                :func:`get_toolkit` so a channel-originated session's
+                agent gets that channel's platform tools.
         """
         self._storage = storage
         self._workspace_manager = workspace_manager
@@ -159,6 +169,7 @@ class ChatService:
         self._knowledge_base_manager = knowledge_base_manager
         self._extra_agent_middlewares = extra_agent_middlewares
         self._extra_agent_tools = extra_agent_tools
+        self._channel_runtime = channel_runtime
         self._sub_agent_templates = custom_subagent_templates
         self._agent_cls = custom_agent_cls or Agent
         self._projection = SessionProjection(message_bus)
@@ -414,28 +425,6 @@ class ChatService:
             inputs=UserInterruptEvent(reply_id=session.state.reply_id),
         )
 
-    async def _signal_channel_output(
-        self,
-        session_record: SessionRecord,
-        user_id: str,
-        session_id: str,
-        agent_id: str,
-    ) -> None:
-        """Signal the channel output forwarder for a channel-bound run."""
-        if (
-            session_record.source == SessionSource.CHANNEL
-            and session_record.source_channel_id
-            and session_record.source_chat_id
-        ):
-            await enqueue_channel_output(
-                self._message_bus,
-                session_id=session_id,
-                channel_id=session_record.source_channel_id,
-                chat_id=session_record.source_chat_id,
-                user_id=user_id,
-                agent_id=agent_id,
-            )
-
     @staticmethod
     def _skip_parked_wakeup(
         session_id: str,
@@ -492,7 +481,8 @@ class ChatService:
         )
         return True
 
-    async def _run_impl(  # pylint: disable=too-many-statements
+    async def _run_impl(
+        # pylint: disable=too-many-statements,too-many-branches
         self,
         user_id: str,
         session_id: str,
@@ -677,6 +667,7 @@ class ChatService:
                 resource_access_service=self._access,
                 extra_factory=self._extra_agent_tools,
                 sub_agent_templates=self._sub_agent_templates,
+                channel_runtime=self._channel_runtime,
             )
 
             # ----------------------------------------------------------------
@@ -744,12 +735,19 @@ class ChatService:
             # Channel-bound run: signal the output forwarder so the reply
             # is streamed back to the platform chat. Covers scheduled /
             # background wakes, not just inbound channel messages.
-            await self._signal_channel_output(
-                session_record,
-                user_id,
-                session_id,
-                agent_id,
-            )
+            if (
+                session_record.source == SessionSource.CHANNEL
+                and session_record.source_channel_id
+                and session_record.source_chat_id
+            ):
+                await enqueue_channel_output(
+                    self._message_bus,
+                    session_id=session_id,
+                    channel_id=session_record.source_channel_id,
+                    chat_id=session_record.source_chat_id,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                )
             reply_msg: Msg | None = None
             try:
                 if input_msg is None or isinstance(input_msg, (Msg, list)):

@@ -26,7 +26,8 @@ from ..message_bus import MessageBus, MessageBusKeys
 from ..storage import ChannelRecord, StorageBase
 from ._base import ChannelBase, ChannelEvent
 from ._config import RESPONSE_TIMEOUT_SECS
-from ._pending import PendingConfirm, save_pending
+from ._decision import resume_after_decision
+from ._pending import PendingConfirm
 
 _NO_TEXT_REPLY = "(Agent returned no text content)"
 _AGENT_ERROR_REPLY = (
@@ -147,7 +148,7 @@ class ChannelPresenter:
         # Dedup across nodes: the outbound queue drain is at-least-once
         # (every node hosting the channel drains it), so claim a per-run
         # lease first — only the winner forwards, the rest skip.
-        lock_key = f"agentscope:channel:forward:{job['session_id']}"
+        lock_key = MessageBusKeys.channel_forward_lease(job["session_id"])
         if not await self._bus.try_lock(
             lock_key,
             ttl_secs=int(RESPONSE_TIMEOUT_SECS) + 10,
@@ -331,22 +332,13 @@ class ChannelPresenter:
             ref=ref,
         )
         if ref is None:
-            # Platform cannot present a confirmation → auto-deny inline.
-            await self._auto_deny(adapter, pending)
+            # Platform cannot present the card → resume with a denial;
+            # no surface to ask means no approval.
+            await resume_after_decision(
+                self._bus,
+                adapter,
+                pending,
+                approved=False,
+            )
         else:
-            await save_pending(self._bus, req.id, pending)
-
-    async def _auto_deny(
-        self,
-        adapter: ChannelBase,
-        pending: PendingConfirm,
-    ) -> None:
-        """Resume the run with a denial when no UI can present the card."""
-        from ._decision import resume_after_decision
-
-        await resume_after_decision(
-            self._bus,
-            adapter,
-            pending,
-            approved=False,
-        )
+            await pending.save(self._bus, req.id)

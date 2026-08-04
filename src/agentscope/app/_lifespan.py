@@ -101,18 +101,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         app.state.resource_access_service = resource_access_service
 
-        # Channel-originated runs get their source channel's platform
-        # tools (send file to another user, list groups, ...) appended to
-        # the deployment's own ``extra_agent_tools``. The dispatcher that
-        # owns the local adapters is built further down, so the factory
-        # reads it lazily from ``app.state`` at run time.
-        from .channel import ChannelAgentToolFactory
+        # Channel wiring is built here (before ChatService) so the chat
+        # service can hand the dispatcher to get_toolkit: a session that
+        # came from a channel gets that channel's platform tools. The
+        # reconcile/heartbeat loops are still started later, via the
+        # dispatcher's lifespan context.
+        from .channel import (
+            ChannelGateway,
+            ChannelLifecycleDispatcher,
+            ChannelService,
+            ChannelTypeRegistry,
+        )
 
-        agent_tool_factory = ChannelAgentToolFactory(
+        channel_type_registry = ChannelTypeRegistry(
+            getattr(app.state, "channels", None),
+        )
+        channel_runtime = ChannelLifecycleDispatcher(
             storage=storage,
-            workspace_manager=workspace_manager,
-            get_runtime=lambda: getattr(app.state, "channel_runtime", None),
-            inner=app.state.extra_agent_tools,
+            message_bus=message_bus,
+            type_registry=channel_type_registry,
+            gateway=ChannelGateway(storage=storage, message_bus=message_bus),
+        )
+        app.state.channel_runtime = channel_runtime
+        app.state.channel_type_registry = channel_type_registry
+        app.state.channel_service = ChannelService(
+            storage=storage,
+            message_bus=message_bus,
+            type_registry=channel_type_registry,
         )
 
         chat_service = ChatService(
@@ -124,9 +139,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             resource_access_service=resource_access_service,
             knowledge_base_manager=knowledge_base_manager,
             extra_agent_middlewares=app.state.extra_agent_middlewares,
-            extra_agent_tools=agent_tool_factory,
+            extra_agent_tools=app.state.extra_agent_tools,
             custom_subagent_templates=app.state.custom_subagent_templates,
             custom_agent_cls=app.state.custom_agent_cls,
+            channel_runtime=channel_runtime,
         )
         app.state.chat_service = chat_service
 
@@ -213,35 +229,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ),
         )
 
-        # ---------------- Channel module wiring ----------------
-        from .channel import (
-            ChannelGateway,
-            ChannelLifecycleDispatcher,
-            ChannelService,
-            ChannelTypeRegistry,
-        )
-
-        channel_type_registry = ChannelTypeRegistry(
-            getattr(app.state, "channels", None),
-        )
-        channel_gateway = ChannelGateway(
-            storage=storage,
-            message_bus=message_bus,
-        )
-        channel_runtime = ChannelLifecycleDispatcher(
-            storage=storage,
-            message_bus=message_bus,
-            type_registry=channel_type_registry,
-            gateway=channel_gateway,
-        )
-        app.state.channel_service = ChannelService(
-            storage=storage,
-            message_bus=message_bus,
-            type_registry=channel_type_registry,
-        )
-        app.state.channel_runtime = channel_runtime
-        app.state.channel_type_registry = channel_type_registry
-
+        # Start the channel reconcile/heartbeat/outbound loops (the
+        # dispatcher itself was built above, before ChatService).
         await stack.enter_async_context(channel_runtime.lifespan())
 
         yield

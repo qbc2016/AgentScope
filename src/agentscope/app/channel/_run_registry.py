@@ -3,7 +3,7 @@
 
 A dumb container, mirroring :class:`ChatRunRegistry`: it only stores;
 :class:`ChannelLifecycleDispatcher` is the sole writer. Read by the
-status API and shutdown. See ``docs/design_channel_redesign.md`` §2.
+status API and shutdown.
 """
 import asyncio
 from dataclasses import dataclass

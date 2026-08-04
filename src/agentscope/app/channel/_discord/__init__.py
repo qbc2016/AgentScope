@@ -4,8 +4,8 @@
 discord.py is async-native and runs on the app event loop, so — unlike
 Feishu — there is no thread bridging: ``on_message`` and button callbacks
 ``await self._emit(...)`` directly. Confirmation is two-phase: a button
-click emits a ``ConfirmDecisionEvent`` and the gateway later resolves the
-message via :meth:`update_confirm`. See ``docs/design_channel_redesign.md``.
+click emits a ``ChannelConfirmationResultEvent`` and the gateway later
+resolves the message via :meth:`update_confirm`.
 
 Note: this adapter opens one gateway connection per node. Discord's own
 model expects one connection per shard; running many nodes for one bot
@@ -13,7 +13,7 @@ needs shard coordination, which is out of scope here.
 """
 import asyncio
 import base64
-from typing import Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -24,8 +24,11 @@ from .._base import (
     ChannelBase,
     ChannelCapability,
     ChannelEvent,
-    ConfirmDecisionEvent,
+    ChannelConfirmationResultEvent,
 )
+
+if TYPE_CHECKING:
+    import discord
 
 # Discord's hard limit is 2000 characters per message.
 _MAX_LEN = 2000
@@ -71,29 +74,31 @@ class DiscordChannel(ChannelBase):
         credentials: "DiscordChannel.Credentials",
         config: "DiscordChannel.Config",
     ) -> None:
+        """Read the bot token and options from the validated models."""
         self._channel_id = channel_id
         self._bot_token = credentials.bot_token
         self._only_at_reply = config.only_at_reply
-        self._client: Any = None
-        self._discord: Any = None
+        self._client: "discord.Client | None" = None
         self._stopped = False
 
     @property
     def channel_id(self) -> str:
+        """The unique channel instance identifier."""
         return self._channel_id
 
     # -- Lifecycle --
 
     async def on_start(self) -> None:
+        """Build the discord.py client and register the message handler."""
         import discord
 
-        self._discord = discord
         intents = discord.Intents.default()
         intents.message_content = True
         self._client = discord.Client(intents=intents)
 
         @self._client.event
-        async def on_message(message: Any) -> None:
+        async def on_message(message: "discord.Message") -> None:
+            """discord.py inbound-message hook."""
             await self._on_message(message)
 
     async def start_listening(self) -> None:
@@ -112,13 +117,15 @@ class DiscordChannel(ChannelBase):
             backoff = min(backoff * 2, 30.0)
 
     async def on_stop(self) -> None:
+        """Signal the loop to exit and close the client connection."""
         self._stopped = True
         if self._client:
             await self._client.close()
 
     # -- Inbound --
 
-    async def _on_message(self, message: Any) -> None:
+    async def _on_message(self, message: "discord.Message") -> None:
+        """Normalise an inbound message and emit it, ignoring our own."""
         if message.author.id == self._client.user.id:
             return  # ignore our own messages
         try:
@@ -131,7 +138,25 @@ class DiscordChannel(ChannelBase):
                 self._channel_id,
             )
 
-    async def _normalize(self, message: Any) -> ChannelEvent | None:
+    async def _normalize(
+        self,
+        message: "discord.Message",
+    ) -> ChannelEvent | None:
+        """Convert a discord.py message into a ``ChannelEvent``.
+
+        In a server channel with ``only_at_reply``, non-mentioning
+        messages are skipped; the bot mention is stripped from the text.
+        Attachments become ``DataBlock``\\ s.
+
+        Args:
+            message (`discord.Message`):
+                The inbound discord.py message.
+
+        Returns:
+            `ChannelEvent | None`:
+                The normalised event, or ``None`` when there is nothing
+                to act on (ignored mention / empty content).
+        """
         is_dm = message.guild is None
         me = self._client.user
         if not is_dm and self._only_at_reply and me not in message.mentions:
@@ -161,7 +186,20 @@ class DiscordChannel(ChannelBase):
             metadata={"chat_type": "dm" if is_dm else "guild"},
         )
 
-    async def _attachment_block(self, attachment: Any) -> DataBlock | None:
+    async def _attachment_block(
+        self,
+        attachment: "discord.Attachment",
+    ) -> DataBlock | None:
+        """Download an attachment into a base64 ``DataBlock`` (best-effort).
+
+        Args:
+            attachment (`discord.Attachment`):
+                The discord.py attachment to download.
+
+        Returns:
+            `DataBlock | None`:
+                The block, or ``None`` if the download failed.
+        """
         try:
             data = await attachment.read()
             return DataBlock(
@@ -183,6 +221,14 @@ class DiscordChannel(ChannelBase):
         event: ChannelEvent,
         content: list[TextBlock | DataBlock],
     ) -> None:
+        """Send the reply text to the originating channel, split if long.
+
+        Args:
+            event (`ChannelEvent`):
+                The inbound event, for its ``chat_id``.
+            content (`list[TextBlock | DataBlock]`):
+                Reply blocks; the text blocks are concatenated and sent.
+        """
         text = "".join(b.text for b in content if isinstance(b, TextBlock))
         if not text:
             return
@@ -197,6 +243,21 @@ class DiscordChannel(ChannelBase):
         event: ChannelEvent,
         req: RequireUserConfirmEvent,
     ) -> str | None:
+        """Post an approval message with allow/deny buttons.
+
+        Args:
+            event (`ChannelEvent`):
+                The inbound event, for its ``chat_id``.
+            req (`RequireUserConfirmEvent`):
+                The approval request; its ``id`` is embedded in the
+                buttons and its first tool call is shown.
+
+        Returns:
+            `str | None`:
+                A ``"{channel_id}:{message_id}"`` handle for
+                :meth:`update_confirm`, or ``None`` if the channel is
+                unreachable.
+        """
         channel = await self._channel(event.chat_id)
         if channel is None:
             return None
@@ -211,6 +272,15 @@ class DiscordChannel(ChannelBase):
         return f"{channel.id}:{message.id}"
 
     async def update_confirm(self, ref: str, outcome: str) -> None:
+        """Freeze the approval message to its resolved state.
+
+        Args:
+            ref (`str`):
+                The ``"{channel_id}:{message_id}"`` handle from
+                :meth:`present_confirm`.
+            outcome (`str`):
+                ``"approved"`` or ``"denied"``.
+        """
         channel_id, _, message_id = ref.partition(":")
         channel = await self._channel(channel_id)
         if channel is None:
@@ -223,6 +293,7 @@ class DiscordChannel(ChannelBase):
             logger.debug("Discord update_confirm failed")
 
     async def list_bot_chats(self) -> list[dict]:
+        """List every text channel the bot can see as ``{chat_id, name}``."""
         results: list[dict] = []
         for guild in self._client.guilds:
             for channel in guild.text_channels:
@@ -236,7 +307,20 @@ class DiscordChannel(ChannelBase):
 
     # -- Helpers --
 
-    async def _channel(self, chat_id: str) -> Any:
+    async def _channel(
+        self,
+        chat_id: str,
+    ) -> "discord.abc.Messageable | None":
+        """Resolve a channel id (from cache, then fetch) to a channel.
+
+        Args:
+            chat_id (`str`):
+                The Discord channel id as a string.
+
+        Returns:
+            `discord.abc.Messageable | None`:
+                The channel, or ``None`` if the id is malformed.
+        """
         try:
             cid = int(chat_id)
         except (TypeError, ValueError):
@@ -247,14 +331,24 @@ class DiscordChannel(ChannelBase):
             cid,
         )
 
-    def _build_view(self, request_id: str) -> Any:
-        """A two-button approval view; callbacks emit ConfirmDecisionEvent."""
-        # pylint: disable=protected-access
-        discord = self._discord
-        adapter = self
-        view_base = discord.ui.View
+    def _build_view(self, request_id: str) -> "discord.ui.View":
+        """Build a two-button approval view whose callbacks emit a
+        ``ChannelConfirmationResultEvent`` carrying ``request_id``.
 
-        class _ApprovalView(view_base):  # type: ignore[misc,valid-type]
+        Args:
+            request_id (`str`):
+                The opaque approval token to round-trip on click.
+
+        Returns:
+            `discord.ui.View`:
+                The allow/deny view to attach to the card message.
+        """
+        # pylint: disable=protected-access
+        import discord
+
+        adapter = self
+
+        class _ApprovalView(discord.ui.View):
             def __init__(self) -> None:
                 super().__init__(timeout=None)
 
@@ -262,13 +356,21 @@ class DiscordChannel(ChannelBase):
                 label="✅ 允许执行",
                 style=discord.ButtonStyle.green,
             )
-            async def approve(self, interaction: Any, _button: Any) -> None:
+            async def approve(
+                self,
+                interaction: "discord.Interaction",
+                _button: "discord.ui.Button",
+            ) -> None:
                 """Emit an approve decision."""
                 await interaction.response.defer()
                 await adapter._decide(request_id, True)
 
             @discord.ui.button(label="❌ 拒绝", style=discord.ButtonStyle.red)
-            async def deny(self, interaction: Any, _button: Any) -> None:
+            async def deny(
+                self,
+                interaction: "discord.Interaction",
+                _button: "discord.ui.Button",
+            ) -> None:
                 """Emit a deny decision."""
                 await interaction.response.defer()
                 await adapter._decide(request_id, False)
@@ -276,9 +378,17 @@ class DiscordChannel(ChannelBase):
         return _ApprovalView()
 
     async def _decide(self, request_id: str, approved: bool) -> None:
+        """Emit the click as a ``ChannelConfirmationResultEvent``.
+
+        Args:
+            request_id (`str`):
+                The opaque approval token echoed back from the button.
+            approved (`bool`):
+                The user's decision.
+        """
         if self._emit:
             await self._emit(
-                ConfirmDecisionEvent(
+                ChannelConfirmationResultEvent(
                     channel_id=self._channel_id,
                     request_id=request_id,
                     approved=approved,

@@ -102,7 +102,7 @@ class RedisStorage(StorageBase):
         # channel_id is a globally unique UUID, so the record lives at a
         # single global key. Indexes: per-user (management list),
         # all-channels (reconcile enumeration), bot-id (uniqueness /
-        # dedup). See docs/design_channel_redesign.md §5.
+        # dedup).
         channel: str = "agentscope:channel_record:{channel_id}"
         channel_index: str = "agentscope:user:{user_id}:channels"
         channel_all_index: str = "agentscope:channels"

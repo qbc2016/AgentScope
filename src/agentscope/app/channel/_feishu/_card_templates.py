@@ -2,8 +2,7 @@
 """Feishu interactive-card helpers for the tool-approval flow.
 
 The card round-trips only an opaque ``request_id`` (plus the click's
-approve/deny) — the gateway holds all business context. See
-``docs/design_channel_redesign.md`` §6.2.
+approve/deny) — the gateway holds all business context.
 """
 import json
 from typing import Any
@@ -13,16 +12,13 @@ APPROVE = "approve"
 DENY = "deny"
 
 
-def _truncate(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
 def build_approval_card(request_id: str, tool_name: str, summary: str) -> str:
     """Build the approval card (JSON string) for a pending tool call."""
     base = {"type": ACTION_TYPE, "request_id": request_id}
     body = f"**工具:** `{tool_name}`"
     if summary:
-        body += f"\n**参数:** {_truncate(summary, 800)}"
+        shown = summary if len(summary) <= 800 else summary[:799] + "…"
+        body += f"\n**参数:** {shown}"
     card = {
         "config": {"wide_screen_mode": True},
         "header": {

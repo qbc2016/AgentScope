@@ -21,12 +21,13 @@ from ..channel import (
     ChannelService,
     ChannelTypeRegistry,
 )
-from ..deps import get_current_user_id
+from ..deps import get_current_user_id, get_storage
 from ..storage import (
     ChannelRecord,
     ReplyPresentation,
     RoutingConfig,
     SessionSettings,
+    StorageBase,
 )
 
 channel_router = APIRouter(prefix="/channels", tags=["channels"])
@@ -134,9 +135,9 @@ def _to_response(
 async def _owned(
     channel_id: str,
     user_id: str,
-    service: ChannelService,
+    storage: StorageBase,
 ) -> ChannelRecord:
-    record = await service.get(channel_id)
+    record = await storage.get_channel(channel_id)
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Channel not found.")
     if record.user_id != user_id:
@@ -157,12 +158,12 @@ async def list_channel_types(
 
 @channel_router.get("/")
 async def list_channels(
-    service: ChannelService = Depends(_service),
+    storage: StorageBase = Depends(get_storage),
     registry: ChannelTypeRegistry = Depends(_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> list[ChannelResponse]:
     """List channels owned by the current user."""
-    records = await service.list_for_user(user_id)
+    records = await storage.list_channels(user_id)
     return [_to_response(r, registry) for r in records]
 
 
@@ -195,12 +196,12 @@ async def create_channel(
 @channel_router.get("/{channel_id}")
 async def get_channel(
     channel_id: str,
-    service: ChannelService = Depends(_service),
+    storage: StorageBase = Depends(get_storage),
     registry: ChannelTypeRegistry = Depends(_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
     """Get channel details."""
-    record = await _owned(channel_id, user_id, service)
+    record = await _owned(channel_id, user_id, storage)
     return _to_response(record, registry)
 
 
@@ -208,12 +209,13 @@ async def get_channel(
 async def update_channel(
     channel_id: str,
     body: UpdateChannelRequest,
+    storage: StorageBase = Depends(get_storage),
     service: ChannelService = Depends(_service),
     registry: ChannelTypeRegistry = Depends(_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
     """Update routing / session / presentation / enabled."""
-    await _owned(channel_id, user_id, service)
+    await _owned(channel_id, user_id, storage)
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(
@@ -233,22 +235,24 @@ async def update_channel(
 )
 async def delete_channel(
     channel_id: str,
+    storage: StorageBase = Depends(get_storage),
     service: ChannelService = Depends(_service),
     user_id: str = Depends(get_current_user_id),
 ) -> None:
     """Delete a channel."""
-    await _owned(channel_id, user_id, service)
+    await _owned(channel_id, user_id, storage)
     await service.delete(channel_id)
 
 
 @channel_router.post("/{channel_id}/enable")
 async def enable_channel(
     channel_id: str,
+    storage: StorageBase = Depends(get_storage),
     service: ChannelService = Depends(_service),
     user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Enable a channel."""
-    await _owned(channel_id, user_id, service)
+    await _owned(channel_id, user_id, storage)
     await service.set_enabled(channel_id, True)
     return {"status": "enabled"}
 
@@ -256,11 +260,12 @@ async def enable_channel(
 @channel_router.post("/{channel_id}/disable")
 async def disable_channel(
     channel_id: str,
+    storage: StorageBase = Depends(get_storage),
     service: ChannelService = Depends(_service),
     user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Disable a channel."""
-    await _owned(channel_id, user_id, service)
+    await _owned(channel_id, user_id, storage)
     await service.set_enabled(channel_id, False)
     return {"status": "disabled"}
 
@@ -268,24 +273,24 @@ async def disable_channel(
 @channel_router.get("/{channel_id}/status")
 async def channel_status(
     channel_id: str,
-    service: ChannelService = Depends(_service),
+    storage: StorageBase = Depends(get_storage),
     runtime: ChannelLifecycleDispatcher = Depends(_runtime),
     user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Aggregated multi-node runtime status."""
-    await _owned(channel_id, user_id, service)
+    await _owned(channel_id, user_id, storage)
     return await runtime.get_status(channel_id)
 
 
 @channel_router.get("/{channel_id}/chat_ids")
 async def list_chat_ids(
     channel_id: str,
-    service: ChannelService = Depends(_service),
+    storage: StorageBase = Depends(get_storage),
     runtime: ChannelLifecycleDispatcher = Depends(_runtime),
     user_id: str = Depends(get_current_user_id),
 ) -> list[dict]:
     """Known chats for routing config: platform list ∪ passively seen."""
-    await _owned(channel_id, user_id, service)
+    await _owned(channel_id, user_id, storage)
     results: list[dict] = []
     platform_ids: set[str] = set()
     for chat in await runtime.list_bot_chats(channel_id):
