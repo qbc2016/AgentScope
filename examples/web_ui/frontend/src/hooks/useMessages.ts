@@ -211,7 +211,7 @@ export function useMessages(
 				if (transcript) {
 					const userMsg = UserMsg({
 						name: 'user',
-						content: [{ id: crypto.randomUUID(), type: 'text', text: transcript }],
+						content: transcript,
 					});
 					const cur = currentReplyRef.current;
 					if (cur) {

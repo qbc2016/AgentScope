@@ -1042,11 +1042,11 @@ class RealtimeAgent:
             )
             # Surface the error to the client as a HintBlock so users
             # can see what went wrong without checking server logs.
-            active_reply_id = (
-                self.state.reply_id
-                if self.state.reply_id in self._started_responses
-                else next(iter(self._started_responses), None)
-            )
+            active_reply_id: str | None = None
+            if self.state.reply_id in self._started_responses:
+                active_reply_id = self.state.reply_id
+            elif self._started_responses:
+                active_reply_id = next(iter(self._started_responses))
             reply_id = active_reply_id or uuid.uuid4().hex
             events: list[AgentEvent] = self._ensure_reply_started(reply_id)
             events.extend(self._close_text_block(reply_id))
