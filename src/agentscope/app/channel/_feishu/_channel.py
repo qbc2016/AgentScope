@@ -140,6 +140,7 @@ class FeishuChannel(ChannelBase):
         self._only_at_reply = config.only_at_reply
         self._http: "httpx.AsyncClient | None" = None
         self._token: str | None = None
+        self._bot_open_id: str | None = None
         self._ws_thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -172,6 +173,8 @@ class FeishuChannel(ChannelBase):
         self._http = httpx.AsyncClient(timeout=30.0)
         try:
             await self._refresh_token()
+            info = await self._api("GET", f"{_API}/bot/v3/info")
+            self._bot_open_id = (info or {}).get("bot", {}).get("open_id")
             backoff = 1.0
             while not self._stop.is_set():
                 self._ws_thread = self._launch_ws_thread()
@@ -368,8 +371,9 @@ class FeishuChannel(ChannelBase):
         )
 
     def _gated_out(self, message: "EventMessage", chat_type: str) -> bool:
-        """Whether a group message is dropped by ``only_at_reply`` (no
-        mention present).
+        """Whether a group message is dropped by ``only_at_reply`` — kept
+        only when the bot itself is @mentioned (mentions of other members
+        do not count).
 
         Args:
             message (`EventMessage`): The inbound message.
@@ -381,6 +385,13 @@ class FeishuChannel(ChannelBase):
         if chat_type != "group" or not self._only_at_reply:
             return False
         mentions = message.mentions or []
+        if self._bot_open_id:
+            return not any(
+                getattr(getattr(m, "id", None), "open_id", "")
+                == self._bot_open_id
+                for m in mentions
+            )
+        # Bot id unknown (info fetch failed) → any mention present.
         return not mentions and "@_user_" not in (message.content or "")
 
     async def _parse_post(

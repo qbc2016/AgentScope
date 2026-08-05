@@ -18,11 +18,6 @@ from pydantic import BaseModel, Field, field_validator
 from ....permission import PermissionMode
 
 
-CHANNEL_ALLOWED_PERMISSION_MODES = frozenset(
-    {PermissionMode.DEFAULT, PermissionMode.DONT_ASK, PermissionMode.BYPASS},
-)
-
-
 class SessionScope(str, Enum):
     """How inbound messages are grouped into agent sessions.
 
@@ -125,22 +120,13 @@ class SessionSettings(BaseModel):
     permission_mode: str = PermissionMode.DEFAULT.value
     """Permission mode for channel sessions. Defaults to ``default`` so a
     tool needing approval surfaces the confirmation card rather than being
-    auto-denied. Only ``default``, ``dont_ask``, ``bypass`` are allowed —
-    modes like ``accept_edits`` and ``explore`` target local IDE
-    interactions."""
+    auto-denied. Any :class:`PermissionMode` is accepted — the engine
+    resolves every mode server-side and the ASK path maps to the card."""
 
     @field_validator("permission_mode")
     @classmethod
     def _validate_permission_mode(cls, v: str) -> str:
-        mode = PermissionMode(v)
-        if mode not in CHANNEL_ALLOWED_PERMISSION_MODES:
-            allowed = ", ".join(
-                m.value for m in CHANNEL_ALLOWED_PERMISSION_MODES
-            )
-            raise ValueError(
-                f"Permission mode '{v}' is not allowed for channels. "
-                f"Allowed modes: {allowed}",
-            )
+        PermissionMode(v)  # reject values outside the enum
         return v
 
 

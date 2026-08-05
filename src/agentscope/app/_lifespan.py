@@ -113,23 +113,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ChannelLifecycleDispatcher,
         )
 
+        # Only wire the channel subsystem when channel types are
+        # registered — otherwise the dispatcher's reconcile would hit
+        # storage backends that don't implement channel methods.
         channel_type_registry = app.state.channel_type_registry
-        channel_dispatcher = ChannelLifecycleDispatcher(
-            storage=storage,
-            message_bus=message_bus,
-            type_registry=channel_type_registry,
-            gateway=ChannelGateway(
+        channel_dispatcher = None
+        if channel_type_registry:
+            channel_dispatcher = ChannelLifecycleDispatcher(
                 storage=storage,
                 message_bus=message_bus,
-                workspace_manager=workspace_manager,
-            ),
-        )
+                type_registry=channel_type_registry,
+                gateway=ChannelGateway(
+                    storage=storage,
+                    message_bus=message_bus,
+                    workspace_manager=workspace_manager,
+                ),
+            )
+            app.state.channel_service = ChannelService(
+                storage=storage,
+                message_bus=message_bus,
+                type_registry=channel_type_registry,
+            )
         app.state.channel_dispatcher = channel_dispatcher
-        app.state.channel_service = ChannelService(
-            storage=storage,
-            message_bus=message_bus,
-            type_registry=channel_type_registry,
-        )
 
         chat_service = ChatService(
             storage=storage,
@@ -231,7 +236,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
 
         # Start the channel reconcile/heartbeat/outbound loops (the
-        # dispatcher itself was built above, before ChatService).
-        await stack.enter_async_context(channel_dispatcher.lifespan())
+        # dispatcher itself was built above, before ChatService) — only
+        # when the channel subsystem is enabled.
+        if channel_dispatcher is not None:
+            await stack.enter_async_context(channel_dispatcher.lifespan())
 
         yield

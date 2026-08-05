@@ -38,6 +38,8 @@ from ._routing import resolve
 
 # How long a media-only message waits for its accompanying text message.
 _MEDIA_BUFFER_TTL_SECS = 300
+# Max buffered attachments carried into one text message.
+_MEDIA_BUFFER_MAX = 9
 
 
 class ChannelGateway:
@@ -96,7 +98,7 @@ class ChannelGateway:
             event (`ChannelConfirmationResultEvent`): The click decision.
         """
         record = await self._storage.get_channel(event.channel_id)
-        if record is None:
+        if record is None or not record.enabled:
             return
         agent_id, session_id = resolve(
             ChannelEvent(
@@ -129,6 +131,8 @@ class ChannelGateway:
         if record is None:
             logger.error("No channel record for %s", event.channel_id)
             return
+        if not record.enabled:
+            return  # stale event from a since-disabled channel
 
         agent_id, session_id = resolve(event, record)
         if event.chat_id:
@@ -198,7 +202,7 @@ class ChannelGateway:
                         ttl_secs=_MEDIA_BUFFER_TTL_SECS,
                     )
             return None
-        entries = await self._bus.queue_drain(key)
+        entries = await self._bus.queue_drain(key, max_count=_MEDIA_BUFFER_MAX)
         buffered = [DataBlock.model_validate(p) for _id, p in entries]
         return [*buffered, *event.content]
 
@@ -240,7 +244,7 @@ class ChannelGateway:
             fallback_chat_model_config=(
                 ChatModelConfig(**fallback) if fallback else None
             ),
-            name=f"channel:{record.id}:{agent_id}",
+            name=f"{record.channel_type}:{chat_id}",
         )
         initial_state = AgentState(
             permission_context=PermissionContext(

@@ -51,6 +51,10 @@ class ChannelTypeRegistry:
         for channel_cls in channels or []:
             self.register(channel_cls)
 
+    def __bool__(self) -> bool:
+        """Whether any channel type is registered (feature enabled)."""
+        return bool(self._classes)
+
     def register(self, channel_cls: type["ChannelBase"]) -> None:
         """Register a channel class under its ``channel_type``.
 
