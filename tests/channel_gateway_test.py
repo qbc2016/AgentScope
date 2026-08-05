@@ -24,6 +24,7 @@ from agentscope.app.storage import (
     ChannelRecord,
     ReplyPresentation,
     RoutingConfig,
+    SessionScope,
     SessionSettings,
 )
 from agentscope.app.workspace_manager import (
@@ -339,13 +340,23 @@ class WorkspaceIsolationTest(IsolatedAsyncioTestCase):
             _channel_record("user-a"),
             "agent-x",
             "s-a",
-            "chat-a",
+            ChannelEvent(
+                channel_id="c",
+                channel_user_id="u",
+                chat_id="chat-a",
+            ),
+            SessionScope.PER_CHAT,
         )
         await gw._ensure_session(
             _channel_record("user-b"),
             "agent-x",
             "s-b",
-            "chat-b",
+            ChannelEvent(
+                channel_id="c",
+                channel_user_id="u",
+                chat_id="chat-b",
+            ),
+            SessionScope.PER_CHAT,
         )
         self.assertEqual(len(storage.workspace_ids), 2)
         # Different owners must not alias the same workspace.

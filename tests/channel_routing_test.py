@@ -52,7 +52,7 @@ class ChannelRoutingTest(TestCase):
         rec = _record(
             [ChannelBinding(match_value="*", agent_id="general")],
         )
-        agent_id, session_id = resolve(_event(), rec)
+        agent_id, session_id, _ = resolve(_event(), rec)
         self.assertEqual(agent_id, "general")
         self.assertTrue(session_id)
 
@@ -83,7 +83,7 @@ class ChannelRoutingTest(TestCase):
                 ChannelBinding(match_value="*", agent_id="general"),
             ],
         )
-        agent_id, _ = resolve(
+        agent_id, _, _ = resolve(
             _event(metadata={"chat_type": "p2p"}),
             rec,
         )

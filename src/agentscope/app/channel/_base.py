@@ -66,6 +66,10 @@ class ChannelEvent(BaseModel):
     """Platform-side chat/group identifier. Drives session grouping and
     routing-rule matching."""
 
+    chat_name: str = ""
+    """Human-readable chat/group title, when the channel can provide it
+    cheaply; used to name the derived session."""
+
     channel_message_id: str | None = None
     """Platform-side message id, for reply referencing."""
 

@@ -74,19 +74,16 @@ def _build_approval_card(
     return json.dumps(card, ensure_ascii=False)
 
 
-def _build_resolved_card(outcome: str) -> str:
-    """Build the post-decision card that replaces the approval card.
+def _resolved_card(approved: bool) -> dict:
+    """Build the post-decision card object that replaces the approval card.
 
     Args:
-        outcome (`str`):
-            ``"approved"`` or ``"denied"`` — selects the card's colour
-            and text.
+        approved (`bool`): The decision, selecting the colour and text.
 
     Returns:
-        `str`: The card as a JSON string.
+        `dict`: The card object (schema 1.0).
     """
-    approved = outcome == "approved"
-    card = {
+    return {
         "config": {"wide_screen_mode": True},
         "header": {
             "template": "green" if approved else "red",
@@ -106,7 +103,6 @@ def _build_resolved_card(outcome: str) -> str:
             },
         ],
     }
-    return json.dumps(card, ensure_ascii=False)
 
 
 def _parse_action(value: Any) -> tuple[str, str, bool] | None:
@@ -137,7 +133,10 @@ def _parse_action(value: Any) -> tuple[str, str, bool] | None:
 
 
 def _build_toast(approved: bool) -> Any:
-    """Build the synchronous card-callback response (a toast).
+    """Build a toast-only card-callback response (no card update).
+
+    Used for clicks we cannot act on (e.g. an unparseable button), where
+    the card should stay as-is.
 
     Args:
         approved (`bool`):
@@ -148,15 +147,52 @@ def _build_toast(approved: bool) -> Any:
             A ``P2CardActionTriggerResponse`` when lark_oapi is
             importable, else a plain dict with the same shape.
     """
-    toast = {
+    return _wrap_response({"toast": _toast(approved)})
+
+
+def _build_action_response(approved: bool) -> Any:
+    """Build the card-callback response for a decision: a toast plus the
+    resolved card, so Feishu updates the clicked card in place — no
+    separate, rate-limit-racing PATCH.
+
+    Args:
+        approved (`bool`): The decision, selecting toast and card.
+
+    Returns:
+        `Any`: A ``P2CardActionTriggerResponse`` (or dict fallback).
+    """
+    return _wrap_response(
+        {
+            "toast": _toast(approved),
+            "card": {"type": "raw", "data": _resolved_card(approved)},
+        },
+    )
+
+
+def _toast(approved: bool) -> dict:
+    """The toast payload for a decision.
+
+    Args:
+        approved (`bool`): The decision, selecting style and text.
+    """
+    return {
         "type": "success" if approved else "info",
         "content": "Allowed" if approved else "Denied",
     }
+
+
+def _wrap_response(body: dict) -> Any:
+    """Wrap a response body in ``P2CardActionTriggerResponse`` when the
+    SDK is importable, else return the plain dict.
+
+    Args:
+        body (`dict`): The callback response body (``toast`` / ``card``).
+    """
     try:
         from lark_oapi.event.callback.model.p2_card_action_trigger import (
             P2CardActionTriggerResponse,
         )
 
-        return P2CardActionTriggerResponse({"toast": toast})
+        return P2CardActionTriggerResponse(body)
     except (ImportError, AttributeError):
-        return {"toast": toast}
+        return body

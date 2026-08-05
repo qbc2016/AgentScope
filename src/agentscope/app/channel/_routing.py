@@ -38,8 +38,11 @@ def _binding_matches(event: ChannelEvent, binding: ChannelBinding) -> bool:
     return value == binding.match_value
 
 
-def resolve(event: ChannelEvent, record: ChannelRecord) -> tuple[str, str]:
-    """Resolve an event to ``(agent_id, session_id)`` via the first
+def resolve(
+    event: ChannelEvent,
+    record: ChannelRecord,
+) -> tuple[str, str, SessionScope]:
+    """Resolve an event to ``(agent_id, session_id, scope)`` via the first
     matching binding and a stable id from ``(channel, agent, scope_key)``.
 
     Args:
@@ -47,7 +50,7 @@ def resolve(event: ChannelEvent, record: ChannelRecord) -> tuple[str, str]:
         record (`ChannelRecord`): The channel's configuration.
 
     Returns:
-        `tuple[str, str]`: ``(agent_id, session_id)``.
+        `tuple[str, str, SessionScope]`: ``(agent_id, session_id, scope)``.
     """
     binding = record.routing.bindings[-1]
     for candidate in record.routing.bindings:
@@ -68,4 +71,4 @@ def resolve(event: ChannelEvent, record: ChannelRecord) -> tuple[str, str]:
             f"{record.id}:{binding.agent_id}:{scope_key}",
         ),
     )
-    return binding.agent_id, session_id
+    return binding.agent_id, session_id, binding.session_scope

@@ -820,6 +820,18 @@ optional):
                     elif input_msg:
                         reply_msg.append_event(input_msg)
 
+                    # Broadcast the applied decision so observers that
+                    # didn't make it (other tabs, the channel card) close it.
+                    if isinstance(
+                        input_msg,
+                        (UserConfirmResultEvent, ExternalExecutionResultEvent),
+                    ):
+                        await publish_session_event(
+                            self._message_bus,
+                            session_id,
+                            input_msg.model_dump(mode="json"),
+                        )
+
                     # Emit a synthetic REPLY_START so SSE subscribers
                     # (frontend, channel gateway) can detect the
                     # continuation without requiring special handling.

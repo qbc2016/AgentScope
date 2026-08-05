@@ -32,8 +32,8 @@ from .._base import (
     _EVENT_ADAPTER,
 )
 from ._card_templates import (
+    _build_action_response,
     _build_approval_card,
-    _build_resolved_card,
     _build_toast,
     _parse_action,
 )
@@ -148,6 +148,7 @@ class FeishuChannel(ChannelBase):
         # unblock lark's otherwise-forever ``client.start()``.
         self._ws_loop: asyncio.AbstractEventLoop | None = None
         self._stream_seq: dict[str, int] = {}
+        self._chat_name_cache: dict[str, str] = {}
 
     @property
     def channel_id(self) -> str:
@@ -380,10 +381,28 @@ class FeishuChannel(ChannelBase):
             channel_id=self._channel_id,
             channel_user_id=user_id,
             chat_id=chat_id,
+            chat_name=await self._chat_name(chat_id, chat_type),
             channel_message_id=message_id,
             content=content,
             metadata=meta,
         )
+
+    async def _chat_name(self, chat_id: str, chat_type: str) -> str:
+        """The group's title (cached per chat); empty for non-groups.
+
+        Args:
+            chat_id (`str`): The chat to look up.
+            chat_type (`str`): ``"group"`` / ``"p2p"`` / etc.
+        """
+        if chat_type != "group" or not chat_id:
+            return ""
+        if chat_id not in self._chat_name_cache:
+            data = await self._api("GET", f"{_API}/im/v1/chats/{chat_id}")
+            self._chat_name_cache[chat_id] = (data or {}).get("data", {}).get(
+                "name",
+                "",
+            ) or ""
+        return self._chat_name_cache[chat_id]
 
     def _gated_out(self, message: "EventMessage", chat_type: str) -> bool:
         """Whether a group message is dropped by ``only_at_reply`` — kept
@@ -484,9 +503,7 @@ class FeishuChannel(ChannelBase):
             return _build_toast(False)
         tool_call_id, chat_id, approved = parsed
         operator = getattr(data.event, "operator", None)
-        context = getattr(data.event, "context", None)
         user_id = getattr(operator, "open_id", "") or ""
-        message_id = getattr(context, "open_message_id", None)
         if self._emit:
             asyncio.run_coroutine_threadsafe(
                 self._emit(
@@ -500,12 +517,9 @@ class FeishuChannel(ChannelBase):
                 ),
                 loop,
             )
-        if message_id:
-            asyncio.run_coroutine_threadsafe(
-                self._freeze_card(message_id, approved),
-                loop,
-            )
-        return _build_toast(approved)
+        # Update the clicked card in place via the callback response —
+        # reliable even while the approved run floods the card API.
+        return _build_action_response(approved)
 
     # -- Outbound (gateway → platform) --
 
@@ -597,6 +611,7 @@ class FeishuChannel(ChannelBase):
         """
         if ref is not None:
             await self._card_push(ref, text)
+            await self._close_stream(ref)
             self._stream_seq.pop(ref, None)
         elif text:
             for part in self._split_long_message(text):
@@ -673,6 +688,23 @@ class FeishuChannel(ChannelBase):
             {"content": text, "sequence": seq},
         )
 
+    async def _close_stream(self, card_id: str) -> None:
+        """End streaming mode so the card stops showing "generating…".
+
+        Args:
+            card_id (`str`): The streaming card to finalise.
+        """
+        seq = self._stream_seq.get(card_id, 0) + 1
+        self._stream_seq[card_id] = seq
+        await self._api(
+            "PATCH",
+            f"{_API}/cardkit/v1/cards/{card_id}/settings",
+            {
+                "settings": json.dumps({"config": {"streaming_mode": False}}),
+                "sequence": seq,
+            },
+        )
+
     async def _present_confirm(
         self,
         event: ChannelEvent,
@@ -697,24 +729,6 @@ class FeishuChannel(ChannelBase):
                     str(tool.input)[:800],
                 ),
             )
-
-    async def _freeze_card(self, message_id: str, approved: bool) -> None:
-        """Replace an approval card with its resolved state on click.
-
-        Args:
-            message_id (`str`): The card message to replace.
-            approved (`bool`): The decision, selecting colour and text.
-        """
-        await self._api(
-            "PATCH",
-            f"{_API}/im/v1/messages/{message_id}",
-            {
-                "msg_type": "interactive",
-                "content": _build_resolved_card(
-                    "approved" if approved else "denied",
-                ),
-            },
-        )
 
     async def send_reaction(
         self,

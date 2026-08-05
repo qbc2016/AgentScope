@@ -28,6 +28,7 @@ from ..storage import (
     ChannelRecord,
     ChatModelConfig,
     SessionConfig,
+    SessionScope,
     SessionSource,
     StorageBase,
 )
@@ -100,7 +101,7 @@ class ChannelGateway:
         record = await self._storage.get_channel(event.channel_id)
         if record is None or not record.enabled:
             return
-        agent_id, session_id = resolve(
+        agent_id, session_id, _ = resolve(
             ChannelEvent(
                 channel_id=event.channel_id,
                 channel_user_id=event.channel_user_id,
@@ -134,7 +135,7 @@ class ChannelGateway:
         if not record.enabled:
             return  # stale event from a since-disabled channel
 
-        agent_id, session_id = resolve(event, record)
+        agent_id, session_id, scope = resolve(event, record)
         if event.chat_id:
             await self._bus.registry_set(
                 MessageBusKeys.channel_seen_chats(event.channel_id),
@@ -165,7 +166,7 @@ class ChannelGateway:
             )
             return
 
-        await self._ensure_session(record, agent_id, session_id, event.chat_id)
+        await self._ensure_session(record, agent_id, session_id, event, scope)
         # Deliver as a genuine user turn; the run's output is streamed
         # back by the dispatcher's forward loop, not collected here.
         await enqueue_run_trigger(
@@ -213,7 +214,8 @@ class ChannelGateway:
         record: ChannelRecord,
         agent_id: str,
         session_id: str,
-        chat_id: str,
+        event: ChannelEvent,
+        scope: SessionScope,
     ) -> None:
         """Create the derived session if absent (idempotent across nodes).
 
@@ -221,7 +223,8 @@ class ChannelGateway:
             record (`ChannelRecord`): The owning channel record.
             agent_id (`str`): The resolved target agent.
             session_id (`str`): The derived session id.
-            chat_id (`str`): The originating platform chat.
+            event (`ChannelEvent`): The originating message.
+            scope (`SessionScope`): How the session is grouped.
         """
         existing = await self._storage.get_session(
             user_id=record.user_id,
@@ -244,7 +247,7 @@ class ChannelGateway:
             fallback_chat_model_config=(
                 ChatModelConfig(**fallback) if fallback else None
             ),
-            name=f"{record.channel_type}:{chat_id}",
+            name=self._session_name(record, event, scope),
         )
         initial_state = AgentState(
             permission_context=PermissionContext(
@@ -258,6 +261,28 @@ class ChannelGateway:
             state=initial_state,
             session_id=session_id,
             source=SessionSource.CHANNEL,
-            source_chat_id=chat_id,
+            source_chat_id=event.chat_id,
             source_channel_id=record.id,
         )
+
+    @staticmethod
+    def _session_name(
+        record: ChannelRecord,
+        event: ChannelEvent,
+        scope: SessionScope,
+    ) -> str:
+        """Compact, human-readable session name, e.g. ``Feishu/产品群/张三``.
+
+        Args:
+            record (`ChannelRecord`): The owning channel record.
+            event (`ChannelEvent`): The originating message.
+            scope (`SessionScope`): How the session is grouped.
+        """
+        platform = record.channel_type.capitalize()
+        where = event.chat_name or event.channel_user_name or event.chat_id
+        parts = [platform, where]
+        if scope is SessionScope.PER_CHAT_USER:
+            who = event.channel_user_name or event.channel_user_id
+            if who and who != where:
+                parts.append(who)
+        return "/".join(p for p in parts if p)
