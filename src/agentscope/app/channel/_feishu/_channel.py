@@ -144,6 +144,9 @@ class FeishuChannel(ChannelBase):
         self._ws_thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
+        # The WS thread's own loop, captured so teardown can stop it and
+        # unblock lark's otherwise-forever ``client.start()``.
+        self._ws_loop: asyncio.AbstractEventLoop | None = None
         self._stream_seq: dict[str, int] = {}
 
     @property
@@ -193,6 +196,16 @@ class FeishuChannel(ChannelBase):
                 await asyncio.sleep(backoff)
         finally:
             self._stop.set()
+            # Stop the WS thread's loop so lark's ``client.start()`` (parked
+            # forever on ``run_until_complete(_select())``) returns; without
+            # this the daemon thread lingers and keeps delivering events
+            # after the channel is disabled/updated.
+            ws_loop = self._ws_loop
+            if ws_loop is not None:
+                try:
+                    ws_loop.call_soon_threadsafe(ws_loop.stop)
+                except RuntimeError:
+                    pass  # loop already closed
             if self._ws_thread and self._ws_thread.is_alive():
                 self._ws_thread.join(timeout=5.0)
             if self._http:
@@ -260,7 +273,9 @@ class FeishuChannel(ChannelBase):
                 # this thread its own loop + a proxy so bots don't share it.
                 import lark_oapi.ws.client as _ws_client
 
-                asyncio.set_event_loop(asyncio.new_event_loop())
+                thread_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(thread_loop)
+                self._ws_loop = thread_loop
                 _ws_client.loop = _THREAD_LOOP_PROXY
                 client.start()  # blocks on this thread's loop until closed
             except Exception:  # pylint: disable=broad-except
