@@ -15,12 +15,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type {
-	AgentType,
-	ChatModelConfig,
-	SessionKnowledgeConfig,
-	TTSModelConfig,
-} from '@/api';
+import type { AgentType, ChatModelConfig, SessionKnowledgeConfig, TTSModelConfig } from '@/api';
 import { sessionApi } from '@/api';
 import MCPSvg from '@/assets/images/mcp.svg?react';
 import { ChatContent } from '@/components/chat/ChatContent.tsx';
@@ -283,6 +278,7 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 		sendAudio,
 		sendConfirm,
 		sendContent,
+		sendInterrupt,
 	} = useRealtimeSession(agentId, sessionId, voiceMode, processEvent);
 	useMicrophone(sendAudio, voiceMode && realtimeConnected && micEnabled);
 
@@ -296,7 +292,8 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 			replyId: string,
 			rules?: ToolCallBlock['suggested_rules'],
 		) => {
-			if (voiceMode && realtimeConnected) {
+			if (agentType === 'realtime') {
+				if (!voiceMode || !realtimeConnected) return;
 				const event = {
 					type: EventType.USER_CONFIRM_RESULT,
 					id: crypto.randomUUID(),
@@ -312,14 +309,15 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 				await onUserConfirm(toolCall, confirm, replyId, rules);
 			}
 		},
-		[voiceMode, realtimeConnected, sendConfirm, processEvent, onUserConfirm],
+		[agentType, voiceMode, realtimeConnected, sendConfirm, processEvent, onUserConfirm],
 	);
 
-	/** Send handler: routes through WebSocket when voice mode is
-	 *  active, otherwise falls back to the HTTP/SSE chat path. */
+	/** Send handler: realtime agents only use their active WebSocket;
+	 *  regular agents use the HTTP/SSE chat path. */
 	const handleSend = useCallback(
 		(content: ContentBlock[]) => {
-			if (voiceMode && realtimeConnected) {
+			if (agentType === 'realtime') {
+				if (!voiceMode || !realtimeConnected) return;
 				const userMsg = UserMsg({ name: 'user', content });
 				appendLocalMsg(userMsg);
 				sendContent(content);
@@ -327,8 +325,16 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 				send(content);
 			}
 		},
-		[voiceMode, realtimeConnected, appendLocalMsg, sendContent, send],
+		[agentType, voiceMode, realtimeConnected, appendLocalMsg, sendContent, send],
 	);
+
+	const handleInterrupt = useCallback(() => {
+		if (agentType === 'realtime') {
+			void interrupt(sendInterrupt);
+		} else {
+			void interrupt();
+		}
+	}, [agentType, interrupt, sendInterrupt]);
 
 	const handleToggleVoiceMode = useCallback(() => {
 		setVoiceMode((prev) => {
@@ -783,11 +789,17 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 											variant={voiceMode ? 'default' : 'ghost'}
 											onClick={handleToggleVoiceMode}
 											disabled={
-												!sessionId || phase !== 'idle' || !selectedRealtimeModel
+												!sessionId ||
+												phase !== 'idle' ||
+												!selectedRealtimeModel
 											}
 											aria-label={t('voiceMode.toggle')}
 										>
-											{voiceMode ? <Mic className="size-4" /> : <MicOff className="size-4" />}
+											{voiceMode ? (
+												<Mic className="size-4" />
+											) : (
+												<MicOff className="size-4" />
+											)}
 										</Button>
 									)}
 									<PermissionModeSelect
@@ -861,12 +873,14 @@ export function ChatViewport({ agentId, sessionId, agentType, onTeamUpdated }: C
 									phase={phase}
 									disabled={
 										agentType === 'realtime'
-											? selectedRealtimeModel === null
+											? selectedRealtimeModel === null ||
+												!voiceMode ||
+												!realtimeConnected
 											: selectedModel === null
 									}
 									onSend={handleSend}
 									onUserConfirm={handleUserConfirm}
-									onInterrupt={interrupt}
+									onInterrupt={handleInterrupt}
 									footerSlot={
 										subagentHitl.length > 0 ? (
 											<SubagentHitlCard

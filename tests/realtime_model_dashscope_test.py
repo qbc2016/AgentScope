@@ -8,6 +8,7 @@ and parse_api_message for various WebSocket frame types.
 # pylint: disable=protected-access
 import json
 from unittest.async_case import IsolatedAsyncioTestCase
+from unittest.mock import AsyncMock
 
 from agentscope.message import TextBlock, ToolResultBlock
 from agentscope.realtime import ModelEvents, DashScopeRealtimeModel
@@ -69,6 +70,49 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
                 "threshold": 0.5,
                 "silence_duration_ms": 800,
             },
+        )
+
+    async def test_custom_http_base_requires_realtime_base(self) -> None:
+        """A compatible HTTP endpoint is not assumed realtime-capable."""
+        credential = DashScopeCredential(
+            api_key="third-party-key",
+            base_url="https://compatible.example/v1",
+        )
+        self.assertFalse(credential.supports_realtime())
+        self.assertEqual(credential.list_available_realtime_models(), [])
+        with self.assertRaisesRegex(ValueError, "realtime_base_url"):
+            DashScopeRealtimeModel(
+                "qwen3-omni-flash-realtime",
+                credential,
+            )
+
+    async def test_custom_realtime_base_is_used(self) -> None:
+        """An explicit realtime endpoint receives the model query."""
+        credential = DashScopeCredential(
+            api_key="third-party-key",
+            base_url="https://compatible.example/v1",
+            realtime_base_url="wss://compatible.example/realtime",
+        )
+        model = DashScopeRealtimeModel(
+            "qwen3-omni-flash-realtime",
+            credential,
+        )
+        self.assertEqual(
+            model.websocket_url,
+            "wss://compatible.example/realtime?"
+            "model=qwen3-omni-flash-realtime",
+        )
+
+    async def test_cancel_response_uses_in_session_frame(self) -> None:
+        """Stop does not close a DashScope realtime WebSocket."""
+        model = _make_model()
+        model._websocket = AsyncMock()
+        model._response_id = "resp_1"
+
+        await model.cancel_response()
+
+        model._websocket.send.assert_awaited_once_with(
+            json.dumps({"type": "response.cancel"}),
         )
 
 

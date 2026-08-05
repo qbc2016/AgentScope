@@ -9,6 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 from agentscope.event import (
     ConfirmResult,
     EventType,
+    HintBlockEvent,
+    ReplyEndEvent,
+    ReplyStartEvent,
     ToolCallStartEvent,
     ToolCallEndEvent,
     UserConfirmResultEvent,
@@ -27,8 +30,9 @@ from agentscope.permission import (
     PermissionRule,
 )
 from agentscope.realtime import ModelEvents, RealtimeAgent
-from agentscope.tool import ToolBase, ToolChunk, Toolkit
 from agentscope.state import AgentState
+from agentscope.tool import ToolBase, ToolChunk, Toolkit
+from agentscope.types import ReplyFinishedReason
 
 # ------------------------------------------------------------------ #
 # Mock helpers
@@ -147,6 +151,10 @@ def _make_realtime_agent(
     model.send = AsyncMock()
     model.send_raw = AsyncMock()
     model.model_name = "mock-realtime"
+    model.cancel_response_closes_session = False
+    model.cancel_response = AsyncMock()
+    model.disconnect = AsyncMock()
+    model.request_response = AsyncMock()
 
     state = AgentState(
         session_id="test-session",
@@ -166,6 +174,122 @@ def _make_realtime_agent(
             agent._engine.add_rule(rule)
 
     return agent
+
+
+class RealtimeAgentErrorLifecycleTest(IsolatedAsyncioTestCase):
+    """Provider errors form a complete, non-duplicated reply lifecycle."""
+
+    async def test_standalone_error_has_consistent_reply_lifecycle(
+        self,
+    ) -> None:
+        """An error outside a response emits start, hint, and end."""
+        agent = _make_realtime_agent()
+        events = agent._translate(
+            ModelEvents.ModelErrorEvent(
+                error_type="invalid_request",
+                code="bad_config",
+                message="Bad configuration",
+            ),
+        )
+        start = next(evt for evt in events if isinstance(evt, ReplyStartEvent))
+        hint = next(evt for evt in events if isinstance(evt, HintBlockEvent))
+        end = next(evt for evt in events if isinstance(evt, ReplyEndEvent))
+        self.assertEqual(start.reply_id, hint.reply_id)
+        self.assertEqual(start.reply_id, end.reply_id)
+        self.assertNotEqual(start.reply_id, "")
+        self.assertEqual(end.finished_reason, ReplyFinishedReason.ERROR)
+        self.assertIsNotNone(end.error)
+        self.assertNotIn(start.reply_id, agent._started_responses)
+
+    async def test_active_error_closes_reply_and_ignores_late_done(
+        self,
+    ) -> None:
+        """An error closes an active reply; a late done is ignored."""
+        agent = _make_realtime_agent()
+        agent._translate(
+            ModelEvents.ModelResponseCreatedEvent(response_id="reply_1"),
+        )
+
+        events = agent._translate(
+            ModelEvents.ModelErrorEvent(
+                error_type="server_error",
+                code="upstream_failed",
+                message="Upstream failed",
+            ),
+        )
+
+        self.assertTrue(any(isinstance(e, ReplyEndEvent) for e in events))
+        self.assertNotIn("reply_1", agent._started_responses)
+        self.assertEqual(
+            agent._translate(
+                ModelEvents.ModelResponseDoneEvent(
+                    response_id="reply_1",
+                    input_tokens=0,
+                    output_tokens=0,
+                ),
+            ),
+            [],
+        )
+
+
+class RealtimeAgentDisconnectTest(IsolatedAsyncioTestCase):
+    """Disconnect cancels detached tools and closes confirmation state."""
+
+    async def test_pending_confirmation_becomes_interrupted(self) -> None:
+        """A pending ASK tool is terminated with an INTERRUPTED result."""
+        toolkit = Toolkit(tools=[AskEchoTool()])
+        agent = _make_realtime_agent(
+            toolkit=toolkit,
+            permission_mode=PermissionMode.DEFAULT,
+        )
+        agent._connected = True
+        calls = {
+            "call_1": {
+                "name": "AskEcho",
+                "arguments": '{"text": "hello"}',
+                "reply_id": "reply_1",
+            },
+        }
+        task = asyncio.create_task(agent._execute_pending_tool_calls(calls))
+        agent._tool_tasks.add(task)
+        task.add_done_callback(agent._tool_tasks.discard)
+
+        for _ in range(20):
+            if "call_1" in agent._pending_confirmations:
+                break
+            await asyncio.sleep(0)
+        self.assertIn("call_1", agent._pending_confirmations)
+
+        await agent.disconnect()
+
+        events: list = []
+        while not agent._internal_event_queue.empty():
+            events.append(agent._internal_event_queue.get_nowait())
+        end = next(
+            event
+            for event in events
+            if event.type == EventType.TOOL_RESULT_END
+        )
+        self.assertEqual(end.state, ToolResultState.INTERRUPTED)
+        self.assertFalse(agent._pending_confirmations)
+        self.assertTrue(task.done())
+        agent.model.disconnect.assert_awaited_once()
+
+    async def test_interrupt_closes_reply_for_disconnect_only_provider(
+        self,
+    ) -> None:
+        """Providers without cancel frames receive a synthetic done event."""
+        agent = _make_realtime_agent()
+        agent._connected = True
+        agent.model.cancel_response_closes_session = True
+        agent._started_responses.add("reply_1")
+
+        await agent.interrupt()
+
+        event = agent._model_queue.get_nowait()
+        self.assertIsInstance(event, ModelEvents.ModelResponseDoneEvent)
+        self.assertEqual(event.response_id, "reply_1")
+        agent.model.cancel_response.assert_awaited_once()
 
 
 # ================================================================== #

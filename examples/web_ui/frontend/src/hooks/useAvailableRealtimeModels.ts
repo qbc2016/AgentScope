@@ -9,8 +9,8 @@ export interface CredentialWithRealtimeModels {
 }
 
 /**
- * Fetches all credentials and their available realtime models, grouped by provider type.
- * Credentials/providers that expose no realtime models are omitted.
+ * Fetches each concrete credential's available realtime models, grouped by
+ * provider type. Credentials without a usable realtime endpoint are omitted.
  */
 export function useAvailableRealtimeModels() {
 	const [groups, setGroups] = useState<Record<string, CredentialWithRealtimeModels[]>>({});
@@ -30,7 +30,7 @@ export function useAvailableRealtimeModels() {
 					if (!type) return;
 					if (!result[type]) result[type] = [];
 					try {
-						const { models } = await realtimeModelApi.list(type);
+						const { models } = await realtimeModelApi.list(credential.id);
 						if (models.length > 0) {
 							result[type].push({ credential, models });
 						}

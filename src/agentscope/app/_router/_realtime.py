@@ -23,14 +23,15 @@ import json
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
+from .._service import ResourceAccessService
 from .._service._realtime_model import get_realtime_model
 from ..message_bus import MessageBus
 from ..storage import StorageBase
 from ..workspace_manager._base import WorkspaceManagerBase
 from ..._logging import logger
 from ...event import (
-    ReplyStartEvent,
     ReplyEndEvent,
+    ReplyStartEvent,
     UserConfirmResultEvent,
     UserInputAudioEndEvent,
     UserInputAudioStartEvent,
@@ -138,6 +139,7 @@ async def realtime_ws(
     workspace_manager: WorkspaceManagerBase = (
         websocket.app.state.workspace_manager
     )
+    access: ResourceAccessService = websocket.app.state.resource_access_service
 
     # ---- Validate ownership ----
     session_record = await storage.get_session(
@@ -176,7 +178,7 @@ async def realtime_ws(
         return
 
     try:
-        model = await get_realtime_model(user_id, model_cfg, storage)
+        model = await get_realtime_model(user_id, model_cfg, access)
     except Exception as e:
         _active_sessions.pop(session_id, None)
         await websocket.close(code=4000, reason=str(e))
@@ -266,19 +268,36 @@ async def realtime_ws(
             [upstream_task, downstream_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
-        for task in pending:
-            task.cancel()
-        # Await cancelled tasks to suppress "exception never retrieved"
-        await asyncio.gather(*pending, return_exceptions=True)
+        if upstream_task in done and downstream_task in pending:
+            # The browser disconnected. Close the agent first so pending
+            # tool confirmations/executions emit INTERRUPTED result events;
+            # the downstream task persists those events before exiting.
+            await agent.disconnect()
+            try:
+                await asyncio.wait_for(downstream_task, timeout=2)
+            except asyncio.TimeoutError:
+                downstream_task.cancel()
+                await asyncio.gather(
+                    downstream_task,
+                    return_exceptions=True,
+                )
+        else:
+            for task in pending:
+                task.cancel()
+            # Await cancelled tasks to suppress "exception never retrieved"
+            await asyncio.gather(*pending, return_exceptions=True)
         for task in done:
-            if task.exception() and not isinstance(
-                task.exception(),
+            if task.cancelled():
+                continue
+            task_error = task.exception()
+            if task_error and not isinstance(
+                task_error,
                 (WebSocketDisconnect, asyncio.CancelledError),
             ):
                 logger.error(
                     "Realtime task error for session %s: %s",
                     session_id,
-                    task.exception(),
+                    task_error,
                 )
     except WebSocketDisconnect:
         pass
@@ -337,6 +356,7 @@ async def _upstream(
     - ``user_confirm`` — tool-call confirmation forwarded to
       ``agent.handle_user_confirm()`` so the pending permission
       future is resolved.
+    - ``interrupt`` — cancel the active realtime response.
 
     Args:
         websocket (`WebSocket`):
@@ -427,6 +447,9 @@ async def _upstream(
                     exc_info=True,
                 )
 
+        elif frame_type == "interrupt":
+            await agent.interrupt()
+
 
 async def _downstream(
     websocket: WebSocket,
@@ -467,6 +490,7 @@ async def _downstream(
             The agent display name (reserved for future use).
     """
     reply_msg: Msg | None = None
+    websocket_open = True
     # Track completed replies so post-ReplyEnd events (tool results,
     # confirmations) can still be appended and persisted.
     completed_replies: dict[str, Msg] = {}
@@ -474,10 +498,13 @@ async def _downstream(
     try:
         async for event in agent.event_stream():
             payload = event.model_dump(mode="json")
-            try:
-                await websocket.send_json(payload)
-            except (WebSocketDisconnect, RuntimeError):
-                return
+            if websocket_open:
+                try:
+                    await websocket.send_json(payload)
+                except (WebSocketDisconnect, RuntimeError):
+                    # Keep consuming so disconnect cleanup events can still
+                    # be applied to and persisted with the reply message.
+                    websocket_open = False
             await message_bus.session_publish_event(session_id, payload)
 
             # ---- Persist messages to storage ----

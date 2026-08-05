@@ -1,12 +1,7 @@
 import { MessageSquareText, AudioLines } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import type {
-	AgentSchemaV2Response,
-	AgentType,
-	JSONSchema,
-	JSONSchemaProperty,
-} from '@/api';
+import type { AgentSchemaV2Response, AgentType, JSONSchema, JSONSchemaProperty } from '@/api';
 import { SchemaForm, type SchemaFormValue } from '@/components/form/SchemaForm';
 import { Button } from '@/components/ui/button';
 import {
@@ -96,13 +91,13 @@ export function AgentFormFields({ schema, values, onChange, lockType }: Props) {
 
 	const rows: Array<{ key: AgentSection; i18n: string; sectionSchema: JSONSchema }> = [
 		{ key: 'identity', i18n: IDENTITY_I18N, sectionSchema: sections.identity },
-		...NESTED_SECTIONS.filter(
-			(s) => agentType === 'chat' || s.key === 'invite_config',
-		).map((s) => ({
-			key: s.key as AgentSection,
-			i18n: s.i18n,
-			sectionSchema: sections[s.key],
-		})),
+		...NESTED_SECTIONS.filter((s) => agentType === 'chat' || s.key === 'invite_config').map(
+			(s) => ({
+				key: s.key as AgentSection,
+				i18n: s.i18n,
+				sectionSchema: sections[s.key],
+			}),
+		),
 	];
 
 	return (

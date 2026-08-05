@@ -15,8 +15,10 @@ export const ttsModelApi = {
 };
 
 export const realtimeModelApi = {
-	list: (provider: string) =>
-		client.get<ListRealtimeModelResponse>('/realtime-model/', { provider }),
+	list: (credentialId: string) =>
+		client.get<ListRealtimeModelResponse>('/realtime-model/', {
+			credential_id: credentialId,
+		}),
 };
 
 export const embeddingModelApi = {

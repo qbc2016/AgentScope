@@ -18,6 +18,9 @@ class ListRealtimeModelsResponse(BaseModel):
 class ListRealtimeModelsRequest(BaseModel):
     """List the candidate realtime models request."""
 
-    provider: str = Field(
-        description="The provider type, e.g. dashscope_credential.",
+    credential_id: str = Field(
+        description=(
+            "The concrete credential whose routing configuration determines "
+            "whether realtime models are available."
+        ),
     )

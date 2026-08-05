@@ -2,7 +2,7 @@
 """The DashScope credential."""
 from typing import Literal, Type, TYPE_CHECKING
 
-from pydantic import ConfigDict, Field, SecretStr
+from pydantic import ConfigDict, Field, SecretStr, WebsocketUrl
 
 from ._base import CredentialBase
 
@@ -37,6 +37,23 @@ class DashScopeCredential(CredentialBase):
             "The base URL for the DashScope OpenAI-compatible API endpoint."
         ),
     )
+
+    realtime_base_url: WebsocketUrl | None = Field(
+        default=None,
+        title="Realtime API Base URL",
+        description=(
+            "Optional DashScope-compatible realtime WebSocket endpoint. "
+            "Required when the HTTP base_url is customized."
+        ),
+    )
+
+    def resolve_realtime_base_url(self) -> str | None:
+        """Resolve the DashScope-compatible realtime WebSocket endpoint."""
+        if self.realtime_base_url is not None:
+            return str(self.realtime_base_url)
+        if self.base_url.rstrip("/") == _DASHSCOPE_BASE_URL.rstrip("/"):
+            return "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+        return None
 
     @classmethod
     def get_chat_model_class(cls) -> Type["ChatModelBase"]:

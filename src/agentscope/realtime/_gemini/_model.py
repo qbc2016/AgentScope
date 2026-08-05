@@ -25,13 +25,6 @@ from ...message import (
 )
 
 
-_GEMINI_WS_URL = (
-    "wss://generativelanguage.googleapis.com/ws/"
-    "google.ai.generativelanguage.v1beta.GenerativeService."
-    "BidiGenerateContent?key={api_key}"
-)
-
-
 class GeminiRealtimeModel(RealtimeModelBase):
     """A bidirectional realtime client for the Gemini Live API.
 
@@ -154,8 +147,13 @@ class GeminiRealtimeModel(RealtimeModelBase):
         self.input_sample_rate = 16000
         self.output_sample_rate = 24000
 
-        self.websocket_url = _GEMINI_WS_URL.format(
-            api_key=credential.api_key.get_secret_value(),
+        realtime_base_url = credential.resolve_realtime_base_url()
+        if realtime_base_url is None:  # pragma: no cover - Gemini has default
+            raise ValueError("Gemini realtime endpoint is not configured.")
+        self.websocket_url = self._with_query_parameter(
+            realtime_base_url,
+            "key",
+            credential.api_key.get_secret_value(),
         )
         self.websocket_headers = {
             "Content-Type": "application/json",
@@ -593,15 +591,16 @@ class GeminiRealtimeModel(RealtimeModelBase):
 
         # Generation complete
         if "generationComplete" in server_content:
-            response_id = self._response_id or ""
-            self._response_id = None
-            events.append(
-                ModelEvents.ModelResponseDoneEvent(
-                    response_id=response_id,
-                    input_tokens=0,
-                    output_tokens=0,
-                ),
-            )
+            if self._response_id:
+                response_id = self._response_id
+                self._response_id = None
+                events.append(
+                    ModelEvents.ModelResponseDoneEvent(
+                        response_id=response_id,
+                        input_tokens=0,
+                        output_tokens=0,
+                    ),
+                )
 
         # Turn complete
         if "turnComplete" in server_content:
@@ -617,8 +616,26 @@ class GeminiRealtimeModel(RealtimeModelBase):
                 )
 
         # Interrupted
-        if "interrupted" in server_content:
-            pass
+        if server_content.get("interrupted"):
+            # Gemini explicitly uses this as the signal for clients to drop
+            # queued playback during barge-in. Reuse the public input-start
+            # event so downstream audio managers stop immediately.
+            events.append(
+                ModelEvents.ModelInputStartedEvent(
+                    item_id="",
+                    audio_start_ms=0,
+                ),
+            )
+            if self._response_id:
+                response_id = self._response_id
+                self._response_id = None
+                events.append(
+                    ModelEvents.ModelResponseDoneEvent(
+                        response_id=response_id,
+                        input_tokens=0,
+                        output_tokens=0,
+                    ),
+                )
 
         if not events:
             return None

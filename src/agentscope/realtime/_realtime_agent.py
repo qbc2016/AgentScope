@@ -58,6 +58,7 @@ from ..message import (
     ToolResultState,
 )
 from ..permission import PermissionBehavior, PermissionEngine
+from ..types import ErrorInfo, ErrorType, ReplyFinishedReason
 
 
 class RealtimeAgent:
@@ -140,10 +141,17 @@ class RealtimeAgent:
             str,
             asyncio.Future[ConfirmResult],
         ] = {}
+        self._tool_tasks: set[asyncio.Task[None]] = set()
+        # Tool calls whose ToolResultStartEvent has been emitted but whose
+        # ToolResultEndEvent has not. Used to close the persisted lifecycle
+        # cleanly when a realtime connection disappears mid-execution.
+        self._started_tool_results: set[str] = set()
+        self._finished_tool_results: set[str] = set()
         self._connected = False
         self._tool_schemas: list[dict] | None = None
 
-        # Per-response bookkeeping: response_id (used as reply_id) → block IDs
+        # Per-response bookkeeping: response_id (used as reply_id) → block
+        # IDs.
         self._audio_blocks: dict[str, str] = {}
         self._text_blocks: dict[str, str] = {}
         self._audio_media_types: dict[str, str] = {}
@@ -152,6 +160,9 @@ class RealtimeAgent:
         self._pending_tool_calls: dict[str, dict[str, str]] = {}
         # response_ids for which we have already emitted ReplyStartEvent
         self._started_responses: set[str] = set()
+        # Ignore late provider frames after an error or completion has already
+        # closed the public reply lifecycle.
+        self._closed_responses: set[str] = set()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -200,8 +211,41 @@ class RealtimeAgent:
         """Close the underlying realtime model session."""
         if not self._connected:
             return
+        await self._cancel_tool_tasks()
         await self.model.disconnect()
         self._connected = False
+
+    async def _cancel_tool_tasks(self) -> None:
+        """Cancel pending confirmations and detached tool executions."""
+        for future in self._pending_confirmations.values():
+            if not future.done():
+                future.cancel()
+        self._pending_confirmations.clear()
+        tasks = list(self._tool_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def interrupt(self) -> None:
+        """Interrupt the active provider response.
+
+        Protocols without an in-session cancellation frame close their model
+        session. Before doing so, enqueue synthetic completion events so the
+        public reply lifecycle still terminates cleanly.
+        """
+        if not self._connected:
+            return
+        if self.model.cancel_response_closes_session:
+            for reply_id in list(self._started_responses):
+                await self._model_queue.put(
+                    ModelEvents.ModelResponseDoneEvent(
+                        response_id=reply_id,
+                        input_tokens=0,
+                        output_tokens=0,
+                    ),
+                )
+        await self.model.cancel_response()
 
     # ------------------------------------------------------------------
     # IO
@@ -289,6 +333,7 @@ class RealtimeAgent:
                 )
 
                 events_to_yield: list[AgentEvent] = []
+                model_session_ended = False
 
                 if internal_waiter in done:
                     try:
@@ -305,7 +350,9 @@ class RealtimeAgent:
                         return
                     model_waiter = None
 
-                    # Sentinel from _receive_loop: session ended.
+                    # Sentinel from _receive_loop: session ended. Internal
+                    # cleanup events queued during disconnect still need to
+                    # be yielded before the stream terminates.
                     if isinstance(
                         model_evt,
                         ModelEvents.ModelSessionEndedEvent,
@@ -315,9 +362,13 @@ class RealtimeAgent:
                             "(reason=%s), stopping event_stream",
                             model_evt.reason,
                         )
-                        return
-
-                    events_to_yield.extend(self._translate(model_evt))
+                        await self._cancel_tool_tasks()
+                        model_session_ended = True
+                        events_to_yield.extend(
+                            self._drain_internal_event_queue(),
+                        )
+                    else:
+                        events_to_yield.extend(self._translate(model_evt))
 
                 for agent_evt in events_to_yield:
                     yield agent_evt
@@ -362,12 +413,27 @@ class RealtimeAgent:
                         # Results are emitted with the original reply_id
                         # so the frontend can append them to this message.
                         if self.toolkit and self._pending_tool_calls:
-                            calls = dict(self._pending_tool_calls)
-                            self._pending_tool_calls.clear()
-                            asyncio.create_task(
-                                self._execute_pending_tool_calls(calls),
-                                name=f"rt-tools:{agent_evt.reply_id}",
-                            )
+                            calls = {
+                                call_id: info
+                                for call_id, info in (
+                                    self._pending_tool_calls.items()
+                                )
+                                if info["reply_id"] == agent_evt.reply_id
+                            }
+                            for call_id in calls:
+                                self._pending_tool_calls.pop(call_id, None)
+                            if calls:
+                                task = asyncio.create_task(
+                                    self._execute_pending_tool_calls(calls),
+                                    name=f"rt-tools:{agent_evt.reply_id}",
+                                )
+                                self._tool_tasks.add(task)
+                                task.add_done_callback(
+                                    self._tool_tasks.discard,
+                                )
+
+                if model_session_ended:
+                    return
         except asyncio.CancelledError:
             return
         finally:
@@ -394,6 +460,7 @@ class RealtimeAgent:
         This runs as a detached :func:`asyncio.create_task`.
         """
         try:
+            completed_call_ids: set[str] = set()
             for call_id, info in calls.items():
                 logger.info(
                     "RealtimeAgent: executing tool %s (call_id=%s)",
@@ -404,7 +471,9 @@ class RealtimeAgent:
                     tool_call_id=call_id,
                     tool_name=info["name"],
                     arguments=info["arguments"],
+                    reply_id=info["reply_id"],
                 )
+                completed_call_ids.add(call_id)
 
             logger.info(
                 "RealtimeAgent: all %d tool result(s) sent, "
@@ -413,17 +482,44 @@ class RealtimeAgent:
             )
             await self.model.request_response()
             logger.info("RealtimeAgent: request_response sent successfully")
+        except asyncio.CancelledError:
+            for call_id, info in calls.items():
+                if (
+                    call_id not in completed_call_ids
+                    and call_id not in self._finished_tool_results
+                ):
+                    await self._emit_interrupted_tool_result(
+                        reply_id=info["reply_id"],
+                        tool_call_id=call_id,
+                        tool_name=info["name"],
+                    )
+            raise
         except Exception:
+            for call_id, info in calls.items():
+                if (
+                    call_id not in completed_call_ids
+                    and call_id not in self._finished_tool_results
+                ):
+                    await self._emit_interrupted_tool_result(
+                        reply_id=info["reply_id"],
+                        tool_call_id=call_id,
+                        tool_name=info["name"],
+                    )
             logger.error(
                 "RealtimeAgent: error in _execute_pending_tool_calls",
                 exc_info=True,
             )
+        finally:
+            for call_id in calls:
+                self._started_tool_results.discard(call_id)
+                self._finished_tool_results.discard(call_id)
 
     async def _execute_single_tool_call(
         self,
         tool_call_id: str,
         tool_name: str,
         arguments: str,
+        reply_id: str | None = None,
     ) -> None:
         """Execute a single tool call with permission checking.
 
@@ -439,14 +535,14 @@ class RealtimeAgent:
 
         assert self.toolkit is not None
 
-        reply_id = self.state.reply_id
+        reply_id = reply_id or self.state.reply_id
         tool_call = ToolCallBlock(
             id=tool_call_id,
             name=tool_name,
             input=arguments,
         )
 
-        # ── Step 1: validate tool & parse input ──────────────────────
+        # Step 1: validate tool and parse input.
         try:
             tool = await self.toolkit.check_tool_available(
                 tool_name,
@@ -465,7 +561,7 @@ class RealtimeAgent:
             )
             return
 
-        # ── Step 2: check permission ─────────────────────────────────
+        # Step 2: check permission.
         decision = await self._engine.check_permission(tool, parsed_input)
 
         if decision.behavior in (
@@ -529,7 +625,7 @@ class RealtimeAgent:
             )
             return
 
-        # ── Step 3: execute ──────────────────────────────────────────
+        # Step 3: execute.
         await self._internal_event_queue.put(
             ToolResultStartEvent(
                 reply_id=reply_id,
@@ -537,6 +633,7 @@ class RealtimeAgent:
                 tool_call_name=tool_name,
             ),
         )
+        self._started_tool_results.add(tool_call_id)
 
         try:
             result_parts: list[str] = []
@@ -574,6 +671,8 @@ class RealtimeAgent:
                     state=final_state,
                 ),
             )
+            self._started_tool_results.discard(tool_call_id)
+            self._finished_tool_results.add(tool_call_id)
 
             await self.send(
                 ToolResultBlock(
@@ -603,6 +702,8 @@ class RealtimeAgent:
                     state=ToolResultState.ERROR,
                 ),
             )
+            self._started_tool_results.discard(tool_call_id)
+            self._finished_tool_results.add(tool_call_id)
             await self.send(
                 ToolResultBlock(
                     id=tool_call_id,
@@ -628,6 +729,7 @@ class RealtimeAgent:
                 tool_call_name=tool_name,
             ),
         )
+        self._started_tool_results.add(tool_call_id)
         await self._internal_event_queue.put(
             ToolResultTextDeltaEvent(
                 reply_id=reply_id,
@@ -642,6 +744,8 @@ class RealtimeAgent:
                 state=state,
             ),
         )
+        self._started_tool_results.discard(tool_call_id)
+        self._finished_tool_results.add(tool_call_id)
         await self.send(
             ToolResultBlock(
                 id=tool_call_id,
@@ -649,6 +753,46 @@ class RealtimeAgent:
                 output=message,
             ),
         )
+
+    async def _emit_interrupted_tool_result(
+        self,
+        reply_id: str,
+        tool_call_id: str,
+        tool_name: str,
+    ) -> None:
+        """Close an unfinished tool-result lifecycle during disconnect."""
+        if tool_call_id not in self._started_tool_results:
+            await self._internal_event_queue.put(
+                ToolResultStartEvent(
+                    reply_id=reply_id,
+                    tool_call_id=tool_call_id,
+                    tool_call_name=tool_name,
+                ),
+            )
+        await self._internal_event_queue.put(
+            ToolResultTextDeltaEvent(
+                reply_id=reply_id,
+                tool_call_id=tool_call_id,
+                delta="Realtime session disconnected before the tool "
+                "call completed.",
+            ),
+        )
+        await self._internal_event_queue.put(
+            ToolResultEndEvent(
+                reply_id=reply_id,
+                tool_call_id=tool_call_id,
+                state=ToolResultState.INTERRUPTED,
+            ),
+        )
+        self._started_tool_results.discard(tool_call_id)
+        self._finished_tool_results.add(tool_call_id)
+
+    def _drain_internal_event_queue(self) -> list[AgentEvent]:
+        """Drain cleanup events already queued before model shutdown."""
+        events: list[AgentEvent] = []
+        while not self._internal_event_queue.empty():
+            events.append(self._internal_event_queue.get_nowait())
+        return events
 
     # ------------------------------------------------------------------
     # Translation
@@ -717,6 +861,13 @@ class RealtimeAgent:
             return []
 
         # ---- Response lifecycle ----
+        response_id = getattr(evt, "response_id", None)
+        if response_id and response_id in self._closed_responses:
+            logger.debug(
+                "RealtimeAgent: ignoring late event for closed response %s",
+                response_id,
+            )
+            return []
         if isinstance(evt, ModelEvents.ModelResponseCreatedEvent):
             reply_id = evt.response_id
             return self._ensure_reply_started(reply_id)
@@ -737,6 +888,7 @@ class RealtimeAgent:
                 ReplyEndEvent(session_id=sid, reply_id=reply_id),
             )
             self._started_responses.discard(reply_id)
+            self._closed_responses.add(reply_id)
             return out
 
         # ---- Audio output ----
@@ -812,6 +964,7 @@ class RealtimeAgent:
                 self._pending_tool_calls[call_id] = {
                     "name": evt.tool_call.name,
                     "arguments": "",
+                    "reply_id": reply_id,
                 }
                 out.append(
                     ToolCallStartEvent(
@@ -843,6 +996,7 @@ class RealtimeAgent:
                 self._pending_tool_calls[call_id] = {
                     "name": evt.tool_call.name,
                     "arguments": "",
+                    "reply_id": reply_id,
                 }
                 out.append(
                     ToolCallStartEvent(
@@ -888,20 +1042,45 @@ class RealtimeAgent:
             )
             # Surface the error to the client as a HintBlock so users
             # can see what went wrong without checking server logs.
-            reply_id = self.state.reply_id or ""
-            events: list[AgentEvent] = self._ensure_reply_started(
-                reply_id or uuid.uuid4().hex,
+            active_reply_id = (
+                self.state.reply_id
+                if self.state.reply_id in self._started_responses
+                else next(iter(self._started_responses), None)
             )
+            reply_id = active_reply_id or uuid.uuid4().hex
+            events: list[AgentEvent] = self._ensure_reply_started(reply_id)
+            events.extend(self._close_text_block(reply_id))
+            events.extend(self._close_audio_block(reply_id))
             events.append(
                 HintBlockEvent(
                     session_id=self.session_id,
-                    reply_id=reply_id or self.state.reply_id or "",
+                    reply_id=reply_id,
                     block_id=uuid.uuid4().hex,
                     source="system",
                     hint=f"[Model Error] {evt.error_type}/{evt.code}: "
                     f"{evt.message}",
                 ),
             )
+            events.append(
+                ModelCallEndEvent(
+                    reply_id=reply_id,
+                    input_tokens=0,
+                    output_tokens=0,
+                ),
+            )
+            events.append(
+                ReplyEndEvent(
+                    session_id=sid,
+                    reply_id=reply_id,
+                    finished_reason=ReplyFinishedReason.ERROR,
+                    error=ErrorInfo(
+                        type=ErrorType.UNKNOWN,
+                        message=f"{evt.error_type}/{evt.code}: {evt.message}",
+                    ),
+                ),
+            )
+            self._started_responses.discard(reply_id)
+            self._closed_responses.add(reply_id)
             return events
 
         logger.debug(

@@ -2,7 +2,7 @@
 """The OpenAI credential."""
 from typing import Literal, Type, TYPE_CHECKING
 
-from pydantic import ConfigDict, Field, SecretStr
+from pydantic import ConfigDict, Field, SecretStr, WebsocketUrl
 
 from ._base import CredentialBase
 
@@ -42,6 +42,26 @@ class OpenAICredential(CredentialBase):
         ),
     )
     """Custom base URL for OpenAI-compatible endpoints."""
+
+    realtime_base_url: WebsocketUrl | None = Field(
+        default=None,
+        title="Realtime API Base URL",
+        description=(
+            "Optional OpenAI-compatible realtime WebSocket endpoint. When "
+            "the HTTP base_url is custom, this field must be configured "
+            "explicitly to enable realtime models."
+        ),
+    )
+
+    def resolve_realtime_base_url(self) -> str | None:
+        """Resolve the OpenAI-compatible realtime WebSocket endpoint."""
+        if self.realtime_base_url is not None:
+            return str(self.realtime_base_url)
+        if self.base_url is None or self.base_url.rstrip("/") == (
+            "https://api.openai.com/v1"
+        ):
+            return "wss://api.openai.com/v1/realtime"
+        return None
 
     @classmethod
     def get_chat_model_class(cls) -> Type["ChatModelBase"]:

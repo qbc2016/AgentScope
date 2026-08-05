@@ -9,6 +9,7 @@ from abc import abstractmethod
 from asyncio import Queue
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import BaseModel
 
@@ -48,6 +49,9 @@ class RealtimeModelBase:
 
     support_tools: bool = False
     """Whether the vendor API can receive tool definitions in the session."""
+
+    cancel_response_closes_session: bool = True
+    """Whether :meth:`cancel_response` terminates the provider session."""
 
     websocket_url: str
     """The WebSocket URL of the realtime API (already formatted)."""
@@ -265,6 +269,31 @@ class RealtimeModelBase:
         default no-op; models that require an explicit trigger (e.g.
         DashScope) should override.
         """
+
+    async def cancel_response(self) -> None:
+        """Cancel the currently active response, if any.
+
+        Providers with an in-session cancellation frame should override this
+        method. The default closes the provider session, which is the only
+        portable way to stop generation for protocols without cancellation.
+        """
+        await self.disconnect()
+
+    @staticmethod
+    def _with_query_parameter(url: str, key: str, value: str) -> str:
+        """Return ``url`` with one safely encoded query parameter replaced."""
+        parts = urlsplit(url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query[key] = value
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urlencode(query),
+                parts.fragment,
+            ),
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle

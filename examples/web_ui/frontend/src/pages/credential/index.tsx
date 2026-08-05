@@ -1,13 +1,7 @@
 import { Eye, EyeOff, Plus, Trash2, Pen } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 
-import {
-	credentialApi,
-	embeddingModelApi,
-	modelApi,
-	realtimeModelApi,
-	ttsModelApi,
-} from '@/api';
+import { credentialApi, embeddingModelApi, modelApi, realtimeModelApi, ttsModelApi } from '@/api';
 import type {
 	CredentialView,
 	CredentialSchema,
@@ -269,8 +263,7 @@ function DetailPanel({ credential, schema, onEdit, onDelete }: DetailPanelProps)
 				: tab === 'realtime'
 					? realtimeModels
 					: embeddingModels;
-	const total =
-		models.length + ttsModels.length + realtimeModels.length + embeddingModels.length;
+	const total = models.length + ttsModels.length + realtimeModels.length + embeddingModels.length;
 
 	// A credential switch can land on a provider with no TTS models at
 	// all, which would leave the tab pointing at an empty list.

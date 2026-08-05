@@ -22,9 +22,6 @@ from ...message import (
 )
 
 
-_OPENAI_WS_URL = "wss://api.openai.com/v1/realtime?model={model_name}"
-
-
 class OpenAIRealtimeModel(RealtimeModelBase):
     """A bidirectional realtime client for the OpenAI Realtime WebSocket API.
 
@@ -93,6 +90,9 @@ class OpenAIRealtimeModel(RealtimeModelBase):
     support_tools: bool = True
     """The OpenAI realtime API supports function-call tools."""
 
+    cancel_response_closes_session: bool = False
+    """OpenAI supports cancelling a response without closing the session."""
+
     def __init__(
         self,
         model_name: str,
@@ -133,7 +133,17 @@ class OpenAIRealtimeModel(RealtimeModelBase):
         self.input_sample_rate = 24000
         self.output_sample_rate = 24000
 
-        self.websocket_url = _OPENAI_WS_URL.format(model_name=model_name)
+        realtime_base_url = credential.resolve_realtime_base_url()
+        if realtime_base_url is None:
+            raise ValueError(
+                "OpenAI realtime requires realtime_base_url when base_url "
+                "points to a custom OpenAI-compatible endpoint.",
+            )
+        self.websocket_url = self._with_query_parameter(
+            realtime_base_url,
+            "model",
+            model_name,
+        )
         self.websocket_headers = {
             "Authorization": (
                 f"Bearer {self.credential.api_key.get_secret_value()}"
@@ -389,6 +399,11 @@ class OpenAIRealtimeModel(RealtimeModelBase):
             )
         payload = json.dumps({"type": "response.create"})
         await self._websocket.send(payload)
+
+    async def cancel_response(self) -> None:
+        """Cancel the active OpenAI realtime response."""
+        if self._websocket is not None and self._response_id:
+            await self._websocket.send(json.dumps({"type": "response.cancel"}))
 
     # pylint: disable=too-many-return-statements
     async def parse_api_message(

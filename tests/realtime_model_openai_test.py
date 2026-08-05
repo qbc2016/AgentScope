@@ -8,6 +8,7 @@ parse_api_message for various WebSocket frame types.
 # pylint: disable=protected-access
 import json
 from unittest.async_case import IsolatedAsyncioTestCase
+from unittest.mock import AsyncMock
 
 from agentscope.message import TextBlock, ToolResultBlock
 from agentscope.realtime import ModelEvents, OpenAIRealtimeModel
@@ -84,6 +85,43 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         self.assertEqual(
             config["session"]["audio"]["output"],
             {"voice": "alloy"},
+        )
+
+    async def test_custom_http_base_requires_realtime_base(self) -> None:
+        """A compatible HTTP endpoint is not assumed realtime-capable."""
+        credential = OpenAICredential(
+            api_key="third-party-key",
+            base_url="https://compatible.example/v1",
+        )
+        self.assertFalse(credential.supports_realtime())
+        self.assertEqual(credential.list_available_realtime_models(), [])
+        with self.assertRaisesRegex(ValueError, "realtime_base_url"):
+            OpenAIRealtimeModel("gpt-realtime", credential)
+
+    async def test_custom_realtime_base_is_used(self) -> None:
+        """An explicit realtime endpoint receives the encoded model query."""
+        credential = OpenAICredential(
+            api_key="third-party-key",
+            base_url="https://compatible.example/v1",
+            realtime_base_url="wss://compatible.example/realtime?tenant=a",
+        )
+        model = OpenAIRealtimeModel("model with spaces", credential)
+        self.assertEqual(
+            model.websocket_url,
+            "wss://compatible.example/realtime?tenant=a&"
+            "model=model+with+spaces",
+        )
+
+    async def test_cancel_response_uses_in_session_frame(self) -> None:
+        """Stop does not close an OpenAI realtime WebSocket."""
+        model = _make_model()
+        model._websocket = AsyncMock()
+        model._response_id = "resp_1"
+
+        await model.cancel_response()
+
+        model._websocket.send.assert_awaited_once_with(
+            json.dumps({"type": "response.cancel"}),
         )
 
 

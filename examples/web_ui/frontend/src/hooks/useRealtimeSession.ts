@@ -14,8 +14,8 @@ import { getBaseUrl, getUserId } from '@/api/client';
  * output, text rendering, and message list updates all work without
  * changes.
  *
- * Exposes ``sendAudio(base64)`` for upstream audio from
- * ``useMicrophone`` and ``sendContent(blocks)`` for text/image input.
+ * Exposes senders for audio, text/image content, confirmations, and
+ * response interruption.
  *
  * @param agentId - The agent that owns the session.
  * @param sessionId - The session to connect.
@@ -139,5 +139,14 @@ export function useRealtimeSession(
 		}
 	}, []);
 
-	return { connected, sendAudio, sendConfirm, sendContent, error };
+	/** Interrupt the active realtime response without using ChatService. */
+	const sendInterrupt = useCallback(() => {
+		const ws = wsRef.current;
+		if (!ws || ws.readyState !== WebSocket.OPEN) {
+			throw new Error('Realtime WebSocket is not connected');
+		}
+		ws.send(JSON.stringify({ type: 'interrupt' }));
+	}, []);
+
+	return { connected, sendAudio, sendConfirm, sendContent, sendInterrupt, error };
 }

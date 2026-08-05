@@ -557,33 +557,38 @@ export function useMessages(
 	 * arrives via SSE (or after a 10s safety timeout, in case that
 	 * event is lost).
 	 *
-	 * Backend contract:
-	 * - 202: interrupt was accepted (cancel signal broadcast for a
-	 *   running reply, or wakeup enqueued for a parked one). The
-	 *   resulting ``ReplyEndEvent`` arrives through the SSE stream and
-	 *   drives the phase transition.
-	 * - Idle sessions are a silent no-op at the agent layer, so
-	 *   spamming this callback is safe.
+	 * Without ``request`` this uses the regular HTTP interrupt endpoint.
+	 * Realtime callers inject their WebSocket interrupt sender instead.
+	 * In both cases a resulting ``ReplyEndEvent`` drives the final phase
+	 * transition; the timer is only a safety fallback.
 	 */
-	const interrupt = useCallback(async () => {
-		if (!agentId || !sessionId) return;
-		// Only escalate to ``interrupting`` if a reply is actually in
-		// flight; if we're already idle (SSE completed just before the
-		// click) leave the phase alone.
-		setPhase((prev) => (prev === 'streaming' ? 'interrupting' : prev));
-		clearInterruptTimer();
-		interruptTimerRef.current = setTimeout(() => {
-			interruptTimerRef.current = null;
-			setPhase((prev) => (prev === 'interrupting' ? 'idle' : prev));
-		}, INTERRUPT_TIMEOUT_MS);
-		try {
-			await sessionApi.interrupt(sessionId, agentId);
-		} catch (e) {
+	const interrupt = useCallback(
+		async (request?: () => void | Promise<void>) => {
+			if (!agentId || !sessionId) return;
+			// Only escalate to ``interrupting`` if a reply is actually in
+			// flight; if we're already idle (SSE completed just before the
+			// click) leave the phase alone.
+			setPhase((prev) => (prev === 'streaming' ? 'interrupting' : prev));
+			audioManager?.stopAllPlayback();
 			clearInterruptTimer();
-			setPhase((prev) => (prev === 'interrupting' ? 'idle' : prev));
-			setError(e as Error);
-		}
-	}, [agentId, sessionId, clearInterruptTimer]);
+			interruptTimerRef.current = setTimeout(() => {
+				interruptTimerRef.current = null;
+				setPhase((prev) => (prev === 'interrupting' ? 'idle' : prev));
+			}, INTERRUPT_TIMEOUT_MS);
+			try {
+				if (request) {
+					await request();
+				} else {
+					await sessionApi.interrupt(sessionId, agentId);
+				}
+			} catch (e) {
+				clearInterruptTimer();
+				setPhase((prev) => (prev === 'interrupting' ? 'idle' : prev));
+				setError(e as Error);
+			}
+		},
+		[agentId, sessionId, clearInterruptTimer, audioManager],
+	);
 
 	/**
 	 * Confirm or deny a tool call that a *team member* is awaiting,

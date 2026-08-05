@@ -43,6 +43,20 @@ class SessionConfigTest(IsolatedAsyncioTestCase):
         self.assertIn("setup", config)
         self.assertNotIn("type", config)
 
+    async def test_custom_realtime_base_is_used(self) -> None:
+        """Gemini credentials may explicitly route Live API traffic."""
+        model = GeminiRealtimeModel(
+            model_name="gemini-live",
+            credential=GeminiCredential(
+                api_key="key with spaces",
+                realtime_base_url="wss://compatible.example/live?tenant=a",
+            ),
+        )
+        self.assertEqual(
+            model.websocket_url,
+            "wss://compatible.example/live?tenant=a&key=key+with+spaces",
+        )
+
     async def test_config_includes_model_name(self) -> None:
         """setup.model contains the model name prefixed with ``models/``."""
         model = _make_model()
@@ -318,6 +332,7 @@ class ToolResultEncodingTest(IsolatedAsyncioTestCase):
 # ------------------------------------------------------------------ #
 
 
+# pylint: disable=too-many-public-methods
 class ParseApiMessageTest(IsolatedAsyncioTestCase):
     """GeminiRealtimeModel.parse_api_message for all supported frame types."""
 
@@ -539,6 +554,39 @@ class ParseApiMessageTest(IsolatedAsyncioTestCase):
             ),
         )
         self.assertIsNone(evt)
+
+    async def test_interrupted_emits_input_started(self) -> None:
+        """Barge-in signals downstream clients to clear queued playback."""
+        model = _make_model()
+        evt = await model.parse_api_message(
+            json.dumps({"serverContent": {"interrupted": True}}),
+        )
+        assert isinstance(evt, ModelEvents.ModelInputStartedEvent)
+
+    async def test_interrupted_closes_active_response(self) -> None:
+        """Barge-in also closes the interrupted reply lifecycle."""
+        model = _make_model()
+        model._response_id = "resp_interrupted"
+        events = await model.parse_api_message(
+            json.dumps({"serverContent": {"interrupted": True}}),
+        )
+        assert isinstance(events, list)
+        self.assertTrue(
+            any(
+                isinstance(
+                    event,
+                    ModelEvents.ModelInputStartedEvent,
+                )
+                for event in events
+            ),
+        )
+        done = next(
+            event
+            for event in events
+            if isinstance(event, ModelEvents.ModelResponseDoneEvent)
+        )
+        self.assertEqual(done.response_id, "resp_interrupted")
+        self.assertIsNone(model._response_id)
 
     # ---- Tool call ----
 

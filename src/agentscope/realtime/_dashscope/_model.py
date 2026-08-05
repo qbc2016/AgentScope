@@ -17,11 +17,6 @@ from ...credential import DashScopeCredential
 from ...message import DataBlock, TextBlock, ToolCallBlock, ToolResultBlock
 
 
-_DASHSCOPE_WS_URL = (
-    "wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model={model_name}"
-)
-
-
 class DashScopeRealtimeModel(RealtimeModelBase):
     """A bidirectional realtime client for the DashScope Qwen Omni Realtime
     WebSocket API.
@@ -91,6 +86,9 @@ class DashScopeRealtimeModel(RealtimeModelBase):
     dynamically from the model name at construction time; only the
     ``qwen3.5-omni-*-realtime`` family currently supports tools."""
 
+    cancel_response_closes_session: bool = False
+    """DashScope supports cancelling a response in-session."""
+
     def __init__(
         self,
         model_name: str,
@@ -130,7 +128,17 @@ class DashScopeRealtimeModel(RealtimeModelBase):
         self.input_sample_rate = 16000
         self.output_sample_rate = 24000
 
-        self.websocket_url = _DASHSCOPE_WS_URL.format(model_name=model_name)
+        realtime_base_url = credential.resolve_realtime_base_url()
+        if realtime_base_url is None:
+            raise ValueError(
+                "DashScope realtime requires realtime_base_url when base_url "
+                "points to a custom OpenAI-compatible endpoint.",
+            )
+        self.websocket_url = self._with_query_parameter(
+            realtime_base_url,
+            "model",
+            model_name,
+        )
         self.websocket_headers = {
             "Authorization": (
                 f"Bearer {self.credential.api_key.get_secret_value()}"
@@ -378,6 +386,11 @@ class DashScopeRealtimeModel(RealtimeModelBase):
             },
         )
         await self._websocket.send(payload)
+
+    async def cancel_response(self) -> None:
+        """Cancel the active DashScope realtime response."""
+        if self._websocket is not None and self._response_id:
+            await self._websocket.send(json.dumps({"type": "response.cancel"}))
 
     @staticmethod
     def _encode_audio(block: DataBlock) -> str:
