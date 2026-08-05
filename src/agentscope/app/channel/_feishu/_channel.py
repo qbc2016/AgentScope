@@ -669,7 +669,7 @@ class FeishuChannel(ChannelBase):
         Args:
             workspace (`WorkspaceBase`):
                 The calling session's workspace; the send-file tools read
-                their payload from it.
+                their payload from its backend by absolute path.
 
         Returns:
             `list[ToolBase]`: The Feishu agent tools.
@@ -682,12 +682,13 @@ class FeishuChannel(ChannelBase):
             SendMessage,
         )
 
+        backend = workspace.get_backend()
         return [
-            ListChats(self, workspace),
-            ListChatMembers(self, workspace),
-            SendMessage(self, workspace),
-            SendFile(self, workspace),
-            SendImage(self, workspace),
+            ListChats(self, backend),
+            ListChatMembers(self, backend),
+            SendMessage(self, backend),
+            SendFile(self, backend),
+            SendImage(self, backend),
         ]
 
     # -- Agent-tool operations (act on chats/users other than the current) --

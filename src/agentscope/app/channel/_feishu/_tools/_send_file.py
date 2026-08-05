@@ -11,9 +11,9 @@ from ._base import _FeishuToolBase, _ack
 
 class _SendFileParams(ParamsBase):
     path: str = Field(
-        description="Path to the file in your workspace, e.g. one you just "
-        "created. Workspace-relative (recommended) or a workspace:// "
-        "reference.",
+        description="Absolute path to the file in your workspace, e.g. one "
+        "you just created with Write — the same absolute path you used "
+        "there.",
     )
     receive_id: str = Field(
         description="Target id, taken verbatim from a ListChats / "
@@ -61,7 +61,7 @@ To send an image so it renders inline, use ``SendImage`` instead."""
             receive_id_type (`str`): ``"chat_id"`` or ``"open_id"``.
         """
         try:
-            raw = await self._read(path)
+            raw = await self._backend.read_file(path)
         except Exception as e:  # pylint: disable=broad-except
             return ToolChunk(
                 content=[

@@ -8,10 +8,9 @@ from .....permission import (
     PermissionContext,
     PermissionDecision,
 )
-from .....tool import ToolBase, ToolChunk
+from .....tool import BackendBase, ToolBase, ToolChunk
 
 if TYPE_CHECKING:
-    from .....workspace import WorkspaceBase
     from .._channel import FeishuChannel
 
 
@@ -44,18 +43,18 @@ class _FeishuToolBase(ToolBase):
     def __init__(
         self,
         channel: "FeishuChannel",
-        workspace: "WorkspaceBase",
+        backend: BackendBase,
     ) -> None:
-        """Bind the live channel and the caller's workspace.
+        """Bind the live channel and the session's workspace backend.
 
         Args:
             channel (`FeishuChannel`): The live channel to send / query.
-            workspace (`WorkspaceBase`): The session workspace; the file
-                tools read their payload from it (others ignore it).
+            backend (`BackendBase`): The session workspace backend; the
+                file tools read their payload from it (others ignore it).
         """
         super().__init__()
         self._channel = channel
-        self._workspace = workspace
+        self._backend = backend
 
     async def check_permissions(
         self,
@@ -77,29 +76,4 @@ class _FeishuToolBase(ToolBase):
             behavior=PermissionBehavior.ASK,
             message="Sending to another Feishu chat/user needs the user's "
             "confirmation.",
-        )
-
-    def _resolve(self, path: str) -> str:
-        """Map an agent path (``workspace://``, relative, or in-sandbox
-        absolute) to a backend workspace path — never the host.
-
-        Args:
-            path (`str`): The agent-supplied path.
-        """
-        backend = self._workspace.get_backend()
-        if path.startswith("workspace://"):
-            rel = path[len("workspace://") :].lstrip("/")
-            return backend.join_path(self._workspace.workdir, rel)
-        if path.startswith("/"):
-            return path
-        return backend.join_path(self._workspace.workdir, path)
-
-    async def _read(self, path: str) -> bytes:
-        """Read ``path`` from the workspace as bytes.
-
-        Args:
-            path (`str`): The agent-supplied path to read.
-        """
-        return await self._workspace.get_backend().read_file(
-            self._resolve(path),
         )
