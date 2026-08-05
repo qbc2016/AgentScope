@@ -7,32 +7,41 @@ normalise platform payloads into :class:`ChannelEvent` /
 gateway's outbound instructions back to the platform.
 
 The channel never imports or holds the gateway; it receives an ``emit``
-callback via :meth:`ChannelBase.bind` and calls it. The gateway, in
-turn, only ever calls the narrow outbound methods on the channel
-(``send_response`` / ``present_confirm`` / ``update_confirm`` /
-reactions) — never its lifecycle methods.
+callback via :meth:`start_listening` and calls it. The dispatcher, in
+turn, only feeds the channel a run's event stream via ``send_response``
+(the channel folds and renders it) plus ``send_reaction`` — never its
+connection loop.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Literal, TYPE_CHECKING
+from typing import Any, AsyncIterator, Awaitable, Callable, TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
-from ...event import RequireUserConfirmEvent
-from ...message import TextBlock, DataBlock
+from ...event import AgentEvent
+from ...message import (
+    DataBlock,
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+)
+from ...types import ReplyFinishedReason
+from ..storage import ReplyPresentation
 
 if TYPE_CHECKING:
     from ...tool import ToolBase
     from ...workspace import WorkspaceBase
 
-
-# Signature of the gateway entry point injected into a channel.
-EmitFn = Callable[
-    ["ChannelEvent | ChannelConfirmationResultEvent"],
-    Awaitable[None],
-]
+_NO_TEXT_REPLY = "(Agent returned no text content)"
+_AGENT_ERROR_REPLY = (
+    "❌ Agent encountered an error. Please check the agent configuration."
+)
+# Deserialize a bus event dict back into its typed AgentEvent.
+_EVENT_ADAPTER: TypeAdapter = TypeAdapter(AgentEvent)
 
 
 class ChannelEvent(BaseModel):
@@ -84,18 +93,23 @@ class ChannelEvent(BaseModel):
 class ChannelConfirmationResultEvent(BaseModel):
     """A user's decision on a pending tool-approval, delivered inbound.
 
-    This enters through the *same* gateway entry point as messages (a
-    card click / text reply is just another inbound event), so there is
-    no blocking wait anywhere in the pipeline.
+    Enters through the *same* gateway entry point as messages. Carries
+    only lookup keys — the authoritative pending tool call is read from
+    the session state, never trusted from this round-tripped payload.
     """
 
     channel_id: str
     """Source channel instance identifier."""
 
-    request_id: str
-    """Opaque token echoed back from the confirmation UI. The channel
-    round-trips it without understanding it; the gateway uses it to look
-    up the persisted pending-confirm context."""
+    chat_id: str
+    """Platform chat the decision came from; routes to the session."""
+
+    channel_user_id: str
+    """Platform user who decided; routes to the session."""
+
+    tool_call_id: str
+    """Id of the tool call being answered — the correlation key, matched
+    against the session's awaiting confirmations."""
 
     approved: bool
     """The user's decision."""
@@ -116,12 +130,13 @@ class ChannelCapability(BaseModel):
     file: bool = False
     interactive: bool = False
     """Whether the platform can present an interactive confirmation UI.
-    When ``False``, tool approvals are auto-denied (no surface to ask)."""
+    Declarative metadata; each channel renders approvals in its own
+    ``send_response`` (a card, a text prompt, ...)."""
 
     streaming: bool = False
-    """Whether the platform can update one reply message in place as the
-    agent generates it. When ``False``, the reply is sent once, complete
-    (see :meth:`ChannelBase.stream_start`)."""
+    """Whether the platform can update one reply message in place. A
+    channel decides how to render inside ``send_response``; this is
+    declarative metadata for the management UI."""
 
     max_message_length: int = 4000
     """Max characters per message; longer replies are split before send."""
@@ -180,10 +195,20 @@ class ChannelBase(ABC):
 
     capabilities: ChannelCapability = ChannelCapability()
 
-    _emit: EmitFn | None = None
-    """Gateway entry point, injected by :meth:`bind`. Channels dispatch
-    normalised events via ``await self._emit(event)`` and must not access
-    any other gateway state."""
+    presentation: ReplyPresentation = ReplyPresentation()
+    """Reply-rendering flags (show tool process / thinking), set by the
+    dispatcher from the channel record. Read by :meth:`_fold`."""
+
+    _emit: (
+        Callable[
+            ["ChannelEvent | ChannelConfirmationResultEvent"],
+            Awaitable[None],
+        ]
+        | None
+    ) = None
+    """Gateway entry point, stored by :meth:`start_listening`. Channels
+    dispatch normalised events via ``await self._emit(event)`` and must
+    not access any other gateway state."""
 
     # -- Identity & connection --
 
@@ -193,97 +218,86 @@ class ChannelBase(ABC):
         """The unique channel instance identifier."""
 
     @abstractmethod
-    async def start_listening(self) -> None:
-        """Connect and loop receiving events, normalising each into a
-        ``ChannelEvent`` and ``await self._emit(event)`` (auto-reconnect).
+    async def start_listening(
+        self,
+        emit: Callable[
+            ["ChannelEvent | ChannelConfirmationResultEvent"],
+            Awaitable[None],
+        ],
+    ) -> None:
+        """Store ``emit``, set up resources, then connect and loop
+        receiving events — normalising each into a ``ChannelEvent`` and
+        ``await self._emit(event)`` (auto-reconnect) — releasing
+        resources in a ``finally``. The sole connection-lifecycle method.
+
+        Args:
+            emit (`Callable`): Gateway callback for inbound events; store
+                as ``self._emit`` and call ``await self._emit(event)``.
         """
 
-    # -- Outbound (agent service → platform). Gateway-invoked. --
+    # -- Outbound (agent service → platform). Dispatcher-invoked. --
 
     @abstractmethod
     async def send_response(
         self,
         event: ChannelEvent,
-        content: list[TextBlock | DataBlock],
+        events: AsyncIterator[dict],
     ) -> None:
-        """Send an agent reply back to the platform, splitting over-long
-        text per ``capabilities.max_message_length``.
+        """Consume the run's agent-event stream and deliver the reply.
+
+        Accumulate the events into a ``Msg`` (:meth:`Msg.append_event`,
+        via :data:`_EVENT_ADAPTER`), render with :meth:`_render`, and send
+        to the platform — streaming or one-shot as the channel chooses;
+        present a confirmation when the run parks.
 
         Args:
-            event (`ChannelEvent`): The inbound event, for reply routing.
-            content (`list[TextBlock | DataBlock]`): Blocks to send.
+            event (`ChannelEvent`): The send target (chat id).
+            events (`AsyncIterator[dict]`): The run's session events.
         """
 
-    async def present_confirm(  # pylint: disable=unused-argument
-        self,
-        event: ChannelEvent,
-        req: RequireUserConfirmEvent,
-    ) -> str | None:
-        """Present a tool-approval request; embed ``req.id`` so the
-        decision returns as a ``ChannelConfirmationResultEvent``.
+    def _render(self, reply: Msg | None) -> list[TextBlock | DataBlock]:
+        """Render an accumulated reply into deliverable blocks per
+        :attr:`presentation` (tool process / thinking shown or hidden).
 
         Args:
-            event (`ChannelEvent`): The inbound event, for reply routing.
-            req (`RequireUserConfirmEvent`): The approval request to show.
+            reply (`Msg | None`): The accumulated reply.
 
         Returns:
-            `str | None`: Opaque handle for :meth:`update_confirm`, or
-            ``None`` if unsupported (the gateway then auto-denies).
+            `list[TextBlock | DataBlock]`: Text (+ data) blocks to send.
         """
-        return None
+        if reply is None:
+            return []
+        parts: list[str] = []
+        data: list[DataBlock] = []
+        for block in reply.content:
+            if isinstance(block, TextBlock):
+                parts.append(block.text)
+            elif isinstance(block, DataBlock):
+                data.append(block)
+            elif isinstance(block, ThinkingBlock):
+                if self.presentation.show_thinking:
+                    parts.append(f"\n💭 {block.thinking}\n")
+            elif isinstance(block, ToolCallBlock):
+                if self.presentation.show_tool_process:
+                    parts.append(f"\n🔧 Calling tool: {block.name}\n")
+            elif isinstance(block, ToolResultBlock):
+                if self.presentation.show_tool_process and isinstance(
+                    block.output,
+                    str,
+                ):
+                    parts.append(block.output)
+        text = "".join(parts).strip()
+        if reply.finished_reason == ReplyFinishedReason.ERROR:
+            text = text or _AGENT_ERROR_REPLY
+        elif not text and not data:
+            text = _NO_TEXT_REPLY
+        blocks: list[TextBlock | DataBlock] = (
+            [TextBlock(text=text)] if text else []
+        )
+        blocks.extend(data)
+        return blocks
 
-    async def update_confirm(
-        self,
-        ref: str,
-        outcome: Literal["approved", "denied"],
-    ) -> None:
-        """Update a presented confirmation to its final state (e.g. freeze
-        a card). A platform that cannot update may no-op. Default: no-op.
-
-        Args:
-            ref (`str`): The handle returned by :meth:`present_confirm`.
-            outcome (`str`): ``"approved"`` or ``"denied"``.
-        """
-
-    async def stream_start(  # pylint: disable=unused-argument
-        self,
-        event: ChannelEvent,
-    ) -> str | None:
-        """Open a live-updating reply message and return a handle, or
-        ``None`` to fall back to a single :meth:`send_response`.
-
-        Args:
-            event (`ChannelEvent`): The inbound event, for reply routing.
-        """
-        return None
-
-    async def stream_update(
-        self,
-        ref: str,
-        content: list[TextBlock | DataBlock],
-    ) -> None:
-        """Update the live message with the content so far (best-effort).
-
-        Args:
-            ref (`str`): The handle from :meth:`stream_start`.
-            content (`list[TextBlock | DataBlock]`): Accumulated blocks.
-        """
-
-    async def stream_end(
-        self,
-        ref: str,
-        content: list[TextBlock | DataBlock],
-    ) -> None:
-        """Finalise the live message with the complete content.
-
-        Default: no-op.
-
-        Args:
-            ref (`str`): The handle returned by :meth:`stream_start`.
-            content (`list[TextBlock | DataBlock]`): The full reply.
-        """
-
-    async def add_reaction(  # pylint: disable=unused-argument
+    async def send_reaction(  # pylint: disable=unused-argument
         self,
         event: ChannelEvent,
         emoji_type: str,
@@ -295,8 +309,8 @@ class ChannelBase(ABC):
             emoji_type (`str`): Platform emoji/reaction key.
 
         Returns:
-            `str | None`: Reaction id for removal, or ``None`` if
-            unsupported.
+            `str | None`: Reaction id for :meth:`remove_reaction`, or
+            ``None`` if unsupported.
         """
         return None
 
@@ -305,34 +319,12 @@ class ChannelBase(ABC):
         event: ChannelEvent,
         reaction_id: str,
     ) -> None:
-        """Remove a reaction added by :meth:`add_reaction`. Default: no-op.
+        """Remove a reaction added by :meth:`send_reaction`. Default: no-op.
 
         Args:
             event (`ChannelEvent`): The inbound event that was reacted to.
-            reaction_id (`str`): The id returned by :meth:`add_reaction`.
+            reaction_id (`str`): The id returned by :meth:`send_reaction`.
         """
-
-    # -- Lifecycle & wiring (manager-invoked) --
-
-    async def validate(self) -> None:
-        """Check the credentials can connect, raising on failure; called
-        once at creation so a bad config fails fast. Default: no-op.
-        """
-
-    async def on_start(self) -> None:
-        """Initialise resources (HTTP clients, tokens, ...). Default: no-op."""
-
-    async def on_stop(self) -> None:
-        """Release connection resources. Default: no-op."""
-
-    def bind(self, emit: EmitFn) -> None:
-        """Inject the gateway entry point used to dispatch inbound events.
-
-        Args:
-            emit (`EmitFn`): Gateway callback invoked as
-                ``await self._emit(event)``; no other gateway access.
-        """
-        self._emit = emit
 
     # -- Optional management-UI helpers --
 

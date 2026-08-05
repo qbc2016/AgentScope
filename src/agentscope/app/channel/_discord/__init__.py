@@ -3,9 +3,9 @@
 
 discord.py is async-native and runs on the app event loop, so — unlike
 Feishu — there is no thread bridging: ``on_message`` and button callbacks
-``await self._emit(...)`` directly. Confirmation is two-phase: a button
-click emits a ``ChannelConfirmationResultEvent`` and the gateway later
-resolves the message via :meth:`update_confirm`.
+``await self._emit(...)`` directly. On a button click the channel freezes
+its own card and emits a ``ChannelConfirmationResultEvent`` carrying the
+tool call's id.
 
 Note: this channel opens one gateway connection per node. Discord's own
 model expects one connection per shard; running many nodes for one bot
@@ -13,18 +13,20 @@ needs shard coordination, which is out of scope here.
 """
 import asyncio
 import base64
-from typing import TYPE_CHECKING
+import io
+from typing import AsyncIterator, Awaitable, Callable, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from ...._logging import logger
-from ....event import RequireUserConfirmEvent
-from ....message import Base64Source, DataBlock, TextBlock
+from ....event import ReplyEndEvent, RequireUserConfirmEvent
+from ....message import Base64Source, DataBlock, Msg, TextBlock
 from .._base import (
     ChannelBase,
     ChannelCapability,
     ChannelEvent,
     ChannelConfirmationResultEvent,
+    _EVENT_ADAPTER,
 )
 
 if TYPE_CHECKING:
@@ -64,6 +66,7 @@ class DiscordChannel(ChannelBase):
         text=True,
         markdown=True,
         image=True,
+        file=True,
         interactive=True,
         max_message_length=_MAX_LEN,
     )
@@ -97,10 +100,22 @@ class DiscordChannel(ChannelBase):
 
     # -- Lifecycle --
 
-    async def on_start(self) -> None:
-        """Build the discord.py client and register the message handler."""
+    async def start_listening(
+        self,
+        emit: Callable[
+            [ChannelEvent | ChannelConfirmationResultEvent],
+            Awaitable[None],
+        ],
+    ) -> None:
+        """Build the client, register the message handler, run the gateway
+        (discord.py self-reconnects), and close it on exit.
+
+        Args:
+            emit (`Callable`): Gateway callback for inbound events.
+        """
         import discord
 
+        self._emit = emit
         intents = discord.Intents.default()
         intents.message_content = True
         self._client = discord.Client(intents=intents)
@@ -114,25 +129,24 @@ class DiscordChannel(ChannelBase):
             """
             await self._on_message(message)
 
-    async def start_listening(self) -> None:
-        """Run the gateway client (discord.py self-reconnects)."""
-        backoff = 1.0
-        while not self._stopped:
-            try:
-                await self._client.start(self._bot_token)
-            except Exception:  # pylint: disable=broad-except
+        try:
+            backoff = 1.0
+            while not self._stopped:
+                try:
+                    await self._client.start(self._bot_token)
+                except Exception:  # pylint: disable=broad-except
+                    if self._stopped:
+                        break
+                    logger.exception(
+                        "Discord '%s' client error",
+                        self._channel_id,
+                    )
                 if self._stopped:
                     break
-                logger.exception("Discord '%s' client error", self._channel_id)
-            if self._stopped:
-                break
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 30.0)
-
-    async def on_stop(self) -> None:
-        """Signal the loop to exit and close the client connection."""
-        self._stopped = True
-        if self._client:
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+        finally:
+            self._stopped = True
             await self._client.close()
 
     # -- Inbound --
@@ -204,81 +218,72 @@ class DiscordChannel(ChannelBase):
     async def send_response(
         self,
         event: ChannelEvent,
-        content: list[TextBlock | DataBlock],
+        events: AsyncIterator[dict],
     ) -> None:
-        """Send the reply text to the originating channel, split if long.
+        """Accumulate the reply (non-streaming) and post it as text +
+        file attachments; present an approval card if the run parks.
 
         Args:
-            event (`ChannelEvent`):
-                The inbound event, for its ``chat_id``.
-            content (`list[TextBlock | DataBlock]`):
-                Reply blocks; the text blocks are concatenated and sent.
+            event (`ChannelEvent`): The send target (chat id).
+            events (`AsyncIterator[dict]`): The run's session events.
         """
-        text = "".join(b.text for b in content if isinstance(b, TextBlock))
-        if not text:
-            return
+        import discord
+
         channel = await self._channel(event.chat_id)
         if channel is None:
             return
-        for part in self._split_long_message(text):
-            await channel.send(part)
+        reply: Msg | None = None
+        confirm: RequireUserConfirmEvent | None = None
+        async for raw in events:
+            evt = _EVENT_ADAPTER.validate_python(raw)
+            if isinstance(evt, RequireUserConfirmEvent):
+                confirm = evt
+                break
+            reply_id = getattr(evt, "reply_id", None)
+            if reply_id is not None:
+                if reply is None:
+                    reply = Msg(name="assistant", role="assistant", content=[])
+                    reply.id = reply_id
+                reply.append_event(evt)
+            if isinstance(evt, ReplyEndEvent):
+                break
+        for block in self._render(reply):
+            if isinstance(block, TextBlock):
+                for part in self._split_long_message(block.text):
+                    if part:
+                        await channel.send(part)
+            elif isinstance(block.source, Base64Source):
+                await channel.send(
+                    file=discord.File(
+                        io.BytesIO(base64.b64decode(block.source.data)),
+                        filename=block.name or "attachment",
+                    ),
+                )
+        if confirm is not None:
+            await self._present_confirm(event, confirm)
 
-    async def present_confirm(
+    async def _present_confirm(
         self,
         event: ChannelEvent,
         req: RequireUserConfirmEvent,
-    ) -> str | None:
-        """Post an approval message with allow/deny buttons.
+    ) -> None:
+        """Post one allow/deny card per tool call; each button carries its
+        ``tool_call_id`` so the click self-correlates.
 
         Args:
-            event (`ChannelEvent`):
-                The inbound event, for its ``chat_id``.
-            req (`RequireUserConfirmEvent`):
-                The approval request; its ``id`` is embedded in the
-                buttons and its first tool call is shown.
-
-        Returns:
-            `str | None`:
-                A ``"{channel_id}:{message_id}"`` handle for
-                :meth:`update_confirm`, or ``None`` if the channel is
-                unreachable.
+            event (`ChannelEvent`): The send target, for its ``chat_id``.
+            req (`RequireUserConfirmEvent`): The approval request to show.
         """
         channel = await self._channel(event.chat_id)
         if channel is None:
-            return None
-        tool = req.tool_calls[0] if req.tool_calls else None
-        body = (
-            "🛡️ Tool execution needs approval\n"
-            f"**Tool:** `{tool.name if tool else 'tool'}`"
-        )
-        if tool:
-            body += f"\n**Arguments:** {str(tool.input)[:800]}"
-        message = await channel.send(
-            content=body,
-            view=self._build_view(req.id),
-        )
-        return f"{channel.id}:{message.id}"
-
-    async def update_confirm(self, ref: str, outcome: str) -> None:
-        """Freeze the approval message to its resolved state.
-
-        Args:
-            ref (`str`):
-                The ``"{channel_id}:{message_id}"`` handle from
-                :meth:`present_confirm`.
-            outcome (`str`):
-                ``"approved"`` or ``"denied"``.
-        """
-        channel_id, _, message_id = ref.partition(":")
-        channel = await self._channel(channel_id)
-        if channel is None:
             return
-        try:
-            message = await channel.fetch_message(int(message_id))
-            resolved = "✅ Approved" if outcome == "approved" else "🚫 Denied"
-            await message.edit(content=resolved, view=None)
-        except Exception:  # pylint: disable=broad-except
-            logger.debug("Discord update_confirm failed")
+        for tool in req.tool_calls:
+            await channel.send(
+                content="🛡️ Tool execution needs approval\n"
+                f"**Tool:** `{tool.name}`\n"
+                f"**Arguments:** {str(tool.input)[:800]}",
+                view=self._build_view(tool.id),
+            )
 
     async def list_bot_chats(self) -> list[dict]:
         """List every text channel the bot can see as ``{chat_id, name}``."""
@@ -319,17 +324,15 @@ class DiscordChannel(ChannelBase):
             cid,
         )
 
-    def _build_view(self, request_id: str) -> "discord.ui.View":
-        """Build a two-button approval view whose callbacks emit a
-        ``ChannelConfirmationResultEvent`` carrying ``request_id``.
+    def _build_view(self, tool_call_id: str) -> "discord.ui.View":
+        """Build a two-button approval view whose callbacks freeze the card
+        and emit the decision for ``tool_call_id``.
 
         Args:
-            request_id (`str`):
-                The opaque approval token to round-trip on click.
+            tool_call_id (`str`): The tool call the buttons answer.
 
         Returns:
-            `discord.ui.View`:
-                The allow/deny view to attach to the card message.
+            `discord.ui.View`: The allow/deny view for the card message.
         """
         # pylint: disable=protected-access
         import discord
@@ -358,8 +361,7 @@ class DiscordChannel(ChannelBase):
                     interaction (`discord.Interaction`): The click.
                     _button (`discord.ui.Button`): The clicked button.
                 """
-                await interaction.response.defer()
-                await channel._decide(request_id, True)
+                await channel._decide(interaction, tool_call_id, True)
 
             @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.red)
             async def deny(
@@ -373,25 +375,39 @@ class DiscordChannel(ChannelBase):
                     interaction (`discord.Interaction`): The click.
                     _button (`discord.ui.Button`): The clicked button.
                 """
-                await interaction.response.defer()
-                await channel._decide(request_id, False)
+                await channel._decide(interaction, tool_call_id, False)
 
         return _ApprovalView()
 
-    async def _decide(self, request_id: str, approved: bool) -> None:
-        """Emit the click as a ``ChannelConfirmationResultEvent``.
+    async def _decide(
+        self,
+        interaction: "discord.Interaction",
+        tool_call_id: str,
+        approved: bool,
+    ) -> None:
+        """Freeze the card and emit the decision for ``tool_call_id``.
 
         Args:
-            request_id (`str`):
-                The opaque approval token echoed back from the button.
-            approved (`bool`):
-                The user's decision.
+            interaction (`discord.Interaction`): The click, for the card
+                message, chat id and clicking user.
+            tool_call_id (`str`): The tool call being answered.
+            approved (`bool`): The user's decision.
         """
+        await interaction.response.defer()
+        try:
+            await interaction.message.edit(
+                content="✅ Approved" if approved else "🚫 Denied",
+                view=None,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("Discord card freeze failed")
         if self._emit:
             await self._emit(
                 ChannelConfirmationResultEvent(
                     channel_id=self._channel_id,
-                    request_id=request_id,
+                    chat_id=str(interaction.channel_id),
+                    channel_user_id=str(interaction.user.id),
+                    tool_call_id=tool_call_id,
                     approved=approved,
                 ),
             )

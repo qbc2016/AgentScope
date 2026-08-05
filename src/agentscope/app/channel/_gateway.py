@@ -31,13 +31,11 @@ from ..storage import (
     SessionSource,
     StorageBase,
 )
-from ._base import ChannelBase, ChannelEvent, ChannelConfirmationResultEvent
+from ._base import ChannelEvent, ChannelConfirmationResultEvent
 from ._config import WORKSPACE_ID
 from ._decision import resume_after_decision
-from ._pending import _PendingConfirm
 from ._routing import resolve
 
-_ERROR_REPLY = "❌ Service error, please try again later."
 # How long a media-only message waits for its accompanying text message.
 _MEDIA_BUFFER_TTL_SECS = 300
 
@@ -62,30 +60,16 @@ class ChannelGateway:
     async def process(
         self,
         event: ChannelEvent | ChannelConfirmationResultEvent,
-        channel: ChannelBase,
     ) -> None:
         """Handle one inbound event (message or confirmation decision).
 
         Args:
             event (`ChannelEvent | ChannelConfirmationResultEvent`): The
                 inbound message or card-click decision.
-            channel (`ChannelBase`): The originating channel, for replies.
         """
         try:
             if isinstance(event, ChannelConfirmationResultEvent):
-                # Card click: take the parked request and resume. A
-                # missing record is a stale decision — ignore it.
-                pending = await _PendingConfirm.take(
-                    self._bus,
-                    event.request_id,
-                )
-                if pending is not None:
-                    await resume_after_decision(
-                        self._bus,
-                        channel,
-                        pending,
-                        event.approved,
-                    )
+                await self._handle_decision(event)
             else:
                 await self._handle_message(event)
         except Exception:  # pylint: disable=broad-except
@@ -93,14 +77,40 @@ class ChannelGateway:
                 "ChannelGateway.process failed for channel %s",
                 event.channel_id,
             )
-            if isinstance(event, ChannelEvent):
-                try:
-                    await channel.send_response(
-                        event,
-                        [TextBlock(text=_ERROR_REPLY)],
-                    )
-                except Exception:  # pylint: disable=broad-except
-                    logger.exception("Failed to send channel error notice")
+
+    async def _handle_decision(
+        self,
+        event: ChannelConfirmationResultEvent,
+    ) -> None:
+        """Resume the run for a card-click decision.
+
+        Routes the click to its session and resumes; the authoritative
+        tool call is read from session state, so a stale/forged click
+        simply finds nothing to answer.
+
+        Args:
+            event (`ChannelConfirmationResultEvent`): The click decision.
+        """
+        record = await self._storage.get_channel(event.channel_id)
+        if record is None:
+            return
+        agent_id, session_id = resolve(
+            ChannelEvent(
+                channel_id=event.channel_id,
+                channel_user_id=event.channel_user_id,
+                chat_id=event.chat_id,
+            ),
+            record,
+        )
+        await resume_after_decision(
+            self._bus,
+            self._storage,
+            user_id=record.user_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            tool_call_id=event.tool_call_id,
+            approved=event.approved,
+        )
 
     # -- Message path --
 

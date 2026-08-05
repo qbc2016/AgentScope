@@ -265,7 +265,6 @@ class MessageBusKeys:  # pylint: disable=too-many-public-methods
     _CHANNEL_LIFECYCLE = "agentscope:channel:lifecycle"
     _CHANNEL_LIVENESS = "agentscope:channel:liveness:{cid}"
     _CHANNEL_MEDIA = "agentscope:channel:media:{cid}:{chat}:{uid}"
-    _CHANNEL_PENDING = "agentscope:channel:pending_confirm"
     _CHANNEL_FORWARD = "agentscope:channel:forward:{sid}"
     _CHANNEL_SEEN_CHATS = "agentscope:channel:seen_chats:{cid}"
 
@@ -303,11 +302,6 @@ class MessageBusKeys:  # pylint: disable=too-many-public-methods
             chat=chat_id,
             uid=user_id,
         )
-
-    @classmethod
-    def channel_pending_confirm(cls) -> str:
-        """Registry namespace for parked tool-approval contexts."""
-        return cls._CHANNEL_PENDING
 
     @classmethod
     def channel_forward_lease(cls, session_id: str) -> str:

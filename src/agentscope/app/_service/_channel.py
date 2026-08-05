@@ -80,16 +80,6 @@ class ChannelService:
             )
 
         channel_id = _generate_id()
-        # Fail fast if the credentials can't connect, rather than letting
-        # the dispatcher retry silently in the background.
-        channel = self._types.create_channel(
-            channel_type,
-            channel_id,
-            credentials,
-            platform_config,
-        )
-        await channel.validate()
-
         now = datetime.now().isoformat()
         record = ChannelRecord(
             id=channel_id,

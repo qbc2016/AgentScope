@@ -1,208 +1,217 @@
 # -*- coding: utf-8 -*-
 """Tests for channel data-plane internals that stand alone from a live run.
 
-Covers the presenter's event-stream folding (``_collect``, driven off a
-seeded replay log), the gateway's media aggregation, and pending-confirm
-persistence. Full two-phase orchestration needs a running agent and is
-exercised end-to-end against a real bus / bot.
+Covers the channel's event-stream folding (``send_response`` driven off a
+seeded event list via a fake channel), the gateway's media aggregation,
+and the text-confirmation reply parser. Full two-phase orchestration
+needs a running agent and is exercised end-to-end against a real bot.
 """
 # pylint: disable=protected-access,missing-function-docstring,unused-argument
-from typing import Any
+# pylint: disable=attribute-defined-outside-init
+from typing import Any, AsyncIterator
 from unittest import IsolatedAsyncioTestCase
 
 from agentscope.app.channel._base import (
     ChannelBase,
-    ChannelCapability,
     ChannelEvent,
+    _EVENT_ADAPTER,
 )
-from agentscope.app.channel._dispatcher import ChannelLifecycleDispatcher
 from agentscope.app.channel._gateway import ChannelGateway
-from agentscope.app.channel._pending import _PendingConfirm
-from agentscope.app.channel._registry import ChannelTypeRegistry
-from agentscope.app.message_bus import InMemoryMessageBus, MessageBusKeys
-from agentscope.app.storage import (
-    ChannelBinding,
-    ChannelRecord,
-    ReplyPresentation,
-    RoutingConfig,
-    SessionSettings,
+from agentscope.message import Msg
+from agentscope.app.message_bus import InMemoryMessageBus
+from agentscope.app.storage import ReplyPresentation
+from agentscope.event import (
+    DataBlockDeltaEvent,
+    DataBlockEndEvent,
+    DataBlockStartEvent,
+    ReplyEndEvent,
+    ReplyStartEvent,
+    RequireUserConfirmEvent,
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+    TextBlockStartEvent,
+    ThinkingBlockDeltaEvent,
+    ThinkingBlockEndEvent,
+    ThinkingBlockStartEvent,
 )
-from agentscope.event import EventType
 from agentscope.message import DataBlock, TextBlock
-from agentscope.message._block import URLSource
+from agentscope.message._block import Base64Source, URLSource
 from agentscope.types import ReplyFinishedReason
 
-_SESSION_ID = "s1"
-
-
-def _record(**presentation: Any) -> ChannelRecord:
-    return ChannelRecord(
-        id="chan-1",
-        channel_type="feishu",
-        user_id="owner-1",
-        routing=RoutingConfig(
-            bindings=[ChannelBinding(match_value="*", agent_id="a")],
-        ),
-        session=SessionSettings(chat_model_config={"type": "x"}),
-        presentation=ReplyPresentation(**presentation),
-        created_at="t",
-        updated_at="t",
-    )
+_RID = "reply-1"
 
 
 def _event() -> ChannelEvent:
     return ChannelEvent(channel_id="chan-1", channel_user_id="u", chat_id="c")
 
 
-class _FakeChannel(ChannelBase):
-    """A channel that records what streaming would have sent."""
+async def _aiter(events: list) -> AsyncIterator[dict]:
+    for evt in events:
+        yield evt.model_dump(mode="json")
 
-    def __init__(self, streaming: bool = False) -> None:
-        self.capabilities = ChannelCapability(streaming=streaming)
-        self.updates: list[str] = []
-        self.ended: str | None = None
+
+class _FakeChannel(ChannelBase):
+    """A channel that records what ``send_response`` delivers."""
+
+    channel_type = "fake"
+    display_name = "Fake"
+    platform_bot_id_field = "id"
+
+    def __init__(self) -> None:
+        self.delivered: list = []
+        self.confirm: Any = None
 
     @property
     def channel_id(self) -> str:
         return "chan-1"
 
-    async def start_listening(self) -> None:
+    async def start_listening(self, emit: Any) -> None:
         pass
 
-    async def send_response(self, event: Any, content: Any) -> None:
-        pass
+    async def send_response(self, event: Any, events: Any) -> None:
+        reply = None
+        async for raw in events:
+            evt = _EVENT_ADAPTER.validate_python(raw)
+            if isinstance(evt, RequireUserConfirmEvent):
+                self.confirm = evt
+                break
+            reply_id = getattr(evt, "reply_id", None)
+            if reply_id is not None:
+                if reply is None:
+                    reply = Msg(name="a", role="assistant", content=[])
+                    reply.id = reply_id
+                reply.append_event(evt)
+            if isinstance(evt, ReplyEndEvent):
+                break
+        self.delivered.extend(self._render(reply))
 
-    async def stream_start(self, event: ChannelEvent) -> str | None:
-        return "card-1"
 
-    async def stream_update(self, ref: str, content: Any) -> None:
-        self.updates.append(
-            "".join(b.text for b in content if isinstance(b, TextBlock)),
-        )
-
-    async def stream_end(self, ref: str, content: Any) -> None:
-        self.ended = "".join(
-            b.text for b in content if isinstance(b, TextBlock)
-        )
+async def _run(events: list, **presentation: Any) -> _FakeChannel:
+    channel = _FakeChannel()
+    channel.presentation = ReplyPresentation(**presentation)
+    await channel.send_response(_event(), _aiter(events))
+    return channel
 
 
-async def _collect(
-    events: list[dict],
-    streaming: bool = False,
-    **presentation: Any,
-) -> tuple[tuple[str, dict | None], _FakeChannel]:
-    """Seed a session-events replay log, then fold it via the dispatcher.
-
-    The dispatcher subscribes first, then replays the log — seeding the
-    log (including the terminal event) is enough to exercise the fold
-    without a live producer.
-    """
-    bus = InMemoryMessageBus()
-    key = MessageBusKeys.session_events(_SESSION_ID)
-    for event in events:
-        await bus.log_append(key, event)
-    dispatcher = ChannelLifecycleDispatcher(
-        storage=None,
-        message_bus=bus,
-        type_registry=ChannelTypeRegistry([]),
-        gateway=ChannelGateway(storage=None, message_bus=bus),
+def _text(channel: _FakeChannel) -> str:
+    return "".join(
+        b.text for b in channel.delivered if isinstance(b, TextBlock)
     )
-    channel = _FakeChannel(streaming=streaming)
-    result = await dispatcher._collect(
-        _SESSION_ID,
-        _record(**presentation),
-        channel,
-        _event(),
-    )
-    return result, channel
 
 
-class CollectTest(IsolatedAsyncioTestCase):
-    """The event-stream → (text, confirm?) folding."""
+def _text_blocks(*deltas: str) -> list:
+    events: list = [TextBlockStartEvent(reply_id=_RID, block_id="t1")]
+    events += [
+        TextBlockDeltaEvent(reply_id=_RID, block_id="t1", delta=d)
+        for d in deltas
+    ]
+    events.append(TextBlockEndEvent(reply_id=_RID, block_id="t1"))
+    return events
+
+
+class SendResponseTest(IsolatedAsyncioTestCase):
+    """The event-stream accumulation (via Msg) + render in send_response."""
 
     async def test_text_reply(self) -> None:
-        (text, confirm), _ = await _collect(
+        channel = await _run(
             [
-                {"type": EventType.REPLY_START},
-                {"type": EventType.TEXT_BLOCK_DELTA, "delta": "Hello "},
-                {"type": EventType.TEXT_BLOCK_DELTA, "delta": "world"},
-                {"type": EventType.REPLY_END},
+                ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                *_text_blocks("Hello ", "world"),
+                ReplyEndEvent(session_id="s", reply_id=_RID),
             ],
         )
-        self.assertEqual(text, "Hello world")
-        self.assertIsNone(confirm)
+        self.assertEqual(_text(channel), "Hello world")
+        self.assertIsNone(channel.confirm)
 
-    async def test_streaming_delivers_and_suppresses_text(self) -> None:
-        (text, _), channel = await _collect(
+    async def test_confirm_delivers_text_then_presents(self) -> None:
+        channel = await _run(
             [
-                {"type": EventType.REPLY_START},
-                {"type": EventType.TEXT_BLOCK_DELTA, "delta": "Hi "},
-                {"type": EventType.TEXT_BLOCK_DELTA, "delta": "there"},
-                {"type": EventType.REPLY_END},
-            ],
-            streaming=True,
-        )
-        # Streaming delivered the reply; no text returned for a re-send.
-        self.assertEqual(text, "")
-        self.assertEqual(channel.ended, "Hi there")
-
-    async def test_confirm_returns_early(self) -> None:
-        (text, confirm), _ = await _collect(
-            [
-                {"type": EventType.REPLY_START},
-                {"type": EventType.TEXT_BLOCK_DELTA, "delta": "working"},
-                {
-                    "type": EventType.REQUIRE_USER_CONFIRM,
-                    "id": "req-1",
-                    "reply_id": "r-1",
-                    "tool_calls": [],
-                },
-                {"type": EventType.REPLY_END},  # not reached
+                ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                *_text_blocks("working"),
+                RequireUserConfirmEvent(
+                    id="req-1",
+                    reply_id=_RID,
+                    tool_calls=[],
+                ),
+                ReplyEndEvent(session_id="s", reply_id=_RID),  # not reached
             ],
         )
-        self.assertEqual(text, "working")
-        assert confirm is not None
-        self.assertEqual(confirm["id"], "req-1")
+        self.assertEqual(_text(channel), "working")
+        self.assertIsNotNone(channel.confirm)
+        self.assertEqual(channel.confirm.id, "req-1")
 
     async def test_error_reply_end(self) -> None:
-        (text, confirm), _ = await _collect(
+        channel = await _run(
             [
-                {"type": EventType.REPLY_START},
-                {
-                    "type": EventType.REPLY_END,
-                    "finished_reason": ReplyFinishedReason.ERROR,
-                    "error": {"type": "internal", "message": "boom"},
-                },
+                ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                ReplyEndEvent(
+                    session_id="s",
+                    reply_id=_RID,
+                    finished_reason=ReplyFinishedReason.ERROR,
+                ),
             ],
         )
-        self.assertIn("error", text.lower())
-        self.assertIsNone(confirm)
+        self.assertIn("error", _text(channel).lower())
 
     async def test_thinking_filtered_by_default(self) -> None:
-        (text, _), _ = await _collect(
+        channel = await _run(
             [
-                {"type": EventType.REPLY_START},
-                {"type": EventType.THINKING_BLOCK_START},
-                {"type": EventType.THINKING_BLOCK_DELTA, "delta": "hmm"},
-                {"type": EventType.THINKING_BLOCK_END},
-                {"type": EventType.TEXT_BLOCK_DELTA, "delta": "answer"},
-                {"type": EventType.REPLY_END},
+                ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                ThinkingBlockStartEvent(reply_id=_RID, block_id="k1"),
+                ThinkingBlockDeltaEvent(
+                    reply_id=_RID,
+                    block_id="k1",
+                    delta="hmm",
+                ),
+                ThinkingBlockEndEvent(reply_id=_RID, block_id="k1"),
+                *_text_blocks("answer"),
+                ReplyEndEvent(session_id="s", reply_id=_RID),
             ],
         )
-        self.assertEqual(text, "answer")
+        self.assertEqual(_text(channel), "answer")
 
     async def test_thinking_shown_when_enabled(self) -> None:
-        (text, _), _ = await _collect(
+        channel = await _run(
             [
-                {"type": EventType.REPLY_START},
-                {"type": EventType.THINKING_BLOCK_START},
-                {"type": EventType.THINKING_BLOCK_DELTA, "delta": "hmm"},
-                {"type": EventType.TEXT_BLOCK_DELTA, "delta": "answer"},
-                {"type": EventType.REPLY_END},
+                ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                ThinkingBlockStartEvent(reply_id=_RID, block_id="k1"),
+                ThinkingBlockDeltaEvent(
+                    reply_id=_RID,
+                    block_id="k1",
+                    delta="hmm",
+                ),
+                ThinkingBlockEndEvent(reply_id=_RID, block_id="k1"),
+                *_text_blocks("answer"),
+                ReplyEndEvent(session_id="s", reply_id=_RID),
             ],
             show_thinking=True,
         )
-        self.assertIn("hmm", text)
+        self.assertIn("hmm", _text(channel))
+
+    async def test_data_block_reassembled_and_delivered(self) -> None:
+        channel = await _run(
+            [
+                ReplyStartEvent(session_id="s", reply_id=_RID, name="a"),
+                DataBlockStartEvent(
+                    reply_id=_RID,
+                    block_id="d1",
+                    media_type="image/png",
+                ),
+                DataBlockDeltaEvent(
+                    reply_id=_RID,
+                    block_id="d1",
+                    data="aW1n",
+                    media_type="image/png",
+                ),
+                DataBlockEndEvent(reply_id=_RID, block_id="d1"),
+                ReplyEndEvent(session_id="s", reply_id=_RID),
+            ],
+        )
+        data = [b for b in channel.delivered if isinstance(b, DataBlock)]
+        self.assertEqual(len(data), 1)
+        self.assertIsInstance(data[0].source, Base64Source)
+        self.assertEqual(data[0].source.data, "aW1n")
+        self.assertEqual(data[0].source.media_type, "image/png")
 
 
 class MediaBufferTest(IsolatedAsyncioTestCase):
@@ -248,27 +257,3 @@ class MediaBufferTest(IsolatedAsyncioTestCase):
         self.assertEqual(len(content), 3)  # two buffered images + text
         self.assertIsInstance(content[0], DataBlock)
         self.assertIsInstance(content[-1], TextBlock)
-
-
-class PendingConfirmTest(IsolatedAsyncioTestCase):
-    """Pending-confirm persistence is single-use."""
-
-    async def test_save_take_roundtrip(self) -> None:
-        bus = InMemoryMessageBus()
-        pending = _PendingConfirm(
-            session_id="s",
-            agent_id="a",
-            user_id="u",
-            channel_id="c",
-            chat_id="chat",
-            reply_id="r",
-            tool_calls=[],
-            ref="card-1",
-        )
-        await pending.save(bus, "req-1")
-        loaded = await _PendingConfirm.take(bus, "req-1")
-        self.assertIsNotNone(loaded)
-        assert loaded is not None
-        self.assertEqual(loaded.ref, "card-1")
-        # Single-use: gone after take.
-        self.assertIsNone(await _PendingConfirm.take(bus, "req-1"))

@@ -2,12 +2,10 @@
 """Feishu (Lark) channel — new ChannelBase interface.
 
 Translates the Feishu platform to/from normalised events and emits them
-via the injected gateway callback. Confirmation is two-phase: a card
-click is emitted as a ``ChannelConfirmationResultEvent`` (same entry as
-messages); the gateway later resolves the card via
-:meth:`update_confirm`. No in-process approval futures or attachment
-buffers — media aggregation and pending state live in the gateway /
-shared storage.
+via the injected gateway callback. On a card click the channel freezes
+its own card and emits a ``ChannelConfirmationResultEvent`` (same entry
+as messages) carrying the tool call's id. No in-process approval futures
+or attachment buffers — the awaiting confirmation lives in session state.
 
 The WebSocket runs in a background thread (the lark SDK owns its own
 event loop); inbound events are bridged to the app loop with
@@ -18,18 +16,20 @@ import asyncio
 import base64
 import json
 import threading
-from typing import Any, TYPE_CHECKING
+import time
+from typing import Any, AsyncIterator, Awaitable, Callable, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from ...._logging import logger
-from ....event import RequireUserConfirmEvent
-from ....message import Base64Source, DataBlock, TextBlock
+from ....event import ReplyEndEvent, RequireUserConfirmEvent
+from ....message import Base64Source, DataBlock, Msg, TextBlock
 from .._base import (
     ChannelBase,
     ChannelCapability,
     ChannelEvent,
     ChannelConfirmationResultEvent,
+    _EVENT_ADAPTER,
 )
 from ._card_templates import (
     _build_approval_card,
@@ -52,6 +52,8 @@ _API = "https://open.feishu.cn/open-apis"
 _TOKEN_EXPIRED_CODES = frozenset({99991663, 99991664})
 _MEDIA_TYPES = frozenset({"image", "audio", "media", "file"})
 _STREAM_ELEMENT_ID = "md"
+# Minimum seconds between live streaming-card updates (throttle).
+_STREAM_MIN_INTERVAL = 0.7
 
 
 class _ThreadLoopProxy:
@@ -110,6 +112,7 @@ class FeishuChannel(ChannelBase):
         text=True,
         markdown=True,
         image=True,
+        file=True,
         interactive=True,
         streaming=True,
         max_message_length=4000,
@@ -149,60 +152,49 @@ class FeishuChannel(ChannelBase):
 
     # -- Lifecycle --
 
-    async def validate(self) -> None:
-        """Check the credentials can fetch a token, raising on failure."""
+    async def start_listening(
+        self,
+        emit: Callable[
+            [ChannelEvent | ChannelConfirmationResultEvent],
+            Awaitable[None],
+        ],
+    ) -> None:
+        """Open the HTTP client, run the WS client (reconnecting with
+        backoff), and close everything on exit.
+
+        Args:
+            emit (`Callable`): Gateway callback for inbound events.
+        """
         import httpx
 
-        async with httpx.AsyncClient(timeout=10.0) as http:
-            resp = await http.post(
-                f"{_API}/auth/v3/tenant_access_token/internal",
-                json={
-                    "app_id": self._app_id,
-                    "app_secret": self._app_secret,
-                },
-            )
-        data = resp.json()
-        if data.get("code") != 0:
-            raise ValueError(
-                f"Feishu credential check failed: "
-                f"{data.get('msg') or 'invalid app_id / app_secret'}",
-            )
-
-    async def on_start(self) -> None:
-        """Open the HTTP client and fetch the first tenant access token."""
-        import httpx
-
-        self._http = httpx.AsyncClient(timeout=30.0)
-        await self._refresh_token()
-
-    async def on_stop(self) -> None:
-        """Stop the WS thread and close the HTTP client."""
-        self._stop.set()
-        if self._ws_thread and self._ws_thread.is_alive():
-            self._ws_thread.join(timeout=5.0)
-        if self._http:
-            await self._http.aclose()
-            self._http = None
-
-    async def start_listening(self) -> None:
-        """Run the WS client, reconnecting with backoff if it exits."""
+        self._emit = emit
         self._loop = asyncio.get_running_loop()
-        backoff = 1.0
-        while not self._stop.is_set():
-            self._ws_thread = self._launch_ws_thread()
-            uptime = 0.0
-            while not self._stop.is_set() and self._ws_thread.is_alive():
-                await asyncio.sleep(5.0)
-                uptime += 5.0
-            if self._stop.is_set():
-                break
-            backoff = 1.0 if uptime >= 60.0 else min(backoff * 2, 30.0)
-            logger.warning(
-                "Feishu WS '%s' exited, reconnecting in %.1fs",
-                self._channel_id,
-                backoff,
-            )
-            await asyncio.sleep(backoff)
+        self._http = httpx.AsyncClient(timeout=30.0)
+        try:
+            await self._refresh_token()
+            backoff = 1.0
+            while not self._stop.is_set():
+                self._ws_thread = self._launch_ws_thread()
+                uptime = 0.0
+                while not self._stop.is_set() and self._ws_thread.is_alive():
+                    await asyncio.sleep(5.0)
+                    uptime += 5.0
+                if self._stop.is_set():
+                    break
+                backoff = 1.0 if uptime >= 60.0 else min(backoff * 2, 30.0)
+                logger.warning(
+                    "Feishu WS '%s' exited, reconnecting in %.1fs",
+                    self._channel_id,
+                    backoff,
+                )
+                await asyncio.sleep(backoff)
+        finally:
+            self._stop.set()
+            if self._ws_thread and self._ws_thread.is_alive():
+                self._ws_thread.join(timeout=5.0)
+            if self._http:
+                await self._http.aclose()
+                self._http = None
 
     def _launch_ws_thread(self) -> threading.Thread:
         """Start the lark WS client on a daemon thread with its own loop.
@@ -399,16 +391,27 @@ class FeishuChannel(ChannelBase):
         parsed = _parse_action(action)
         if parsed is None:
             return _build_toast(False)
-        request_id, approved = parsed
+        tool_call_id, chat_id, approved = parsed
+        operator = getattr(data.event, "operator", None)
+        context = getattr(data.event, "context", None)
+        user_id = getattr(operator, "open_id", "") or ""
+        message_id = getattr(context, "open_message_id", None)
         if self._emit:
             asyncio.run_coroutine_threadsafe(
                 self._emit(
                     ChannelConfirmationResultEvent(
                         channel_id=self._channel_id,
-                        request_id=request_id,
+                        chat_id=chat_id,
+                        channel_user_id=user_id,
+                        tool_call_id=tool_call_id,
                         approved=approved,
                     ),
                 ),
+                loop,
+            )
+        if message_id:
+            asyncio.run_coroutine_threadsafe(
+                self._freeze_card(message_id, approved),
                 loop,
             )
         return _build_toast(approved)
@@ -418,43 +421,114 @@ class FeishuChannel(ChannelBase):
     async def send_response(
         self,
         event: ChannelEvent,
-        content: list[TextBlock | DataBlock],
+        events: AsyncIterator[dict],
     ) -> None:
-        """Send an agent reply back to the originating chat, split if long.
+        """Stream the reply into a live CardKit card, presenting an
+        approval card when the run parks; fall back to one-shot text if
+        the streaming card cannot be created.
 
         Args:
-            event (`ChannelEvent`):
-                The inbound event, for reply-referencing / chat id.
-            content (`list[TextBlock | DataBlock]`):
-                Reply blocks; the text blocks are concatenated and sent.
+            event (`ChannelEvent`): The send target (chat id).
+            events (`AsyncIterator[dict]`): The run's session events.
         """
-        text = "".join(b.text for b in content if isinstance(b, TextBlock))
-        if not text:
-            return
-        for part in self._split_long_message(text):
-            await self._send(
-                event.channel_message_id,
-                event.chat_id,
-                "text",
-                json.dumps({"text": part}),
+        reply: Msg | None = None
+        confirm: RequireUserConfirmEvent | None = None
+        ref: str | None = None
+        failed = False
+        last = 0.0
+        async for raw in events:
+            evt = _EVENT_ADAPTER.validate_python(raw)
+            if isinstance(evt, RequireUserConfirmEvent):
+                confirm = evt
+                break
+            reply_id = getattr(evt, "reply_id", None)
+            if reply_id is not None:
+                if reply is None:
+                    reply = Msg(name="assistant", role="assistant", content=[])
+                    reply.id = reply_id
+                reply.append_event(evt)
+            if isinstance(evt, ReplyEndEvent):
+                break
+            if failed or reply is None:
+                continue
+            text = "".join(
+                b.text for b in self._render(reply) if isinstance(b, TextBlock)
             )
+            if not text:
+                continue
+            if ref is None:
+                ref = await self._card_open(event)
+                if ref is None:
+                    failed = True
+                    continue
+            now = time.monotonic()
+            if now - last >= _STREAM_MIN_INTERVAL:
+                last = now
+                await self._card_push(ref, text)
+        blocks = self._render(reply)
+        text = "".join(b.text for b in blocks if isinstance(b, TextBlock))
+        await self._finish_card(event, ref, text)
+        for block in blocks:
+            if isinstance(block, DataBlock) and isinstance(
+                block.source,
+                Base64Source,
+            ):
+                data_bytes = base64.b64decode(block.source.data)
+                media_type = block.source.media_type or ""
+                if media_type.startswith("image/") and self.capabilities.image:
+                    await self.send_image_to(
+                        event.chat_id,
+                        "chat_id",
+                        data_bytes,
+                    )
+                elif self.capabilities.file:
+                    await self.send_file_to(
+                        event.chat_id,
+                        "chat_id",
+                        data_bytes,
+                        block.name or "file",
+                    )
+        if confirm is not None:
+            await self._present_confirm(event, confirm)
 
-    # -- Streaming (Feishu CardKit) --
+    async def _finish_card(
+        self,
+        event: ChannelEvent,
+        ref: str | None,
+        text: str,
+    ) -> None:
+        """Finalise the live card, or send ``text`` once if none was open.
+
+        Args:
+            event (`ChannelEvent`): The send target (chat id).
+            ref (`str | None`): The open card id, or ``None``.
+            text (`str`): The complete reply text.
+        """
+        if ref is not None:
+            await self._card_push(ref, text)
+            self._stream_seq.pop(ref, None)
+        elif text:
+            for part in self._split_long_message(text):
+                await self._send(
+                    event.channel_message_id,
+                    event.chat_id,
+                    "text",
+                    json.dumps({"text": part}),
+                )
+
+    # -- Streaming card (Feishu CardKit) --
     # NOTE: needs a real bot to verify end-to-end; on any API failure
-    # ``stream_start`` returns None and the gateway sends once instead.
+    # ``_card_open`` returns None and ``send_response`` sends once instead.
 
-    async def stream_start(self, event: ChannelEvent) -> str | None:
+    async def _card_open(self, event: ChannelEvent) -> str | None:
         """Create a streaming card and send it, returning its card id.
 
         Args:
-            event (`ChannelEvent`):
-                The inbound event, for reply-referencing / chat id.
+            event (`ChannelEvent`): The send target (chat id).
 
         Returns:
-            `str | None`:
-                The card id for :meth:`stream_update` / :meth:`stream_end`,
-                or ``None`` if the platform could not start streaming (the
-                caller then falls back to a single ``send_response``).
+            `str | None`: The card id, or ``None`` if streaming could not
+            be started (the caller then sends once).
         """
         card_json = json.dumps(
             {
@@ -492,45 +566,13 @@ class FeishuChannel(ChannelBase):
         self._stream_seq[card_id] = 0
         return card_id
 
-    async def stream_update(
-        self,
-        ref: str,
-        content: list[TextBlock | DataBlock],
-    ) -> None:
-        """Push the accumulated content to the streaming card.
-
-        Args:
-            ref (`str`): The card id from :meth:`stream_start`.
-            content (`list[TextBlock | DataBlock]`): Content so far.
-        """
-        await self._push_stream(ref, content)
-
-    async def stream_end(
-        self,
-        ref: str,
-        content: list[TextBlock | DataBlock],
-    ) -> None:
-        """Push the final content and drop the card's sequence counter.
-
-        Args:
-            ref (`str`): The card id from :meth:`stream_start`.
-            content (`list[TextBlock | DataBlock]`): The full reply.
-        """
-        await self._push_stream(ref, content)
-        self._stream_seq.pop(ref, None)
-
-    async def _push_stream(
-        self,
-        card_id: str,
-        content: list[TextBlock | DataBlock],
-    ) -> None:
+    async def _card_push(self, card_id: str, text: str) -> None:
         """Write the current text to the card with a rising sequence.
 
         Args:
             card_id (`str`): The streaming card id.
-            content (`list[TextBlock | DataBlock]`): Content to render.
+            text (`str`): Text to render.
         """
-        text = "".join(b.text for b in content if isinstance(b, TextBlock))
         seq = self._stream_seq.get(card_id, 0) + 1
         self._stream_seq[card_id] = seq
         await self._api(
@@ -540,58 +582,50 @@ class FeishuChannel(ChannelBase):
             {"content": text, "sequence": seq},
         )
 
-    async def present_confirm(
+    async def _present_confirm(
         self,
         event: ChannelEvent,
         req: RequireUserConfirmEvent,
-    ) -> str | None:
-        """Post an approval card and return its message id (or ``None``).
+    ) -> None:
+        """Post one approval card per tool call; each button carries its
+        ``tool_call_id`` and the ``chat_id`` for click routing.
 
         Args:
-            event (`ChannelEvent`):
-                The inbound event, for reply-referencing / chat id.
-            req (`RequireUserConfirmEvent`):
-                The approval request; its ``id`` is embedded in the card
-                and its first tool call is shown.
-
-        Returns:
-            `str | None`:
-                The card's message id for :meth:`update_confirm`, or
-                ``None`` if it could not be sent.
+            event (`ChannelEvent`): The send target (chat id).
+            req (`RequireUserConfirmEvent`): The approval request to show.
         """
-        tool = req.tool_calls[0] if req.tool_calls else None
-        card = _build_approval_card(
-            req.id,
-            tool.name if tool else "tool",
-            str(tool.input)[:800] if tool else "",
-        )
-        data = await self._send(
-            event.channel_message_id,
-            event.chat_id,
-            "interactive",
-            card,
-        )
-        if data and data.get("code") == 0:
-            return data.get("data", {}).get("message_id")
-        return None
+        for tool in req.tool_calls:
+            await self._send(
+                event.channel_message_id,
+                event.chat_id,
+                "interactive",
+                _build_approval_card(
+                    tool.id,
+                    event.chat_id,
+                    tool.name,
+                    str(tool.input)[:800],
+                ),
+            )
 
-    async def update_confirm(self, ref: str, outcome: str) -> None:
-        """Replace the approval card with its resolved state.
+    async def _freeze_card(self, message_id: str, approved: bool) -> None:
+        """Replace an approval card with its resolved state on click.
 
         Args:
-            ref (`str`): The card message id from :meth:`present_confirm`.
-            outcome (`str`): ``"approved"`` or ``"denied"``.
+            message_id (`str`): The card message to replace.
+            approved (`bool`): The decision, selecting colour and text.
         """
         await self._api(
             "PATCH",
-            f"{_API}/im/v1/messages/{ref}",
+            f"{_API}/im/v1/messages/{message_id}",
             {
                 "msg_type": "interactive",
-                "content": _build_resolved_card(outcome),
+                "content": _build_resolved_card(
+                    "approved" if approved else "denied",
+                ),
             },
         )
 
-    async def add_reaction(
+    async def send_reaction(
         self,
         event: ChannelEvent,
         emoji_type: str,
@@ -621,7 +655,7 @@ class FeishuChannel(ChannelBase):
         event: ChannelEvent,
         reaction_id: str,
     ) -> None:
-        """Remove a reaction previously added by :meth:`add_reaction`.
+        """Remove a reaction previously added by :meth:`send_reaction`.
 
         Args:
             event (`ChannelEvent`): The reacted-to message.
