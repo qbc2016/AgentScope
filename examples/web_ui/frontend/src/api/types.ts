@@ -111,7 +111,7 @@ export interface AgentSchemaV2Response {
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 
-export type SessionSource = 'user' | 'schedule';
+export type SessionSource = 'user' | 'schedule' | 'channel';
 
 export interface SessionConfig {
 	name: string;
@@ -133,6 +133,7 @@ export interface SessionRecord extends RecordBase {
 	agent_id: string;
 	source: SessionSource;
 	source_schedule_id: string | null;
+	source_channel_id: string | null;
 	/**
 	 * The team this session participates in, if any. Set when the
 	 * session is the leader of a team (the session that called

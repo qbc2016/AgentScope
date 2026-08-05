@@ -606,6 +606,9 @@
 		"deleteEntity": "频道",
 		"routing": "路由",
 		"routingDesc": "将入站消息匹配到某个 Agent 和会话粒度。最后一条规则匹配其余所有消息。",
+		"sectionActive": "已接入",
+		"sectionAdd": "添加渠道",
+		"rules": "{{count}} 条规则",
 		"empty": {
 			"title": "暂无频道",
 			"description": "创建一个频道，将 Agent 连接到飞书、钉钉等外部平台。"

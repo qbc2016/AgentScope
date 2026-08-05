@@ -606,6 +606,9 @@
 		"deleteEntity": "channel",
 		"routing": "Routing",
 		"routingDesc": "Match inbound messages to an agent and a session scope. The last rule matches everything else.",
+		"sectionActive": "Connected",
+		"sectionAdd": "Add a channel",
+		"rules": "{{count}} rules",
 		"empty": {
 			"title": "No channels",
 			"description": "Create a channel to connect your agent to external platforms like Feishu, DingTalk, etc."

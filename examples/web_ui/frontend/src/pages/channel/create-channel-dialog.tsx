@@ -26,9 +26,11 @@ interface Props {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onCreated?: () => void;
+	/** Platform pre-selected from the gallery; falls back to the first type. */
+	initialType?: string;
 }
 
-export function CreateChannelDialog({ open, onOpenChange, onCreated }: Props) {
+export function CreateChannelDialog({ open, onOpenChange, onCreated, initialType }: Props) {
 	const { t } = useTranslation();
 	const { agents } = useAgents();
 	const [form, setForm] = React.useState(defaultChannelForm);
@@ -38,7 +40,10 @@ export function CreateChannelDialog({ open, onOpenChange, onCreated }: Props) {
 
 	React.useEffect(() => {
 		if (open) {
-			setForm(defaultChannelForm(agents[0]?.id ?? ''));
+			setForm({
+				...defaultChannelForm(agents[0]?.id ?? ''),
+				channelType: initialType ?? 'feishu',
+			});
 			setError('');
 			channelApi
 				.listTypes()
@@ -54,7 +59,7 @@ export function CreateChannelDialog({ open, onOpenChange, onCreated }: Props) {
 				})
 				.catch(() => {});
 		}
-	}, [open, agents]);
+	}, [open, agents, initialType]);
 
 	const agentList = React.useMemo(
 		() => agents.map((a) => ({ id: a.id, name: a.data.name })),
