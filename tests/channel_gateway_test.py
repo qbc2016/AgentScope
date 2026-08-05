@@ -353,3 +353,48 @@ class WorkspaceIsolationTest(IsolatedAsyncioTestCase):
             storage.workspace_ids[0],
             storage.workspace_ids[1],
         )
+
+
+class FeishuPostParseTest(IsolatedAsyncioTestCase):
+    """Feishu rich-text ``post`` flattens to ordered text + data blocks."""
+
+    async def test_mixed_text_image_link(self) -> None:
+        from agentscope.app.channel._feishu._channel import FeishuChannel
+
+        channel = FeishuChannel(
+            "c",
+            FeishuChannel.Credentials(app_id="a", app_secret="s"),
+            FeishuChannel.Config(),
+        )
+
+        async def _fake_download(
+            message_id: str,
+            key: str,
+            resource_type: str,
+            default_mime: str,
+            name: str,
+        ) -> DataBlock:
+            return DataBlock(
+                source=Base64Source(data="aW1n", media_type=default_mime),
+                name=name,
+            )
+
+        setattr(channel, "_download_resource", _fake_download)
+        post = {
+            "title": "T",
+            "content": [
+                [
+                    {"tag": "text", "text": "hello "},
+                    {"tag": "img", "image_key": "img-1"},
+                ],
+                [{"tag": "a", "text": "link", "href": "http://x"}],
+            ],
+        }
+        blocks = await channel._parse_post(post, "m1")
+        self.assertIsInstance(blocks[0], TextBlock)
+        self.assertIn("hello", blocks[0].text)
+        self.assertIsInstance(blocks[1], DataBlock)
+        self.assertEqual(blocks[1].source.data, "aW1n")
+        self.assertTrue(
+            any(isinstance(b, TextBlock) and "link" in b.text for b in blocks),
+        )

@@ -327,49 +327,114 @@ class FeishuChannel(ChannelBase):
         }
 
         msg_type = message.message_type
+        content: list[TextBlock | DataBlock] = []
         if msg_type in _MEDIA_TYPES:
             block = await self._download_media(message, msg_type)
-            if block is None:
+            content = [block] if block else []
+        elif msg_type == "post":
+            if self._gated_out(message, chat_type):
                 return None
-            return ChannelEvent(
-                channel_id=self._channel_id,
-                channel_user_id=user_id,
-                chat_id=chat_id,
-                channel_message_id=message_id,
-                content=[block],
-                metadata=meta,
+            content = await self._parse_post(
+                json.loads(message.content or "{}"),
+                message_id,
             )
-        if msg_type != "text":
-            if message_id or chat_id:
-                await self._send(
-                    message_id,
-                    chat_id,
-                    "text",
-                    json.dumps(
-                        {"text": f"Unsupported message type: {msg_type}."},
-                    ),
-                )
-            return None
-
-        content = json.loads(message.content or "{}")
-        text = (content.get("text") or "").strip()
-        if chat_type == "group" and self._only_at_reply:
-            mentions = message.mentions or []
-            if not mentions and "@_user_" not in (message.content or ""):
+        elif msg_type == "text":
+            if self._gated_out(message, chat_type):
                 return None
-            for mention in mentions:
-                text = text.replace(mention.key or "", "").strip()
-        if not text:
-            return None
+            text = (
+                json.loads(message.content or "{}").get("text") or ""
+            ).strip()
+            if chat_type == "group" and self._only_at_reply:
+                for mention in message.mentions or []:
+                    text = text.replace(mention.key or "", "").strip()
+            content = [TextBlock(text=text)] if text else []
+        elif message_id or chat_id:
+            await self._send(
+                message_id,
+                chat_id,
+                "text",
+                json.dumps({"text": f"Unsupported message type: {msg_type}."}),
+            )
 
+        if not content:
+            return None
         return ChannelEvent(
             channel_id=self._channel_id,
             channel_user_id=user_id,
             chat_id=chat_id,
             channel_message_id=message_id,
-            content=[TextBlock(text=text)],
+            content=content,
             metadata=meta,
         )
+
+    def _gated_out(self, message: "EventMessage", chat_type: str) -> bool:
+        """Whether a group message is dropped by ``only_at_reply`` (no
+        mention present).
+
+        Args:
+            message (`EventMessage`): The inbound message.
+            chat_type (`str`): ``"group"`` / ``"p2p"`` / etc.
+
+        Returns:
+            `bool`: ``True`` to ignore the message.
+        """
+        if chat_type != "group" or not self._only_at_reply:
+            return False
+        mentions = message.mentions or []
+        return not mentions and "@_user_" not in (message.content or "")
+
+    async def _parse_post(
+        self,
+        content: dict,
+        message_id: str,
+    ) -> list[TextBlock | DataBlock]:
+        """Flatten a Feishu ``post`` (nested rich-text rows) into ordered
+        text and image blocks, downloading each embedded resource.
+
+        Args:
+            content (`dict`): The parsed ``post`` content (title + rows).
+            message_id (`str`): The message id, for the resource endpoint.
+
+        Returns:
+            `list[TextBlock | DataBlock]`: Text and data blocks in order.
+        """
+        blocks: list[TextBlock | DataBlock] = []
+        parts: list[str] = []
+
+        def _flush() -> None:
+            text = "".join(parts).strip()
+            parts.clear()
+            if text:
+                blocks.append(TextBlock(text=text))
+
+        if content.get("title"):
+            parts.append(content["title"] + "\n")
+        for row in content.get("content") or []:
+            for element in row or []:
+                tag = element.get("tag")
+                if tag == "text":
+                    parts.append(element.get("text", ""))
+                elif tag == "a":
+                    parts.append(
+                        element.get("text") or element.get("href") or "",
+                    )
+                elif tag in ("img", "media"):
+                    key = element.get("image_key") or element.get("file_key")
+                    if not key:
+                        continue
+                    _flush()
+                    block = await self._download_resource(
+                        message_id,
+                        key,
+                        "image" if tag == "img" else "file",
+                        "image/png" if tag == "img" else "video/mp4",
+                        tag,
+                    )
+                    if block is not None:
+                        blocks.append(block)
+            parts.append("\n")
+        _flush()
+        return blocks
 
     def _on_card_action(
         self,
@@ -1021,14 +1086,41 @@ class FeishuChannel(ChannelBase):
         key = content.get("image_key") or content.get("file_key") or ""
         if not key:
             return None
-        resource_type = "image" if msg_type == "image" else "file"
         default_mime = {
             "image": "image/png",
             "audio": "audio/ogg",
             "media": "video/mp4",
         }.get(msg_type, "application/octet-stream")
+        return await self._download_resource(
+            message.message_id,
+            key,
+            "image" if msg_type == "image" else "file",
+            default_mime,
+            content.get("file_name") or msg_type,
+        )
+
+    async def _download_resource(
+        self,
+        message_id: str,
+        key: str,
+        resource_type: str,
+        default_mime: str,
+        name: str,
+    ) -> DataBlock | None:
+        """Download one message resource (image/file) into a base64 block.
+
+        Args:
+            message_id (`str`): The message the resource belongs to.
+            key (`str`): The resource key (``image_key`` / ``file_key``).
+            resource_type (`str`): ``"image"`` or ``"file"`` endpoint type.
+            default_mime (`str`): Fallback media type.
+            name (`str`): Display name for the block.
+
+        Returns:
+            `DataBlock | None`: The block, or ``None`` on error.
+        """
         url = (
-            f"{_API}/im/v1/messages/{message.message_id}"
+            f"{_API}/im/v1/messages/{message_id}"
             f"/resources/{key}?type={resource_type}"
         )
         try:
@@ -1043,8 +1135,8 @@ class FeishuChannel(ChannelBase):
                     data=base64.b64encode(resp.content).decode("ascii"),
                     media_type=resp.headers.get("content-type", default_mime),
                 ),
-                name=content.get("file_name") or msg_type,
+                name=name,
             )
         except Exception:  # pylint: disable=broad-except
-            logger.debug("Feishu media download failed")
+            logger.debug("Feishu resource download failed")
             return None
