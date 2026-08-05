@@ -31,8 +31,8 @@ from ..storage import (
     SessionSource,
     StorageBase,
 )
+from ..workspace_manager import WorkspaceManagerBase
 from ._base import ChannelEvent, ChannelConfirmationResultEvent
-from ._config import WORKSPACE_ID
 from ._decision import resume_after_decision
 from ._routing import resolve
 
@@ -47,15 +47,19 @@ class ChannelGateway:
         self,
         storage: StorageBase,
         message_bus: MessageBus,
+        workspace_manager: WorkspaceManagerBase,
     ) -> None:
-        """Bind storage and the message bus.
+        """Bind storage, the message bus, and the workspace manager.
 
         Args:
             storage (`StorageBase`): Application storage.
             message_bus (`MessageBus`): Application message bus.
+            workspace_manager (`WorkspaceManagerBase`): Assigns each
+                derived session its workspace under the isolation policy.
         """
         self._storage = storage
         self._bus = message_bus
+        self._workspace_manager = workspace_manager
 
     async def process(
         self,
@@ -225,7 +229,11 @@ class ChannelGateway:
 
         fallback = record.session.fallback_chat_model_config
         session_config = SessionConfig(
-            workspace_id=WORKSPACE_ID,
+            workspace_id=self._workspace_manager.assign_workspace_id(
+                user_id=record.user_id,
+                agent_id=agent_id,
+                session_id=session_id,
+            ),
             chat_model_config=ChatModelConfig(
                 **record.session.chat_model_config,
             ),

@@ -19,7 +19,17 @@ from agentscope.app.channel._base import (
 from agentscope.app.channel._gateway import ChannelGateway
 from agentscope.message import Msg
 from agentscope.app.message_bus import InMemoryMessageBus
-from agentscope.app.storage import ReplyPresentation
+from agentscope.app.storage import (
+    ChannelBinding,
+    ChannelRecord,
+    ReplyPresentation,
+    RoutingConfig,
+    SessionSettings,
+)
+from agentscope.app.workspace_manager import (
+    IsolationPolicy,
+    WorkspaceManagerBase,
+)
 from agentscope.event import (
     DataBlockDeltaEvent,
     DataBlockEndEvent,
@@ -39,6 +49,19 @@ from agentscope.message._block import Base64Source, URLSource
 from agentscope.types import ReplyFinishedReason
 
 _RID = "reply-1"
+
+
+class _WM(WorkspaceManagerBase):
+    """A workspace manager exercising only assign_workspace_id."""
+
+    async def get_workspace(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    async def close(self, workspace_id: str) -> None:
+        pass
+
+    async def close_all(self) -> None:
+        pass
 
 
 def _event() -> ChannelEvent:
@@ -235,14 +258,22 @@ class MediaBufferTest(IsolatedAsyncioTestCase):
 
     async def test_aggregate_media_only_buffers(self) -> None:
         bus = InMemoryMessageBus()
-        gw = ChannelGateway(storage=None, message_bus=bus)
+        gw = ChannelGateway(
+            storage=None,
+            message_bus=bus,
+            workspace_manager=_WM(isolation=IsolationPolicy.PER_AGENT),
+        )
         self.assertIsNone(
             await gw._aggregate_media(self._media_event("a.png")),
         )
 
     async def test_aggregate_text_drains_buffered_media(self) -> None:
         bus = InMemoryMessageBus()
-        gw = ChannelGateway(storage=None, message_bus=bus)
+        gw = ChannelGateway(
+            storage=None,
+            message_bus=bus,
+            workspace_manager=_WM(isolation=IsolationPolicy.PER_AGENT),
+        )
         await gw._aggregate_media(self._media_event("a.png"))
         await gw._aggregate_media(self._media_event("b.png"))
         content = await gw._aggregate_media(
@@ -257,3 +288,68 @@ class MediaBufferTest(IsolatedAsyncioTestCase):
         self.assertEqual(len(content), 3)  # two buffered images + text
         self.assertIsInstance(content[0], DataBlock)
         self.assertIsInstance(content[-1], TextBlock)
+
+
+class _RecordingStorage:
+    """Storage stub capturing the workspace_id of upserted sessions."""
+
+    def __init__(self) -> None:
+        self.workspace_ids: list[str] = []
+
+    async def get_session(self, **kwargs: Any) -> None:
+        return None
+
+    async def upsert_session(self, *, config: Any, **kwargs: Any) -> None:
+        self.workspace_ids.append(config.workspace_id)
+
+
+def _channel_record(user_id: str) -> ChannelRecord:
+    return ChannelRecord(
+        id="chan-1",
+        channel_type="feishu",
+        user_id=user_id,
+        routing=RoutingConfig(
+            bindings=[ChannelBinding(match_value="*", agent_id="agent-x")],
+        ),
+        session=SessionSettings(
+            chat_model_config={
+                "type": "openai_chat",
+                "credential_id": "cred-1",
+                "model": "gpt-4",
+                "parameters": {},
+            },
+        ),
+        presentation=ReplyPresentation(),
+        created_at="t",
+        updated_at="t",
+    )
+
+
+class WorkspaceIsolationTest(IsolatedAsyncioTestCase):
+    """Channel-created sessions get isolated workspaces, not a shared one."""
+
+    async def test_distinct_users_get_distinct_workspaces(self) -> None:
+        storage = _RecordingStorage()
+        gw = ChannelGateway(
+            storage=storage,
+            message_bus=InMemoryMessageBus(),
+            workspace_manager=_WM(isolation=IsolationPolicy.PER_USER),
+        )
+        await gw._ensure_session(
+            _channel_record("user-a"),
+            "agent-x",
+            "s-a",
+            "chat-a",
+        )
+        await gw._ensure_session(
+            _channel_record("user-b"),
+            "agent-x",
+            "s-b",
+            "chat-b",
+        )
+        self.assertEqual(len(storage.workspace_ids), 2)
+        # Different owners must not alias the same workspace.
+        self.assertNotEqual(
+            storage.workspace_ids[0],
+            storage.workspace_ids[1],
+        )

@@ -118,7 +118,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             storage=storage,
             message_bus=message_bus,
             type_registry=channel_type_registry,
-            gateway=ChannelGateway(storage=storage, message_bus=message_bus),
+            gateway=ChannelGateway(
+                storage=storage,
+                message_bus=message_bus,
+                workspace_manager=workspace_manager,
+            ),
         )
         app.state.channel_dispatcher = channel_dispatcher
         app.state.channel_service = ChannelService(

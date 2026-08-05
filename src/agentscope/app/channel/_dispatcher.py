@@ -25,9 +25,13 @@ from ...event import EventType
 from ..message_bus import MessageBus, MessageBusKeys
 from ..storage import ChannelRecord, StorageBase
 from ._base import ChannelBase, ChannelEvent, ChannelConfirmationResultEvent
-from ._config import LIVENESS_TTL_SECS, RESPONSE_TIMEOUT_SECS
 from ._gateway import ChannelGateway
 from ._registry import ChannelTypeRegistry
+
+# Max seconds to wait for a channel-bound run's reply before giving up.
+RESPONSE_TIMEOUT_SECS = 60.0
+# TTL (seconds) of a node's per-channel status heartbeat.
+LIVENESS_TTL_SECS = 30
 
 # Events that end a reply's event stream.
 _TERMINAL_EVENTS = frozenset(
