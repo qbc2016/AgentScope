@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from ..embedding import EmbeddingModelBase
     from ..model import ChatModelBase
     from ..realtime import RealtimeModelBase
+    from ..tts import TTSModelBase
 
 
 class OpenAICredential(CredentialBase):
@@ -62,3 +63,10 @@ class OpenAICredential(CredentialBase):
         from ..realtime import OpenAIRealtimeModel
 
         return OpenAIRealtimeModel
+
+    @classmethod
+    def get_tts_model_classes(cls) -> list[Type["TTSModelBase"]]:
+        """Return the OpenAI TTS model classes."""
+        from ..tts import OpenAITTSModel
+
+        return [OpenAITTSModel]

@@ -81,7 +81,10 @@ class AskEchoTool(ToolBase):
         "required": ["text"],
     }
     is_concurrency_safe: bool = True
-    is_read_only: bool = True
+    # Main now auto-allows read-only tools before consulting the tool's
+    # PASSTHROUGH decision. This fixture must be mutating so DEFAULT mode
+    # reaches the confirmation path the tests exercise.
+    is_read_only: bool = False
     is_external_tool: bool = False
     is_mcp: bool = False
 

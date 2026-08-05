@@ -1,5 +1,10 @@
 import { client } from './client';
-import type { ListModelResponse, ListTTSModelResponse, ListRealtimeModelResponse } from './types';
+import type {
+	ListEmbeddingModelResponse,
+	ListModelResponse,
+	ListRealtimeModelResponse,
+	ListTTSModelResponse,
+} from './types';
 
 export const modelApi = {
 	list: (provider: string) => client.get<ListModelResponse>('/model/', { provider }),
@@ -12,4 +17,9 @@ export const ttsModelApi = {
 export const realtimeModelApi = {
 	list: (provider: string) =>
 		client.get<ListRealtimeModelResponse>('/realtime-model/', { provider }),
+};
+
+export const embeddingModelApi = {
+	list: (provider: string) =>
+		client.get<ListEmbeddingModelResponse>('/embedding-model/', { provider }),
 };

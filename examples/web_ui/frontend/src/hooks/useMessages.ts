@@ -35,8 +35,45 @@ export type SubagentHitlEntry = {
 	created_at: string;
 };
 
+/**
+ * Return true if ``msg`` is an assistant reply currently parked on a
+ * pending tool_call (awaiting user confirmation or an external
+ * execution result). Used both to detect the "in-flight reply on page
+ * load" case and as the SDK-gap workaround that hides the confirm
+ * card once the paired tool_result lands.
+ */
+const hasPendingToolCall = (msg: Msg | undefined): boolean => {
+	if (!msg || msg.role !== 'assistant') return false;
+	for (const block of msg.content) {
+		if (block.type !== 'tool_call') continue;
+		const state = (block as ToolCallBlock).state;
+		if (state === 'asking' || state === 'submitted') return true;
+	}
+	return false;
+};
+
 const hitlKey = (e: { worker_session_id: string; reply_id: string }) =>
 	`${e.worker_session_id}:${e.reply_id}`;
+
+/**
+ * Lifecycle phase of the reply currently owned by this session.
+ *
+ * - ``idle`` — no in-flight reply; the send button is enabled.
+ * - ``streaming`` — a reply is in progress (either actively producing
+ *   events or parked awaiting HITL). The send button is replaced by a
+ *   Stop button. The parked-vs-generating distinction is not tracked
+ *   here; HITL cards render themselves from message content when a
+ *   ``RequireUserConfirmEvent`` block is present.
+ * - ``interrupting`` — the user has requested a stop and we are
+ *   waiting for the backend's terminating ``ReplyEndEvent``. Stop
+ *   button is shown but disabled so users cannot spam it. Falls back
+ *   to ``idle`` after a 10s safety timeout in case the terminating
+ *   event never arrives (dropped SSE frame, backend bug, etc.).
+ */
+export type ReplyPhase = 'idle' | 'streaming' | 'interrupting';
+
+/** Safety fallback: force phase back to idle if REPLY_END is not seen. */
+const INTERRUPT_TIMEOUT_MS = 10_000;
 
 /**
  * Manages messages for a single ``(agentId, sessionId)`` pair.
@@ -55,14 +92,16 @@ const hitlKey = (e: { worker_session_id: string; reply_id: string }) =>
  * via ``POST /chat/`` (fire-and-forget); the resulting events arrive
  * through the already-open SSE connection.
  *
- * ``streaming`` is driven by event content, not HTTP lifecycle:
- * ``true`` after receiving ``ReplyStartEvent``, ``false`` after
- * ``ReplyEndEvent``.
+ * ``phase`` is driven by event content, not HTTP lifecycle: it moves
+ * to ``streaming`` on ``ReplyStartEvent`` and back to ``idle`` on
+ * ``ReplyEndEvent``. Calling ``interrupt()`` moves it to
+ * ``interrupting`` until the terminating ``ReplyEndEvent`` arrives (or
+ * a 10s safety timeout fires).
  *
  * @param agentId - The agent whose session to subscribe. ``null`` to
  *   skip.
  * @param sessionId - The session to subscribe. ``null`` to skip.
- * @returns Object with ``msgs``, ``loading``, ``streaming``, ``error``,
+ * @returns Object with ``msgs``, ``loading``, ``phase``, ``error``,
  *   ``send``, ``onUserConfirm``, and ``abort``.
  */
 export function useMessages(
@@ -93,7 +132,7 @@ export function useMessages(
 ) {
 	const [msgs, setMsgs] = useState<Msg[]>([]);
 	const [loading, setLoading] = useState(false);
-	const [streaming, setStreaming] = useState(false);
+	const [phase, setPhase] = useState<ReplyPhase>('idle');
 	const [error, setError] = useState<Error | null>(null);
 	// Pending subagent HITL cards projected onto this (leader) session.
 	const [subagentHitl, setSubagentHitl] = useState<SubagentHitlEntry[]>([]);
@@ -103,6 +142,16 @@ export function useMessages(
 	const abortRef = useRef<AbortController | null>(null);
 	const rafRef = useRef<number | null>(null);
 	const seenEventIds = useRef<Set<string>>(new Set());
+	// Timer that reverts ``interrupting`` back to ``idle`` if the
+	// terminating REPLY_END never arrives (dropped SSE frame, etc.).
+	const interruptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	const clearInterruptTimer = useCallback(() => {
+		if (interruptTimerRef.current !== null) {
+			clearTimeout(interruptTimerRef.current);
+			interruptTimerRef.current = null;
+		}
+	}, []);
 
 	const audioManager = useAudioManager();
 
@@ -239,12 +288,14 @@ export function useMessages(
 				});
 				msgsRef.current = [...msgsRef.current, msg];
 				currentReplyRef.current = msg;
-				setStreaming(true);
+				clearInterruptTimer();
+				setPhase('streaming');
 			} else if (event.type === EventType.REPLY_END) {
 				if (currentReplyRef.current) {
 					appendEvent(currentReplyRef.current, event);
 				}
-				setStreaming(false);
+				clearInterruptTimer();
+				setPhase('idle');
 				currentReplyRef.current = null;
 			} else if (currentReplyRef.current) {
 				appendEvent(currentReplyRef.current, event);
@@ -309,7 +360,7 @@ export function useMessages(
 
 			scheduleUpdate();
 		},
-		[scheduleUpdate, audioManager],
+		[scheduleUpdate, audioManager, clearInterruptTimer],
 	);
 
 	// ── Lifecycle: fetch history + open SSE stream ──────────────────
@@ -327,7 +378,8 @@ export function useMessages(
 		}
 		setMsgs([]);
 		setError(null);
-		setStreaming(false);
+		clearInterruptTimer();
+		setPhase('idle');
 		setSubagentHitl([]);
 		audioManager?.disposeAll();
 
@@ -341,7 +393,7 @@ export function useMessages(
 			// 1. Fetch persisted history
 			setLoading(true);
 			try {
-				const { messages } = await sessionApi.messages(sessionId, agentId);
+				const { messages, is_running } = await sessionApi.messages(sessionId, agentId);
 				if (cancelled) return;
 				msgsRef.current = messages;
 				// Pre-populate skippedReplyIds with all loaded message IDs.
@@ -350,6 +402,23 @@ export function useMessages(
 				// even if the replay arrives before the WebSocket trim completes.
 				for (const m of messages) {
 					if (m.id) skippedReplyIds.current.add(m.id);
+				}
+				// If a reply is in flight (running on a worker) OR the
+				// tail msg is parked on a pending tool_call (awaiting
+				// user confirmation / external execution), initialise the
+				// phase to ``streaming`` so the interrupt button is
+				// available immediately — otherwise a fresh page load
+				// while parked leaves the UI stuck on ``idle`` with no
+				// way to abort.
+				const tail = messages[messages.length - 1];
+				if (is_running || hasPendingToolCall(tail)) {
+					setPhase('streaming');
+					if (hasPendingToolCall(tail)) {
+						// Prime the ref so continuation events (which
+						// arrive without a fresh REPLY_START) apply to
+						// the right msg.
+						currentReplyRef.current = tail ?? null;
+					}
 				}
 				scheduleUpdate();
 			} catch (e) {
@@ -387,8 +456,9 @@ export function useMessages(
 			cancelled = true;
 			controller.abort();
 			abortRef.current = null;
+			clearInterruptTimer();
 		};
-	}, [agentId, sessionId, scheduleUpdate, processEvent, audioManager]);
+	}, [agentId, sessionId, scheduleUpdate, processEvent, audioManager, clearInterruptTimer]);
 
 	/**
 	 * Send a user message. Appends the message to the local list
@@ -480,6 +550,42 @@ export function useMessages(
 	);
 
 	/**
+	 * Request interruption of the in-progress reply (running or parked
+	 * on HITL). Optimistically moves ``phase`` to ``interrupting`` so
+	 * the UI can disable the Stop button; the phase reverts to
+	 * ``idle`` when the backend's terminating ``ReplyEndEvent``
+	 * arrives via SSE (or after a 10s safety timeout, in case that
+	 * event is lost).
+	 *
+	 * Backend contract:
+	 * - 202: interrupt was accepted (cancel signal broadcast for a
+	 *   running reply, or wakeup enqueued for a parked one). The
+	 *   resulting ``ReplyEndEvent`` arrives through the SSE stream and
+	 *   drives the phase transition.
+	 * - Idle sessions are a silent no-op at the agent layer, so
+	 *   spamming this callback is safe.
+	 */
+	const interrupt = useCallback(async () => {
+		if (!agentId || !sessionId) return;
+		// Only escalate to ``interrupting`` if a reply is actually in
+		// flight; if we're already idle (SSE completed just before the
+		// click) leave the phase alone.
+		setPhase((prev) => (prev === 'streaming' ? 'interrupting' : prev));
+		clearInterruptTimer();
+		interruptTimerRef.current = setTimeout(() => {
+			interruptTimerRef.current = null;
+			setPhase((prev) => (prev === 'interrupting' ? 'idle' : prev));
+		}, INTERRUPT_TIMEOUT_MS);
+		try {
+			await sessionApi.interrupt(sessionId, agentId);
+		} catch (e) {
+			clearInterruptTimer();
+			setPhase((prev) => (prev === 'interrupting' ? 'idle' : prev));
+			setError(e as Error);
+		}
+	}, [agentId, sessionId, clearInterruptTimer]);
+
+	/**
 	 * Confirm or deny a tool call that a *team member* is awaiting,
 	 * from this leader view (design §3.6 — backend routing).
 	 *
@@ -535,7 +641,7 @@ export function useMessages(
 	return {
 		msgs,
 		loading,
-		streaming,
+		phase,
 		error,
 		send,
 		onUserConfirm,
@@ -544,5 +650,6 @@ export function useMessages(
 		abort,
 		processEvent,
 		appendLocalMsg,
+		interrupt,
 	};
 }
