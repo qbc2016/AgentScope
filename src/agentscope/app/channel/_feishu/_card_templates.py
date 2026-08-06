@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Feishu interactive-card helpers for the tool-approval flow.
 
-The card round-trips only lookup keys (``tool_call_id`` + ``chat_id``)
-plus the click's approve/deny — the authoritative tool call is read
-from session state on resume, never trusted from the card.
+The card round-trips lookup keys (``tool_call_id``, ``chat_id`` and the
+resolved ``agent_id`` / ``session_id``) plus the click's approve/deny —
+the authoritative tool call is read from session state on resume, never
+trusted from the card.
 """
 import json
 from typing import Any
@@ -18,6 +19,8 @@ def _build_approval_card(
     chat_id: str,
     tool_name: str,
     summary: str,
+    agent_id: str = "",
+    session_id: str = "",
 ) -> str:
     """Build the approval card (JSON string) for a pending tool call.
 
@@ -27,6 +30,10 @@ def _build_approval_card(
             session routing.
         tool_name (`str`): Name of the tool, shown in the card body.
         summary (`str`): A rendering of the tool arguments (truncated).
+        agent_id (`str`): Target agent, echoed on click to resume the
+            exact run without re-resolving routing.
+        session_id (`str`): Target session, echoed on click alongside
+            ``agent_id``.
 
     Returns:
         `str`: The card as a JSON string.
@@ -35,6 +42,8 @@ def _build_approval_card(
         "type": _ACTION_TYPE,
         "tool_call_id": tool_call_id,
         "chat_id": chat_id,
+        "agent_id": agent_id,
+        "session_id": session_id,
     }
     body = f"**Tool:** `{tool_name}`"
     if summary:
@@ -105,17 +114,21 @@ def _resolved_card(approved: bool) -> dict:
     }
 
 
-def _parse_action(value: Any) -> tuple[str, str, bool] | None:
-    """Parse a card button's value into ``(tool_call_id, chat_id, approved)``.
+def _parse_action(
+    value: Any,
+) -> tuple[str, str, bool, str, str] | None:
+    """Parse a card button's value into ``(tool_call_id, chat_id,
+    approved, agent_id, session_id)``.
 
     Args:
         value (`Any`): The clicked button's ``value`` — a dict (or JSON
             string) carrying ``type`` / ``tool_call_id`` / ``chat_id`` /
-            ``action``.
+            ``action`` / ``agent_id`` / ``session_id``.
 
     Returns:
-        `tuple[str, str, bool] | None`: ``(tool_call_id, chat_id,
-        approved)`` for a valid button, or ``None`` if not one of ours.
+        `tuple[str, str, bool, str, str] | None`: ``(tool_call_id,
+        chat_id, approved, agent_id, session_id)`` for a valid button,
+        or ``None`` if not one of ours.
     """
     if isinstance(value, str):
         try:
@@ -129,7 +142,9 @@ def _parse_action(value: Any) -> tuple[str, str, bool] | None:
     action = str(value.get("action") or "").strip().lower()
     if not tool_call_id or action not in (_APPROVE, _DENY):
         return None
-    return tool_call_id, chat_id, action == _APPROVE
+    agent_id = str(value.get("agent_id") or "").strip()
+    session_id = str(value.get("session_id") or "").strip()
+    return tool_call_id, chat_id, action == _APPROVE, agent_id, session_id
 
 
 def _build_toast(approved: bool) -> Any:

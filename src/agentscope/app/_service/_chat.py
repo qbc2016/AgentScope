@@ -23,6 +23,7 @@ from .._bus_ops import (
 )
 from ..message_bus import MessageBus, MessageBusKeys
 from ..rag.knowledge_base_manager import KnowledgeBaseManagerBase
+from ..channel import ChatKind
 from ..storage import StorageBase, AgentRecord, SessionRecord, SessionSource
 from .._manager import BackgroundTaskManager, SchedulerManager
 from ..workspace_manager import WorkspaceManagerBase
@@ -694,11 +695,60 @@ optional):
             # ----------------------------------------------------------------
             # 5. Assemble the Agent.
             # -----------------------------------------------------------------
+            attachment = f"You're within a session (id={session_id})."
+
+            # Channel-bound sessions: tell the agent which chat it serves.
+            if (
+                session_record.source_channel_id
+                and self._channel_dispatcher is not None
+            ):
+                channel = self._channel_dispatcher.get_local_channel(
+                    session_record.source_channel_id,
+                )
+                if channel is not None:
+                    tools = ", ".join(
+                        t.name for t in await channel.list_tools(workspace)
+                    )
+                    chat_id = session_record.source_chat_id or ""
+                    kind = await channel.chat_kind(chat_id)
+                    name = await channel.chat_name(chat_id)
+                    where = f' named "{name}"' if name else ""
+                    attachment += (
+                        f" This session is bound to a chat{where} on the "
+                        f"{channel.display_name} platform: the messages, "
+                        f"images and files people send there are relayed to "
+                        f"you here, and your replies are delivered back to "
+                        f"that same chat."
+                    )
+                    if kind is ChatKind.GROUP:
+                        attachment += (
+                            " It is a group chat, so messages may come from "
+                            "several different people; each incoming user "
+                            "turn is labelled with its sender."
+                        )
+                    elif kind is ChatKind.PRIVATE:
+                        attachment += (
+                            " It is a one-to-one private chat with a single "
+                            "user."
+                        )
+                    if tools:
+                        attachment += (
+                            f" You also have these {channel.display_name} "
+                            f"tools available: {tools}."
+                        )
+
+            attachment = (
+                f"<system-notification>{attachment}</system-notification>"
+            )
+            system_prompt = (
+                agent_record.data.system_prompt + "\n\n" + attachment
+            )
+
             agent_state = session_record.state
             agent_state.session_id = session_id
             agent = self._agent_cls(
                 name=agent_record.data.name,
-                system_prompt=agent_record.data.system_prompt,
+                system_prompt=system_prompt,
                 model=model,
                 toolkit=toolkit,
                 model_config=ModelConfig(fallback_model=fallback_model),

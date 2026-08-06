@@ -27,6 +27,7 @@ from .._base import (
     ChannelEvent,
     ChannelConfirmationResultEvent,
     ChannelStatus,
+    ChatKind,
     _EVENT_ADAPTER,
 )
 
@@ -334,7 +335,11 @@ class DiscordChannel(ChannelBase):
                 content="🛡️ Tool execution needs approval\n"
                 f"**Tool:** `{tool.name}`\n"
                 f"**Arguments:** {str(tool.input)[:800]}",
-                view=self._build_view(tool.id),
+                view=self._build_view(
+                    tool.id,
+                    event.metadata.get("agent_id", ""),
+                    event.metadata.get("session_id", ""),
+                ),
             )
 
     async def list_bot_chats(self) -> list[dict]:
@@ -349,6 +354,33 @@ class DiscordChannel(ChannelBase):
                     },
                 )
         return results
+
+    async def chat_kind(self, chat_id: str) -> ChatKind | None:
+        """Private for a DM channel, group otherwise; ``None`` if the
+        channel id can't be resolved.
+
+        Args:
+            chat_id (`str`): The Discord channel id as a string.
+        """
+        import discord
+
+        channel = await self._channel(chat_id)
+        if channel is None:
+            return None
+        return (
+            ChatKind.PRIVATE
+            if isinstance(channel, discord.DMChannel)
+            else ChatKind.GROUP
+        )
+
+    async def chat_name(self, chat_id: str) -> str:
+        """The channel's name; ``""`` for DMs or an unresolvable id.
+
+        Args:
+            chat_id (`str`): The Discord channel id as a string.
+        """
+        channel = await self._channel(chat_id)
+        return getattr(channel, "name", "") or "" if channel else ""
 
     # -- Helpers --
 
@@ -376,12 +408,21 @@ class DiscordChannel(ChannelBase):
             cid,
         )
 
-    def _build_view(self, tool_call_id: str) -> "discord.ui.View":
+    def _build_view(
+        self,
+        tool_call_id: str,
+        agent_id: str = "",
+        session_id: str = "",
+    ) -> "discord.ui.View":
         """Build a two-button approval view whose callbacks freeze the card
         and emit the decision for ``tool_call_id``.
 
         Args:
             tool_call_id (`str`): The tool call the buttons answer.
+            agent_id (`str`): Target agent, echoed on click to resume the
+                exact run without re-resolving routing.
+            session_id (`str`): Target session, echoed alongside
+                ``agent_id``.
 
         Returns:
             `discord.ui.View`: The allow/deny view for the card message.
@@ -413,7 +454,13 @@ class DiscordChannel(ChannelBase):
                     interaction (`discord.Interaction`): The click.
                     _button (`discord.ui.Button`): The clicked button.
                 """
-                await channel._decide(interaction, tool_call_id, True)
+                await channel._decide(
+                    interaction,
+                    tool_call_id,
+                    True,
+                    agent_id,
+                    session_id,
+                )
 
             @discord.ui.button(label="❌ Deny", style=discord.ButtonStyle.red)
             async def deny(
@@ -427,7 +474,13 @@ class DiscordChannel(ChannelBase):
                     interaction (`discord.Interaction`): The click.
                     _button (`discord.ui.Button`): The clicked button.
                 """
-                await channel._decide(interaction, tool_call_id, False)
+                await channel._decide(
+                    interaction,
+                    tool_call_id,
+                    False,
+                    agent_id,
+                    session_id,
+                )
 
         return _ApprovalView()
 
@@ -436,6 +489,8 @@ class DiscordChannel(ChannelBase):
         interaction: "discord.Interaction",
         tool_call_id: str,
         approved: bool,
+        agent_id: str = "",
+        session_id: str = "",
     ) -> None:
         """Freeze the card and emit the decision for ``tool_call_id``.
 
@@ -444,6 +499,10 @@ class DiscordChannel(ChannelBase):
                 message, chat id and clicking user.
             tool_call_id (`str`): The tool call being answered.
             approved (`bool`): The user's decision.
+            agent_id (`str`): Target agent pinned on the card at send
+                time; resumes the exact run without re-routing.
+            session_id (`str`): Target session pinned alongside
+                ``agent_id``.
         """
         await interaction.response.defer()
         try:
@@ -459,6 +518,8 @@ class DiscordChannel(ChannelBase):
                     channel_id=self._channel_id,
                     chat_id=str(interaction.channel_id),
                     channel_user_id=str(interaction.user.id),
+                    agent_id=agent_id,
+                    session_id=session_id,
                     tool_call_id=tool_call_id,
                     approved=approved,
                 ),

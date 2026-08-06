@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from enum import Enum
 from typing import Any, AsyncIterator, Awaitable, Callable, TYPE_CHECKING
 
 from pydantic import BaseModel, Field, TypeAdapter
@@ -110,6 +111,15 @@ class ChannelConfirmationResultEvent(BaseModel):
     channel_user_id: str
     """Platform user who decided; routes to the session."""
 
+    agent_id: str = ""
+    """Target agent resolved when the card was sent; used directly on
+    click so a re-route or metadata-based rule can't misroute the
+    decision. Empty on older cards → fall back to routing."""
+
+    session_id: str = ""
+    """Target session resolved when the card was sent; paired with
+    ``agent_id`` to resume the exact run that is asking."""
+
     tool_call_id: str
     """Id of the tool call being answered — the correlation key, matched
     against the session's awaiting confirmations."""
@@ -133,6 +143,18 @@ class ChannelStatus(BaseModel):
 
     state: str = "stopped"
     last_error: str = ""
+
+
+class ChatKind(str, Enum):
+    """A chat's audience shape, used to tailor the agent's context.
+
+    ``GROUP`` — many participants; ``PRIVATE`` — a 1:1 conversation.
+    Unknown / not-applicable is represented by ``None`` at call sites,
+    not an enum member.
+    """
+
+    GROUP = "group"
+    PRIVATE = "private"
 
 
 class ChannelCapability(BaseModel):
@@ -364,6 +386,30 @@ class ChannelBase(ABC):
         and ``name``. Default: empty (unsupported).
         """
         return []
+
+    async def chat_kind(  # pylint: disable=unused-argument
+        self,
+        chat_id: str,
+    ) -> "ChatKind | None":
+        """Best-effort audience shape of ``chat_id`` (group vs 1:1), used
+        to tailor the agent's session context. Default: ``None`` unknown.
+
+        Args:
+            chat_id (`str`): The platform chat to classify.
+        """
+        return None
+
+    async def chat_name(  # pylint: disable=unused-argument
+        self,
+        chat_id: str,
+    ) -> str:
+        """Best-effort human display name of ``chat_id`` (e.g. a group
+        title), used to tailor the agent's context. Default: ``""``.
+
+        Args:
+            chat_id (`str`): The platform chat to name.
+        """
+        return ""
 
     # -- Agent-callable tools --
 

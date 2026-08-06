@@ -30,6 +30,7 @@ from .._base import (
     ChannelEvent,
     ChannelConfirmationResultEvent,
     ChannelStatus,
+    ChatKind,
     _EVENT_ADAPTER,
 )
 from ._card_templates import (
@@ -168,6 +169,7 @@ class FeishuChannel(ChannelBase):
         self._stream_seq: dict[str, int] = {}
         self._chat_name_cache: dict[str, str] = {}
         self._user_name_cache: dict[str, str] = {}
+        self._chat_kind_cache: dict[str, ChatKind] = {}
 
     @property
     def channel_id(self) -> str:
@@ -405,6 +407,16 @@ class FeishuChannel(ChannelBase):
             "chat_type": chat_type,
             "tenant_key": data.header.tenant_key if data.header else "",
         }
+        if chat_id and chat_type in ("group", "p2p"):
+            self._chat_kind_cache[chat_id] = (
+                ChatKind.GROUP if chat_type == "group" else ChatKind.PRIVATE
+            )
+
+        # @-gate up front so unmentioned group media is dropped too — it
+        # used to skip the check, get downloaded, and buffer into the
+        # sender's next @-mention.
+        if self._gated_out(message, chat_type):
+            return None
 
         msg_type = message.message_type
         content: list[TextBlock | DataBlock] = []
@@ -412,15 +424,11 @@ class FeishuChannel(ChannelBase):
             block = await self._download_media(message, msg_type)
             content = [block] if block else []
         elif msg_type == "post":
-            if self._gated_out(message, chat_type):
-                return None
             content = await self._parse_post(
                 json.loads(message.content or "{}"),
                 message_id,
             )
         elif msg_type == "text":
-            if self._gated_out(message, chat_type):
-                return None
             text = (
                 json.loads(message.content or "{}").get("text") or ""
             ).strip()
@@ -443,20 +451,22 @@ class FeishuChannel(ChannelBase):
             channel_user_id=user_id,
             channel_user_name=await self._user_name(user_id),
             chat_id=chat_id,
-            chat_name=await self._chat_name(chat_id, chat_type),
+            chat_name=(
+                await self.chat_name(chat_id) if chat_type == "group" else ""
+            ),
             channel_message_id=message_id,
             content=content,
             metadata=meta,
         )
 
-    async def _chat_name(self, chat_id: str, chat_type: str) -> str:
-        """The group's title (cached per chat); empty for non-groups.
+    async def chat_name(self, chat_id: str) -> str:
+        """The chat's title (cached per chat); ``""`` when unavailable —
+        a 1:1 chat, a not-yet-named group, or a missing ``im:chat`` scope.
 
         Args:
             chat_id (`str`): The chat to look up.
-            chat_type (`str`): ``"group"`` / ``"p2p"`` / etc.
         """
-        if chat_type != "group" or not chat_id:
+        if not chat_id:
             return ""
         cached = self._chat_name_cache.get(chat_id)
         if cached:
@@ -467,13 +477,26 @@ class FeishuChannel(ChannelBase):
         name = (data or {}).get("data", {}).get("name", "") or ""
         if name:
             self._chat_name_cache[chat_id] = name
-        else:
-            logger.warning(
-                "Feishu chat '%s' returned no name (check im:chat scope "
-                "or the group may be unnamed)",
-                chat_id,
-            )
         return name
+
+    async def chat_kind(self, chat_id: str) -> ChatKind | None:
+        """Group vs 1:1 for a chat — from the inbound cache, else the
+        get-chat API (``chat_mode``). ``None`` when unknown.
+
+        Args:
+            chat_id (`str`): The chat to classify.
+        """
+        if not chat_id:
+            return None
+        cached = self._chat_kind_cache.get(chat_id)
+        if cached is not None:
+            return cached
+        data = await self._api("GET", f"{_API}/im/v1/chats/{chat_id}")
+        mode = (data or {}).get("data", {}).get("chat_mode", "")
+        kind = {"group": ChatKind.GROUP, "p2p": ChatKind.PRIVATE}.get(mode)
+        if kind is not None:
+            self._chat_kind_cache[chat_id] = kind
+        return kind
 
     async def _user_name(self, open_id: str) -> str:
         """The sender's display name (cached per user); empty on failure.
@@ -523,8 +546,14 @@ class FeishuChannel(ChannelBase):
                 == self._bot_open_id
                 for m in mentions
             )
-        # Bot id unknown (info fetch failed) → any mention present.
-        return not mentions and "@_user_" not in (message.content or "")
+        # Bot identity unknown (info fetch failed / lacked open_id): we
+        # cannot verify the @ was for us, so fail closed rather than let
+        # every group message through.
+        logger.warning(
+            "Feishu '%s' bot id unknown; dropping unverified group message",
+            self._channel_id,
+        )
+        return True
 
     async def _parse_post(
         self,
@@ -599,7 +628,7 @@ class FeishuChannel(ChannelBase):
         parsed = _parse_action(action)
         if parsed is None:
             return _build_toast(False)
-        tool_call_id, chat_id, approved = parsed
+        tool_call_id, chat_id, approved, agent_id, session_id = parsed
         operator = getattr(data.event, "operator", None)
         user_id = getattr(operator, "open_id", "") or ""
         if self._emit:
@@ -609,6 +638,8 @@ class FeishuChannel(ChannelBase):
                         channel_id=self._channel_id,
                         chat_id=chat_id,
                         channel_user_id=user_id,
+                        agent_id=agent_id,
+                        session_id=session_id,
                         tool_call_id=tool_call_id,
                         approved=approved,
                     ),
@@ -834,6 +865,8 @@ class FeishuChannel(ChannelBase):
                     event.chat_id,
                     tool.name,
                     str(tool.input)[:800],
+                    event.metadata.get("agent_id", ""),
+                    event.metadata.get("session_id", ""),
                 ),
             )
 

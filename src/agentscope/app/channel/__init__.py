@@ -13,6 +13,7 @@ from ._base import (
     ChannelConfirmationResultEvent,
     ChannelEvent,
     ChannelStatus,
+    ChatKind,
 )
 from ._dispatcher import ChannelLifecycleDispatcher
 from ._errors import ChannelError
@@ -28,6 +29,7 @@ __all__ = [
     "ChannelError",
     "ChannelEvent",
     "ChannelStatus",
+    "ChatKind",
     "ChannelGateway",
     "ChannelLifecycleDispatcher",
     "ChannelTypeRegistry",

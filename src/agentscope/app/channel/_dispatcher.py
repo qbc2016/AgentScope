@@ -278,10 +278,16 @@ class ChannelLifecycleDispatcher:
         ):
             return
         # Synthetic send target — background runs have no inbound message.
+        # Carry the run's identity so a confirmation card can pin its exact
+        # target and skip routing re-resolution on click.
         target = ChannelEvent(
             channel_id=job["channel_id"],
             channel_user_id="",
             chat_id=job["chat_id"],
+            metadata={
+                "session_id": job["session_id"],
+                "agent_id": job["agent_id"],
+            },
         )
         try:
             async with aclosing(

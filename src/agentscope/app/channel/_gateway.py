@@ -101,14 +101,21 @@ class ChannelGateway:
         record = await self._storage.get_channel(event.channel_id)
         if record is None or not record.enabled:
             return
-        agent_id, session_id, _ = resolve(
-            ChannelEvent(
-                channel_id=event.channel_id,
-                channel_user_id=event.channel_user_id,
-                chat_id=event.chat_id,
-            ),
-            record,
-        )
+        # Prefer the target pinned on the card at send time; re-resolving
+        # via routing here would misroute clicks whose original message
+        # matched on metadata, or in per-chat-user scope when a different
+        # member clicks. Fall back to routing only for older cards.
+        if event.agent_id and event.session_id:
+            agent_id, session_id = event.agent_id, event.session_id
+        else:
+            agent_id, session_id, _ = resolve(
+                ChannelEvent(
+                    channel_id=event.channel_id,
+                    channel_user_id=event.channel_user_id,
+                    chat_id=event.chat_id,
+                ),
+                record,
+            )
         await resume_after_decision(
             self._bus,
             self._storage,
