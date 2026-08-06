@@ -1,8 +1,10 @@
 import { format, isToday } from 'date-fns';
 import {
 	BotMessageSquare,
+	Cable,
 	CalendarClock,
 	Ellipsis,
+	type LucideIcon,
 	MessageSquareDashed,
 	Pencil,
 	Plus,
@@ -13,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { ChatViewport } from './ChatViewport';
-import type { SessionRecord } from '@/api';
+import type { SessionRecord, SessionSource } from '@/api';
 import { AgentDialog } from '@/components/dialog/AgentDialog';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { EditAgentDialog } from '@/components/dialog/EditAgentDialog';
@@ -75,6 +77,13 @@ import { useTranslation } from '@/i18n/useI18n.ts';
  *
  * @returns The chat page JSX.
  */
+// Icon per session origin, shown only when a sidebar mixes sources.
+const SOURCE_ICON: Record<SessionSource, LucideIcon> = {
+	user: BotMessageSquare,
+	schedule: CalendarClock,
+	channel: Cable,
+};
+
 const ChatPageInner = () => {
 	const navigate = useNavigate();
 	const {
@@ -106,7 +115,9 @@ const ChatPageInner = () => {
 
 	const selectedAgent = agents.find((a) => a.id === urlAgentId) ?? null;
 	const currentView = sessions.find((v) => v.session.id === urlSessionId) ?? null;
-	const hasScheduleSessions = sessions.some((v) => v.session.source === 'schedule');
+	// Show a per-origin icon only when sessions actually mix sources —
+	// a uniform list needs no disambiguation.
+	const showSourceIcons = new Set(sessions.map((v) => v.session.source)).size > 1;
 
 	// "Inner focus" — when the URL carries a third `:memberId` segment
 	// the user is drilling into a team member's chat. The main sidebar
@@ -297,6 +308,9 @@ const ChatPageInner = () => {
 											<SidebarMenu>
 												{todaySessions.map((view) => {
 													const session = view.session;
+													const SourceIcon =
+														SOURCE_ICON[session.source] ??
+														BotMessageSquare;
 													return (
 														<SidebarMenuItem key={session.id}>
 															{/* Wider right gutter than the stock
@@ -313,13 +327,7 @@ const ChatPageInner = () => {
 																	setOpenMobile(false);
 																}}
 															>
-																{hasScheduleSessions &&
-																	(session.source ===
-																	'schedule' ? (
-																		<CalendarClock />
-																	) : (
-																		<BotMessageSquare />
-																	))}
+																{showSourceIcons && <SourceIcon />}
 																<span className="truncate">
 																	{session.config.name ||
 																		session.id}
@@ -386,10 +394,13 @@ const ChatPageInner = () => {
 											<SidebarMenu>
 												{earlierSessions.map((view) => {
 													const session = view.session;
+													const SourceIcon =
+														SOURCE_ICON[session.source] ??
+														BotMessageSquare;
 													return (
 														<SidebarMenuItem key={session.id}>
 															<SidebarMenuButton
-																className="group-has-data-[sidebar=menu-action]/menu-item:pr-16"
+																className="text-muted-foreground hover:text-foreground group-has-data-[sidebar=menu-action]/menu-item:pr-16"
 																isActive={
 																	urlSessionId === session.id
 																}
@@ -400,13 +411,7 @@ const ChatPageInner = () => {
 																	setOpenMobile(false);
 																}}
 															>
-																{hasScheduleSessions &&
-																	(session.source ===
-																	'schedule' ? (
-																		<CalendarClock />
-																	) : (
-																		<BotMessageSquare />
-																	))}
+																{showSourceIcons && <SourceIcon />}
 																<span className="truncate">
 																	{session.config.name ||
 																		session.id}
@@ -520,7 +525,10 @@ const ChatPageInner = () => {
 				onOpenChange={setDeleteSessionOpen}
 				title={t('common.deleteTitle', {
 					entity: t('dialog-session-delete.entity'),
-					name: sessionToDelete?.config.name || sessionToDelete?.id || '',
+					name: (() => {
+						const raw = sessionToDelete?.config.name || sessionToDelete?.id || '';
+						return raw.length > 30 ? `${raw.slice(0, 30)}…` : raw;
+					})(),
 				})}
 				description={t('common.deleteDescription')}
 				confirmLabel={t('dialog-session-delete.confirm')}
