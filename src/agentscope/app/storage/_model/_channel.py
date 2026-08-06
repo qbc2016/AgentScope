@@ -130,17 +130,6 @@ class SessionSettings(BaseModel):
         return v
 
 
-class ReplyPresentation(BaseModel):
-    """Controls how much of the agent's internal process is shown to the
-    end user on the IM platform."""
-
-    show_tool_process: bool = False
-    """Show tool-call / tool-result events inline in the reply."""
-
-    show_thinking: bool = False
-    """Show the agent's thinking/reasoning blocks inline in the reply."""
-
-
 class ChannelRecord(BaseModel):
     """Persistent record for a channel instance — the single source of
     truth. Running adapter instances are a projection of this record.
@@ -153,6 +142,10 @@ class ChannelRecord(BaseModel):
 
     channel_type: str
     """Platform adapter type: feishu / dingtalk / discord / wecom."""
+
+    name: str | None = None
+    """Optional display name, so two channels of the same platform are
+    distinguishable in the UI."""
 
     user_id: str
     """AgentScope-side owner. Not platform data; used for access
@@ -179,7 +172,6 @@ class ChannelRecord(BaseModel):
 
     routing: RoutingConfig
     session: SessionSettings
-    presentation: ReplyPresentation = Field(default_factory=ReplyPresentation)
 
     # -- Versioning (reconcile basis for the lifecycle dispatcher) --
 

@@ -107,6 +107,9 @@ class RedisStorage(StorageBase):
         channel_index: str = "agentscope:user:{user_id}:channels"
         channel_all_index: str = "agentscope:channels"
         channel_botid_index: str = "agentscope:channel_botid:{platform_bot_id}"
+        channel_session_index: str = (
+            "agentscope:user:{user_id}:channel:{channel_id}:sessions"
+        )
 
         team: str = "agentscope:user:{user_id}:team:{team_id}"
         team_index: str = "agentscope:user:{user_id}:teams"
@@ -931,6 +934,14 @@ class RedisStorage(StorageBase):
             )
             await self._client.sadd(schedule_session_key, record.id)
 
+        if source_channel_id:
+            channel_session_key = self._key(
+                self.key_config.channel_session_index,
+                user_id=user_id,
+                channel_id=source_channel_id,
+            )
+            await self._client.sadd(channel_session_key, record.id)
+
         return record
 
     async def update_session_state(
@@ -1094,6 +1105,14 @@ class RedisStorage(StorageBase):
             )
             await self._client.srem(schedule_session_key, session_id)
 
+        if record.source_channel_id:
+            channel_session_key = self._key(
+                self.key_config.channel_session_index,
+                user_id=user_id,
+                channel_id=record.source_channel_id,
+            )
+            await self._client.srem(channel_session_key, session_id)
+
         return True
 
     async def list_sessions_by_schedule(
@@ -1108,6 +1127,32 @@ class RedisStorage(StorageBase):
             schedule_id=schedule_id,
         )
         ids = await self._client.smembers(schedule_session_key)
+        records = []
+        for session_id in ids:
+            raw = await self._client.get(
+                self._key(
+                    self.key_config.session,
+                    user_id=user_id,
+                    session_id=session_id,
+                ),
+            )
+            if raw:
+                records.append(SessionRecord.model_validate_json(raw))
+        records.sort(key=lambda r: r.created_at, reverse=True)
+        return records
+
+    async def list_sessions_by_channel(
+        self,
+        user_id: str,
+        channel_id: str,
+    ) -> list[SessionRecord]:
+        """Return all sessions derived from a given channel."""
+        channel_session_key = self._key(
+            self.key_config.channel_session_index,
+            user_id=user_id,
+            channel_id=channel_id,
+        )
+        ids = await self._client.smembers(channel_session_key)
         records = []
         for session_id in ids:
             raw = await self._client.get(

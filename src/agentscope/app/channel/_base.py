@@ -30,7 +30,6 @@ from ...message import (
     ToolResultBlock,
 )
 from ...types import ReplyFinishedReason
-from ..storage import ReplyPresentation
 
 if TYPE_CHECKING:
     from ...tool import ToolBase
@@ -122,6 +121,20 @@ class ChannelConfirmationResultEvent(BaseModel):
     """Platform-side id of whoever made the decision (for audit)."""
 
 
+class ChannelStatus(BaseModel):
+    """Live connection status of a running channel adapter — owned and
+    updated by the adapter itself; read by the dispatcher's status API.
+
+    ``state`` transitions (all set by the adapter):
+    ``stopped`` (default / on teardown) → ``connecting`` → ``connected``;
+    ``retrying`` while reconnecting after a drop; ``failed`` when the
+    adapter gave up (parked, no more retries until the channel is edited).
+    """
+
+    state: str = "stopped"
+    last_error: str = ""
+
+
 class ChannelCapability(BaseModel):
     """Platform capability declaration for gateway degradation decisions.
 
@@ -174,6 +187,13 @@ class ChannelBase(ABC):
     """Credential field that uniquely identifies the bot, used to reject
     binding the same bot to two channels."""
 
+    description: str = ""
+    """One-line platform description for the management UI."""
+
+    icon_url: str = ""
+    """Brand icon URL for the management UI; empty falls back to a
+    generated avatar."""
+
     class Credentials(BaseModel):
         """Secret connection fields (app id, tokens, ...). Subclasses
         override with their own fields; mark a field secret with
@@ -199,9 +219,10 @@ class ChannelBase(ABC):
 
     capabilities: ChannelCapability = ChannelCapability()
 
-    presentation: ReplyPresentation = ReplyPresentation()
-    """Reply-rendering flags (show tool process / thinking), set by the
-    dispatcher from the channel record. Read by :meth:`_fold`."""
+    status: ChannelStatus
+    """Live connection status; each channel creates its own in ``__init__``
+    (``self.status = ChannelStatus()``) and updates it. Read via the
+    dispatcher's status API."""
 
     _emit: (
         Callable[
@@ -259,12 +280,21 @@ class ChannelBase(ABC):
             events (`AsyncIterator[dict]`): The run's session events.
         """
 
-    def _render(self, reply: Msg | None) -> list[TextBlock | DataBlock]:
-        """Render an accumulated reply into deliverable blocks per
-        :attr:`presentation` (tool process / thinking shown or hidden).
+    def _render(
+        self,
+        reply: Msg | None,
+        *,
+        show_thinking: bool = False,
+        show_tool_process: bool = False,
+    ) -> list[TextBlock | DataBlock]:
+        """Render an accumulated reply into deliverable blocks. The caller
+        (each channel) passes its own ``Config`` flags — the base makes no
+        assumptions about how a subclass stores them.
 
         Args:
             reply (`Msg | None`): The accumulated reply.
+            show_thinking (`bool`): Include thinking blocks inline.
+            show_tool_process (`bool`): Include tool call/result inline.
 
         Returns:
             `list[TextBlock | DataBlock]`: Text (+ data) blocks to send.
@@ -279,16 +309,13 @@ class ChannelBase(ABC):
             elif isinstance(block, DataBlock):
                 data.append(block)
             elif isinstance(block, ThinkingBlock):
-                if self.presentation.show_thinking:
+                if show_thinking:
                     parts.append(f"\n💭 {block.thinking}\n")
             elif isinstance(block, ToolCallBlock):
-                if self.presentation.show_tool_process:
+                if show_tool_process:
                     parts.append(f"\n🔧 Calling tool: {block.name}\n")
             elif isinstance(block, ToolResultBlock):
-                if self.presentation.show_tool_process and isinstance(
-                    block.output,
-                    str,
-                ):
+                if show_tool_process and isinstance(block.output, str):
                     parts.append(block.output)
         text = "".join(parts).strip()
         if reply.finished_reason == ReplyFinishedReason.ERROR:

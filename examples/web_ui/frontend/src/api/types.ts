@@ -957,58 +957,62 @@ export interface SessionSettings {
 	permission_mode: PermissionMode;
 }
 
-export interface ReplyPresentation {
-	show_tool_process: boolean;
-	show_thinking: boolean;
-}
-
 export interface ChannelRecord {
 	id: string;
 	channel_type: string;
+	name: string | null;
 	user_id: string;
 	platform_bot_id: string;
 	enabled: boolean;
 	platform_config: Record<string, unknown>;
 	routing: RoutingConfig;
 	session: SessionSettings;
-	presentation: ReplyPresentation;
 	created_at: string;
 	updated_at: string;
 }
 
 export interface CreateChannelRequest {
 	channel_type: string;
+	name?: string | null;
 	credentials: Record<string, unknown>;
 	platform_config?: Record<string, unknown>;
 	routing: RoutingConfig;
 	session: SessionSettings;
-	presentation?: ReplyPresentation;
 	enabled?: boolean;
 }
 
 export interface UpdateChannelRequest {
+	name?: string | null;
+	platform_config?: Record<string, unknown>;
 	routing?: RoutingConfig;
 	session?: SessionSettings;
-	presentation?: ReplyPresentation;
 	enabled?: boolean;
 }
 
 export interface ChannelTypeSchema {
 	channel_type: string;
 	display_name: string;
+	description?: string;
+	icon_url?: string;
 	credentials_schema: Record<string, unknown>;
 	config_schema: Record<string, unknown>;
 	platform_bot_id_field?: string;
 }
 
-export interface ChannelNodeStatus {
-	node_id: string;
-	status: string;
+export type ChannelState = 'stopped' | 'connecting' | 'retrying' | 'connected' | 'failed';
+
+export interface ChannelStatus {
+	state: ChannelState;
+	last_error: string;
 }
 
-export interface ChannelStatusResponse {
-	status: 'running' | 'stopped' | 'error';
-	nodes: ChannelNodeStatus[];
+export interface ChannelSessionsResponse {
+	sessions: SessionRecord[];
+	total: number;
+}
+
+export interface ChannelChatIdsResponse {
+	chats: { chat_id: string; name: string; source: string }[];
 }
 
 // ─── TTS ──────────────────────────────────────────────────────────────────────

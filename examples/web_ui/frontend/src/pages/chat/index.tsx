@@ -400,7 +400,7 @@ const ChatPageInner = () => {
 													return (
 														<SidebarMenuItem key={session.id}>
 															<SidebarMenuButton
-																className="group-has-data-[sidebar=menu-action]/menu-item:pr-16"
+																className="text-muted-foreground hover:text-foreground group-has-data-[sidebar=menu-action]/menu-item:pr-16"
 																isActive={
 																	urlSessionId === session.id
 																}

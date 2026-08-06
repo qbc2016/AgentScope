@@ -513,6 +513,23 @@ class StorageBase(ABC):
         """
 
     @abstractmethod
+    async def list_sessions_by_channel(
+        self,
+        user_id: str,
+        channel_id: str,
+    ) -> list[SessionRecord]:
+        """Return all sessions derived from a given channel.
+
+        Args:
+            user_id (`str`): The owner user id.
+            channel_id (`str`): The channel id.
+
+        Returns:
+            `list[SessionRecord]`: Sessions the channel spawned, ordered
+            by creation time (newest first).
+        """
+
+    @abstractmethod
     async def upsert_schedule(
         self,
         user_id: str,

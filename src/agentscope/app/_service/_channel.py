@@ -11,7 +11,6 @@ from ..._utils._common import _generate_id
 from ..message_bus import MessageBus, MessageBusKeys
 from ..storage import (
     ChannelRecord,
-    ReplyPresentation,
     RoutingConfig,
     SessionSettings,
     StorageBase,
@@ -50,19 +49,19 @@ class ChannelService:
         platform_config: dict,
         routing: RoutingConfig,
         session: SessionSettings,
-        presentation: ReplyPresentation,
         enabled: bool = True,
+        name: str | None = None,
     ) -> ChannelRecord:
         """Create a channel, rejecting a bot already bound elsewhere.
 
         Args:
             user_id (`str`): Owner of the channel.
             channel_type (`str`): Registered platform type id.
+            name (`str | None`): Optional display name.
             credentials (`dict`): Platform credentials.
             platform_config (`dict`): Platform behaviour options.
             routing (`RoutingConfig`): Inbound routing rules.
             session (`SessionSettings`): Derived-session settings.
-            presentation (`ReplyPresentation`): Reply-rendering options.
             enabled (`bool`): Whether to start the channel immediately.
         """
         bot_id = self._types.extract_platform_bot_id(
@@ -84,13 +83,13 @@ class ChannelService:
         record = ChannelRecord(
             id=channel_id,
             channel_type=channel_type,
+            name=name,
             user_id=user_id,
             enabled=enabled,
             credentials=credentials,
             platform_config=platform_config,
             routing=routing,
             session=session,
-            presentation=presentation,
             created_at=now,
             updated_at=now,
         )
@@ -99,8 +98,8 @@ class ChannelService:
         return record
 
     async def update(self, channel_id: str, updates: dict) -> ChannelRecord:
-        """Apply routing/session/presentation/enabled changes; credentials
-        and channel_type are immutable (delete and recreate to change).
+        """Apply routing/session/platform_config/enabled changes;
+        credentials and channel_type are immutable (recreate to change).
 
         Args:
             channel_id (`str`): The channel to update.

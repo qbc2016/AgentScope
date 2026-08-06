@@ -5,7 +5,7 @@
     GET    /channels/                   List the user's channels
     POST   /channels/                   Create a channel
     GET    /channels/{id}               Channel details
-    PATCH  /channels/{id}               Update routing/session/presentation
+    PATCH  /channels/{id}               Update routing/session/config
     DELETE /channels/{id}               Delete a channel
     POST   /channels/{id}/enable        Enable
     POST   /channels/{id}/disable       Disable
@@ -17,7 +17,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..channel import (
     ChannelError,
     ChannelLifecycleDispatcher,
+    ChannelStatus,
     ChannelTypeRegistry,
+    ChannelTypeSchema,
 )
 from .._service import ChannelService
 from ..deps import (
@@ -29,7 +31,11 @@ from ..deps import (
 )
 from ..storage import ChannelRecord, StorageBase
 from ._schema import (
+    ChannelActionResponse,
+    ChannelChatId,
+    ChannelChatIdsResponse,
     ChannelResponse,
+    ChannelSessionsResponse,
     CreateChannelRequest,
     UpdateChannelRequest,
 )
@@ -61,13 +67,13 @@ def _to_response(
     return ChannelResponse(
         id=record.id,
         channel_type=record.channel_type,
+        name=record.name,
         user_id=record.user_id,
         platform_bot_id=bot_id,
         enabled=record.enabled,
         platform_config=record.platform_config,
         routing=record.routing,
         session=record.session,
-        presentation=record.presentation,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -103,9 +109,9 @@ async def _owned(
 @channel_router.get("/types")
 async def list_channel_types(
     registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
-) -> list[dict]:
+) -> list[ChannelTypeSchema]:
     """List supported channel types with their JSON schemas."""
-    return [t.model_dump() for t in registry.list_types()]
+    return registry.list_types()
 
 
 @channel_router.get("/")
@@ -131,11 +137,11 @@ async def create_channel(
         record = await service.create(
             user_id=user_id,
             channel_type=body.channel_type,
+            name=body.name,
             credentials=body.credentials,
             platform_config=body.platform_config,
             routing=body.routing,
             session=body.session,
-            presentation=body.presentation,
             enabled=body.enabled,
         )
     except ChannelError as e:
@@ -166,7 +172,7 @@ async def update_channel(
     registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     user_id: str = Depends(get_current_user_id),
 ) -> ChannelResponse:
-    """Update routing / session / presentation / enabled."""
+    """Update routing / session / config / enabled."""
     await _owned(channel_id, user_id, storage)
     updates = body.model_dump(exclude_unset=True)
     if not updates:
@@ -202,11 +208,11 @@ async def enable_channel(
     storage: StorageBase = Depends(get_storage),
     service: ChannelService = Depends(get_channel_service),
     user_id: str = Depends(get_current_user_id),
-) -> dict:
+) -> ChannelActionResponse:
     """Enable a channel."""
     await _owned(channel_id, user_id, storage)
     await service.set_enabled(channel_id, True)
-    return {"status": "enabled"}
+    return ChannelActionResponse(status="enabled")
 
 
 @channel_router.post("/{channel_id}/disable")
@@ -215,11 +221,11 @@ async def disable_channel(
     storage: StorageBase = Depends(get_storage),
     service: ChannelService = Depends(get_channel_service),
     user_id: str = Depends(get_current_user_id),
-) -> dict:
+) -> ChannelActionResponse:
     """Disable a channel."""
     await _owned(channel_id, user_id, storage)
     await service.set_enabled(channel_id, False)
-    return {"status": "disabled"}
+    return ChannelActionResponse(status="disabled")
 
 
 @channel_router.get("/{channel_id}/status")
@@ -228,10 +234,22 @@ async def channel_status(
     storage: StorageBase = Depends(get_storage),
     dispatcher: ChannelLifecycleDispatcher = Depends(get_channel_dispatcher),
     user_id: str = Depends(get_current_user_id),
-) -> dict:
-    """Aggregated multi-node runtime status."""
+) -> ChannelStatus:
+    """The channel's live connection status."""
     await _owned(channel_id, user_id, storage)
     return await dispatcher.get_status(channel_id)
+
+
+@channel_router.get("/{channel_id}/sessions")
+async def list_channel_sessions(
+    channel_id: str,
+    storage: StorageBase = Depends(get_storage),
+    user_id: str = Depends(get_current_user_id),
+) -> ChannelSessionsResponse:
+    """Sessions this channel spawned, newest first."""
+    await _owned(channel_id, user_id, storage)
+    sessions = await storage.list_sessions_by_channel(user_id, channel_id)
+    return ChannelSessionsResponse(sessions=sessions, total=len(sessions))
 
 
 @channel_router.get("/{channel_id}/chat_ids")
@@ -240,23 +258,23 @@ async def list_chat_ids(
     storage: StorageBase = Depends(get_storage),
     dispatcher: ChannelLifecycleDispatcher = Depends(get_channel_dispatcher),
     user_id: str = Depends(get_current_user_id),
-) -> list[dict]:
+) -> ChannelChatIdsResponse:
     """Known chats for routing config: platform list ∪ passively seen."""
     await _owned(channel_id, user_id, storage)
-    results: list[dict] = []
+    chats: list[ChannelChatId] = []
     platform_ids: set[str] = set()
     for chat in await dispatcher.list_bot_chats(channel_id):
         cid = chat.get("chat_id", "")
         if cid:
             platform_ids.add(cid)
-            results.append(
-                {
-                    "chat_id": cid,
-                    "name": chat.get("name", ""),
-                    "source": "platform",
-                },
+            chats.append(
+                ChannelChatId(
+                    chat_id=cid,
+                    name=chat.get("name", ""),
+                    source="platform",
+                ),
             )
     for cid in await dispatcher.list_seen_chat_ids(channel_id):
         if cid not in platform_ids:
-            results.append({"chat_id": cid, "name": "", "source": "recorded"})
-    return results
+            chats.append(ChannelChatId(chat_id=cid, source="recorded"))
+    return ChannelChatIdsResponse(chats=chats)

@@ -29,6 +29,7 @@ from .._base import (
     ChannelCapability,
     ChannelEvent,
     ChannelConfirmationResultEvent,
+    ChannelStatus,
     _EVENT_ADAPTER,
 )
 from ._card_templates import (
@@ -80,12 +81,18 @@ class _ThreadLoopProxy:
 
 _THREAD_LOOP_PROXY = _ThreadLoopProxy()
 
+# Give up (and let the dispatcher disable the channel) after this many
+# consecutive connects that never came up — the credentials are bad.
+_MAX_CONNECT_ATTEMPTS = 2
+
 
 class FeishuChannel(ChannelBase):
     """Feishu platform channel (SDK long-connection mode)."""
 
     channel_type = "feishu"
     display_name = "Feishu (Lark)"
+    description = "Group and direct-message bot with card interactions."
+    icon_url = "https://www.google.com/s2/favicons?domain=feishu.cn&sz=128"
     platform_bot_id_field = "app_id"
 
     class Credentials(BaseModel):
@@ -106,6 +113,16 @@ class FeishuChannel(ChannelBase):
             title="Reply only when mentioned",
             description="In group chats, reply only when the bot is "
             "@mentioned",
+        )
+        show_tool_process: bool = Field(
+            default=False,
+            title="Show tool process",
+            description="Show tool calls and results inline in the reply",
+        )
+        show_thinking: bool = Field(
+            default=False,
+            title="Show thinking",
+            description="Show the model's reasoning inline in the reply",
         )
 
     capabilities = ChannelCapability(
@@ -137,7 +154,8 @@ class FeishuChannel(ChannelBase):
         self._channel_id = channel_id
         self._app_id = credentials.app_id
         self._app_secret = credentials.app_secret
-        self._only_at_reply = config.only_at_reply
+        self._config = config
+        self.status = ChannelStatus()
         self._http: "httpx.AsyncClient | None" = None
         self._token: str | None = None
         self._bot_open_id: str | None = None
@@ -149,6 +167,7 @@ class FeishuChannel(ChannelBase):
         self._ws_loop: asyncio.AbstractEventLoop | None = None
         self._stream_seq: dict[str, int] = {}
         self._chat_name_cache: dict[str, str] = {}
+        self._user_name_cache: dict[str, str] = {}
 
     @property
     def channel_id(self) -> str:
@@ -173,21 +192,60 @@ class FeishuChannel(ChannelBase):
         import httpx
 
         self._emit = emit
+        self.status.state = "connecting"
         self._loop = asyncio.get_running_loop()
         self._http = httpx.AsyncClient(timeout=30.0)
+        backoff = 1.0
+        attempts = 0
+        ever_connected = False
         try:
-            await self._refresh_token()
-            info = await self._api("GET", f"{_API}/bot/v3/info")
-            self._bot_open_id = (info or {}).get("bot", {}).get("open_id")
-            backoff = 1.0
             while not self._stop.is_set():
-                self._ws_thread = self._launch_ws_thread()
                 uptime = 0.0
-                while not self._stop.is_set() and self._ws_thread.is_alive():
-                    await asyncio.sleep(5.0)
-                    uptime += 5.0
+                try:
+                    await self._refresh_token()
+                    if self._bot_open_id is None:
+                        info = await self._api("GET", f"{_API}/bot/v3/info")
+                        self._bot_open_id = (
+                            (info or {}).get("bot", {}).get("open_id")
+                        )
+                    self._ws_thread = self._launch_ws_thread()
+                    while (
+                        not self._stop.is_set() and self._ws_thread.is_alive()
+                    ):
+                        await asyncio.sleep(5.0)
+                        uptime += 5.0
+                        self.status.state = "connected"
+                        self.status.last_error = ""
+                        ever_connected = True
+                        attempts = 0
+                except Exception as e:  # pylint: disable=broad-except
+                    self.status.state = "retrying"
+                    self.status.last_error = str(e)
+                    logger.exception(
+                        "Feishu WS '%s' connect failed",
+                        self._channel_id,
+                    )
                 if self._stop.is_set():
                     break
+                # Give up only when we have NEVER connected — bad credentials
+                # never will. Park in 'failed' (keep the task alive so the
+                # dispatcher won't restart it); editing the channel re-tries.
+                # Transient drops after a good connect keep retrying.
+                if not ever_connected:
+                    attempts += 1
+                    if attempts >= _MAX_CONNECT_ATTEMPTS:
+                        self.status.state = "failed"
+                        if not self.status.last_error:
+                            self.status.last_error = "connect failed"
+                        logger.error(
+                            "Feishu WS '%s' giving up after %d attempts: %s",
+                            self._channel_id,
+                            attempts,
+                            self.status.last_error,
+                        )
+                        while not self._stop.is_set():
+                            await asyncio.sleep(30.0)
+                        break
                 backoff = 1.0 if uptime >= 60.0 else min(backoff * 2, 30.0)
                 logger.warning(
                     "Feishu WS '%s' exited, reconnecting in %.1fs",
@@ -197,6 +255,7 @@ class FeishuChannel(ChannelBase):
                 await asyncio.sleep(backoff)
         finally:
             self._stop.set()
+            self.status.state = "stopped"
             # Stop the WS thread's loop so lark's ``client.start()`` (parked
             # forever on ``run_until_complete(_select())``) returns; without
             # this the daemon thread lingers and keeps delivering events
@@ -279,8 +338,10 @@ class FeishuChannel(ChannelBase):
                 self._ws_loop = thread_loop
                 _ws_client.loop = _THREAD_LOOP_PROXY
                 client.start()  # blocks on this thread's loop until closed
-            except Exception:  # pylint: disable=broad-except
+            except Exception as e:  # pylint: disable=broad-except
                 if not self._stop.is_set():
+                    self.status.state = "retrying"
+                    self.status.last_error = str(e)
                     logger.exception(
                         "Feishu WS '%s' crashed",
                         self._channel_id,
@@ -363,7 +424,7 @@ class FeishuChannel(ChannelBase):
             text = (
                 json.loads(message.content or "{}").get("text") or ""
             ).strip()
-            if chat_type == "group" and self._only_at_reply:
+            if chat_type == "group" and self._config.only_at_reply:
                 for mention in message.mentions or []:
                     text = text.replace(mention.key or "", "").strip()
             content = [TextBlock(text=text)] if text else []
@@ -380,6 +441,7 @@ class FeishuChannel(ChannelBase):
         return ChannelEvent(
             channel_id=self._channel_id,
             channel_user_id=user_id,
+            channel_user_name=await self._user_name(user_id),
             chat_id=chat_id,
             chat_name=await self._chat_name(chat_id, chat_type),
             channel_message_id=message_id,
@@ -396,13 +458,49 @@ class FeishuChannel(ChannelBase):
         """
         if chat_type != "group" or not chat_id:
             return ""
-        if chat_id not in self._chat_name_cache:
-            data = await self._api("GET", f"{_API}/im/v1/chats/{chat_id}")
-            self._chat_name_cache[chat_id] = (data or {}).get("data", {}).get(
-                "name",
-                "",
-            ) or ""
-        return self._chat_name_cache[chat_id]
+        cached = self._chat_name_cache.get(chat_id)
+        if cached:
+            return cached
+        # Only cache a non-empty result, so a missing scope / not-yet-named
+        # group is retried on the next message rather than stuck empty.
+        data = await self._api("GET", f"{_API}/im/v1/chats/{chat_id}")
+        name = (data or {}).get("data", {}).get("name", "") or ""
+        if name:
+            self._chat_name_cache[chat_id] = name
+        else:
+            logger.warning(
+                "Feishu chat '%s' returned no name (check im:chat scope "
+                "or the group may be unnamed)",
+                chat_id,
+            )
+        return name
+
+    async def _user_name(self, open_id: str) -> str:
+        """The sender's display name (cached per user); empty on failure.
+
+        Args:
+            open_id (`str`): The sender's open_id.
+        """
+        if not open_id:
+            return ""
+        cached = self._user_name_cache.get(open_id)
+        if cached:
+            return cached
+        data = await self._api(
+            "GET",
+            f"{_API}/contact/v3/users/{open_id}?user_id_type=open_id",
+        )
+        name = (data or {}).get("data", {}).get("user", {}).get("name", "")
+        name = name or ""
+        if name:
+            self._user_name_cache[open_id] = name
+        else:
+            logger.warning(
+                "Feishu user '%s' returned no name (check "
+                "contact:user.base:readonly scope)",
+                open_id,
+            )
+        return name
 
     def _gated_out(self, message: "EventMessage", chat_type: str) -> bool:
         """Whether a group message is dropped by ``only_at_reply`` — kept
@@ -416,7 +514,7 @@ class FeishuChannel(ChannelBase):
         Returns:
             `bool`: ``True`` to ignore the message.
         """
-        if chat_type != "group" or not self._only_at_reply:
+        if chat_type != "group" or not self._config.only_at_reply:
             return False
         mentions = message.mentions or []
         if self._bot_open_id:
@@ -556,8 +654,13 @@ class FeishuChannel(ChannelBase):
                 break
             if failed or reply is None:
                 continue
+            rendered = self._render(
+                reply,
+                show_thinking=self._config.show_thinking,
+                show_tool_process=self._config.show_tool_process,
+            )
             text = "".join(
-                b.text for b in self._render(reply) if isinstance(b, TextBlock)
+                b.text for b in rendered if isinstance(b, TextBlock)
             )
             if not text:
                 continue
@@ -570,7 +673,11 @@ class FeishuChannel(ChannelBase):
             if now - last >= _STREAM_MIN_INTERVAL:
                 last = now
                 await self._card_push(ref, text)
-        blocks = self._render(reply)
+        blocks = self._render(
+            reply,
+            show_thinking=self._config.show_thinking,
+            show_tool_process=self._config.show_tool_process,
+        )
         text = "".join(b.text for b in blocks if isinstance(b, TextBlock))
         await self._finish_card(event, ref, text)
         for block in blocks:

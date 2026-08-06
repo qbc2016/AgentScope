@@ -1212,6 +1212,36 @@ class AsyncSQLAlchemyStorage(StorageBase):
             )
         return [_to_record(r, SessionRecord) for r in rows]
 
+    async def list_sessions_by_channel(
+        self,
+        user_id: str,
+        channel_id: str,
+    ) -> list[SessionRecord]:
+        """Sessions derived from *channel_id* — newest first.
+
+        ``source_channel_id`` lives in the JSON payload (not a promoted
+        column), so it is matched inside the payload.
+        """
+        from sqlalchemy import select
+
+        async with self._session() as sess:
+            rows = (
+                (
+                    await sess.execute(
+                        select(SessionRow)
+                        .where(
+                            SessionRow.user_id == user_id,
+                            SessionRow.payload["source_channel_id"].as_string()
+                            == channel_id,
+                        )
+                        .order_by(SessionRow.created_at.desc()),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return [_to_record(r, SessionRecord) for r in rows]
+
     # ------------------------------------------------------------------
     # Schedules
     # ------------------------------------------------------------------

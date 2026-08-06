@@ -1,8 +1,9 @@
-import { Loader2, Save, X } from 'lucide-react';
+import { CircleAlert, Loader2, Save, X } from 'lucide-react';
 import * as React from 'react';
 
 import type { ChannelRecord, ChannelTypeSchema } from '@/api';
 import { channelApi } from '@/api';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -48,10 +49,6 @@ export function EditChannelDialog({ channel, open, onOpenChange, onUpdated }: Pr
 		}
 	}, [open, channel]);
 
-	const agentList = React.useMemo(
-		() => agents.map((a) => ({ id: a.id, name: a.data.name })),
-		[agents],
-	);
 	const valid = isChannelFormValid(form, 'edit');
 
 	const handleSubmit = async () => {
@@ -77,15 +74,20 @@ export function EditChannelDialog({ channel, open, onOpenChange, onUpdated }: Pr
 					<DialogDescription>{t('channel.edit.description')}</DialogDescription>
 				</DialogHeader>
 
-				<div className="no-scrollbar -mx-4 max-h-[75vh] overflow-y-auto px-4">
+				<div className="no-scrollbar -mx-4 max-h-[75vh] overflow-y-auto px-4 pt-1">
 					<ChannelForm
 						mode="edit"
 						value={form}
 						onChange={setForm}
-						agents={agentList}
+						agents={agents}
 						channelTypes={channelTypes}
 					/>
-					{error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+					{error && (
+						<Alert variant="destructive" className="mt-2">
+							<CircleAlert />
+							<AlertDescription>{error}</AlertDescription>
+						</Alert>
+					)}
 				</div>
 
 				<DialogFooter>

@@ -5,7 +5,6 @@ from ._agent import AgentRecord, AgentData, InviteConfig
 from ._channel import (
     ChannelBinding,
     ChannelRecord,
-    ReplyPresentation,
     RoutingConfig,
     SessionScope,
     SessionSettings,
@@ -37,7 +36,6 @@ __all__ = [
     "AgentRecord",
     "ChannelBinding",
     "ChannelRecord",
-    "ReplyPresentation",
     "RoutingConfig",
     "SessionScope",
     "SessionSettings",

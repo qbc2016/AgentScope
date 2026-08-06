@@ -2,7 +2,11 @@
 """Schema models for the agent service."""
 
 from ._channel import (
+    ChannelActionResponse,
+    ChannelChatId,
+    ChannelChatIdsResponse,
     ChannelResponse,
+    ChannelSessionsResponse,
     CreateChannelRequest,
     UpdateChannelRequest,
 )
@@ -99,7 +103,11 @@ __all__ = [
     "UpdateAgentRequest",
     "ListSchedulesResponse",
     # Channel
+    "ChannelActionResponse",
+    "ChannelChatId",
+    "ChannelChatIdsResponse",
     "ChannelResponse",
+    "ChannelSessionsResponse",
     "CreateChannelRequest",
     "UpdateChannelRequest",
     # Chat

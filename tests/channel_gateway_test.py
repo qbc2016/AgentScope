@@ -22,7 +22,6 @@ from agentscope.app.message_bus import InMemoryMessageBus
 from agentscope.app.storage import (
     ChannelBinding,
     ChannelRecord,
-    ReplyPresentation,
     RoutingConfig,
     SessionScope,
     SessionSettings,
@@ -107,12 +106,19 @@ class _FakeChannel(ChannelBase):
                 reply.append_event(evt)
             if isinstance(evt, ReplyEndEvent):
                 break
-        self.delivered.extend(self._render(reply))
+        self.delivered.extend(
+            self._render(
+                reply,
+                show_thinking=self._show_thinking,
+                show_tool_process=self._show_tool_process,
+            ),
+        )
 
 
 async def _run(events: list, **presentation: Any) -> _FakeChannel:
     channel = _FakeChannel()
-    channel.presentation = ReplyPresentation(**presentation)
+    channel._show_tool_process = presentation.get("show_tool_process", False)
+    channel._show_thinking = presentation.get("show_thinking", False)
     await channel.send_response(_event(), _aiter(events))
     return channel
 
@@ -320,7 +326,6 @@ def _channel_record(user_id: str) -> ChannelRecord:
                 "parameters": {},
             },
         ),
-        presentation=ReplyPresentation(),
         created_at="t",
         updated_at="t",
     )

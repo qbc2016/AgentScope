@@ -24,7 +24,12 @@ from ..._utils._common import _generate_id
 from ...event import EventType
 from ..message_bus import MessageBus, MessageBusKeys
 from ..storage import ChannelRecord, StorageBase
-from ._base import ChannelBase, ChannelEvent, ChannelConfirmationResultEvent
+from ._base import (
+    ChannelBase,
+    ChannelConfirmationResultEvent,
+    ChannelEvent,
+    ChannelStatus,
+)
 from ._gateway import ChannelGateway
 from ._registry import ChannelTypeRegistry
 
@@ -125,6 +130,9 @@ class ChannelLifecycleDispatcher:
 
         for cid, record in desired.items():
             inst = self._instances.get(cid)
+            # A channel that gave up (state 'failed') parks its task alive, so
+            # ``task.done()`` stays False and it is not restarted here; editing
+            # the channel bumps ``updated_at`` and re-triggers a fresh start.
             if (
                 inst is None
                 or inst.version != record.updated_at
@@ -147,7 +155,6 @@ class ChannelLifecycleDispatcher:
                 credentials=record.credentials,
                 config=record.platform_config,
             )
-            channel.presentation = record.presentation
             task = asyncio.create_task(
                 channel.start_listening(self._gateway.process),
                 name=f"channel-listener:{record.id}",
@@ -356,53 +363,23 @@ class ChannelLifecycleDispatcher:
                 pass
 
     async def _periodic(self) -> None:
-        """Periodic reconcile + status heartbeat (self-heals lost events)."""
+        """Periodic reconcile (self-heals lost lifecycle events)."""
         interval = max(5.0, LIVENESS_TTL_SECS / 2)
         while True:
             await asyncio.sleep(interval)
             await self.reconcile()
-            await self._heartbeat()
-
-    async def _heartbeat(self) -> None:
-        """Refresh this node's per-channel liveness status (with TTL)."""
-        for cid, inst in self._instances.items():
-            status = "running"
-            if inst.task.done():
-                exc = (
-                    inst.task.exception()
-                    if not inst.task.cancelled()
-                    else None
-                )
-                status = "error" if exc else "stopped"
-            try:
-                await self._bus.registry_set(
-                    MessageBusKeys.channel_liveness(cid),
-                    self._node_id,
-                    status,
-                    ttl_secs=LIVENESS_TTL_SECS,
-                )
-            except Exception:  # pylint: disable=broad-except
-                pass
 
     # -- Read APIs (for the router) --
 
-    async def get_status(self, channel_id: str) -> dict:
-        """Aggregate the per-node liveness view of a channel.
+    async def get_status(self, channel_id: str) -> ChannelStatus:
+        """The channel's live connection status, or ``stopped`` if it is not
+        running here (disabled / not yet started).
 
         Args:
             channel_id (`str`): The channel to report on.
         """
-        nodes = await self._bus.registry_getall(
-            MessageBusKeys.channel_liveness(channel_id),
-        )
-        if not nodes:
-            return {"status": "stopped", "nodes": []}
-        return {
-            "status": "running"
-            if any(v == "running" for v in nodes.values())
-            else "error",
-            "nodes": [{"node_id": k, "status": v} for k, v in nodes.items()],
-        }
+        inst = self._instances.get(channel_id)
+        return inst.channel.status if inst else ChannelStatus(state="stopped")
 
     async def list_bot_chats(self, channel_id: str) -> list[dict]:
         """Chats the bot is in, via the local channel if running.

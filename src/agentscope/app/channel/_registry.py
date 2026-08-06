@@ -28,6 +28,8 @@ class ChannelTypeSchema(BaseModel):
 
     channel_type: str
     display_name: str
+    description: str = ""
+    icon_url: str = ""
     credentials_schema: dict
     config_schema: dict
     platform_bot_id_field: str
@@ -128,6 +130,8 @@ class ChannelTypeRegistry:
         return ChannelTypeSchema(
             channel_type=channel_cls.channel_type,
             display_name=channel_cls.display_name or channel_cls.channel_type,
+            description=channel_cls.description,
+            icon_url=channel_cls.icon_url,
             credentials_schema=channel_cls.Credentials.model_json_schema(),
             config_schema=channel_cls.Config.model_json_schema(),
             platform_bot_id_field=channel_cls.platform_bot_id_field,

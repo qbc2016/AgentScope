@@ -1,7 +1,9 @@
 import { client } from './client';
 import type {
+	ChannelChatIdsResponse,
 	ChannelRecord,
-	ChannelStatusResponse,
+	ChannelSessionsResponse,
+	ChannelStatus,
 	ChannelTypeSchema,
 	CreateChannelRequest,
 	UpdateChannelRequest,
@@ -26,11 +28,11 @@ export const channelApi = {
 	disable: (channelId: string) =>
 		client.post<{ status: string }>(`/channels/${channelId}/disable`),
 
-	status: (channelId: string) =>
-		client.get<ChannelStatusResponse>(`/channels/${channelId}/status`),
+	status: (channelId: string) => client.get<ChannelStatus>(`/channels/${channelId}/status`),
+
+	listSessions: (channelId: string) =>
+		client.get<ChannelSessionsResponse>(`/channels/${channelId}/sessions`),
 
 	listChatIds: (channelId: string) =>
-		client.get<{ chat_id: string; name: string; source: string }[]>(
-			`/channels/${channelId}/chat_ids`,
-		),
+		client.get<ChannelChatIdsResponse>(`/channels/${channelId}/chat_ids`),
 };

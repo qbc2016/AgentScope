@@ -1,4 +1,4 @@
-import { Loader2, PlusCircle, X } from 'lucide-react';
+import { CircleAlert, Loader2, PlusCircle, X } from 'lucide-react';
 import * as React from 'react';
 
 import type { ChannelTypeSchema } from '@/api';
@@ -61,11 +61,9 @@ export function CreateChannelDialog({ open, onOpenChange, onCreated, initialType
 		}
 	}, [open, agents, initialType]);
 
-	const agentList = React.useMemo(
-		() => agents.map((a) => ({ id: a.id, name: a.data.name })),
-		[agents],
-	);
 	const valid = isChannelFormValid(form, 'create');
+	// The platform is chosen in the gallery, so name the dialog after it.
+	const picked = channelTypes.find((ct) => ct.channel_type === form.channelType);
 
 	const handleSubmit = async () => {
 		setError('');
@@ -86,20 +84,25 @@ export function CreateChannelDialog({ open, onOpenChange, onCreated, initialType
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="!w-[560px] !max-w-[560px]">
 				<DialogHeader>
-					<DialogTitle>{t('channel.create.title')}</DialogTitle>
+					<DialogTitle>
+						{picked
+							? t('channel.create.titleFor', { name: picked.display_name })
+							: t('channel.create.title')}
+					</DialogTitle>
 					<DialogDescription>{t('channel.create.description')}</DialogDescription>
 				</DialogHeader>
 
-				<div className="no-scrollbar -mx-4 max-h-[75vh] overflow-y-auto px-4">
+				<div className="no-scrollbar -mx-4 max-h-[75vh] overflow-y-auto px-4 pt-1">
 					<ChannelForm
 						mode="create"
 						value={form}
 						onChange={setForm}
-						agents={agentList}
+						agents={agents}
 						channelTypes={channelTypes}
 					/>
 					{error && (
 						<Alert variant="destructive" className="mt-2">
+							<CircleAlert />
 							<AlertDescription>{error}</AlertDescription>
 						</Alert>
 					)}
