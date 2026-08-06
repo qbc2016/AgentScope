@@ -11,6 +11,7 @@ from ._channel import (
     UpdateChannelRequest,
 )
 from ._chat import ChatRequest, ChatTriggerResponse
+from ._health import ComponentStatus, HealthResponse
 from ._hub import HubInfo
 from ._hub_mcp import InstallMCPRequest, MCPView, UpdateMCPRequest
 from ._hub_skill import SkillView
@@ -19,6 +20,8 @@ from ._workspace import (
     AddFromLibraryResponse,
     AddSkillRequest,
     AddSkillsFromLibraryRequest,
+    DirectoryEntry,
+    DownloadTokenResponse,
     MCPClientStatus,
     ToolInfo,
 )
@@ -81,6 +84,9 @@ from ._session import (
 )
 
 __all__ = [
+    # Health
+    "ComponentStatus",
+    "HealthResponse",
     # Hub
     "HubInfo",
     "InstallMCPRequest",
@@ -92,6 +98,8 @@ __all__ = [
     "AddFromLibraryResponse",
     "AddSkillRequest",
     "AddSkillsFromLibraryRequest",
+    "DirectoryEntry",
+    "DownloadTokenResponse",
     "MCPClientStatus",
     "ToolInfo",
     # Agent

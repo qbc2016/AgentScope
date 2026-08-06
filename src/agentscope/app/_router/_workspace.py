@@ -1,24 +1,34 @@
 # -*- coding: utf-8 -*-
 """Workspace router — manage MCP clients and skills on a workspace."""
+import mimetypes
+from urllib.parse import quote
+
 from fastapi import (
     APIRouter,
     Depends,
     File,
     Form,
+    Header,
     HTTPException,
     Query,
     UploadFile,
     status,
 )
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 from ..deps import (
     get_current_user_id,
+    get_download_secret,
     get_skill_hubs,
     get_storage,
     get_workspace_manager,
 )
 from ..hub import SkillHubBase
+from .._service._download_token import (
+    sign_download_token,
+    verify_download_token,
+)
 from .._service._skill_upload import (
     SkillUploadError,
     UploadManifest,
@@ -36,6 +46,8 @@ from ._schema import (
     AddFromLibraryResponse,
     AddSkillRequest,
     AddSkillsFromLibraryRequest,
+    DirectoryEntry,
+    DownloadTokenResponse,
     MCPClientStatus,
     ToolInfo,
 )
@@ -444,3 +456,192 @@ async def remove_skill(
         workspace_manager,
     )
     await workspace.remove_skill(skill_name)
+
+
+# ---------------------------------------------------------------------------
+# File browsing endpoints
+# ---------------------------------------------------------------------------
+
+
+@workspace_router.get("/directories")
+async def list_workspace_directory(
+    agent_id: str = Query(...),
+    session_id: str = Query(...),
+    path: str = Query(
+        default="",
+        description=(
+            "Absolute path, or one relative to the workspace root. "
+            "Empty lists the workspace root itself."
+        ),
+    ),
+    user_id: str = Depends(get_current_user_id),
+    storage: StorageBase = Depends(get_storage),
+    workspace_manager: WorkspaceManagerBase = Depends(get_workspace_manager),
+) -> list[DirectoryEntry]:
+    """List one directory level, reachable from a session's workspace.
+
+    Paths are not confined to the workspace root: for a sandboxed
+    backend the reachable filesystem is the sandbox, and for a local
+    one the caller is already trusted with the host.
+    """
+    workspace = await _resolve_workspace(
+        user_id,
+        agent_id,
+        session_id,
+        storage,
+        workspace_manager,
+    )
+    backend = workspace.get_backend()
+    target = backend.abspath(path, cwd=workspace.workdir)
+
+    entry = await backend.stat(target)
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Directory not found.",
+        )
+    if not entry.is_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Requested path is a file, not a directory.",
+        )
+
+    # One call for the whole directory: asking per entry would be one
+    # round trip each on a sandboxed backend, times three attributes.
+    return [
+        DirectoryEntry(
+            name=entry.name,
+            is_dir=entry.is_dir,
+            size_bytes=entry.size_bytes,
+            updated_at=entry.mtime,
+        )
+        for entry in await backend.scandir(target)
+    ]
+
+
+@workspace_router.post("/files/download-token")
+async def create_download_token(
+    agent_id: str = Query(...),
+    session_id: str = Query(...),
+    path: str = Query(..., description="The path the token will authorize."),
+    user_id: str = Depends(get_current_user_id),
+    storage: StorageBase = Depends(get_storage),
+    workspace_manager: WorkspaceManagerBase = Depends(get_workspace_manager),
+    secret: str = Depends(get_download_secret),
+) -> DownloadTokenResponse:
+    """Mint a short-lived token for a browser-native download.
+
+    The browser writes the response straight to disk only when it
+    issues the request itself, and such a request carries no custom
+    header — hence a credential in the URL. Fetching with ``X-User-ID``
+    instead works but holds the whole file in the tab.
+
+    Minting depends on the normal identity, so whatever replaces
+    ``X-User-ID`` guards this too.
+
+    The session is resolved here only to fail early: the download is a
+    browser navigation, so an error there surfaces as a raw error page
+    rather than something the UI can show.
+    """
+    await _resolve_workspace(
+        user_id,
+        agent_id,
+        session_id,
+        storage,
+        workspace_manager,
+    )
+    # Signed verbatim, not resolved: the download verifies against the
+    # query string it receives, and resolving needs a user the token
+    # has not been read yet to supply.
+    token, expires_at = sign_download_token(secret, user_id, path)
+    return DownloadTokenResponse(token=token, expires_at=expires_at)
+
+
+@workspace_router.get("/files")
+async def read_workspace_file(
+    agent_id: str = Query(...),
+    session_id: str = Query(...),
+    path: str = Query(
+        ...,
+        description="Absolute path, or one relative to the workspace root.",
+    ),
+    download: bool = Query(
+        default=False,
+        description="Force a Content-Disposition attachment.",
+    ),
+    token: str
+    | None = Query(
+        default=None,
+        description=(
+            "A token from ``POST /workspace/files/download-token``, "
+            "accepted in place of the ``X-User-ID`` header so a browser "
+            "navigation can download the file directly."
+        ),
+    ),
+    x_user_id: str | None = Header(default=None),
+    storage: StorageBase = Depends(get_storage),
+    workspace_manager: WorkspaceManagerBase = Depends(get_workspace_manager),
+    secret: str = Depends(get_download_secret),
+) -> StreamingResponse:
+    """Stream one file out of a session's workspace.
+
+    The body is piped chunk by chunk rather than read whole: the API
+    process is shared, so one large download must not be able to
+    exhaust it for everyone else.
+    """
+    if token is not None:
+        try:
+            user_id = verify_download_token(secret, token, path)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(e),
+            ) from e
+    elif x_user_id:
+        user_id = x_user_id
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-User-ID header or download token is required.",
+        )
+
+    workspace = await _resolve_workspace(
+        user_id,
+        agent_id,
+        session_id,
+        storage,
+        workspace_manager,
+    )
+    backend = workspace.get_backend()
+    target = backend.abspath(path, cwd=workspace.workdir)
+    basename = backend.basename(target) or "download"
+
+    entry = await backend.stat(target)
+    if entry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found.",
+        )
+    if entry.is_dir:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Requested path is a directory, not a file.",
+        )
+
+    headers: dict[str, str] = {}
+    # Lets the browser show real download progress instead of a
+    # spinner of unknown length; omitted when the backend cannot stat.
+    if entry.size_bytes is not None:
+        headers["Content-Length"] = str(entry.size_bytes)
+    if download:
+        headers[
+            "Content-Disposition"
+        ] = f"attachment; filename*=UTF-8''{quote(basename)}"
+
+    return StreamingResponse(
+        backend.read_stream(target),
+        media_type=(
+            mimetypes.guess_type(basename)[0] or "application/octet-stream"
+        ),
+        headers=headers,
+    )
