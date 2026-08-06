@@ -29,9 +29,11 @@ export function ConfirmCard({
 	const handleConfirm = async (confirm: boolean, rules?: ToolCallBlock['suggested_rules']) => {
 		if (hasConfirmed) return;
 		sethasConfirmed(true);
-		onUserConfirm(confirm, rules).catch(() => {
+		try {
+			await onUserConfirm(confirm, rules);
+		} catch {
 			sethasConfirmed(false);
-		});
+		}
 	};
 
 	useEffect(() => {
