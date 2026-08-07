@@ -637,6 +637,34 @@
 			"showThinking": "显示思维过程",
 			"showThinkingDesc": "在频道中展示模型推理过程。"
 		},
+		"fields": {
+			"app_id": {
+				"title": "应用 ID",
+				"description": "飞书应用 ID"
+			},
+			"app_secret": {
+				"title": "应用密钥",
+				"description": "飞书应用密钥"
+			},
+			"bot_token": {
+				"title": "机器人令牌"
+			},
+			"application_id": {
+				"title": "应用 ID"
+			},
+			"only_at_reply": {
+				"title": "仅在被提及时回复",
+				"description": "在群聊中，仅当机器人被 @提及时回复"
+			},
+			"show_tool_process": {
+				"title": "显示工具过程",
+				"description": "在回复中显示工具调用和返回结果"
+			},
+			"show_thinking": {
+				"title": "显示思考过程",
+				"description": "在回复中显示模型的推理过程"
+			}
+		},
 		"edit": {
 			"title": "编辑频道",
 			"description": "修改路由、模型与回复设置。平台与凭据不可修改。"
