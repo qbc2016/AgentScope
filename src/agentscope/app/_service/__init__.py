@@ -6,12 +6,14 @@ from ._access import (
     KnowledgeBaseView,
     ResourceAccessService,
 )
+from ._channel import ChannelService
 from ._chat import ChatService
 from ._embedding import get_embedding_model
 from ._index_sweeper import IndexSweeper
 from ._index_task_consumer import IndexTaskConsumer
 from ._index_worker import IndexWorker
 from ._knowledge_base import KnowledgeBaseService
+from ._mcp_render import MCPRenderError, render_mcp
 from ._model import get_model
 from ._tts_model import get_tts_model
 from ._session import SessionService, SessionStatus
@@ -21,6 +23,7 @@ from ._toolkit import get_toolkit
 
 __all__ = [
     "AgentView",
+    "ChannelService",
     "ChatService",
     "CredentialView",
     "IndexSweeper",
@@ -28,6 +31,7 @@ __all__ = [
     "IndexWorker",
     "KnowledgeBaseService",
     "KnowledgeBaseView",
+    "MCPRenderError",
     "ResourceAccessService",
     "SessionService",
     "SessionStatus",
@@ -37,4 +41,5 @@ __all__ = [
     "get_model",
     "get_tts_model",
     "get_toolkit",
+    "render_mcp",
 ]

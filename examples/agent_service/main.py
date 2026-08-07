@@ -7,6 +7,8 @@ from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
 
 from agentscope.app import create_app, SubAgentTemplate
+from agentscope.app.channel import DiscordChannel, FeishuChannel
+from agentscope.app.hub import ClawSkillHub, GitHubMCPHub
 from agentscope.app.message_bus import InMemoryMessageBus
 from agentscope.app.rag.knowledge_base_manager import CollectionPerKbManager
 from agentscope.app.storage import RedisStorage
@@ -72,6 +74,12 @@ app = create_app(
         storage=storage,
         vector_store=vector_store,
     ),
+    # Resource hubs the UI browses under /hub. Neither needs credentials
+    # of its own — an individual MCP card declares whatever key it wants
+    # from the user in its ``inputs_schema``. Passing a ClawHub token
+    # only raises the rate limit.
+    mcp_hubs=[GitHubMCPHub()],
+    skill_hubs=[ClawSkillHub(api_token=os.getenv("CLAWHUB_API_TOKEN"))],
     # Customize your own subagent templates
     custom_subagent_templates=[
         SubAgentTemplate(
@@ -117,6 +125,10 @@ so anything you want them to see MUST be sent through `TeamSay`.""",
             allow_methods=["*"],
             allow_headers=["*"],
         ),
+    ],
+    channels=[
+        DiscordChannel,
+        FeishuChannel,
     ],
 )
 
