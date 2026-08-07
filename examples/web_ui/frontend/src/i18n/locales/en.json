@@ -595,14 +595,16 @@
 			"emptyTitle": "No results",
 			"emptyDescription": "Nothing matches “{{query}}”."
 		},
-		"loading": "Loading…"
-	},
-	"team-sidebar": {
-		"membersHeading": "Members",
-		"noMembers": "No members yet — ask the leader to spawn one with AgentCreate.",
-		"running": "Running",
-		"idle": "Idle",
-		"missingSession": "(no session)"
+		"loading": "Loading…",
+		"team": {
+			"membersHeading": "Members",
+			"noMembers": "No members yet — ask the leader to spawn one with AgentCreate.",
+			"emptyTitle": "No team",
+			"emptyDescription": "This session is not part of a team. The agent forms one with TeamCreate.",
+			"running": "Running",
+			"idle": "Idle",
+			"missingSession": "(no session)"
+		}
 	},
 	"channel": {
 		"title": "Channels",
@@ -767,5 +769,16 @@
 	"agent-menu": {
 		"settings": "Settings",
 		"delete": "Delete agent"
+	},
+	"workdir": {
+		"title": "Working directory",
+		"description": "Pick the agent's working directory.",
+		"root": "Workspace root",
+		"parent": "Up one level",
+		"errorTitle": "Could not list this folder",
+		"pathPlaceholder": "Type or paste a path",
+		"empty": "This folder is empty",
+		"pressEnter": "Press Enter to check this path first",
+		"gitTooltip": "{{staged}} staged · {{unstaged}} modified · {{untracked}} untracked\nLine counts exclude untracked files"
 	}
 }
