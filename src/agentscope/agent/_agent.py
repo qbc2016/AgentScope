@@ -970,15 +970,12 @@ class Agent:
                             if break_execution_for_hitl:
                                 break
 
-                        if break_execution_for_hitl:
-                            # Stop executing the next batches, and go back to
-                            # ``_next_action``, which parks the reply on the
-                            # awaiting tool calls. The unfinished round isn't
-                            # counted into ``cur_iter``
-                            continue
-
-                # Update iteration count after each round of reasoning-acting
-                self.state.cur_iter += 1
+                # One reasoning-acting round is over once every tool call it
+                # produced has a result. Reasoning that generated tool calls,
+                # or Acting that parked some of them on a user confirmation
+                # or an external execution, leaves the round unfinished
+                if not self.state.get_unfinished_tool_calls(self.name):
+                    self.state.cur_iter += 1
 
         except asyncio.CancelledError:
             # Handle the CancelledError within the _reply_impl for the
