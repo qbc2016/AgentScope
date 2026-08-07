@@ -195,11 +195,24 @@ export function useMessages(
 				return;
 			}
 			if (event.type === EventType.REPLY_START) {
-				audioManager?.stopAllPlayback();
 				const e = event as ReplyStartEvent;
-				const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
-				msgsRef.current = [...msgsRef.current, msg];
-				currentReplyRef.current = msg;
+				// A continuation (the run resuming after a confirmation or an
+				// external execution result) re-emits REPLY_START with the
+				// *same* reply_id. Re-point at the existing reply instead of
+				// appending a second msg under that id: a duplicate would
+				// collide on React keys, strand the original bubble in its
+				// running state, and hide any still-pending confirmation card
+				// — those are read off the tail msg, which would be the empty
+				// duplicate.
+				const existing = msgsRef.current.find((m) => m.id === e.reply_id);
+				if (existing) {
+					currentReplyRef.current = existing;
+				} else {
+					audioManager?.stopAllPlayback();
+					const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
+					msgsRef.current = [...msgsRef.current, msg];
+					currentReplyRef.current = msg;
+				}
 				clearInterruptTimer();
 				setPhase('streaming');
 			} else if (event.type === EventType.REPLY_END) {
@@ -399,6 +412,7 @@ export function useMessages(
 				});
 			} catch (e) {
 				setError(e as Error);
+				throw e;
 			}
 		},
 		[agentId, sessionId],
@@ -480,9 +494,6 @@ export function useMessages(
 				],
 			};
 
-			// Optimistically clear; the backend's clear event re-confirms.
-			setSubagentHitl((prev) => prev.filter((x) => hitlKey(x) !== hitlKey(entry)));
-
 			try {
 				// Post to the leader front door — backend routes to the
 				// worker session (§3.6). Do NOT address the worker here.
@@ -493,7 +504,25 @@ export function useMessages(
 				});
 			} catch (e) {
 				setError(e as Error);
+				// Rethrow so the card can re-enable itself and be retried.
+				throw e;
 			}
+
+			// Drop only the call just answered — an entry can carry several
+			// pending tool calls, and clearing the whole entry would take the
+			// unanswered siblings' cards down with it. The backend's clear
+			// event removes whatever is left.
+			setSubagentHitl((prev) =>
+				prev.flatMap((x) => {
+					if (hitlKey(x) !== hitlKey(entry)) return [x];
+					const remaining = (x.event.tool_calls ?? []).filter(
+						(tc) => tc.id !== toolCall.id,
+					);
+					return remaining.length > 0
+						? [{ ...x, event: { ...x.event, tool_calls: remaining } }]
+						: [];
+				}),
+			);
 		},
 		[agentId, sessionId],
 	);
