@@ -131,6 +131,8 @@ export function useChatQueue(
 					id: optimisticId,
 					created_at: message.created_at,
 					input: message,
+					state: 'queued',
+					error: null,
 				},
 			]);
 			return optimisticId;
@@ -260,6 +262,20 @@ export function useChatQueue(
 		[agentId, sessionId, applyQueueSnapshot, onError],
 	);
 
+	const steerQueued = useCallback(
+		async (itemId: string, replyId: string) => {
+			if (!agentId || !sessionId) return;
+			try {
+				const response = await chatApi.steerQueued(itemId, agentId, sessionId, replyId);
+				applyQueueSnapshot(response.items);
+			} catch (error) {
+				onError(error as Error);
+				throw error;
+			}
+		},
+		[agentId, sessionId, applyQueueSnapshot, onError],
+	);
+
 	const reorderQueued = useCallback(
 		async (visibleItemIds: string[]) => {
 			if (!agentId || !sessionId) return;
@@ -336,7 +352,10 @@ export function useChatQueue(
 		[conversationMessageIds, items],
 	);
 	const reorderDisabled = useMemo(
-		() => items.some((item) => item.id.startsWith(OPTIMISTIC_ITEM_PREFIX)),
+		() =>
+			items.some(
+				(item) => item.id.startsWith(OPTIMISTIC_ITEM_PREFIX) || item.state === 'steering',
+			),
 		[items],
 	);
 
@@ -353,6 +372,7 @@ export function useChatQueue(
 		finishItem,
 		updateQueued,
 		deleteQueued,
+		steerQueued,
 		moveQueued,
 		reorderQueued,
 	};

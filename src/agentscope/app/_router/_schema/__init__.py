@@ -7,6 +7,7 @@ from ._chat import (
     ChatQueueItem,
     ChatQueueResponse,
     ReorderChatQueueRequest,
+    SteerChatQueueItemRequest,
     UpdateChatQueueItemRequest,
 )
 from ._hub import HubInfo
@@ -102,6 +103,7 @@ __all__ = [
     "ChatQueueItem",
     "ChatQueueResponse",
     "ReorderChatQueueRequest",
+    "SteerChatQueueItemRequest",
     "UpdateChatQueueItemRequest",
     # Credential
     "CreateCredentialRequest",

@@ -15,7 +15,12 @@ import asyncio
 
 from fastapi import HTTPException
 
-from .._bus_ops import enqueue_run_trigger, publish_session_event
+from .._bus_ops import (
+    enqueue_run_trigger,
+    finish_active_chat_reply,
+    publish_session_event,
+    register_active_chat_reply,
+)
 from ..message_bus import MessageBus, MessageBusKeys
 from ..rag.knowledge_base_manager import KnowledgeBaseManagerBase
 from ..storage import StorageBase, AgentRecord, SessionRecord
@@ -23,6 +28,7 @@ from .._manager import BackgroundTaskManager, SchedulerManager
 from ..workspace_manager import WorkspaceManagerBase
 from ..middleware import (
     InboxMiddleware,
+    SteeringMiddleware,
     StateChangeMiddleware,
     ToolOffloadMiddleware,
 )
@@ -550,7 +556,7 @@ class ChatService:
         )
         return True
 
-    async def _run_impl(
+    async def _run_impl(  # pylint: disable=too-many-statements
         self,
         user_id: str,
         session_id: str,
@@ -629,6 +635,7 @@ class ChatService:
             # plumbing is needed here.
             # -----------------------------------------------------------------
             middlewares: list = [
+                SteeringMiddleware(self._message_bus),
                 InboxMiddleware(self._message_bus),
                 StateChangeMiddleware(
                     message_bus=self._message_bus,
@@ -800,6 +807,7 @@ class ChatService:
             ttl_secs=MessageBusKeys.SESSION_RUN_TTL_SECS,
         ):
             reply_msg: Msg | None = None
+            active_reply_id: str | None = None
             try:
                 if input_msg is None or isinstance(input_msg, (Msg, list)):
                     # Case A: new reply (user message(s), or retrigger with
@@ -822,6 +830,12 @@ class ChatService:
                         # interrupted), so an interrupt in the awaits below
                         # can't lose this event.
                         if isinstance(event, ReplyStartEvent):
+                            active_reply_id = event.reply_id
+                            await register_active_chat_reply(
+                                self._message_bus,
+                                session_id,
+                                event.reply_id,
+                            )
                             reply_msg = AssistantMsg(
                                 id=event.reply_id,
                                 name=event.name,
@@ -854,6 +868,12 @@ class ChatService:
                 else:
                     # Case B: continuation (UserConfirmResult
                     #  / ExternalExecResult)
+                    active_reply_id = agent.state.reply_id
+                    await register_active_chat_reply(
+                        self._message_bus,
+                        session_id,
+                        active_reply_id,
+                    )
                     reply_msg = await self._storage.get_message(
                         user_id,
                         session_id,
@@ -918,19 +938,27 @@ class ChatService:
                 # acquire the lock and load a stale state from storage
                 # before this write lands.
                 async def _persist() -> None:
-                    if reply_msg is not None:
-                        await self._storage.upsert_message(
-                            user_id,
-                            session_id,
-                            reply_msg,
+                    try:
+                        if reply_msg is not None:
+                            await self._storage.upsert_message(
+                                user_id,
+                                session_id,
+                                reply_msg,
+                            )
+                        await self._storage.update_session_state(
+                            user_id=user_id,
+                            agent_id=agent_id,
+                            session_id=session_id,
+                            state=agent.state,
                         )
-                    await self._storage.update_session_state(
-                        user_id=user_id,
-                        agent_id=agent_id,
-                        session_id=session_id,
-                        state=agent.state,
-                    )
-                    await self._message_bus.log_trim(events_key)
+                        await self._message_bus.log_trim(events_key)
+                    finally:
+                        if active_reply_id is not None:
+                            await finish_active_chat_reply(
+                                self._message_bus,
+                                session_id,
+                                active_reply_id,
+                            )
 
                 persist_task = asyncio.create_task(_persist())
                 try:

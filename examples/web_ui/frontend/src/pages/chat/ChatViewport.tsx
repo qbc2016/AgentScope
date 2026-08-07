@@ -159,12 +159,14 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 	const {
 		msgs,
 		phase,
+		activeReplyId,
 		queuedCount,
 		queuedItems,
 		queueReorderDisabled,
 		send,
 		updateQueued,
 		deleteQueued,
+		steerQueued,
 		moveQueued,
 		reorderQueued,
 		onUserConfirm,
@@ -636,6 +638,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 									className={'max-w-[var(--chat-content-w)] w-full'}
 									msgs={msgs}
 									phase={phase}
+									activeReplyId={activeReplyId}
 									queuedCount={queuedCount}
 									queuedItems={queuedItems}
 									queueReorderDisabled={queueReorderDisabled}
@@ -645,6 +648,7 @@ export function ChatViewport({ agentId, sessionId, onTeamUpdated }: ChatViewport
 									onInterrupt={interrupt}
 									onUpdateQueued={updateQueued}
 									onDeleteQueued={deleteQueued}
+									onSteerQueued={steerQueued}
 									onMoveQueued={moveQueued}
 									onReorderQueued={reorderQueued}
 									footerSlot={

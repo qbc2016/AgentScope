@@ -36,6 +36,7 @@ interface ChatContentProps {
 	queuedCount: number;
 	queuedItems: ChatQueueItem[];
 	queueReorderDisabled: boolean;
+	activeReplyId: string | null;
 	disabled: boolean;
 	onSend: (content: ContentBlock[]) => Promise<void> | void;
 	onUserConfirm: (
@@ -50,6 +51,7 @@ interface ChatContentProps {
 	onInterrupt?: () => void;
 	onUpdateQueued: (itemId: string, text: string) => Promise<void>;
 	onDeleteQueued: (itemId: string) => Promise<void>;
+	onSteerQueued: (itemId: string, replyId: string) => Promise<void>;
 	onMoveQueued: (itemId: string, direction: -1 | 1) => Promise<void>;
 	onReorderQueued: (itemIds: string[]) => Promise<void>;
 	/**
@@ -72,6 +74,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	queuedCount,
 	queuedItems,
 	queueReorderDisabled,
+	activeReplyId,
 	disabled,
 	onSend,
 	onUserConfirm,
@@ -80,6 +83,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	onInterrupt,
 	onUpdateQueued,
 	onDeleteQueued,
+	onSteerQueued,
 	onMoveQueued,
 	onReorderQueued,
 	footerSlot,
@@ -155,8 +159,10 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 				<QueuedMessages
 					items={queuedItems}
 					reorderDisabled={queueReorderDisabled}
+					activeReplyId={activeReplyId}
 					onUpdate={onUpdateQueued}
 					onDelete={onDeleteQueued}
+					onSteer={onSteerQueued}
 					onMove={onMoveQueued}
 					onReorder={onReorderQueued}
 				/>
