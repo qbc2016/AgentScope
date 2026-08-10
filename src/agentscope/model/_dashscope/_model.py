@@ -244,8 +244,8 @@ class DashScopeChatModel(ChatModelBase):
         if fmt_tool_choice is not None:
             request_kwargs["tool_choice"] = fmt_tool_choice
 
-        request_kwargs.setdefault("extra_body", {})
-        eb = request_kwargs["extra_body"]
+        eb = dict(request_kwargs.get("extra_body") or {})
+        request_kwargs["extra_body"] = eb
 
         if self.parameters.thinking_enable is not None:
             eb.setdefault(

@@ -6,10 +6,10 @@ import json
 from abc import abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Type, Any, AsyncGenerator
+from typing import Type, Any, AsyncGenerator, cast
 
 import jsonschema
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from ._model_response import StructuredResponse, ChatResponse, FinishedReason
 from ._model_card import ModelCard
@@ -17,6 +17,7 @@ from ._utils import _StreamAccumulator
 from .._logging import logger
 from .._utils._common import _json_loads_with_repair
 from ..credential import CredentialBase
+from ..exception import ToolJSONDecodeError
 from ..message import (
     Msg,
     TextBlock,
@@ -31,6 +32,7 @@ from ..tool import ToolChoice
 
 _TOOL_CHOICE_LITERAL_MODES = {"auto", "none", "required"}
 _MULTIMODAL_DATA_BLOCK_TOKEN_ESTIMATE = 2000
+_TOOL_CHOICE_UNSET = object()
 
 
 class ChatModelBase:
@@ -95,9 +97,6 @@ class ChatModelBase:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.context_size = context_size
-        self._structured_output_strategies: (
-            list[tuple[str, dict, ToolChoice | None]] | None
-        ) = None
 
     @classmethod
     def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
@@ -120,6 +119,36 @@ class ChatModelBase:
         Used by the structured-output fallback mechanism.
         """
         return {}
+
+    @staticmethod
+    def _is_structured_output_fallback_error(error: Exception) -> bool:
+        """Whether another structured-output strategy may help.
+
+        Provider authentication, quota, moderation, and context-length
+        failures must propagate immediately. Only local parsing or validation
+        failures and provider errors explicitly related to ``tool_choice``
+        are eligible for a strategy fallback.
+        """
+        if isinstance(
+            error,
+            (
+                jsonschema.ValidationError,
+                PydanticValidationError,
+                ToolJSONDecodeError,
+            ),
+        ):
+            return True
+
+        if isinstance(error, RuntimeError):
+            return str(error).startswith(
+                (
+                    "Failed to get the completed response from model ",
+                    "Failed to generate structured output for model.",
+                ),
+            )
+
+        error_text = str(error).lower()
+        return "tool_choice" in error_text or "tool choice" in error_text
 
     @classmethod
     def list_models(
@@ -455,14 +484,16 @@ class ChatModelBase:
         Each strategy is retried on transient (retryable) errors. A
         structural failure (e.g. a provider rejecting a forced
         ``tool_choice`` while thinking is enabled) moves on to the next
-        strategy; the first working strategy is cached so later calls
-        start from it. The strategies are:
+        strategy. The strategies are immutable and local to each call:
 
         - ``forced``: current config + forced ``tool_choice``
+        - ``auto``: current config + ``auto`` ``tool_choice``
         - ``no_think``: thinking disabled + forced ``tool_choice`` (skipped
           when the provider exposes no thinking toggle)
-        - ``auto``: current config + ``auto`` ``tool_choice``
         - ``none``: current config + no ``tool_choice``
+
+        An explicit ``tool_choice`` in ``kwargs`` bypasses the strategy
+        ladder and is forwarded unchanged.
 
         Args:
             messages (`list[Msg]`):
@@ -480,28 +511,36 @@ class ChatModelBase:
                 "`generate_structured_output` method.",
             )
 
-        if self._structured_output_strategies is None:
+        user_tool_choice = kwargs.pop("tool_choice", _TOOL_CHOICE_UNSET)
+        if user_tool_choice is _TOOL_CHOICE_UNSET:
             forced_tc = ToolChoice(mode="generate_structured_output")
             disable_kwargs = self._get_disable_thinking_kwargs()
             # (name, extra `_call_api` kwargs, tool_choice), best first.
             # The no-think strategy only applies when the provider can
-            # toggle it. The winning strategy is promoted to the front on
-            # success, so later calls try it first.
-            self._structured_output_strategies = [
+            # toggle it.
+            strategies = (
                 ("forced", {}, forced_tc),
-                *(
-                    [("no_think", disable_kwargs, forced_tc)]
-                    if disable_kwargs
-                    else []
-                ),
                 ("auto", {}, ToolChoice(mode="auto")),
+                *(
+                    (("no_think", disable_kwargs, forced_tc),)
+                    if disable_kwargs
+                    else ()
+                ),
                 ("none", {}, None),
-            ]
+            )
+        else:
+            strategies = (
+                (
+                    "explicit",
+                    {},
+                    cast(ToolChoice | None, user_tool_choice),
+                ),
+            )
 
         retryable = tuple(self._get_retryable_exceptions())
+        first_error: Exception | None = None
         last_error: Exception | None = None
-        for strategy in self._structured_output_strategies:
-            name, extra_kwargs, tool_choice = strategy
+        for name, extra_kwargs, tool_choice in strategies:
             # Overlay disable-thinking kwargs; a nested `extra_body` is
             # merged rather than overwritten so caller keys survive.
             merged = {**kwargs, **extra_kwargs}
@@ -518,23 +557,20 @@ class ChatModelBase:
                         tool_choice=tool_choice,
                         **merged,
                     )
-                    # Promote the winning strategy so later calls try it
-                    # first.
-                    if strategy is not self._structured_output_strategies[0]:
-                        self._structured_output_strategies.remove(strategy)
-                        self._structured_output_strategies.insert(0, strategy)
-                        if name != "forced":
-                            logger.info(
-                                "Structured output for %s: using "
-                                "fallback strategy '%s'.",
-                                self.model,
-                                name,
-                            )
+                    if name not in ("forced", "explicit"):
+                        logger.info(
+                            "Structured output for %s: using fallback "
+                            "strategy '%s'.",
+                            self.model,
+                            name,
+                        )
                     return result
                 except Exception as e:  # pylint: disable=broad-except
                     # CancelledError / KeyboardInterrupt derive from
                     # BaseException and are not caught here, so they
                     # propagate as expected.
+                    if first_error is None:
+                        first_error = e
                     last_error = e
                     if isinstance(e, retryable):
                         # Transient error: retry the same strategy. A
@@ -552,18 +588,26 @@ class ChatModelBase:
                             await asyncio.sleep(self.retry_delay)
                             continue
                         raise  # retries exhausted -> give up
-                    # Structural failure: try the next strategy.
+                    if not self._is_structured_output_fallback_error(e):
+                        raise
+                    # Structured-output compatibility failure: try the next
+                    # strategy.
                     logger.debug(
-                        "Structured output strategy '%s' failed for %s: "
-                        "%s. Trying next.",
+                        "Structured output strategy '%s' failed for %s: %s. "
+                        "Trying next.",
                         name,
                         self.model,
                         e,
                     )
                     break
 
-        # Every strategy failed structurally; leave the order untouched.
-        assert last_error is not None
+        if last_error is None:
+            raise RuntimeError(
+                f"No structured-output strategy is available for "
+                f"{self.model}.",
+            )
+        if first_error is not None and first_error is not last_error:
+            raise last_error from first_error
         raise last_error
 
     async def _call_api_with_structured_output(

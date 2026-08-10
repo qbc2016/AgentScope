@@ -251,6 +251,27 @@ class TestDashScopeNonStream(IsolatedAsyncioTestCase):
             ),
         )
 
+    async def test_extra_body_is_not_mutated(self) -> None:
+        """Model defaults do not mutate the caller-owned extra body."""
+        mock_create = AsyncMock(
+            return_value=_mock_completion(text="Hello!"),
+        )
+        self.mock_client.chat.completions.create = mock_create
+        extra_body = {"custom": "value"}
+
+        await self.model([], extra_body=extra_body)
+
+        self.assertDictEqual(extra_body, {"custom": "value"})
+        request_extra_body = mock_create.await_args.kwargs["extra_body"]
+        self.assertDictEqual(
+            request_extra_body,
+            {
+                "custom": "value",
+                "enable_thinking": True,
+                "thinking_budget": 100,
+            },
+        )
+
 
 # ---------------------------------------------------------------------------
 # Streaming tests

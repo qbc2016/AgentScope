@@ -546,7 +546,8 @@ class Agent:
                 structured_model=cfg.summary_schema,
             )
 
-        except Exception as e:
+        except Exception as error:
+            final_error = error
             if context_overflow:
                 logger.warning(
                     "Failed to compress context, which may be caused by "
@@ -584,19 +585,24 @@ class Agent:
                         messages=messages,
                         structured_model=cfg.summary_schema,
                     )
-                except Exception as inner_e:
-                    logger.debug(
-                        "[AGENT %s]: Retry structured output " + "failed: %s",
+                except Exception as retry_error:
+                    final_error = retry_error
+                    logger.warning(
+                        "[AGENT %s]: Retrying structured output failed: %s",
                         self.name,
-                        inner_e,
+                        retry_error,
                     )
 
             if res is None:
+                if not cfg.enable_context_truncation_fallback:
+                    if final_error is error:
+                        raise
+                    raise final_error from error
                 logger.warning(
-                    "[AGENT %s]: Summary generation failed (%s)."
-                    " Falling back to context truncation.",
+                    "[AGENT %s]: Summary generation failed: %s. "
+                    "Falling back to context truncation.",
                     self.name,
-                    e,
+                    final_error,
                 )
 
         if res is not None and (
@@ -612,7 +618,8 @@ class Agent:
             """Apply the context change with interruption protection."""
             if res is not None:
                 new_summary = cfg.summary_template.format(**res.content)
-
+            elif isinstance(self.state.summary, list):
+                new_summary = list(self.state.summary)
             else:
                 new_summary = self.state.summary or (
                     "<system-info>Some earlier messages were truncated for "
@@ -625,14 +632,20 @@ class Agent:
                     msgs=msgs_to_compress,
                 )
                 offload_reminder = (
-                    f"\n<system-reminder>The compressed context"
+                    f"<system-reminder>The compressed context"
                     f" is offloaded to '{path}', you can refer"
                     f" to it when needed.</system-reminder>"
                 )
                 if isinstance(new_summary, str):
-                    new_summary += offload_reminder
+                    if offload_reminder not in new_summary:
+                        new_summary += f"\n{offload_reminder}"
                 elif isinstance(new_summary, list):
-                    new_summary.append(TextBlock(text=offload_reminder))
+                    if not any(
+                        isinstance(block, TextBlock)
+                        and block.text == offload_reminder
+                        for block in new_summary
+                    ):
+                        new_summary.append(TextBlock(text=offload_reminder))
 
             # Clear the read tool cache
             await self._clear_unreserved_read_cache(msgs_to_reserve)

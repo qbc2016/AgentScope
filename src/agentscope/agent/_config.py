@@ -63,6 +63,16 @@ class ContextConfig(BaseModel):
     """The ratio of the tokens to reserve in context compression, which should
     be smaller than the trigger ratio."""
 
+    enable_context_truncation_fallback: bool = Field(
+        default=False,
+        title="Enable Context Truncation Fallback",
+        description=(
+            "Whether to discard older context when summary generation fails. "
+            "Disabled by default to avoid silent context loss."
+        ),
+    )
+    """Whether failed summary generation may discard older context."""
+
     compression_prompt: str = Field(
         default=(
             "<system-hint>You have been working on the task described above "
