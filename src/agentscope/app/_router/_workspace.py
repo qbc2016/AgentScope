@@ -63,7 +63,10 @@ async def list_mcps(
         agent_id,
         session_id,
     )
-    clients = await workspace.list_mcps()
+    clients = await workspace.list_mcps(
+        agent_id=agent_id,
+        session_id=session_id,
+    )
 
     results = []
     for client in clients:
@@ -115,7 +118,13 @@ async def add_mcp(
         agent_id,
         session_id,
     )
-    await workspace.add_mcp(mcp)
+    try:
+        await workspace.add_mcp(mcp, agent_id=agent_id, session_id=session_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
 
     if await storage.get_mcp_by_name(user_id, mcp.name) is None:
         # No hub_id or card_id — this one has no card behind it, which
@@ -151,7 +160,13 @@ async def add_mcps_from_library(
         agent_id,
         session_id,
     )
-    present = {client.name for client in await workspace.list_mcps()}
+    present = {
+        client.name
+        for client in await workspace.list_mcps(
+            agent_id=agent_id,
+            session_id=session_id,
+        )
+    }
 
     added: list[str] = []
     failed: dict[str, str] = {}
@@ -164,7 +179,11 @@ async def add_mcps_from_library(
             # Already there: not an error, just nothing to do.
             continue
         try:
-            await workspace.add_mcp(record.client)
+            await workspace.add_mcp(
+                record.client,
+                agent_id=agent_id,
+                session_id=session_id,
+            )
         except Exception as e:
             failed[record.client.name] = _describe_exception(e)
             continue
@@ -190,7 +209,11 @@ async def remove_mcp(
         agent_id,
         session_id,
     )
-    await workspace.remove_mcp(mcp_name)
+    await workspace.remove_mcp(
+        mcp_name,
+        agent_id=agent_id,
+        session_id=session_id,
+    )
 
 
 # ---------------------------------------------------------------------------

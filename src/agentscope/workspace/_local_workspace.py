@@ -67,7 +67,7 @@ class LocalWorkspace(WorkspaceBase):
     Layout::
 
         {workdir}/
-        ├── .mcp          # persisted MCP client configs (JSON array)
+        ├── .mcp          # declared MCP configs per agent/session
         ├── data/         # offloaded multimodal files
         ├── skills/       # skill subdirectories
         └── sessions/     # per-session context and tool-result files
@@ -81,6 +81,7 @@ class LocalWorkspace(WorkspaceBase):
         default_mcps: list[MCPClient] | None = None,
         skill_paths: list[str] | None = None,
         instructions: str = DEFAULT_WORKSPACE_INSTRUCTIONS,
+        max_live_stateful_mcps: int | None = None,
     ) -> None:
         """Construct a :class:`LocalWorkspace`.
 
@@ -92,19 +93,26 @@ class LocalWorkspace(WorkspaceBase):
                 Existing workspace identifier to adopt. ``None``
                 generates a fresh UUID.
             default_mcps (`list[MCPClient] | None`, optional):
-                MCP clients seeded into a brand-new workspace.
-                Ignored on subsequent restarts that already have a
-                persisted ``<workdir>/.mcp`` file.
+                MCP clients seeded into every agent/session that has
+                not added or removed one of its own.
             skill_paths (`list[str] | None`, optional):
                 Local skill directories seeded into
                 ``<workdir>/skills`` on first :meth:`initialize`.
             instructions (`str`, defaults to \
-            `_DEFAULT_WORKSPACE_INSTRUCTIONS`):
+            `DEFAULT_WORKSPACE_INSTRUCTIONS`):
                 System-prompt fragment template returned by
                 :meth:`get_instructions`. Supports the ``{workdir}``
                 placeholder.
+            max_live_stateful_mcps (`int | None`, optional):
+                Cap on concurrently live stateful MCP instances
+                across all agents and sessions.
         """
-        super().__init__(workspace_id=workspace_id)
+        super().__init__(
+            workspace_id=workspace_id,
+            default_mcps=default_mcps,
+            skill_paths=skill_paths,
+            max_live_stateful_mcps=max_live_stateful_mcps,
+        )
 
         # ── serializable config ─────────────────────────────────
         self.workdir = os.path.abspath(workdir)
@@ -113,15 +121,8 @@ class LocalWorkspace(WorkspaceBase):
             workdir=self.workdir,
         )
 
-        # ── seed-only ───────────────────────────────────────────
-        self.default_mcps: list[MCPClient] = list(default_mcps or [])
-        self.skill_paths: list[str] = [
-            _normalize_local_path(path) for path in skill_paths or []
-        ]
-
         # ── runtime state ───────────────────────────────────────
         self._backend = LocalBackend()
-        self._mcps: list[MCPClient] = []
 
         self._skill_lock = asyncio.Lock()
         self._mcp_lock = asyncio.Lock()
@@ -152,9 +153,10 @@ class LocalWorkspace(WorkspaceBase):
     async def initialize(self) -> None:
         """Initialise the workspace.
 
-        MCP state is restored from ``.mcp`` if it exists; otherwise
-        ``default_mcps`` are used and persisted so the next start picks
-        them up from disk. ``skill_paths`` are seeded on first use.
+        MCP *declarations* are restored from ``.mcp``; sessions absent
+        from it fall back to ``default_mcps``. Nothing is connected
+        here — clients are built on the first ``list_mcps`` for a given
+        agent/session. ``skill_paths`` are seeded on first use.
 
         Idempotent: a no-op when the workspace is already alive.
         """
@@ -163,38 +165,7 @@ class LocalWorkspace(WorkspaceBase):
 
         os.makedirs(self.workdir, exist_ok=True)
 
-        # Restore or seed MCPs
-        mcp_file = os.path.join(self.workdir, ".mcp")
-        if await self._backend.file_exists(mcp_file):
-            raw = await self._backend.read_file(mcp_file)
-            raw_list = json.loads(raw.decode("utf-8"))
-            for m in raw_list:
-                try:
-                    self._mcps.append(MCPClient.model_validate(m))
-                except Exception as e:
-                    logger.warning(
-                        "Skipping invalid MCP entry '%s': %s",
-                        m.get("name", "?"),
-                        e,
-                    )
-        else:
-            self._mcps = list(self.default_mcps)
-            await self._save_mcp_file()
-
-        failed: list[MCPClient] = []
-        for mcp in self._mcps:
-            if mcp.is_stateful and not mcp.is_connected:
-                try:
-                    await mcp.connect()
-                except Exception as e:
-                    logger.warning(
-                        "Failed to connect stateful MCP '%s': %s, removing.",
-                        mcp.name,
-                        e,
-                    )
-                    failed.append(mcp)
-        for mcp in failed:
-            self._mcps.remove(mcp)
+        self._mcp_specs = await self._restore_mcp_specs()
 
         # Seed skills
         skills_dir = os.path.join(self.workdir, "skills")
@@ -434,41 +405,21 @@ class LocalWorkspace(WorkspaceBase):
         spin up an ad-hoc session per call and have nothing to close.
         """
         async with self._mcp_lock:
-            for mcp in self._mcps:
-                if mcp.is_stateful and mcp.is_connected:
-                    try:
-                        await mcp.close()
-                    except Exception as e:
-                        logger.warning(
-                            (
-                                "Failed to close MCP %r "
-                                "when closing local workspace: %s"
-                            ),
-                            mcp.name,
-                            e,
-                        )
+            await self._close_all_mcp_instances()
         self.is_alive = False
 
     async def reset(self) -> None:
-        """Return the workspace to an empty state.
+        """Return the workspace to a factory state.
 
         Closes and drops all MCPs (including the persisted ``.mcp``)
         and deletes ``skills/``, ``sessions/``, and ``data/``.
-        ``default_mcps`` and ``skill_paths`` are not re-seeded.
+        ``skill_paths`` are not re-seeded, but ``default_mcps`` are:
+        with ``.mcp`` gone, every agent/session is "never configured"
+        again and inherits the defaults on its next ``list_mcps``.
         """
         async with self._mcp_lock:
-            for mcp in self._mcps:
-                if mcp.is_stateful and mcp.is_connected:
-                    try:
-                        await mcp.close()
-                    except Exception as e:
-                        logger.warning(
-                            "MCP %r close failed during reset: %s",
-                            mcp.name,
-                            e,
-                        )
-            self._mcps = []
-
+            await self._close_all_mcp_instances()
+            self._mcp_specs.clear()
             mcp_file = os.path.join(self.workdir, ".mcp")
             await self._backend.delete_path(mcp_file)
 
@@ -684,45 +635,88 @@ class LocalWorkspace(WorkspaceBase):
             )
             return None
 
-    async def add_mcp(self, mcp_client: MCPClient) -> None:
-        """Add an MCP client, connect it if stateful, and persist.
+    async def add_mcp(
+        self,
+        mcp_client: MCPClient,
+        *,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Add an MCP client for one agent/session and persist it.
 
         Args:
             mcp_client (`MCPClient`):
                 The MCP client to add.
+            agent_id (`str | None`, optional):
+                The owning agent. ``None`` means the legacy ``""``.
+            session_id (`str | None`, optional):
+                The owning session. ``None`` means the legacy ``""``.
 
         Raises:
-            ValueError:
-                If an MCP with the same name already exists. Names are
-                unique because they compose the model-facing tool name
-                ``mcp__{name}__{tool}``.
+            `ValueError`:
+                If the name already exists for this agent/session.
+                Names are unique because they compose the model-facing
+                tool name ``mcp__{name}__{tool}``.
         """
+        agent_id, session_id = agent_id or "", session_id or ""
         async with self._mcp_lock:
-            if any(m.name == mcp_client.name for m in self._mcps):
+            specs = self._declared_specs(agent_id, session_id)
+            if any(m.name == mcp_client.name for m in specs):
                 raise ValueError(
-                    f"MCP {mcp_client.name!r} already exists in workspace.",
+                    f"MCP {mcp_client.name!r} already exists for "
+                    f"agent={agent_id!r} session={session_id!r}.",
                 )
+            live = self._mcp_instances.setdefault(
+                (agent_id, session_id),
+                {},
+            )
+            await self._enforce_mcp_capacity(agent_id, session_id, mcp_client)
             if mcp_client.is_stateful and not mcp_client.is_connected:
                 await mcp_client.connect()
-            self._mcps.append(mcp_client)
+            live[mcp_client.name] = mcp_client
+            # Materialise the full list on first divergence so the
+            # persisted copy is self-contained.
+            self._mcp_specs[(agent_id, session_id)] = [*specs, mcp_client]
             await self._save_mcp_file()
 
-    async def remove_mcp(self, name: str) -> None:
+    async def remove_mcp(
+        self,
+        name: str,
+        *,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
         """Remove an MCP client by name, disconnecting it if stateful.
 
         Args:
             name (`str`):
                 The ``name`` field of the client to remove.
+            agent_id (`str | None`, optional):
+                The owning agent. ``None`` means the legacy ``""``.
+            session_id (`str | None`, optional):
+                The owning session. ``None`` means the legacy ``""``.
         """
+        agent_id, session_id = agent_id or "", session_id or ""
         async with self._mcp_lock:
-            for i, mcp in enumerate(self._mcps):
-                if mcp.name == name:
-                    if mcp.is_stateful and mcp.is_connected:
-                        await mcp.close()
-                    self._mcps.pop(i)
-                    await self._save_mcp_file()
-                    return
-        logger.warning("MCP client %r not found in workspace", name)
+            specs = self._declared_specs(agent_id, session_id)
+            if not any(m.name == name for m in specs):
+                logger.warning(
+                    "MCP client %r not found for agent=%r session=%r",
+                    name,
+                    agent_id,
+                    session_id,
+                )
+                return
+            instance = self._mcp_instances.get(
+                (agent_id, session_id),
+                {},
+            ).pop(name, None)
+            if instance is not None:
+                await self._close_mcp_instance(instance)
+            self._mcp_specs[(agent_id, session_id)] = [
+                m for m in specs if m.name != name
+            ]
+            await self._save_mcp_file()
 
     async def add_skill(self, skill_path: str) -> None:
         """Add a skill to the workspace by copying from the given path.

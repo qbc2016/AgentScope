@@ -121,10 +121,9 @@ class AddSkillArchiveLocalTest(IsolatedAsyncioTestCase):
             "zip",
             "pack",
         )
-        self.assertEqual(
-            sorted(os.listdir(self.tmp)),
-            [".mcp", "skills"],
-        )
+        # No ``.mcp``: it is only written once an agent/session
+        # diverges from ``default_mcps``.
+        self.assertEqual(sorted(os.listdir(self.tmp)), ["skills"])
 
 
 class AddSkillArchiveSandboxedTest(IsolatedAsyncioTestCase):

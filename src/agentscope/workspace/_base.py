@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-lines
 """WorkspaceBase — abstract interface and shared backend-driven impl.
 
 A workspace provides:
@@ -35,10 +36,16 @@ the workspace's :class:`BackendBase` plus a fixed layout derived from
 .. code-block:: text
 
     {workdir}/
-    ├── .mcp          # persisted MCP client configs (JSON array)
+    ├── .mcp          # declared MCP configs, per agent and session
     ├── data/         # offloaded multimodal payloads
     ├── skills/       # skill subdirectories
     └── sessions/     # per-session context and tool-result files
+
+MCPs are declared per agent and session, and instantiated lazily:
+nothing connects until that session first calls ``list_mcps``, and
+each session gets its own instances so stateful MCP state never leaks
+across agents or sessions. ``.mcp`` holds only the declarations, and
+only for sessions that diverged from ``default_mcps``.
 
 Subclasses only set ``self.workdir`` (the agent-visible root); all
 other directory paths are derived via :meth:`BackendBase.join_path`,
@@ -53,6 +60,7 @@ import json
 import mimetypes
 import os
 import tarfile
+import time
 from abc import abstractmethod
 from copy import deepcopy
 from pathlib import Path
@@ -79,6 +87,12 @@ from ._utils import (
     DEFAULT_SESSIONS_DIR,
     DEFAULT_SKILLS_DIR,
 )
+
+#: Current ``.mcp`` schema version. Version 1 was a bare JSON list of
+#: specs with no ids; it is read back under the legacy empty ids.
+MCP_FILE_VERSION = 2
+
+_DEFAULT_MAX_LIVE_STATEFUL_MCPS = 40
 
 _EXTRACT_TAR_SHIM = (
     "import tarfile, sys, os\n"
@@ -176,17 +190,25 @@ class WorkspaceBase:
     skill_paths: list[str]
     """Local skill directories to seed on first :meth:`initialize`."""
 
-    _mcps: list[MCPClient]
-    """Currently registered MCP clients (in-memory authoritative copy).
+    max_live_stateful_mcps: int
+    """Cap on live stateful MCP instances retained for *other*
+    agents and sessions. See :meth:`_enforce_mcp_capacity`."""
 
-    :class:`LocalWorkspace` stores the local live handles directly;
-    :class:`SandboxedWorkspaceBase` stores gateway-side
-    :class:`GatewayMCPClient` wrappers (also ``MCPClient`` instances)
-    so ``list_mcps`` / persistence work uniformly across both.
-    """
+    _mcp_specs: dict[tuple[str, str], list[MCPClient]]
+    """Declared MCP configs keyed by agent id and session id — the
+    persisted layer. A missing session inherits :attr:`default_mcps`;
+    an empty list means none."""
+
+    _mcp_instances: dict[tuple[str, str], dict[str, MCPClient]]
+    """Live handles keyed by agent id and session id, then by MCP
+    name — built lazily, never persisted."""
+
+    _mcp_last_used: dict[tuple[str, str], float]
+    """Last :meth:`list_mcps` per agent/session, driving LRU eviction.
+    Turn-level granularity — tool calls do not reach the workspace."""
 
     _mcp_lock: asyncio.Lock
-    """Guards mutation of :attr:`_mcps` and the ``.mcp`` file."""
+    """Guards mutation of the MCP dicts and the ``.mcp`` file."""
 
     _skill_lock: asyncio.Lock
     """Guards mutation of the ``skills/`` directory."""
@@ -208,6 +230,7 @@ class WorkspaceBase:
         workspace_id: str | None = None,
         default_mcps: list[MCPClient] | None = None,
         skill_paths: list[str] | None = None,
+        max_live_stateful_mcps: int | None = None,
     ) -> None:
         """Initialise the shared workspace state.
 
@@ -222,11 +245,15 @@ class WorkspaceBase:
                 Existing identifier to adopt; ``None`` mints a fresh
                 UUID.
             default_mcps (`list[MCPClient] | None`, optional):
-                MCP clients to register when the workspace boots
-                without a persisted ``.mcp`` file.
+                MCP clients seeded into any agent/session that has
+                never added or removed an MCP of its own.
             skill_paths (`list[str] | None`, optional):
                 Local skill directories to copy into ``skills/`` on
                 first start.
+            max_live_stateful_mcps (`int | None`, optional):
+                Cap on concurrently live *stateful* MCP instances.
+                ``None`` derives ``max(40, 2 * <stateful defaults>)``
+                so one session can always start its own seeded set.
         """
         self.workspace_id = workspace_id or _generate_id()
         self.is_alive = False
@@ -236,8 +263,14 @@ class WorkspaceBase:
         self.skill_paths = [
             _normalize_local_path(path) for path in skill_paths or []
         ]
+        self.max_live_stateful_mcps = max_live_stateful_mcps or max(
+            _DEFAULT_MAX_LIVE_STATEFUL_MCPS,
+            2 * len([m for m in self.default_mcps if m.is_stateful]),
+        )
 
-        self._mcps = []
+        self._mcp_specs = {}
+        self._mcp_instances = {}
+        self._mcp_last_used = {}
         self._mcp_lock = asyncio.Lock()
         self._skill_lock = asyncio.Lock()
 
@@ -389,45 +422,292 @@ class WorkspaceBase:
             Write(backend=backend),
         ]
 
-    async def list_mcps(self) -> list[MCPClient]:
-        """Return the currently registered MCP clients."""
-        return list(self._mcps)
+    def _declared_specs(
+        self,
+        agent_id: str,
+        session_id: str,
+    ) -> list[MCPClient]:
+        """Configs declared for one agent/session, seeded from defaults.
+
+        A session missing from :attr:`_mcp_specs` has never been
+        modified and inherits fresh copies of :attr:`default_mcps`; an
+        empty list means it explicitly has none.
+        """
+        declared = self._mcp_specs.get((agent_id, session_id))
+        if declared is not None:
+            return declared
+        return [
+            MCPClient.model_validate(m.model_dump(mode="json"))
+            for m in self.default_mcps
+        ]
+
+    async def list_mcps(
+        self,
+        *,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+    ) -> list[MCPClient]:
+        """Return the MCP clients for one agent/session.
+
+        Instances are built on first use and are private to that
+        agent/session, so stateful sessions (browser cookies, login
+        state) never leak across agents or sessions. Instances dropped
+        by :meth:`_enforce_mcp_capacity` are rebuilt here.
+
+        Subclasses that route through a gateway
+        (:class:`SandboxedWorkspaceBase`) override this to hand back
+        gateway-wired proxies instead of local clients.
+
+        Args:
+            agent_id (`str | None`, optional):
+                The owning agent. ``None`` means the legacy ``""``.
+                Keyword-only: both ids are plain strings, so passing
+                them positionally could silently hit another session.
+            session_id (`str | None`, optional):
+                The owning session. ``None`` means the legacy ``""``.
+        """
+        agent_id, session_id = agent_id or "", session_id or ""
+        async with self._mcp_lock:
+            self._mcp_last_used[(agent_id, session_id)] = time.monotonic()
+            live = self._mcp_instances.setdefault((agent_id, session_id), {})
+            specs = self._declared_specs(agent_id, session_id)
+            for spec in specs:
+                if spec.name in live:
+                    continue
+                await self._enforce_mcp_capacity(agent_id, session_id, spec)
+                try:
+                    # Copy rather than share, so two sessions running
+                    # the same MCP hold independent state.
+                    client = MCPClient.model_validate(
+                        spec.model_dump(mode="json"),
+                    )
+                    if client.is_stateful:
+                        await client.connect()
+                    live[spec.name] = client
+                except Exception as e:
+                    logger.warning(
+                        "Failed to start MCP %r for agent=%r session=%r: "
+                        "%s, skipping.",
+                        spec.name,
+                        agent_id,
+                        session_id,
+                        e,
+                    )
+            # Declaration order: an MCP rebuilt after eviction must
+            # not jump to the end.
+            return [live[s.name] for s in specs if s.name in live]
 
     # ── for User: dynamic MCP management ───────────────────────────
 
     @abstractmethod
-    async def add_mcp(self, mcp_client: MCPClient) -> None:
-        """Register a new MCP server.
+    async def add_mcp(
+        self,
+        mcp_client: MCPClient,
+        *,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Register a new MCP server for one agent/session and persist.
+
+        Implementations record the config in :attr:`_mcp_specs`, start
+        one live instance under :meth:`_enforce_mcp_capacity`, and call
+        :meth:`_save_mcp_file`.
 
         Args:
             mcp_client (`MCPClient`):
                 The MCP to register.
+            agent_id (`str | None`, optional):
+                The owning agent. ``None`` means the legacy ``""``.
+                Keyword-only: both ids are plain strings, so passing
+                them positionally could silently hit another session.
+            session_id (`str | None`, optional):
+                The owning session. ``None`` means the legacy ``""``.
 
         Raises:
             `ValueError`:
-                If an MCP with the same name already exists.
+                If the name already exists for this agent/session.
         """
 
     @abstractmethod
-    async def remove_mcp(self, name: str) -> None:
-        """Deregister an MCP server by name.
+    async def remove_mcp(
+        self,
+        name: str,
+        *,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        """Deregister an MCP by name within one agent/session.
+
+        Other agents and sessions keep their own declarations and
+        instances, so there is nothing to reconcile across them.
 
         Args:
             name (`str`):
                 MCP name to remove. Unknown names log a warning and
                 return silently.
+            agent_id (`str | None`, optional):
+                The owning agent. ``None`` means the legacy ``""``.
+                Keyword-only: both ids are plain strings, so passing
+                them positionally could silently hit another session.
+            session_id (`str | None`, optional):
+                The owning session. ``None`` means the legacy ``""``.
         """
+
+    # ── session teardown ───────────────────────────────────────────
+
+    async def purge_session(
+        self,
+        *,
+        agent_id: str,
+        session_id: str,
+    ) -> None:
+        """Drop everything this workspace holds for one session.
+
+        Closes the session's MCP instances, forgets its ``.mcp``
+        declaration and deletes its offload directory. Removing every
+        MCP one by one is not equivalent: an emptied session persists
+        as ``[]``, which is a meaningful state, and would keep dead
+        sessions in ``.mcp`` forever.
+
+        Best-effort — failures are logged, never raised, so a purge
+        cannot block session deletion.
+
+        Args:
+            agent_id (`str`):
+                The agent that owned the session.
+            session_id (`str`):
+                The session being deleted.
+        """
+        async with self._mcp_lock:
+            dropped = self._mcp_instances.pop((agent_id, session_id), {})
+            for instance in list(dropped.values()):
+                await self._close_mcp_instance(instance)
+            self._mcp_last_used.pop((agent_id, session_id), None)
+            forgotten = self._mcp_specs.pop((agent_id, session_id), None)
+            if forgotten is not None:
+                await self._save_mcp_file()
+
+        if self._backend is None or not session_id:
+            return
+        try:
+            await self._backend.delete_path(
+                self._backend.join_path(self._sessions_dir, session_id),
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to delete offload directory for session %r: %s",
+                session_id,
+                e,
+            )
+
+    # ── instance lifecycle ─────────────────────────────────────────
+
+    @staticmethod
+    async def _close_mcp_instance(instance: MCPClient) -> None:
+        """Close one live handle, downgrading failures to warnings.
+
+        Stateless clients hold no connection, so they are skipped.
+        """
+        if not (instance.is_stateful and instance.is_connected):
+            return
+        try:
+            await instance.close()
+        except Exception as e:
+            logger.warning("MCP %r close failed: %s", instance.name, e)
+
+    async def _enforce_mcp_capacity(
+        self,
+        agent_id: str,
+        session_id: str,
+        incoming: MCPClient,
+    ) -> None:
+        """Make room for ``incoming`` under
+        :attr:`max_live_stateful_mcps`.
+
+        Only stateful instances count — a stateless client holds no
+        connection or subprocess, so capping them reclaims nothing.
+        Eviction never targets the requesting agent/session, which
+        therefore always gets its full set no matter how the cap is
+        configured; when every live instance belongs to it the cap is
+        exceeded instead.
+
+        Callers must hold :attr:`_mcp_lock`.
+        """
+        if not incoming.is_stateful:
+            return
+        while True:
+            live_count = sum(
+                1
+                for by_name in self._mcp_instances.values()
+                for c in by_name.values()
+                if c.is_stateful
+            )
+            if live_count < self.max_live_stateful_mcps:
+                return
+
+            victim_agent, victim_session, oldest = None, None, 0.0
+            for (
+                other_agent,
+                other_session,
+            ), by_name in self._mcp_instances.items():
+                if other_agent == agent_id and other_session == session_id:
+                    continue
+                if not any(c.is_stateful for c in by_name.values()):
+                    continue
+                used = self._mcp_last_used.get(
+                    (other_agent, other_session),
+                    0.0,
+                )
+                if victim_agent is None or used < oldest:
+                    victim_agent = other_agent
+                    victim_session = other_session
+                    oldest = used
+
+            if victim_agent is None or victim_session is None:
+                logger.warning(
+                    "All %d live stateful MCPs belong to agent=%r "
+                    "session=%r; exceeding max_live_stateful_mcps to "
+                    "start %r.",
+                    live_count,
+                    agent_id,
+                    session_id,
+                    incoming.name,
+                )
+                return
+
+            by_name = self._mcp_instances[(victim_agent, victim_session)]
+            name = next(n for n, c in by_name.items() if c.is_stateful)
+            logger.info(
+                "Evicting idle MCP %r (agent=%r session=%r) to stay "
+                "under max_live_stateful_mcps=%d.",
+                name,
+                victim_agent,
+                victim_session,
+                self.max_live_stateful_mcps,
+            )
+            await self._close_mcp_instance(by_name.pop(name))
+
+    async def _close_all_mcp_instances(self) -> None:
+        """Close every live handle and drop the instance layer.
+
+        Declarations survive — a later :meth:`list_mcps` rebuilds.
+        """
+        for by_name in self._mcp_instances.values():
+            for instance in list(by_name.values()):
+                await self._close_mcp_instance(instance)
+        self._mcp_instances.clear()
+        self._mcp_last_used.clear()
 
     # ── MCP persistence (shared) ───────────────────────────────────
 
     async def _save_mcp_file(self) -> None:
-        """Persist ``self._mcps`` to ``${workdir}/.mcp`` via backend.
+        """Persist :attr:`_mcp_specs` to ``${workdir}/.mcp``.
 
-        No-op when :attr:`is_persistent` is ``False`` (e.g. ephemeral
-        Docker container without a host bind-mount). Failures are
-        logged but not raised — the in-memory MCP list remains the
-        authoritative copy regardless of whether disk persistence
-        succeeded.
+        Only declarations are written, and only for sessions that
+        diverged from :attr:`default_mcps`, so the file does not grow
+        with session count on its own. No-op when
+        :attr:`is_persistent` is ``False``; failures are logged, not
+        raised — the in-memory copy stays authoritative.
 
         Callers are expected to hold :attr:`_mcp_lock` already.
         """
@@ -436,8 +716,15 @@ class WorkspaceBase:
         backend = self._backend
         if backend is None:
             return
+        # Nested {agent_id: {session_id: [...]}} on disk rather than a
+        # joined key, so no separator can collide with an id.
+        mcps: dict[str, dict[str, list[dict]]] = {}
+        for (agent_id, session_id), specs in self._mcp_specs.items():
+            mcps.setdefault(agent_id, {})[session_id] = [
+                m.model_dump(mode="json") for m in specs
+            ]
         payload = json.dumps(
-            [m.model_dump(mode="json") for m in self._mcps],
+            {"version": MCP_FILE_VERSION, "mcps": mcps},
             indent=2,
             ensure_ascii=False,
         ).encode("utf-8")
@@ -449,6 +736,82 @@ class WorkspaceBase:
                 self._mcp_file,
                 e,
             )
+
+    async def _restore_mcp_specs(
+        self,
+    ) -> dict[tuple[str, str], list[MCPClient]]:
+        """Read the declarations persisted in ``${workdir}/.mcp``.
+
+        Returns an empty mapping when the file is absent or unusable —
+        every agent/session then falls back to :attr:`default_mcps`, so
+        a corrupt file cannot block startup. Version 1 files (a bare
+        list) are read under the legacy empty ids; the next write emits
+        v2.
+        """
+        if not self.is_persistent:
+            return {}
+        backend = self._backend
+        if backend is None:
+            return {}
+        try:
+            if not await backend.file_exists(self._mcp_file):
+                return {}
+            raw = await backend.read_file(self._mcp_file)
+            data = json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            logger.warning(
+                "Failed to read MCP file at %s, falling back to "
+                "default_mcps: %s",
+                self._mcp_file,
+                e,
+            )
+            return {}
+
+        def _parse(
+            cfgs: list,
+            agent_id: str,
+            session_id: str,
+        ) -> list[MCPClient]:
+            """Parse serialised configs, skipping invalid entries."""
+            parsed: list[MCPClient] = []
+            for m in cfgs:
+                try:
+                    parsed.append(MCPClient.model_validate(m))
+                except Exception as e:
+                    name = m.get("name", "?") if isinstance(m, dict) else "?"
+                    logger.warning(
+                        "Skipping invalid MCP entry %r for agent=%r "
+                        "session=%r: %s",
+                        name,
+                        agent_id,
+                        session_id,
+                        e,
+                    )
+            return parsed
+
+        if isinstance(data, list):
+            logger.info("Migrating .mcp v1 (flat list) to the legacy ids.")
+            return {("", ""): _parse(data, "", "")}
+
+        if not isinstance(data, dict):
+            logger.warning(
+                "%s is neither a list nor an object; ignoring it.",
+                self._mcp_file,
+            )
+            return {}
+
+        specs: dict[tuple[str, str], list[MCPClient]] = {}
+        for agent_id, by_session in (data.get("mcps") or {}).items():
+            if not isinstance(by_session, dict):
+                continue
+            for session_id, cfgs in by_session.items():
+                if isinstance(cfgs, list):
+                    specs[(agent_id, session_id)] = _parse(
+                        cfgs,
+                        agent_id,
+                        session_id,
+                    )
+        return specs
 
     # ── for Agent: offload (shared) ────────────────────────────────
 
