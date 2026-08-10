@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from ._credential_binding import (
     ChannelCredentialBindingBase,
@@ -23,6 +23,23 @@ from ._credential_binding import (
 
 if TYPE_CHECKING:
     from ._base import ChannelBase
+
+
+def _reveal_validated_value(value: object) -> object:
+    """Convert validated credential values into storage-safe primitives."""
+    if isinstance(value, SecretStr):
+        return value.get_secret_value()
+    if isinstance(value, BaseModel):
+        return _reveal_validated_value(
+            value.model_dump(mode="python", by_alias=True),
+        )
+    if isinstance(value, dict):
+        return {
+            key: _reveal_validated_value(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_reveal_validated_value(item) for item in value]
+    return value
 
 
 class ChannelTypeSchema(BaseModel):
@@ -198,10 +215,14 @@ class ChannelTypeRegistry:
                 f"Channel type '{channel_type}' is not registered; pass it "
                 f"to create_app(channels=[...]).",
             )
-        channel_cls.Credentials.model_validate(credentials)
-        # Preserve the original secret values. Serializing a model containing
-        # ``SecretStr`` would replace them with masking text before storage.
-        return credentials
+        validated = channel_cls.Credentials.model_validate(credentials)
+        # Return the validated shape so ignored extras never reach storage,
+        # while preserving the real values of fields declared SecretStr.
+        normalized = _reveal_validated_value(
+            validated.model_dump(mode="python", by_alias=True),
+        )
+        assert isinstance(normalized, dict)
+        return normalized
 
     def extract_platform_bot_id(
         self,

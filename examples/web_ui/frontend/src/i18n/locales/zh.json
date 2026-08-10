@@ -701,6 +701,7 @@
 		},
 		"binding": {
 			"manualSetup": "手工配置",
+			"invalidQrCode": "服务器返回了无效的二维码地址。",
 			"qrCodeAlt": "频道授权二维码",
 			"scanDescription": "使用对应平台客户端扫码并确认授权。",
 			"retry": "重新生成二维码",

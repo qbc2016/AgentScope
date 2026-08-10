@@ -5,6 +5,7 @@ import type { ChannelCredentialBindingState } from '@/api';
 import { channelApi } from '@/api';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/i18n/useI18n';
+import { isSafeQrCodeUrl } from '@/pages/channel/credential-binding-url';
 
 interface Props {
 	channelType: string;
@@ -64,6 +65,10 @@ export function CredentialBindingPanel({ channelType, description, onAuthorized 
 					return;
 				}
 				bindingId = session.id;
+				if (!isSafeQrCodeUrl(session.qr_code_url)) {
+					void channelApi.cancelBinding(channelType, bindingId).catch(() => {});
+					throw new Error(t('channel.binding.invalidQrCode'));
+				}
 				setQrCodeUrl(session.qr_code_url);
 				setState(session.state);
 				setMessage(session.message);
@@ -82,7 +87,7 @@ export function CredentialBindingPanel({ channelType, description, onAuthorized 
 				void channelApi.cancelBinding(channelType, bindingId).catch(() => {});
 			}
 		};
-	}, [channelType, generation]);
+	}, [channelType, generation, t]);
 
 	const terminal = state === 'expired' || state === 'failed';
 	return (

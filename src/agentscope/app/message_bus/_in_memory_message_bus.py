@@ -453,6 +453,10 @@ class InMemoryMessageBus(
             if old_handle is not None:
                 old_handle.cancel()
 
+            if ttl_secs <= 0:
+                self._registries.pop(namespace, None)
+                return
+
             def _expire() -> None:
                 self._registries.pop(namespace, None)
                 self._registry_expiry_handles.pop(namespace, None)
@@ -460,7 +464,7 @@ class InMemoryMessageBus(
             self._registry_expiry_handles[
                 namespace
             ] = asyncio.get_running_loop().call_later(
-                max(ttl_secs, 0),
+                ttl_secs,
                 _expire,
             )
 

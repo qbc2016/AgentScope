@@ -376,6 +376,11 @@ class TestRegistryPrimitive(IsolatedAsyncioTestCase):
         await asyncio.sleep(0.6)
         self.assertEqual(await self.bus.registry_get("ns", "f"), "v2")
 
+    async def test_zero_registry_ttl_expires_immediately(self) -> None:
+        """A zero TTL matches Redis and never survives the write call."""
+        await self.bus.registry_set("ns", "f", "v", ttl_secs=0)
+        self.assertIsNone(await self.bus.registry_get("ns", "f"))
+
 
 class TestDomainHelpers(IsolatedAsyncioTestCase):
     """Domain helpers inherited from ``MessageBus`` work end-to-end

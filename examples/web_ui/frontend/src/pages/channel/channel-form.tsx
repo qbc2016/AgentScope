@@ -91,12 +91,19 @@ function sessionSettings(v: ChannelFormValue) {
 }
 
 export function toCreateRequest(v: ChannelFormValue): CreateChannelRequest {
+	let credentialSource: Pick<CreateChannelRequest, 'credentials' | 'credential_binding_id'>;
+	if (v.credentialMode === 'qr_code') {
+		if (!v.credentialBindingId) {
+			throw new Error('QR credential binding is not authorized.');
+		}
+		credentialSource = { credential_binding_id: v.credentialBindingId };
+	} else {
+		credentialSource = { credentials: v.credentials };
+	}
 	return {
 		channel_type: v.channelType,
 		name: v.name.trim() || null,
-		...(v.credentialMode === 'qr_code'
-			? { credential_binding_id: v.credentialBindingId as string }
-			: { credentials: v.credentials }),
+		...credentialSource,
 		platform_config: v.platformConfig,
 		routing: { bindings: v.bindings },
 		enabled: true,

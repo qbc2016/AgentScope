@@ -16,7 +16,9 @@ GET    /channels/{id}/status        Aggregated runtime status
 GET    /channels/{id}/chat_ids      Known chats (for routing config)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ..channel import (
     ChannelCredentialBindingBase,
@@ -52,6 +54,15 @@ from ._schema import (
 )
 
 channel_router = APIRouter(prefix="/channels", tags=["channels"])
+
+BindingIdPath = Annotated[
+    str,
+    Path(
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="Opaque credential binding identifier.",
+    ),
+]
 
 
 def _to_response(
@@ -207,7 +218,7 @@ async def start_credential_binding(
 @channel_router.get("/bindings/{channel_type}/{binding_id}")
 async def get_credential_binding_status(
     channel_type: str,
-    binding_id: str,
+    binding_id: BindingIdPath,
     registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     message_bus: MessageBus = Depends(get_message_bus),
     user_id: str = Depends(get_current_user_id),
@@ -234,7 +245,7 @@ async def get_credential_binding_status(
 )
 async def cancel_credential_binding(
     channel_type: str,
-    binding_id: str,
+    binding_id: BindingIdPath,
     registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     message_bus: MessageBus = Depends(get_message_bus),
     user_id: str = Depends(get_current_user_id),

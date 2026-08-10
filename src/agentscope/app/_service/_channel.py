@@ -22,6 +22,9 @@ from ..channel._credential_binding import ChannelCredentialBindingStore
 from ..channel._registry import ChannelTypeRegistry
 
 
+_BINDING_CONSUME_LOCK_TTL_SECS = 60
+
+
 class ChannelService:
     """CRUD operations on channel records."""
 
@@ -91,7 +94,10 @@ class ChannelService:
                     credential_binding_id,
                 )
             )
-            async with self._bus.acquire_lock(consume_lock, ttl_secs=600):
+            async with self._bus.acquire_lock(
+                consume_lock,
+                ttl_secs=_BINDING_CONSUME_LOCK_TTL_SECS,
+            ):
                 resolved_credentials = await binding.resolve_credentials(
                     user_id,
                     credential_binding_id,

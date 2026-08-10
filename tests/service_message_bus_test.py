@@ -484,6 +484,11 @@ class TestRegistryPrimitive(IsolatedAsyncioTestCase):
         await self.bus.registry_set("ns", "f", "v")
         self.assertEqual(await self.fr.ttl("ns"), -1)
 
+    async def test_zero_registry_ttl_expires_immediately(self) -> None:
+        """A zero TTL deletes the Redis namespace in the transaction."""
+        await self.bus.registry_set("ns", "f", "v", ttl_secs=0)
+        self.assertIsNone(await self.bus.registry_get("ns", "f"))
+
 
 class TestBackgroundTaskRegistryHelpers(IsolatedAsyncioTestCase):
     """Domain helpers built on Mode F: ``bg_task_register / unregister /

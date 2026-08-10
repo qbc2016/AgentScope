@@ -2,7 +2,7 @@
 """Feishu one-click app registration through OAuth Device Flow."""
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import inspect
 import secrets
 from types import ModuleType
@@ -18,6 +18,19 @@ from .._credential_binding import (
     ChannelCredentialBindingStatus,
 )
 from .._errors import ChannelError
+
+
+def _utc_now() -> datetime:
+    """Return the current timezone-aware UTC time."""
+    return datetime.now(timezone.utc)
+
+
+def _parse_timestamp(value: str) -> datetime:
+    """Parse an ISO timestamp, treating legacy naive values as UTC."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _verification_url_to_qr_data_url(verification_url: str) -> str:
@@ -131,9 +144,9 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
             user_id=user_id,
             provider_id=self.provider_id,
             state=ChannelCredentialBindingState.PENDING,
-            expires_at=(datetime.now() + timedelta(minutes=5)).isoformat(),
+            expires_at=(_utc_now() + timedelta(minutes=5)).isoformat(),
         )
-        await store.put(record, 300 + self._terminal_ttl_secs)
+        await store.create(record, 300 + self._terminal_ttl_secs)
         await store.refresh_owner(binding_id, self._owner_lease_secs)
         qr_ready = asyncio.get_running_loop().create_future()
         task = asyncio.create_task(
@@ -189,6 +202,7 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
         qr_ready: asyncio.Future[None],
     ) -> None:
         """Run the SDK registration coroutine and persist short-lived state."""
+        loop = asyncio.get_running_loop()
         updates: list[asyncio.Task[bool]] = []
         heartbeat = asyncio.create_task(
             self._owner_heartbeat(record.id, store),
@@ -198,8 +212,7 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
             expire_in = max(
                 int(
                     (
-                        datetime.fromisoformat(snapshot.expires_at)
-                        - datetime.now()
+                        _parse_timestamp(snapshot.expires_at) - _utc_now()
                     ).total_seconds(),
                 ),
                 1,
@@ -224,25 +237,38 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                     )
             return saved
 
-        def on_qr_code(info: dict) -> None:
+        def handle_qr_code(info: dict) -> None:
             expire_in = max(int(info.get("expire_in", 300)), 1)
             record.expires_at = (
-                datetime.now() + timedelta(seconds=expire_in)
+                _utc_now() + timedelta(seconds=expire_in)
             ).isoformat()
             try:
                 record.qr_code_url = _verification_url_to_qr_data_url(
                     str(info["url"]),
                 )
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception:
+                logger.warning(
+                    "Failed to create QR code for binding '%s'.",
+                    record.id,
+                    exc_info=True,
+                )
                 if not qr_ready.done():
-                    qr_ready.set_exception(exc)
+                    qr_ready.set_exception(
+                        ChannelError(
+                            "Failed to create the Feishu QR code.",
+                            502,
+                        ),
+                    )
                 return
             record.message = "Waiting for authorization in Feishu or Lark."
             updates.append(
                 asyncio.create_task(persist_qr(record.model_copy(deep=True))),
             )
 
-        def on_status_change(info: dict) -> None:
+        def on_qr_code(info: dict) -> None:
+            loop.call_soon_threadsafe(handle_qr_code, dict(info))
+
+        def handle_status_change(info: dict) -> None:
             status = str(info.get("status", ""))
             if status == "slow_down":
                 record.message = "Authorization is still pending."
@@ -257,8 +283,8 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                         max(
                             int(
                                 (
-                                    datetime.fromisoformat(record.expires_at)
-                                    - datetime.now()
+                                    _parse_timestamp(record.expires_at)
+                                    - _utc_now()
                                 ).total_seconds(),
                             ),
                             1,
@@ -272,6 +298,9 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                 ),
             )
 
+        def on_status_change(info: dict) -> None:
+            loop.call_soon_threadsafe(handle_status_change, dict(info))
+
         try:
             result: dict[str, Any] = await sdk.aregister_app(
                 on_qr_code=on_qr_code,
@@ -280,6 +309,10 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                 app_preset=self._app_preset,
                 addons=self._addons,
             )
+            # Thread-safe callback dispatch is queued onto this loop. Yield
+            # once so all callbacks made before SDK completion can register
+            # their persistence tasks before the final state transition.
+            await asyncio.sleep(0)
             if updates:
                 await asyncio.gather(*updates)
             record.credentials = {
@@ -288,10 +321,10 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
             }
             record.state = ChannelCredentialBindingState.AUTHORIZED
             record.expires_at = (
-                datetime.now() + timedelta(seconds=self._authorized_ttl_secs)
+                _utc_now() + timedelta(seconds=self._authorized_ttl_secs)
             ).isoformat()
             record.message = "Feishu application created successfully."
-            await store.replace(
+            saved = await store.replace(
                 record,
                 self._authorized_ttl_secs,
                 {
@@ -299,6 +332,12 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                     ChannelCredentialBindingState.SCANNED,
                 },
             )
+            if not saved:
+                logger.info(
+                    "Discarded authorization result for inactive binding "
+                    "'%s'.",
+                    record.id,
+                )
         except asyncio.CancelledError:
             if not qr_ready.done():
                 qr_ready.cancel()
@@ -306,17 +345,25 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
         except Exception as exc:  # pylint: disable=broad-except
             if updates:
                 await asyncio.gather(*updates, return_exceptions=True)
+            logger.warning(
+                "Feishu credential binding '%s' failed.",
+                record.id,
+                exc_info=True,
+            )
             name = type(exc).__name__
             if name == "AppExpiredError":
                 record.state = ChannelCredentialBindingState.EXPIRED
+                record.message = (
+                    "The Feishu credential binding expired. Please retry."
+                )
             else:
                 record.state = ChannelCredentialBindingState.FAILED
+                record.message = "Feishu authorization failed. Please retry."
             record.credentials = None
             record.expires_at = (
-                datetime.now() + timedelta(seconds=self._terminal_ttl_secs)
+                _utc_now() + timedelta(seconds=self._terminal_ttl_secs)
             ).isoformat()
-            record.message = str(exc) or "Feishu authorization failed."
-            await store.replace(
+            saved = await store.replace(
                 record,
                 self._terminal_ttl_secs,
                 {
@@ -324,6 +371,11 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                     ChannelCredentialBindingState.SCANNED,
                 },
             )
+            if not saved:
+                logger.info(
+                    "Discarded failure result for inactive binding '%s'.",
+                    record.id,
+                )
             if not qr_ready.done():
                 qr_ready.set_exception(
                     ChannelError(record.message, 502),
@@ -390,8 +442,7 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                         "Please retry QR binding."
                     ),
                     "expires_at": (
-                        datetime.now()
-                        + timedelta(seconds=self._terminal_ttl_secs)
+                        _utc_now() + timedelta(seconds=self._terminal_ttl_secs)
                     ).isoformat(),
                 },
             )
@@ -410,12 +461,12 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                     task.cancel()
         if record.state in active_states | {
             ChannelCredentialBindingState.AUTHORIZED,
-        } and datetime.now() >= datetime.fromisoformat(record.expires_at):
+        } and _utc_now() >= _parse_timestamp(record.expires_at):
             record.state = ChannelCredentialBindingState.EXPIRED
             record.credentials = None
             record.message = "The Feishu credential binding expired."
             record.expires_at = (
-                datetime.now() + timedelta(seconds=self._terminal_ttl_secs)
+                _utc_now() + timedelta(seconds=self._terminal_ttl_secs)
             ).isoformat()
             await store.replace(
                 record,
@@ -440,12 +491,12 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
     ) -> dict:
         """Return credentials only after successful authorization."""
         record = await self._owned(user_id, binding_id, store)
-        if datetime.now() >= datetime.fromisoformat(record.expires_at):
+        if _utc_now() >= _parse_timestamp(record.expires_at):
             record.state = ChannelCredentialBindingState.EXPIRED
             record.credentials = None
             record.message = "The Feishu credential binding expired."
             record.expires_at = (
-                datetime.now() + timedelta(seconds=self._terminal_ttl_secs)
+                _utc_now() + timedelta(seconds=self._terminal_ttl_secs)
             ).isoformat()
             await store.replace(
                 record,
