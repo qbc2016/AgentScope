@@ -261,15 +261,22 @@ class TestDashScopeNonStream(IsolatedAsyncioTestCase):
 
         await self.model([], extra_body=extra_body)
 
-        self.assertDictEqual(extra_body, {"custom": "value"})
-        request_extra_body = mock_create.await_args.kwargs["extra_body"]
-        self.assertDictEqual(
-            request_extra_body,
-            {
-                "custom": "value",
-                "enable_thinking": True,
-                "thinking_budget": 100,
-            },
+        self.assertEqual(
+            (extra_body, mock_create.await_args.kwargs),
+            (
+                {"custom": "value"},
+                {
+                    "model": "qwen3-max",
+                    "messages": [],
+                    "stream": False,
+                    "max_tokens": 1000,
+                    "extra_body": {
+                        "custom": "value",
+                        "enable_thinking": True,
+                        "thinking_budget": 100,
+                    },
+                },
+            ),
         )
 
 

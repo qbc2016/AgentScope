@@ -1141,17 +1141,16 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
 
         await model.generate_structured_output(self.messages, self.schema)
 
-        self.assertListEqual(
-            [call[0] for call in model.structured_calls],
+        self.assertEqual(
+            model.structured_calls,
             [
-                "generate_structured_output",
-                "auto",
-                "generate_structured_output",
+                ("generate_structured_output", {}),
+                ("auto", {}),
+                (
+                    "generate_structured_output",
+                    {"extra_body": {"enable_thinking": False}},
+                ),
             ],
-        )
-        self.assertDictEqual(
-            model.structured_calls[-1][1],
-            {"extra_body": {"enable_thinking": False}},
         )
 
     async def test_success_does_not_permanently_promote_strategy(self) -> None:
@@ -1167,12 +1166,12 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
         await model.generate_structured_output(self.messages, self.schema)
         await model.generate_structured_output(self.messages, self.schema)
 
-        self.assertListEqual(
-            [call[0] for call in model.structured_calls],
+        self.assertEqual(
+            model.structured_calls,
             [
-                "generate_structured_output",
-                "auto",
-                "generate_structured_output",
+                ("generate_structured_output", {}),
+                ("auto", {}),
+                ("generate_structured_output", {}),
             ],
         )
 
@@ -1201,8 +1200,13 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
                 self.schema,
             )
 
-        self.assertIs(raised.exception, expected)
-        self.assertEqual(len(model.structured_calls), 1)
+        self.assertEqual(
+            (raised.exception, model.structured_calls),
+            (
+                expected,
+                [("generate_structured_output", {})],
+            ),
+        )
 
     async def test_final_error_is_chained_from_first_error(self) -> None:
         """The first provider failure remains visible as the root cause."""
@@ -1229,8 +1233,26 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
                 self.schema,
             )
 
-        self.assertIs(raised.exception, final_error)
-        self.assertIs(raised.exception.__cause__, first_error)
+        self.assertEqual(
+            (
+                raised.exception,
+                raised.exception.__cause__,
+                model.structured_calls,
+            ),
+            (
+                final_error,
+                first_error,
+                [
+                    ("generate_structured_output", {}),
+                    ("auto", {}),
+                    (
+                        "generate_structured_output",
+                        {"extra_body": {"enable_thinking": False}},
+                    ),
+                    (None, {}),
+                ],
+            ),
+        )
 
     async def test_concurrent_calls_do_not_share_strategy_state(self) -> None:
         """Concurrent calls independently traverse immutable strategies."""
@@ -1241,6 +1263,12 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
             model.generate_structured_output(self.messages, self.schema),
         )
 
-        modes = [call[0] for call in model.structured_calls]
-        self.assertEqual(modes.count("generate_structured_output"), 2)
-        self.assertEqual(modes.count("auto"), 2)
+        self.assertEqual(
+            model.structured_calls,
+            [
+                ("generate_structured_output", {}),
+                ("generate_structured_output", {}),
+                ("auto", {}),
+                ("auto", {}),
+            ],
+        )

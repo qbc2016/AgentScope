@@ -1446,7 +1446,7 @@ class ContextCompressionTest(IsolatedAsyncioTestCase):
     async def test_summary_failure_preserves_context_by_default(self) -> None:
         """Summary failures propagate without discarding context."""
         agent, _ = _make_failing_compression_agent(enable_truncation=False)
-        original_context = list(agent.state.context)
+        expected_state = agent.state.model_copy(deep=True)
 
         with self.assertRaisesRegex(
             RuntimeError,
@@ -1454,20 +1454,21 @@ class ContextCompressionTest(IsolatedAsyncioTestCase):
         ):
             await agent.compress_context()
 
-        self.assertEqual(agent.state.context, original_context)
-        self.assertEqual(agent.state.summary, "")
+        self.assertEqual(agent.state, expected_state)
 
     async def test_opt_in_summary_failure_truncates_context(self) -> None:
         """Explicit opt-in permits lossy context truncation."""
         agent, _ = _make_failing_compression_agent(enable_truncation=True)
+        expected_state = agent.state.model_copy(deep=True)
+        expected_state.context = expected_state.context[1:]
+        expected_state.summary = (
+            "<system-info>Some earlier messages were truncated for limited "
+            "context.</system-info>"
+        )
 
         await agent.compress_context()
 
-        self.assertNotIn("1", [msg.id for msg in agent.state.context])
-        self.assertIn(
-            "Some earlier messages were truncated",
-            agent.state.summary,
-        )
+        self.assertEqual(agent.state, expected_state)
 
     async def test_offload_reminder_is_not_duplicated(self) -> None:
         """Repeated fallback preserves one reminder for a stable path."""
@@ -1481,11 +1482,12 @@ class ContextCompressionTest(IsolatedAsyncioTestCase):
             summary=reminder,
             offloader=FixedPathOffloader(),
         )
+        expected_state = agent.state.model_copy(deep=True)
+        expected_state.context = []
 
         await agent.compress_context()
 
-        self.assertIsInstance(agent.state.summary, str)
-        self.assertEqual(agent.state.summary.count(reminder), 1)
+        self.assertEqual(agent.state, expected_state)
 
     async def asyncTearDown(self) -> None:
         """The async teardown method."""
