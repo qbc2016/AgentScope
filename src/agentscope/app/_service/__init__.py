@@ -20,12 +20,14 @@ from ._session import SessionService, SessionStatus
 from ._session_projection import SessionProjection
 from ._projectors import SubagentHitlProjector
 from ._toolkit import get_toolkit
+from ._workspace import GitStatus, WorkspaceService, WorkspaceStatus
 
 __all__ = [
     "AgentView",
     "ChannelService",
     "ChatService",
     "CredentialView",
+    "GitStatus",
     "IndexSweeper",
     "IndexTaskConsumer",
     "IndexWorker",
@@ -37,6 +39,8 @@ __all__ = [
     "SessionStatus",
     "SessionProjection",
     "SubagentHitlProjector",
+    "WorkspaceService",
+    "WorkspaceStatus",
     "get_embedding_model",
     "get_model",
     "get_tts_model",

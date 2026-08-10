@@ -595,14 +595,16 @@
 			"emptyTitle": "No results",
 			"emptyDescription": "Nothing matches “{{query}}”."
 		},
-		"loading": "Loading…"
-	},
-	"team-sidebar": {
-		"membersHeading": "Members",
-		"noMembers": "No members yet — ask the leader to spawn one with AgentCreate.",
-		"running": "Running",
-		"idle": "Idle",
-		"missingSession": "(no session)"
+		"loading": "Loading…",
+		"team": {
+			"membersHeading": "Members",
+			"noMembers": "No members yet — ask the leader to spawn one with AgentCreate.",
+			"emptyTitle": "No team",
+			"emptyDescription": "This session is not part of a team. The agent forms one with TeamCreate.",
+			"running": "Running",
+			"idle": "Idle",
+			"missingSession": "(no session)"
+		}
 	},
 	"channel": {
 		"title": "Channels",
@@ -636,6 +638,34 @@
 			"showToolMessagesDesc": "Display tool call/result messages in the channel.",
 			"showThinking": "Show Thinking",
 			"showThinkingDesc": "Display model reasoning process in the channel."
+		},
+		"fields": {
+			"app_id": {
+				"title": "App ID",
+				"description": "Feishu App ID"
+			},
+			"app_secret": {
+				"title": "App Secret",
+				"description": "Feishu App Secret"
+			},
+			"bot_token": {
+				"title": "Bot Token"
+			},
+			"application_id": {
+				"title": "Application ID"
+			},
+			"only_at_reply": {
+				"title": "Reply only when mentioned",
+				"description": "In group chats, reply only when the bot is @mentioned"
+			},
+			"show_tool_process": {
+				"title": "Show tool process",
+				"description": "Show tool calls and results inline in the reply"
+			},
+			"show_thinking": {
+				"title": "Show thinking",
+				"description": "Show the model's reasoning inline in the reply"
+			}
 		},
 		"edit": {
 			"title": "Edit Channel",
@@ -750,5 +780,16 @@
 	"agent-menu": {
 		"settings": "Settings",
 		"delete": "Delete agent"
+	},
+	"workdir": {
+		"title": "Working directory",
+		"description": "Pick the agent's working directory.",
+		"root": "Workspace root",
+		"parent": "Up one level",
+		"errorTitle": "Could not list this folder",
+		"pathPlaceholder": "Type or paste a path",
+		"empty": "This folder is empty",
+		"pressEnter": "Press Enter to check this path first",
+		"gitTooltip": "{{staged}} staged · {{unstaged}} modified · {{untracked}} untracked\nLine counts exclude untracked files"
 	}
 }

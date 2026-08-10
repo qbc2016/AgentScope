@@ -595,14 +595,16 @@
 			"emptyTitle": "无结果",
 			"emptyDescription": "没有匹配 “{{query}}” 的结果。"
 		},
-		"loading": "加载中…"
-	},
-	"team-sidebar": {
-		"membersHeading": "成员",
-		"noMembers": "还没有成员——让队长用 AgentCreate 添加一个。",
-		"running": "运行中",
-		"idle": "空闲",
-		"missingSession": "（无会话）"
+		"loading": "加载中…",
+		"team": {
+			"membersHeading": "成员",
+			"noMembers": "还没有成员——让队长用 AgentCreate 添加一个。",
+			"emptyTitle": "没有团队",
+			"emptyDescription": "当前会话不属于任何团队。agent 会用 TeamCreate 建立团队。",
+			"running": "运行中",
+			"idle": "空闲",
+			"missingSession": "（无会话）"
+		}
 	},
 	"channel": {
 		"title": "频道",
@@ -636,6 +638,34 @@
 			"showToolMessagesDesc": "在频道中展示工具调用和返回消息。",
 			"showThinking": "显示思维过程",
 			"showThinkingDesc": "在频道中展示模型推理过程。"
+		},
+		"fields": {
+			"app_id": {
+				"title": "应用 ID",
+				"description": "飞书应用 ID"
+			},
+			"app_secret": {
+				"title": "应用密钥",
+				"description": "飞书应用密钥"
+			},
+			"bot_token": {
+				"title": "机器人令牌"
+			},
+			"application_id": {
+				"title": "应用 ID"
+			},
+			"only_at_reply": {
+				"title": "仅在被提及时回复",
+				"description": "在群聊中，仅当机器人被 @提及时回复"
+			},
+			"show_tool_process": {
+				"title": "显示工具过程",
+				"description": "在回复中显示工具调用和返回结果"
+			},
+			"show_thinking": {
+				"title": "显示思考过程",
+				"description": "在回复中显示模型的推理过程"
+			}
 		},
 		"edit": {
 			"title": "编辑频道",
@@ -750,5 +780,16 @@
 	"agent-menu": {
 		"settings": "设置",
 		"delete": "删除智能体"
+	},
+	"workdir": {
+		"title": "工作目录",
+		"description": "选择智能体的工作目录。",
+		"root": "工作区根目录",
+		"parent": "上一级",
+		"errorTitle": "无法列出该文件夹",
+		"pathPlaceholder": "输入或粘贴路径",
+		"empty": "此文件夹为空",
+		"pressEnter": "先按回车校验该路径",
+		"gitTooltip": "{{staged}} 已暂存 · {{unstaged}} 已修改 · {{untracked}} 未跟踪\n行数不含未跟踪文件"
 	}
 }
