@@ -1170,7 +1170,7 @@ class TestDaytonaWorkspaceBuiltinToolsMock(IsolatedAsyncioTestCase):
         self.assertEqual([skill.name for skill in skills], ["demo-skill"])
         self.assertEqual(
             skills[0].dir,
-            "/home/daytona/skills/local-skill",
+            "/home/daytona/skills/default/local-skill",
         )
 
         await self.workspace.remove_skill("demo-skill")
@@ -1491,8 +1491,8 @@ class TestDaytonaWorkspaceLive(IsolatedAsyncioTestCase):
                 self.assertEqual(
                     [skill.dir for skill in seeded],
                     [
-                        f"{workspace.workdir}/skills/live_seed_one",
-                        f"{workspace.workdir}/skills/live_seed_two",
+                        f"{workspace.workdir}/skills/default/live_seed_one",
+                        f"{workspace.workdir}/skills/default/live_seed_two",
                     ],
                 )
 

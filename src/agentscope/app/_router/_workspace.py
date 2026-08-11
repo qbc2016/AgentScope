@@ -234,7 +234,7 @@ async def list_skills(
         agent_id,
         session_id,
     )
-    return await workspace.list_skills()
+    return await workspace.list_skills(agent_id=agent_id)
 
 
 @workspace_router.post(
@@ -261,7 +261,7 @@ async def add_skill(
         agent_id,
         session_id,
     )
-    await workspace.add_skill(body.skill_path)
+    await workspace.add_skill(body.skill_path, agent_id=agent_id)
 
 
 @workspace_router.post(
@@ -310,6 +310,7 @@ async def upload_skill(
             workspace_service.tar_stream(parsed, files),
             "tar",
             "skill",
+            agent_id=agent_id,
         )
     except (SkillUploadError, ValueError) as e:
         raise HTTPException(
@@ -367,6 +368,7 @@ async def add_skills_from_library(
                 archive.stream,
                 archive.format,
                 record.name,
+                agent_id=agent_id,
             )
         except Exception as e:  # pylint: disable=broad-except
             failed[record.name] = _describe_exception(e)
@@ -393,7 +395,7 @@ async def remove_skill(
         agent_id,
         session_id,
     )
-    await workspace.remove_skill(skill_name)
+    await workspace.remove_skill(skill_name, agent_id=agent_id)
 
 
 # ---------------------------------------------------------------------------
