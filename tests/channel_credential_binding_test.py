@@ -3,7 +3,7 @@
 
 import asyncio
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from agentscope.app._router._channel import (
     cancel_credential_binding,
@@ -12,7 +12,9 @@ from agentscope.app._router._channel import (
 from agentscope.app._service._channel import ChannelService
 from agentscope.app.channel import (
     ChannelError,
+    ChannelCredentialBindingSession,
     ChannelCredentialBindingState,
+    ChannelCredentialBindingStatus,
     ChannelCredentialBindingStore,
     ChannelTypeRegistry,
     FeishuChannel,
@@ -48,6 +50,7 @@ class _PausingMessageBus(InMemoryMessageBus):
         *,
         ttl_secs: int | None = None,
     ) -> None:
+        """Pause the selected write before delegating to the real bus."""
         if self.pause_next_write:
             self.pause_next_write = False
             self.write_started.set()
@@ -196,9 +199,14 @@ class TestChannelCredentialBindingStore(IsolatedAsyncioTestCase):
         self.assertFalse(delete_task.done())
 
         bus.resume_write.set()
-        self.assertTrue(await replace_task)
-        self.assertTrue(await delete_task)
-        self.assertIsNone(await store.get("binding"))
+        self.assertEqual(
+            (
+                await replace_task,
+                await delete_task,
+                await store.get("binding"),
+            ),
+            (True, True, None),
+        )
         await bus.aclose()
 
 
@@ -223,12 +231,74 @@ class TestFeishuCredentialBinding(IsolatedAsyncioTestCase):
             session = await binding.start("user", store)
             status = await binding.get_status("user", session.id, store)
 
-        self.assertEqual(session.qr_code_url, "data:image/svg+xml,test")
         self.assertEqual(
-            status.state,
-            ChannelCredentialBindingState.AUTHORIZED,
+            session,
+            ChannelCredentialBindingSession(
+                id=session.id,
+                qr_code_url="data:image/svg+xml,test",
+                expires_at=session.expires_at,
+                state=ChannelCredentialBindingState.AUTHORIZED,
+                message="Feishu application created successfully.",
+            ),
         )
-        self.assertNotIn("on_status_change", sdk.arguments)
+        self.assertEqual(
+            status,
+            ChannelCredentialBindingStatus(
+                id=session.id,
+                state=ChannelCredentialBindingState.AUTHORIZED,
+                expires_at=status.expires_at,
+                message="Feishu application created successfully.",
+            ),
+        )
+        self.assertEqual(
+            await store.get(session.id),
+            ChannelCredentialBindingRecord(
+                id=session.id,
+                user_id="user",
+                provider_id="feishu",
+                state=ChannelCredentialBindingState.AUTHORIZED,
+                expires_at=status.expires_at,
+                qr_code_url="data:image/svg+xml,test",
+                message="Feishu application created successfully.",
+                credentials={
+                    "app_id": "cli_test",
+                    "app_secret": "secret_test",
+                },
+            ),
+        )
+        self.assertEqual(
+            sdk.arguments,
+            {
+                "on_qr_code": ANY,
+                "source": "agentscope",
+                "app_preset": {
+                    "name": "{user}'s AgentScope bot",
+                    "desc": "Created by AgentScope",
+                },
+                "addons": {
+                    "scopes": {
+                        "tenant": [
+                            "im:message",
+                            "im:message:send_as_bot",
+                            "im:message.p2p_msg:readonly",
+                            "im:message.group_at_msg:readonly",
+                            "im:resource",
+                            "im:chat:readonly",
+                            "im:message.reactions:write",
+                            "cardkit:card:write",
+                        ],
+                    },
+                    "events": {
+                        "items": {
+                            "tenant": ["im.message.receive_v1"],
+                        },
+                    },
+                    "callbacks": {
+                        "items": ["card.action.trigger"],
+                    },
+                },
+            },
+        )
         self.assertEqual(
             await binding.resolve_credentials("user", session.id, store),
             {
@@ -238,7 +308,7 @@ class TestFeishuCredentialBinding(IsolatedAsyncioTestCase):
         )
 
         await binding.complete("user", session.id, store)
-        self.assertIsNone(await store.get(session.id))
+        self.assertEqual(await store.get(session.id), None)
         await binding.aclose()
         await bus.aclose()
 
@@ -279,11 +349,32 @@ class TestCredentialBindingConsumption(IsolatedAsyncioTestCase):
             create(),
             return_exceptions=True,
         )
+        successes = [
+            item for item in results if not isinstance(item, Exception)
+        ]
         failures = [item for item in results if isinstance(item, Exception)]
-        self.assertEqual(len(storage.channels), 1)
-        self.assertEqual(len(failures), 1)
-        self.assertIsInstance(failures[0], ChannelError)
-        self.assertEqual(binding.completed, 1)
+        self.assertEqual((len(successes), binding.completed), (1, 1))
+        record = successes[0]
+        self.assertEqual(storage.channels, {record.id: record})
+        self.assertEqual(storage.bot_ids, {"cli_test": record.id})
+        self.assertEqual(
+            [
+                (
+                    type(error),
+                    str(error),
+                    getattr(error, "status_code", None),
+                )
+                for error in failures
+            ],
+            [
+                (
+                    ChannelError,
+                    f"Bot 'cli_test' already registered as channel "
+                    f"'{record.id}'.",
+                    409,
+                ),
+            ],
+        )
         await bus.aclose()
 
 
@@ -305,11 +396,23 @@ class TestCredentialBindingRouting(IsolatedAsyncioTestCase):
 
     async def test_status_and_cancel_routes_only_use_binding_id(self) -> None:
         """Expose only opaque binding ids in poll and cancel routes."""
-        paths = {route.path for route in channel_router.routes}
-        self.assertIn("/channels/bindings/{binding_id}", paths)
-        self.assertNotIn(
-            "/channels/bindings/{channel_type}/{binding_id}",
-            paths,
+        routes = {
+            (route.path, frozenset(route.methods or set()))
+            for route in channel_router.routes
+            if route.path.startswith("/channels/bindings/")
+        }
+        self.assertEqual(
+            routes,
+            {
+                (
+                    "/channels/bindings/{binding_id}",
+                    frozenset({"GET"}),
+                ),
+                (
+                    "/channels/bindings/{binding_id}",
+                    frozenset({"DELETE"}),
+                ),
+            },
         )
 
     async def test_cancel_missing_binding_is_idempotent(self) -> None:
@@ -317,11 +420,14 @@ class TestCredentialBindingRouting(IsolatedAsyncioTestCase):
         bus = InMemoryMessageBus()
         registry = ChannelTypeRegistry([FeishuChannel])
 
-        await cancel_credential_binding(
-            "missing",
-            registry,
-            bus,
-            "user",
+        self.assertEqual(
+            await cancel_credential_binding(
+                "missing",
+                registry,
+                bus,
+                "user",
+            ),
+            None,
         )
 
         await registry.close_credential_bindings()
