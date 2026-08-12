@@ -12,7 +12,6 @@ event loop); inbound events are bridged to the app loop with
 ``run_coroutine_threadsafe``. Connection/reconnect is driven via the
 SDK's public ``start()`` — the one place to adapt if the SDK changes.
 """
-
 import asyncio
 import base64
 import json
@@ -49,8 +48,8 @@ if TYPE_CHECKING:
         P2CardActionTrigger,
         P2CardActionTriggerResponse,
     )
-    from .....tool import ToolBase
-    from .....workspace import WorkspaceBase
+    from ....tool import ToolBase
+    from ....workspace import WorkspaceBase
 
 _API = "https://open.feishu.cn/open-apis"
 _TOKEN_EXPIRED_CODES = frozenset({99991663, 99991664})

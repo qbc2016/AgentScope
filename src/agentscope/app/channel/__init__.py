@@ -7,7 +7,6 @@ the stateless :class:`ChannelGateway` orchestrates each event;
 :class:`ChannelLifecycleDispatcher` keeps this node's live instances
 reconciled with storage.
 """
-
 from ._base import (
     ChannelBase,
     ChannelCapability,

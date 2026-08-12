@@ -9,7 +9,6 @@ channel classes passed to :func:`~agentscope.app.create_app` via
 ``channels=[...]`` and exposes them to the service — frontend form
 schemas, bot-uniqueness checks, and per-record instance construction.
 """
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

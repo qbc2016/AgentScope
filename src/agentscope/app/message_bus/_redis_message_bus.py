@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """The Redis-backed message bus implementation."""
-
 import asyncio
 import json
 import uuid

@@ -14,7 +14,6 @@ dependency.
    For real deployments use :class:`RedisMessageBus` (or another
    networked backend).
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -28,9 +27,7 @@ from typing import Callable, Self
 from ._base import MessageBus
 
 
-class InMemoryMessageBus(
-    MessageBus,
-):  # pylint: disable=too-many-instance-attributes
+class InMemoryMessageBus(MessageBus):
     """In-memory implementation of :class:`MessageBus`.
 
     Mapping of bus modes to in-memory structures:

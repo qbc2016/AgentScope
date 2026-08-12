@@ -12,7 +12,6 @@ turn, only feeds the channel a run's event stream via ``send_response``
 (the channel folds and renders it) plus ``send_reaction`` — never its
 connection loop.
 """
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
