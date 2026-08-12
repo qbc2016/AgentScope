@@ -5,8 +5,8 @@ GET    /channels/types              List channel types + schemas
 GET    /channels/                   List the user's channels
 POST   /channels/                   Create a channel
 POST   /channels/bindings           Start QR credential binding
-GET    /channels/bindings/{type}/{id} Poll QR credential binding
-DELETE /channels/bindings/{type}/{id} Cancel QR credential binding
+GET    /channels/bindings/{id}      Poll QR credential binding
+DELETE /channels/bindings/{id}      Cancel QR credential binding
 GET    /channels/{id}               Channel details
 PATCH  /channels/{id}               Update routing/session/config
 DELETE /channels/{id}               Delete a channel
@@ -22,7 +22,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from ..channel import (
     ChannelCredentialBindingBase,
+    ChannelCredentialBindingSession,
     ChannelCredentialBindingStore,
+    ChannelCredentialBindingStatus,
     ChannelError,
     ChannelLifecycleDispatcher,
     ChannelStatus,
@@ -46,8 +48,6 @@ from ._schema import (
     ChannelChatIdsResponse,
     ChannelResponse,
     ChannelSessionsResponse,
-    ChannelCredentialBindingSessionResponse,
-    ChannelCredentialBindingStatusResponse,
     CreateChannelRequest,
     StartChannelCredentialBindingRequest,
     UpdateChannelRequest,
@@ -193,13 +193,33 @@ def _require_binding_provider(
     return provider
 
 
+async def _find_binding_provider_by_id(
+    binding_id: str,
+    registry: ChannelTypeRegistry,
+    store: ChannelCredentialBindingStore,
+) -> ChannelCredentialBindingBase | None:
+    """Resolve a binding provider from the shared opaque-id record."""
+    record = await store.get(binding_id)
+    if record is None:
+        return None
+    provider = registry.get_credential_binding_by_provider_id(
+        record.provider_id,
+    )
+    if provider is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Credential binding provider is not registered. Please retry.",
+        )
+    return provider
+
+
 @channel_router.post("/bindings", status_code=status.HTTP_201_CREATED)
 async def start_credential_binding(
     body: StartChannelCredentialBindingRequest,
     registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     message_bus: MessageBus = Depends(get_message_bus),
     user_id: str = Depends(get_current_user_id),
-) -> ChannelCredentialBindingSessionResponse:
+) -> ChannelCredentialBindingSession:
     """Start a platform-specific QR authorization session."""
     provider = _require_binding_provider(body.channel_type, registry)
     try:
@@ -209,54 +229,63 @@ async def start_credential_binding(
         )
     except ChannelError as e:
         raise HTTPException(e.status_code, str(e)) from e
-    return ChannelCredentialBindingSessionResponse(
-        **session.model_dump(),
-        channel_type=body.channel_type,
-    )
+    return session
 
 
-@channel_router.get("/bindings/{channel_type}/{binding_id}")
+@channel_router.get("/bindings/{binding_id}")
 async def get_credential_binding_status(
-    channel_type: str,
     binding_id: BindingIdPath,
     registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     message_bus: MessageBus = Depends(get_message_bus),
     user_id: str = Depends(get_current_user_id),
-) -> ChannelCredentialBindingStatusResponse:
+) -> ChannelCredentialBindingStatus:
     """Poll a QR authorization session without exposing credentials."""
-    provider = _require_binding_provider(channel_type, registry)
+    store = ChannelCredentialBindingStore(message_bus)
+    provider = await _find_binding_provider_by_id(
+        binding_id,
+        registry,
+        store,
+    )
+    if provider is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Credential binding session not found.",
+        )
     try:
         binding_status = await provider.get_status(
             user_id,
             binding_id,
-            ChannelCredentialBindingStore(message_bus),
+            store,
         )
     except ChannelError as e:
         raise HTTPException(e.status_code, str(e)) from e
-    return ChannelCredentialBindingStatusResponse(
-        **binding_status.model_dump(),
-        channel_type=channel_type,
-    )
+    return binding_status
 
 
 @channel_router.delete(
-    "/bindings/{channel_type}/{binding_id}",
+    "/bindings/{binding_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def cancel_credential_binding(
-    channel_type: str,
     binding_id: BindingIdPath,
     registry: ChannelTypeRegistry = Depends(get_channel_type_registry),
     message_bus: MessageBus = Depends(get_message_bus),
     user_id: str = Depends(get_current_user_id),
 ) -> None:
     """Cancel an unfinished QR authorization session."""
-    provider = _require_binding_provider(channel_type, registry)
+    store = ChannelCredentialBindingStore(message_bus)
+    provider = await _find_binding_provider_by_id(
+        binding_id,
+        registry,
+        store,
+    )
+    if provider is None:
+        return
     try:
         await provider.cancel(
             user_id,
             binding_id,
-            ChannelCredentialBindingStore(message_bus),
+            store,
         )
     except ChannelError as e:
         raise HTTPException(e.status_code, str(e)) from e

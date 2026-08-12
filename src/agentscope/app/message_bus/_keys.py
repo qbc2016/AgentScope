@@ -273,18 +273,6 @@ class MessageBusKeys:  # pylint: disable=too-many-public-methods
     _CHANNEL_CREDENTIAL_BINDING_LOCK = (
         "agentscope:channel:credential_binding_lock:{binding_id}"
     )
-    _CHANNEL_CREDENTIAL_BINDING_CONSUME_LOCK = (
-        "agentscope:channel:credential_binding_consume_lock:{binding_id}"
-    )
-    _CHANNEL_CREDENTIAL_BINDING_OWNER = (
-        "agentscope:channel:credential_binding_owner:{binding_id}"
-    )
-    _CHANNEL_CREDENTIAL_BINDING_USER_SLOT = (
-        "agentscope:channel:credential_binding_user_slot:{user_id}:{slot}"
-    )
-    _CHANNEL_CREDENTIAL_BINDING_USER_LOCK = (
-        "agentscope:channel:credential_binding_user_lock:{user_id}"
-    )
     _CHANNEL_BOT_LOCK = "agentscope:channel:bot_lock:{bot_id}"
 
     @classmethod
@@ -342,42 +330,6 @@ class MessageBusKeys:  # pylint: disable=too-many-public-methods
         """Distributed lock guarding one credential binding record."""
         return cls._CHANNEL_CREDENTIAL_BINDING_LOCK.format(
             binding_id=binding_id,
-        )
-
-    @classmethod
-    def channel_credential_binding_consume_lock(
-        cls,
-        binding_id: str,
-    ) -> str:
-        """Lock serializing the durable consumption of one binding."""
-        return cls._CHANNEL_CREDENTIAL_BINDING_CONSUME_LOCK.format(
-            binding_id=binding_id,
-        )
-
-    @classmethod
-    def channel_credential_binding_owner(cls, binding_id: str) -> str:
-        """Short lease proving the registration worker is still alive."""
-        return cls._CHANNEL_CREDENTIAL_BINDING_OWNER.format(
-            binding_id=binding_id,
-        )
-
-    @classmethod
-    def channel_credential_binding_user_slot(
-        cls,
-        user_id: str,
-        slot: int,
-    ) -> str:
-        """Independent TTL registry for one user's binding slot."""
-        return cls._CHANNEL_CREDENTIAL_BINDING_USER_SLOT.format(
-            user_id=user_id,
-            slot=slot,
-        )
-
-    @classmethod
-    def channel_credential_binding_user_lock(cls, user_id: str) -> str:
-        """Lock serializing per-user credential binding reservations."""
-        return cls._CHANNEL_CREDENTIAL_BINDING_USER_LOCK.format(
-            user_id=user_id,
         )
 
     @classmethod

@@ -43,13 +43,11 @@ export const channelApi = {
 			channel_type: channelType,
 		}),
 
-	bindingStatus: (channelType: string, bindingId: string) =>
+	bindingStatus: (bindingId: string) =>
 		client.get<ChannelCredentialBindingStatus>(
-			`/channels/bindings/${encodeURIComponent(channelType)}/${encodeURIComponent(bindingId)}`,
+			`/channels/bindings/${encodeURIComponent(bindingId)}`,
 		),
 
-	cancelBinding: (channelType: string, bindingId: string) =>
-		client.delete(
-			`/channels/bindings/${encodeURIComponent(channelType)}/${encodeURIComponent(bindingId)}`,
-		),
+	cancelBinding: (bindingId: string) =>
+		client.delete(`/channels/bindings/${encodeURIComponent(bindingId)}`),
 };

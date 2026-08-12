@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel
 
 from ._credential_binding import (
     ChannelCredentialBindingBase,
@@ -23,23 +23,6 @@ from ._credential_binding import (
 
 if TYPE_CHECKING:
     from ._base import ChannelBase
-
-
-def _reveal_validated_value(value: object) -> object:
-    """Convert validated credential values into storage-safe primitives."""
-    if isinstance(value, SecretStr):
-        return value.get_secret_value()
-    if isinstance(value, BaseModel):
-        return _reveal_validated_value(
-            value.model_dump(mode="python", by_alias=True),
-        )
-    if isinstance(value, dict):
-        return {
-            key: _reveal_validated_value(item) for key, item in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [_reveal_validated_value(item) for item in value]
-    return value
 
 
 class ChannelTypeSchema(BaseModel):
@@ -74,6 +57,10 @@ class ChannelTypeRegistry:
                 ``create_app(channels=[...])``.
         """
         self._classes: dict[str, type["ChannelBase"]] = {}
+        self._credential_bindings: dict[
+            str,
+            ChannelCredentialBindingBase,
+        ] = {}
         for channel_cls in channels or []:
             self.register(channel_cls)
 
@@ -93,7 +80,26 @@ class ChannelTypeRegistry:
                 f"{channel_cls.__name__} must set a non-empty "
                 f"'channel_type' to be registered.",
             )
-        self._classes[channel_type] = channel_cls
+        classes = {**self._classes, channel_type: channel_cls}
+        bindings: dict[str, ChannelCredentialBindingBase] = {}
+        for registered_cls in classes.values():
+            binding = registered_cls.credential_binding
+            if binding is None:
+                continue
+            if not binding.provider_id:
+                raise ValueError(
+                    f"{type(binding).__name__} must set a non-empty "
+                    f"'provider_id'.",
+                )
+            existing = bindings.get(binding.provider_id)
+            if existing is not None and existing is not binding:
+                raise ValueError(
+                    f"Credential binding provider id "
+                    f"'{binding.provider_id}' is already registered.",
+                )
+            bindings[binding.provider_id] = binding
+        self._classes = classes
+        self._credential_bindings = bindings
 
     def get(self, channel_type: str) -> type["ChannelBase"] | None:
         """Return the channel class for a type, or ``None``.
@@ -193,14 +199,16 @@ class ChannelTypeRegistry:
         channel_cls = self._classes.get(channel_type)
         return channel_cls.credential_binding if channel_cls else None
 
+    def get_credential_binding_by_provider_id(
+        self,
+        provider_id: str,
+    ) -> ChannelCredentialBindingBase | None:
+        """Return the binding provider identified by a stored record."""
+        return self._credential_bindings.get(provider_id)
+
     async def close_credential_bindings(self) -> None:
         """Close each distinct credential provider registered by the app."""
-        seen: set[int] = set()
-        for channel_cls in self._classes.values():
-            binding = channel_cls.credential_binding
-            if binding is None or id(binding) in seen:
-                continue
-            seen.add(id(binding))
+        for binding in self._credential_bindings.values():
             await binding.aclose()
 
     def validate_credentials(
@@ -216,13 +224,7 @@ class ChannelTypeRegistry:
                 f"to create_app(channels=[...]).",
             )
         validated = channel_cls.Credentials.model_validate(credentials)
-        # Return the validated shape so ignored extras never reach storage,
-        # while preserving the real values of fields declared SecretStr.
-        normalized = _reveal_validated_value(
-            validated.model_dump(mode="python", by_alias=True),
-        )
-        assert isinstance(normalized, dict)
-        return normalized
+        return validated.model_dump(by_alias=True)
 
     def extract_platform_bot_id(
         self,

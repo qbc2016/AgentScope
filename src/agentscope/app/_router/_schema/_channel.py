@@ -3,11 +3,6 @@
 
 from pydantic import BaseModel, Field, model_validator
 
-from ...channel import (
-    ChannelCredentialBindingSession,
-    ChannelCredentialBindingStatus,
-)
-
 from ...storage import (
     RoutingConfig,
     SessionRecord,
@@ -52,22 +47,6 @@ class CreateChannelRequest(BaseModel):
 
 class StartChannelCredentialBindingRequest(BaseModel):
     """Start a QR-code binding session for a channel type."""
-
-    channel_type: str
-
-
-class ChannelCredentialBindingSessionResponse(
-    ChannelCredentialBindingSession,
-):
-    """Binding session plus its channel type for the generic WebUI."""
-
-    channel_type: str
-
-
-class ChannelCredentialBindingStatusResponse(
-    ChannelCredentialBindingStatus,
-):
-    """Binding poll response plus its channel type."""
 
     channel_type: str
 

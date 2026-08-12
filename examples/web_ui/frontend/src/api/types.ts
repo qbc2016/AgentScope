@@ -1103,14 +1103,12 @@ export interface ChannelCredentialMode {
 
 export type ChannelCredentialBindingState =
 	| 'pending'
-	| 'scanned'
 	| 'authorized'
 	| 'expired'
 	| 'failed';
 
 export interface ChannelCredentialBindingSession {
 	id: string;
-	channel_type: string;
 	qr_code_url: string;
 	expires_at: string;
 	state: ChannelCredentialBindingState;
@@ -1119,7 +1117,6 @@ export interface ChannelCredentialBindingSession {
 
 export interface ChannelCredentialBindingStatus {
 	id: string;
-	channel_type: string;
 	state: ChannelCredentialBindingState;
 	expires_at: string;
 	message: string;

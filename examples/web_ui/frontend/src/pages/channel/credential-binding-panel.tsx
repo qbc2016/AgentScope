@@ -40,7 +40,7 @@ export function CredentialBindingPanel({ channelType, description, onAuthorized 
 
 		const poll = async () => {
 			try {
-				const status = await channelApi.bindingStatus(channelType, bindingId);
+				const status = await channelApi.bindingStatus(bindingId);
 				if (disposed) return;
 				setState(status.state);
 				setMessage(status.message);
@@ -61,12 +61,12 @@ export function CredentialBindingPanel({ channelType, description, onAuthorized 
 			.startBinding(channelType)
 			.then((session) => {
 				if (disposed) {
-					void channelApi.cancelBinding(channelType, session.id).catch(() => {});
+					void channelApi.cancelBinding(session.id).catch(() => {});
 					return;
 				}
 				bindingId = session.id;
 				if (!isSafeQrCodeUrl(session.qr_code_url)) {
-					void channelApi.cancelBinding(channelType, bindingId).catch(() => {});
+					void channelApi.cancelBinding(bindingId).catch(() => {});
 					throw new Error(t('channel.binding.invalidQrCode'));
 				}
 				setQrCodeUrl(session.qr_code_url);
@@ -84,7 +84,7 @@ export function CredentialBindingPanel({ channelType, description, onAuthorized 
 			disposed = true;
 			if (timer) clearTimeout(timer);
 			if (bindingId) {
-				void channelApi.cancelBinding(channelType, bindingId).catch(() => {});
+				void channelApi.cancelBinding(bindingId).catch(() => {});
 			}
 		};
 	}, [channelType, generation, t]);

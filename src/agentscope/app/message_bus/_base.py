@@ -40,7 +40,6 @@ should fan out at write time — push one entry per recipient inbox using
 Mode A. The bus stays simple; deduplication is the producer's
 responsibility.
 """
-
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager

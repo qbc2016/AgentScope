@@ -60,8 +60,8 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
     browser. Private state is stored through ``MessageBus`` with a hard TTL,
     so a Redis-backed deployment supports non-sticky multi-worker requests.
     The SDK does not expose its device code for restart recovery; a shared
-    worker lease therefore turns an interrupted pending flow into an explicit
-    retryable failure instead of leaving it apparently pending until expiry.
+    record therefore remains retryable from any worker while the SDK polling
+    task stays pinned to the process that started it.
     """
 
     display_name = "Scan QR code"
@@ -74,12 +74,10 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
         addons: dict | None = None,
         authorized_ttl_secs: int = 300,
         terminal_ttl_secs: int = 60,
-        owner_lease_secs: int = 15,
     ) -> None:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._authorized_ttl_secs = max(authorized_ttl_secs, 1)
         self._terminal_ttl_secs = max(terminal_ttl_secs, 1)
-        self._owner_lease_secs = max(owner_lease_secs, 1)
         self._app_preset = app_preset or {
             "name": "{user}'s AgentScope bot",
             "desc": "Created by AgentScope",
@@ -146,8 +144,6 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
             state=ChannelCredentialBindingState.PENDING,
             expires_at=(_utc_now() + timedelta(minutes=5)).isoformat(),
         )
-        await store.create(record, 300 + self._terminal_ttl_secs)
-        await store.refresh_owner(binding_id, self._owner_lease_secs)
         qr_ready = asyncio.get_running_loop().create_future()
         task = asyncio.create_task(
             self._register(sdk, record, store, qr_ready),
@@ -203,12 +199,8 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
     ) -> None:
         """Run the SDK registration coroutine and persist short-lived state."""
         loop = asyncio.get_running_loop()
-        updates: list[asyncio.Task[bool]] = []
-        heartbeat = asyncio.create_task(
-            self._owner_heartbeat(record.id, store),
-        )
 
-        async def persist_qr(snapshot: ChannelCredentialBindingRecord) -> bool:
+        async def persist_qr(snapshot: ChannelCredentialBindingRecord) -> None:
             expire_in = max(
                 int(
                     (
@@ -217,27 +209,21 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                 ),
                 1,
             )
-            saved = await store.replace(
-                snapshot,
-                expire_in + self._terminal_ttl_secs,
-                {
-                    ChannelCredentialBindingState.PENDING,
-                    ChannelCredentialBindingState.SCANNED,
-                },
-            )
+            try:
+                await store.create(
+                    snapshot,
+                    expire_in + self._terminal_ttl_secs,
+                )
+            except Exception as exc:  # pylint: disable=broad-except
+                if not qr_ready.done():
+                    qr_ready.set_exception(exc)
+                return
             if not qr_ready.done():
-                if saved:
-                    qr_ready.set_result(None)
-                else:
-                    qr_ready.set_exception(
-                        ChannelError(
-                            "Credential binding session was cancelled.",
-                            409,
-                        ),
-                    )
-            return saved
+                qr_ready.set_result(None)
 
         def handle_qr_code(info: dict) -> None:
+            if record.qr_code_url or qr_ready.done():
+                return
             expire_in = max(int(info.get("expire_in", 300)), 1)
             record.expires_at = (
                 _utc_now() + timedelta(seconds=expire_in)
@@ -261,60 +247,21 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                     )
                 return
             record.message = "Waiting for authorization in Feishu or Lark."
-            updates.append(
-                asyncio.create_task(persist_qr(record.model_copy(deep=True))),
+            asyncio.create_task(
+                persist_qr(record.model_copy(deep=True)),
             )
 
         def on_qr_code(info: dict) -> None:
             loop.call_soon_threadsafe(handle_qr_code, dict(info))
 
-        def handle_status_change(info: dict) -> None:
-            status = str(info.get("status", ""))
-            if status == "slow_down":
-                record.message = "Authorization is still pending."
-            elif status == "domain_switched":
-                record.message = "Continue authorization in Lark."
-            else:
-                return
-            updates.append(
-                asyncio.create_task(
-                    store.replace(
-                        record.model_copy(deep=True),
-                        max(
-                            int(
-                                (
-                                    _parse_timestamp(record.expires_at)
-                                    - _utc_now()
-                                ).total_seconds(),
-                            ),
-                            1,
-                        )
-                        + self._terminal_ttl_secs,
-                        {
-                            ChannelCredentialBindingState.PENDING,
-                            ChannelCredentialBindingState.SCANNED,
-                        },
-                    ),
-                ),
-            )
-
-        def on_status_change(info: dict) -> None:
-            loop.call_soon_threadsafe(handle_status_change, dict(info))
-
         try:
             result: dict[str, Any] = await sdk.aregister_app(
                 on_qr_code=on_qr_code,
-                on_status_change=on_status_change,
                 source="agentscope",
                 app_preset=self._app_preset,
                 addons=self._addons,
             )
-            # Thread-safe callback dispatch is queued onto this loop. Yield
-            # once so all callbacks made before SDK completion can register
-            # their persistence tasks before the final state transition.
-            await asyncio.sleep(0)
-            if updates:
-                await asyncio.gather(*updates)
+            await asyncio.shield(qr_ready)
             record.credentials = {
                 "app_id": str(result["client_id"]),
                 "app_secret": str(result["client_secret"]),
@@ -329,7 +276,6 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                 self._authorized_ttl_secs,
                 {
                     ChannelCredentialBindingState.PENDING,
-                    ChannelCredentialBindingState.SCANNED,
                 },
             )
             if not saved:
@@ -343,8 +289,6 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                 qr_ready.cancel()
             raise
         except Exception as exc:  # pylint: disable=broad-except
-            if updates:
-                await asyncio.gather(*updates, return_exceptions=True)
             logger.warning(
                 "Feishu credential binding '%s' failed.",
                 record.id,
@@ -368,7 +312,6 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                 self._terminal_ttl_secs,
                 {
                     ChannelCredentialBindingState.PENDING,
-                    ChannelCredentialBindingState.SCANNED,
                 },
             )
             if not saved:
@@ -380,25 +323,6 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
                 qr_ready.set_exception(
                     ChannelError(record.message, 502),
                 )
-        finally:
-            heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
-            await store.clear_owner(record.id)
-
-    async def _owner_heartbeat(
-        self,
-        binding_id: str,
-        store: ChannelCredentialBindingStore,
-    ) -> None:
-        """Keep a short shared lease while this worker drives polling."""
-        interval = max(self._owner_lease_secs / 3, 0.25)
-        while True:
-            await asyncio.sleep(interval)
-            if not await store.refresh_owner(
-                binding_id,
-                self._owner_lease_secs,
-            ):
-                return
 
     async def _owned(
         self,
@@ -426,39 +350,9 @@ class FeishuCredentialBinding(ChannelCredentialBindingBase):
         binding_id: str,
         store: ChannelCredentialBindingStore,
     ) -> ChannelCredentialBindingStatus:
-        """Return status, including a retryable lost-worker failure."""
+        """Return the current public status for an owned binding."""
         record = await self._owned(user_id, binding_id, store)
-        active_states = {
-            ChannelCredentialBindingState.PENDING,
-            ChannelCredentialBindingState.SCANNED,
-        }
-        if record.state in active_states:
-            failed = record.model_copy(
-                update={
-                    "state": ChannelCredentialBindingState.FAILED,
-                    "credentials": None,
-                    "message": (
-                        "The authorization worker stopped. "
-                        "Please retry QR binding."
-                    ),
-                    "expires_at": (
-                        _utc_now() + timedelta(seconds=self._terminal_ttl_secs)
-                    ).isoformat(),
-                },
-            )
-            current, failed_owner = await store.replace_if_owner_missing(
-                failed,
-                self._terminal_ttl_secs,
-                active_states,
-            )
-            if current is None:
-                record = await self._owned(user_id, binding_id, store)
-            else:
-                record = current
-            if failed_owner:
-                task = self._tasks.get(binding_id)
-                if task is not None:
-                    task.cancel()
+        active_states = {ChannelCredentialBindingState.PENDING}
         if record.state in active_states | {
             ChannelCredentialBindingState.AUTHORIZED,
         } and _utc_now() >= _parse_timestamp(record.expires_at):

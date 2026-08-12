@@ -22,9 +22,6 @@ from ..channel._credential_binding import ChannelCredentialBindingStore
 from ..channel._registry import ChannelTypeRegistry
 
 
-_BINDING_CONSUME_LOCK_TTL_SECS = 60
-
-
 class ChannelService:
     """CRUD operations on channel records."""
 
@@ -89,58 +86,42 @@ class ChannelService:
                     "credential binding.",
                     400,
                 )
-            consume_lock = (
-                MessageBusKeys.channel_credential_binding_consume_lock(
-                    credential_binding_id,
-                )
+            credentials = await binding.resolve_credentials(
+                user_id,
+                credential_binding_id,
+                self._binding_store,
             )
-            async with self._bus.acquire_lock(
-                consume_lock,
-                ttl_secs=_BINDING_CONSUME_LOCK_TTL_SECS,
-            ):
-                resolved_credentials = await binding.resolve_credentials(
+        else:
+            assert credentials is not None
+
+        record = await self._persist_new(
+            user_id=user_id,
+            channel_type=channel_type,
+            credentials=credentials,
+            platform_config=platform_config,
+            routing=routing,
+            session=session,
+            enabled=enabled,
+            name=name,
+        )
+        if binding is not None:
+            assert credential_binding_id is not None
+            try:
+                await binding.complete(
                     user_id,
                     credential_binding_id,
                     self._binding_store,
                 )
-                record = await self._persist_new(
-                    user_id=user_id,
-                    channel_type=channel_type,
-                    credentials=resolved_credentials,
-                    platform_config=platform_config,
-                    routing=routing,
-                    session=session,
-                    enabled=enabled,
-                    name=name,
+            except Exception:  # pylint: disable=broad-except
+                # The record is already durable. A cleanup failure must not
+                # turn a successful create into a misleading 500. A retry is
+                # rejected by the bot uniqueness lock before it can create a
+                # duplicate.
+                logger.warning(
+                    "Failed to complete channel credential binding '%s'.",
+                    credential_binding_id,
+                    exc_info=True,
                 )
-                try:
-                    await binding.complete(
-                        user_id,
-                        credential_binding_id,
-                        self._binding_store,
-                    )
-                except Exception:  # pylint: disable=broad-except
-                    # The record is already durable. A cleanup failure must
-                    # not turn a successful create into a misleading 500.
-                    # A retry is serialized here and rejected by the bot
-                    # uniqueness lock before it can create a duplicate.
-                    logger.warning(
-                        "Failed to complete channel credential binding '%s'.",
-                        credential_binding_id,
-                        exc_info=True,
-                    )
-        else:
-            assert credentials is not None
-            record = await self._persist_new(
-                user_id=user_id,
-                channel_type=channel_type,
-                credentials=credentials,
-                platform_config=platform_config,
-                routing=routing,
-                session=session,
-                enabled=enabled,
-                name=name,
-            )
         await self._notify(record.id)
         return record
 

@@ -707,7 +707,6 @@
 			"retry": "Generate a new code",
 			"state": {
 				"pending": "Waiting to be scanned",
-				"scanned": "Scanned — approve access on your device",
 				"authorized": "Authorization complete",
 				"expired": "This QR code has expired",
 				"failed": "Could not authorize"
