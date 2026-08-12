@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Request / response schemas for the channel router."""
-
 from pydantic import BaseModel, Field, model_validator
 
 from ...storage import (

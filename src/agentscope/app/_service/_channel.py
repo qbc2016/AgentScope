@@ -5,7 +5,6 @@ Validates, writes the record, and publishes a lifecycle notification so
 every node's :class:`ChannelLifecycleDispatcher` reconciles its running
 instances against storage. Holds no channel instances.
 """
-
 from datetime import datetime
 
 from ..._logging import logger
@@ -86,18 +85,19 @@ class ChannelService:
                     "credential binding.",
                     400,
                 )
-            credentials = await binding.resolve_credentials(
+            resolved_credentials = await binding.resolve_credentials(
                 user_id,
                 credential_binding_id,
                 self._binding_store,
             )
         else:
             assert credentials is not None
+            resolved_credentials = credentials
 
         record = await self._persist_new(
             user_id=user_id,
             channel_type=channel_type,
-            credentials=credentials,
+            credentials=resolved_credentials,
             platform_config=platform_config,
             routing=routing,
             session=session,
