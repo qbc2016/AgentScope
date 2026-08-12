@@ -1101,11 +1101,7 @@ export interface ChannelCredentialMode {
 	description?: string;
 }
 
-export type ChannelCredentialBindingState =
-	| 'pending'
-	| 'authorized'
-	| 'expired'
-	| 'failed';
+export type ChannelCredentialBindingState = 'pending' | 'authorized' | 'expired' | 'failed';
 
 export interface ChannelCredentialBindingSession {
 	id: string;
