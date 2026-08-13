@@ -327,9 +327,10 @@ Usage:
                     self._image_format
                 ]
                 img = Image.open(io.BytesIO(raw))
-                if pil_fmt == "JPEG" and img.mode in (
-                    "RGBA",
-                    "P",
+                if pil_fmt == "JPEG" and img.mode not in (
+                    "L",
+                    "RGB",
+                    "CMYK",
                 ):
                     img = img.convert("RGB")
                 buf = io.BytesIO()

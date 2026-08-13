@@ -462,6 +462,53 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         finally:
             os.unlink(png_path)
 
+    async def test_image_format_converts_la_png_to_jpeg(self) -> None:
+        """Test image_format converts an LA mode PNG to JPEG."""
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow not installed")
+
+        img = Image.new("LA", (2, 2), color=(128, 64))
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".png",
+        ) as f:
+            img.save(f.name, format="PNG")
+            png_path = f.name
+
+        try:
+            tool = Read(image_format="jpeg")
+            chunk = await tool(file_path=png_path)
+
+            self.assertEqual(
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "data",
+                            "id": AnyString(),
+                            "source": {
+                                "type": "base64",
+                                "data": AnyString(),
+                                "media_type": "image/jpeg",
+                            },
+                            "name": os.path.basename(
+                                png_path,
+                            ),
+                        },
+                    ],
+                    "state": "running",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
+            )
+            jpeg_data = base64.b64decode(chunk.content[0].source.data)
+            self.assertTrue(jpeg_data.startswith(b"\xff\xd8\xff"))
+        finally:
+            os.unlink(png_path)
+
     async def test_image_format_none_keeps_original(self) -> None:
         """Test image_format=None keeps original format."""
         img_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
