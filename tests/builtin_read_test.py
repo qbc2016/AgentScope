@@ -406,6 +406,8 @@ class ReadToolTest(IsolatedAsyncioTestCase):
                             "name": os.path.basename(
                                 bmp_path,
                             ),
+                            "created_at": AnyString(),
+                            "finished_at": None,
                         },
                     ],
                     "state": "running",
@@ -451,6 +453,8 @@ class ReadToolTest(IsolatedAsyncioTestCase):
                             "name": os.path.basename(
                                 png_path,
                             ),
+                            "created_at": AnyString(),
+                            "finished_at": None,
                         },
                     ],
                     "state": "running",
@@ -496,6 +500,8 @@ class ReadToolTest(IsolatedAsyncioTestCase):
                             "name": os.path.basename(
                                 png_path,
                             ),
+                            "created_at": AnyString(),
+                            "finished_at": None,
                         },
                     ],
                     "state": "running",
@@ -541,6 +547,8 @@ class ReadToolTest(IsolatedAsyncioTestCase):
                             "name": os.path.basename(
                                 png_path,
                             ),
+                            "created_at": AnyString(),
+                            "finished_at": None,
                         },
                     ],
                     "state": "running",
@@ -584,6 +592,8 @@ class ReadToolTest(IsolatedAsyncioTestCase):
                             "name": os.path.basename(
                                 mp3_path,
                             ),
+                            "created_at": AnyString(),
+                            "finished_at": None,
                         },
                     ],
                     "state": "running",
