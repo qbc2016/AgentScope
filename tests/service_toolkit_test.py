@@ -9,6 +9,7 @@ Verifies the assembly rules:
 - workspace builtins are always included;
 - the four ``Task*`` planning tools are always included;
 - :class:`ToolStop` (from ``BackgroundTaskManager``) is always included;
+- :class:`RequestUserInput` is included for user/leader sessions only;
 - the four ``Schedule*`` tools only when ``session.config.chat_model_config``
   is set (they need a model to fire new runs with);
 - team tools are role-gated by ``agent_record.source``: ``"team"`` →
@@ -33,6 +34,7 @@ from agentscope.app.storage import (
     ChatModelConfig,
     SessionConfig,
     SessionRecord,
+    SessionSource,
     TeamData,
     TeamRecord,
 )
@@ -255,6 +257,8 @@ class TestGetToolkitBaseAssembly(IsolatedAsyncioTestCase):
         )
         # Background task control present.
         self.assertIn("ToolStop", names)
+        # Structured user interaction is available to ordinary sessions.
+        self.assertIn("RequestUserInput", names)
         # Schedule control present (model_config is set).
         self.assertTrue(
             {
@@ -319,6 +323,7 @@ class TestGetToolkitWorkerVariant(IsolatedAsyncioTestCase):
         names = set(_tool_names(toolkit))
         # Only TeamSay from the team toolset.
         self.assertIn("TeamSay", names)
+        self.assertNotIn("RequestUserInput", names)
         for missing in (
             "TeamCreate",
             "AgentCreate",
@@ -368,6 +373,36 @@ class TestGetToolkitSchedulingGuard(IsolatedAsyncioTestCase):
             "ScheduleList",
         ):
             self.assertNotIn(missing, names)
+
+    async def test_scheduled_session_has_no_user_input_tool(self) -> None:
+        """An unattended scheduled run cannot request interactive input."""
+        agent = _make_agent(source="user")
+        session = _make_session(
+            user_id="u",
+            agent_id=agent.id,
+            with_model=True,
+        )
+        session.source = SessionSource.SCHEDULE
+        toolkit = await get_toolkit(
+            storage=_NoOpStorage(),  # type: ignore[arg-type]
+            workspace=_FakeWorkspace(),  # type: ignore[arg-type]
+            workspace_manager=FakeWorkspaceManager(),
+            scheduler_manager=SchedulerManager(
+                storage=_NoOpStorage(),  # type: ignore[arg-type]
+                message_bus=_NullBus(),  # type: ignore[arg-type]
+            ),
+            background_task_manager=BackgroundTaskManager(
+                message_bus=_NullBus(),  # type: ignore[arg-type]
+            ),
+            message_bus=_NullBus(),  # type: ignore[arg-type]
+            user_id="u",
+            agent_record=agent,
+            session_record=session,
+            extra_factory=None,
+            middlewares=[],
+            resource_access_service=_make_access(_NoOpStorage()),
+        )
+        self.assertNotIn("RequestUserInput", _tool_names(toolkit))
 
 
 class TestGetToolkitExtraFactory(IsolatedAsyncioTestCase):

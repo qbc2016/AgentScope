@@ -106,6 +106,19 @@
 		"toConfirm": "确认",
 		"yesWithRule": "是，且该次对话中都允许 {{toolName}} 执行 {{ruleContent}}"
 	},
+	"requestUserInput": {
+		"eyebrow": "需要你的决定",
+		"recommended": "推荐",
+		"other": "其他",
+		"otherPlaceholder": "请输入其他方案",
+		"cancel": "取消",
+		"cancelling": "正在取消",
+		"invalidTitle": "无法显示此选择请求",
+		"invalidDescription": "请取消本次请求，并让智能体重新发起选择。",
+		"historyAsked": "已询问",
+		"historyAnswered": "已选择",
+		"submit": "继续"
+	},
 	"messageBubble": {
 		"thinking": "思考中",
 		"thinkingFor": "思考 {{duration}}",

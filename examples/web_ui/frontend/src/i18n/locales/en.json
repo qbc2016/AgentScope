@@ -106,6 +106,19 @@
 		"toConfirm": "to confirm",
 		"yesWithRule": "Yes, and allow {{toolName}} to execute {{ruleContent}} for this session"
 	},
+	"requestUserInput": {
+		"eyebrow": "Your decision",
+		"recommended": "Recommended",
+		"other": "Other",
+		"otherPlaceholder": "Enter a different answer",
+		"cancel": "Cancel",
+		"cancelling": "Cancelling",
+		"invalidTitle": "This choice cannot be displayed",
+		"invalidDescription": "Cancel this request and ask the agent to try again.",
+		"historyAsked": "Asked",
+		"historyAnswered": "Selected",
+		"submit": "Continue"
+	},
 	"messageBubble": {
 		"thinking": "Thinking",
 		"thinkingFor": "Thinking for {{duration}}",

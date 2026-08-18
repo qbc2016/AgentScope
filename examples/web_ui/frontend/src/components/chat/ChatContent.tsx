@@ -13,6 +13,7 @@ import type { GitStatus } from '@/api';
 import { ASMessageBubble } from '@/components/chat/ASMessageBubble.tsx';
 import { ConfirmCard } from '@/components/chat/ConfirmCard.tsx';
 import { FlipCard } from '@/components/chat/FlipCard.tsx';
+import { RequestUserInputCard } from '@/components/chat/RequestUserInputCard';
 import { TextInput } from '@/components/chat/TextInput.tsx';
 import { WorkingDirectoryDialog } from '@/components/dialog/WorkingDirectoryDialog';
 import {
@@ -26,6 +27,11 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import type { ReplyPhase } from '@/hooks/useMessages';
 import { useTranslation } from '@/i18n/useI18n';
+import {
+	REQUEST_USER_INPUT_TOOL_NAME,
+	toOtherUserInputResult,
+	type RequestUserInputResult,
+} from '@/lib/request-user-input';
 import { cn } from '@/lib/utils';
 
 /** How long a load may run before it is worth showing a spinner. */
@@ -52,6 +58,11 @@ interface ChatContentProps {
 		confirm: boolean,
 		replyId: string,
 		rules?: ToolCallBlock['suggested_rules'],
+	) => Promise<void>;
+	onRequestUserInput: (
+		toolCall: ToolCallBlock,
+		result: RequestUserInputResult,
+		replyId: string,
 	) => Promise<void>;
 	autoComplete?: (input: string) => string | null;
 	className?: string;
@@ -90,6 +101,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	disabled,
 	onSend,
 	onUserConfirm,
+	onRequestUserInput,
 	autoComplete,
 	className,
 	onInterrupt,
@@ -131,6 +143,31 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 			.filter((tc) => tc.state === 'asking')
 			.map((tc) => ({ replyId: lastMsg.id, toolCall: tc }));
 	}, [msgs]);
+
+	const pendingUserInputs = useMemo(() => {
+		if (msgs.length === 0) return [];
+
+		const lastMsg = msgs[msgs.length - 1];
+		return getContentBlocks(lastMsg, 'tool_call')
+			.filter(
+				(toolCall) =>
+					toolCall.state === 'submitted' &&
+					toolCall.name === REQUEST_USER_INPUT_TOOL_NAME,
+			)
+			.map((toolCall) => ({ replyId: lastMsg.id, toolCall }));
+	}, [msgs]);
+
+	const handleSend = (content: ContentBlock[]) => {
+		const pending = pendingUserInputs[0];
+		if (!pending) {
+			onSend(content);
+			return;
+		}
+
+		const result = toOtherUserInputResult(content);
+		if (!result) return;
+		void onRequestUserInput(pending.toolCall, result, pending.replyId).catch(() => undefined);
+	};
 
 	// On an empty session the prompt and the input centre together, so every box
 	// down to the message list shrinks to its content instead of filling.
@@ -174,7 +211,11 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 			{loading ? null : (
 				<div className="relative min-w-full max-w-full w-full">
 					<FlipCard
-						visible={toConfirmedToolCalls.length > 0 || footerSlot !== null}
+						visible={
+							toConfirmedToolCalls.length > 0 ||
+							pendingUserInputs.length > 0 ||
+							footerSlot !== null
+						}
 						className="absolute bottom-full left-0 right-0 mb-2 z-50"
 					>
 						{toConfirmedToolCalls.length > 0 ? (
@@ -190,6 +231,20 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 									)
 								}
 							/>
+						) : pendingUserInputs.length > 0 ? (
+							<RequestUserInputCard
+								key={`${pendingUserInputs[0].replyId}:${pendingUserInputs[0].toolCall.id}`}
+								toolCall={pendingUserInputs[0].toolCall}
+								onSubmit={(result) =>
+									onRequestUserInput(
+										pendingUserInputs[0].toolCall,
+										result,
+										pendingUserInputs[0].replyId,
+									)
+								}
+								onCancel={onInterrupt}
+								cancelling={phase === 'interrupting'}
+							/>
 						) : (
 							footerSlot
 						)}
@@ -201,12 +256,13 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 				    pill's corners cutting into it. */}
 					<TextInput
 						className="min-w-full max-w-full w-full rounded-[32px] bg-muted p-1"
-						onSend={onSend}
+						onSend={handleSend}
 						disabled={disabled}
 						autoComplete={autoComplete}
-						allowedInputTypes={allowedInputTypes}
+						allowedInputTypes={pendingUserInputs.length > 0 ? [] : allowedInputTypes}
 						fileProcessor={fileProcessor}
 						phase={phase}
+						acceptsInput={pendingUserInputs.length > 0}
 						onInterrupt={onInterrupt}
 						headerSlot={
 							<div className="flex w-full items-center justify-between px-2 py-1 text-sm text-muted-foreground">

@@ -18,7 +18,7 @@ from .._tool import (
     TeamSay,
 )
 from .._types import AgentToolFactory, SubAgentTemplate
-from ..storage import AgentRecord, SessionRecord, StorageBase
+from ..storage import AgentRecord, SessionRecord, SessionSource, StorageBase
 from ..workspace_manager import WorkspaceManagerBase
 from ...middleware import MiddlewareBase
 from ...tool import (
@@ -26,6 +26,7 @@ from ...tool import (
     TaskGet,
     TaskList,
     TaskUpdate,
+    RequestUserInput,
     Toolkit,
     ToolGroup,
 )
@@ -77,8 +78,10 @@ async def get_toolkit(
        that is its team's leader gets the full leader-side toolset
        (``TeamCreate / AgentCreate / TeamSay / TeamDelete``, plus
        ``AgentInvite`` when the user has at least one invitable agent).
-    6. Caller-supplied extras (``extra_factory``)
-    7. Channel platform tools — only for a session that originated from
+    6. User interaction (:class:`RequestUserInput`) for ordinary user
+       sessions and team leaders
+    7. Caller-supplied extras (``extra_factory``)
+    8. Channel platform tools — only for a session that originated from
        a channel; the channel exposes them via
        :meth:`ChannelBase.list_tools` (e.g. send a file to another user).
 
@@ -241,6 +244,12 @@ time or interval"
                     invitable_pool=invitable_pool,
                 ),
             )
+
+    # Structured user input currently has clients in the Web UI and console.
+    # Channel adapters and projected worker HITL need their own structured
+    # result contract, so do not expose a tool there that they cannot resume.
+    if team_role != "worker" and session_record.source == SessionSource.USER:
+        tools.append(RequestUserInput())
 
     # Caller-supplied extras.
     if extra_factory is not None:
