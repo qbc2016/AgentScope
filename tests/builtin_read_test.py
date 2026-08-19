@@ -354,7 +354,7 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             os.unlink(path)
 
     async def test_read_image_unsupported_type(self) -> None:
-        """Test images outside ``image_types`` return an error."""
+        """Test images outside ``input_types`` return an error."""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".bmp") as f:
             f.write(b"BM" + b"\x00" * 100)
         self.addCleanup(os.unlink, f.name)
@@ -369,7 +369,7 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         self.assertIn("image/png", chunk.content[0].text)
 
         # Model card style input_types, non-image entries ignored.
-        tool = Read(image_types=["text/plain", "image/bmp"])
+        tool = Read(input_types=["text/plain", "image/bmp"])
         chunk = await tool(file_path=f.name)
         self.assertEqual(chunk.state, "running")
         self.assertEqual(chunk.content[0].source.media_type, "image/bmp")
@@ -377,12 +377,12 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         self.assertNotIn("text/plain", tool.description)
 
         # Glob patterns are accepted.
-        tool = Read(image_types=["image/*"])
+        tool = Read(input_types=["image/*"])
         chunk = await tool(file_path=f.name)
         self.assertEqual(chunk.state, "running")
 
         # A supported image is rejected once it's excluded.
-        tool = Read(image_types=["image/png"])
+        tool = Read(input_types=["image/png"])
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
             f.write(b"\xff\xd8\xff" + b"\x00" * 100)
         self.addCleanup(os.unlink, f.name)

@@ -42,8 +42,8 @@ _IMAGE_EXTENSIONS: dict[str, str] = {
 _PDF_MAX_PAGES_WITHOUT_RANGE = 10
 _PDF_MAX_PAGES_PER_READ = 20
 
-# Image types accepted by the Anthropic, OpenAI, Gemini and DashScope APIs.
-_DEFAULT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+# Media types accepted by the Anthropic, OpenAI, Gemini and DashScope APIs.
+_DEFAULT_INPUT_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
 
 
 class _ReadParams(ParamsBase):
@@ -116,7 +116,7 @@ Usage:
     def __init__(
         self,
         max_line_characters: int = 2000,
-        image_types: list[str] | None = None,
+        input_types: list[str] | None = None,
         middlewares: List[ToolMiddlewareBase] | None = None,
         backend: BackendBase | None = None,
     ) -> None:
@@ -129,12 +129,16 @@ Usage:
                 a "[truncated]" suffix. This prevents overwhelming the agent
                 with excessively long lines while still providing useful
                 content.
-            image_types (`list[str] | None`, optional):
-                The image media types the downstream model accepts, e.g.
-                ``["image/png", "image/jpeg"]`` or glob patterns like
-                ``"image/*"``. A model card's ``input_types`` can be passed
-                directly since non-image entries are ignored. Reading an
-                image of any other type returns an error. Defaults to
+            input_types (`list[str] | None`, optional):
+                The media types the downstream model accepts as input,
+                aligned with the model card's ``input_types`` field so it
+                can be passed through directly, e.g.
+                ``Read(input_types=model_card.input_types)``. Glob patterns
+                like ``"image/*"`` are accepted. Files whose media type is
+                listed are returned as ``DataBlock`` for the model to
+                consume natively; currently only image types are consulted
+                (an image of any other type returns an error, PDFs are
+                always extracted to text locally). Defaults to
                 ``image/png``, ``image/jpeg``, ``image/gif`` and
                 ``image/webp``.
             middlewares (`List[ToolMiddlewareBase] | None`, optional):
@@ -149,7 +153,7 @@ Usage:
         self._max_line_characters = max_line_characters
         self._image_types = [
             t
-            for t in (image_types or _DEFAULT_IMAGE_TYPES)
+            for t in (input_types or _DEFAULT_INPUT_TYPES)
             if t.startswith("image/")
         ]
         self._backend = backend or LocalBackend()
