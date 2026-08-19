@@ -132,7 +132,7 @@ export function LlmSelect({
 													)
 												}
 											>
-												{m.name}
+												{m.label}
 											</DropdownMenuItem>
 										))
 									: items.map(({ credential, models }) => {
