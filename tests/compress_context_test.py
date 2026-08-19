@@ -95,7 +95,6 @@ class FixedPathOffloader:
 
 
 def _make_failing_compression_agent(
-    enable_truncation: bool,
     summary: str = "",
     offloader: Any = None,
 ) -> tuple[Agent, RecordingStructuredMockModel]:
@@ -111,7 +110,6 @@ def _make_failing_compression_agent(
         context_config=ContextConfig(
             trigger_ratio=0.7,
             reserve_ratio=0.4,
-            enable_context_truncation_fallback=enable_truncation,
         ),
         state=AgentState(
             session_id="123",
@@ -1443,22 +1441,9 @@ class ContextCompressionTest(IsolatedAsyncioTestCase):
             ),
         )
 
-    async def test_summary_failure_preserves_context_by_default(self) -> None:
-        """Summary failures propagate without discarding context."""
-        agent, _ = _make_failing_compression_agent(enable_truncation=False)
-        expected_state = agent.state.model_copy(deep=True)
-
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "simulated compression overflow",
-        ):
-            await agent.compress_context()
-
-        self.assertEqual(agent.state, expected_state)
-
-    async def test_opt_in_summary_failure_truncates_context(self) -> None:
-        """Explicit opt-in permits lossy context truncation."""
-        agent, _ = _make_failing_compression_agent(enable_truncation=True)
+    async def test_summary_failure_truncates_context(self) -> None:
+        """Summary failures fall back to lossy context truncation."""
+        agent, _ = _make_failing_compression_agent()
         expected_state = agent.state.model_copy(deep=True)
         expected_state.context = expected_state.context[1:]
         expected_state.summary = (
@@ -1478,7 +1463,6 @@ class ContextCompressionTest(IsolatedAsyncioTestCase):
             "needed.</system-reminder>"
         )
         agent, _ = _make_failing_compression_agent(
-            enable_truncation=True,
             summary=reminder,
             offloader=FixedPathOffloader(),
         )
