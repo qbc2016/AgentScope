@@ -516,7 +516,7 @@ class ChatModelBase:
             strategies = (("explicit", {}, user_tool_choice),)
 
         retryable = tuple(self._get_retryable_exceptions())
-        fallback = (
+        fallback: tuple[Type[Exception], ...] = (
             StructuredOutputError,
             *self._get_structured_output_fallback_exceptions(),
         )
