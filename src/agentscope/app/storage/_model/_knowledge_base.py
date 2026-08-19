@@ -13,12 +13,10 @@ class ChunkerConfig(BaseModel):
 
     Stores the chunker ``type`` identifier (as declared by
     ``ChunkerBase.chunker_type``) and the keyword-argument
-    ``parameters`` used to reconstruct it at indexing time.  Defaults to ``approx_token`` with empty
-    parameters (uses the chunker's own defaults).
+    ``parameters`` used to reconstruct it at indexing time.
     """
 
     type: str = Field(
-        default="approx_token",
         description=(
             "Chunker type identifier, as declared by "
             "``ChunkerBase.chunker_type``."
