@@ -166,6 +166,14 @@ class AnthropicChatModel(ChatModelBase):
             anthropic.InternalServerError,
         )
 
+    @classmethod
+    def _get_structured_output_fallback_exceptions(
+        cls,
+    ) -> tuple[Type[Exception], ...]:
+        import anthropic
+
+        return (anthropic.BadRequestError,)
+
     def _thinking_mode(self) -> str | None:
         """Resolve the effective thinking mode.
 

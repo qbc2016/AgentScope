@@ -23,7 +23,12 @@ from agentscope.model import (
     FinishedReason,
     StructuredResponse,
 )
+from agentscope.exception import StructuredOutputError
 from agentscope.tool import ToolChoice
+
+
+class _BadRequestError(Exception):
+    """A provider "bad request" error used to exercise strategy fallback."""
 
 
 class StructuredOutputStrategyMockModel(MockModel):
@@ -44,6 +49,13 @@ class StructuredOutputStrategyMockModel(MockModel):
         """Expose a provider-specific thinking toggle."""
         return {"extra_body": {"enable_thinking": False}}
 
+    @classmethod
+    def _get_structured_output_fallback_exceptions(
+        cls,
+    ) -> tuple[type[Exception], ...]:
+        """Declare the provider error that permits a strategy fallback."""
+        return (_BadRequestError,)
+
     async def _call_api_with_structured_output(
         self,
         model_name: str,
@@ -59,7 +71,7 @@ class StructuredOutputStrategyMockModel(MockModel):
         await asyncio.sleep(0)
 
         if self.reject_forced and mode == "generate_structured_output":
-            raise ValueError("tool_choice is unsupported")
+            raise _BadRequestError("tool_choice is unsupported")
         if self.responses:
             response = self.responses.pop(0)
             if isinstance(response, Exception):
@@ -1131,8 +1143,8 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
         """Preserve thinking before falling back to disabling it."""
         model = StructuredOutputStrategyMockModel(
             responses=[
-                ValueError("tool_choice is unsupported"),
-                RuntimeError(
+                _BadRequestError("tool_choice is unsupported"),
+                StructuredOutputError(
                     "Failed to generate structured output for model.",
                 ),
                 StructuredResponse(content={}),
@@ -1157,7 +1169,7 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
         """Every call starts from the strongest immutable strategy."""
         model = StructuredOutputStrategyMockModel(
             responses=[
-                ValueError("tool_choice is unsupported"),
+                _BadRequestError("tool_choice is unsupported"),
                 StructuredResponse(content={}),
                 StructuredResponse(content={}),
             ],
@@ -1210,24 +1222,24 @@ class StructuredOutputStrategyTest(IsolatedAsyncioTestCase):
 
     async def test_final_error_is_chained_from_first_error(self) -> None:
         """The first provider failure remains visible as the root cause."""
-        first_error = ValueError("tool_choice is unsupported")
-        final_error = RuntimeError(
+        first_error = _BadRequestError("tool_choice is unsupported")
+        final_error = StructuredOutputError(
             "Failed to generate structured output for model.",
         )
         model = StructuredOutputStrategyMockModel(
             responses=[
                 first_error,
-                RuntimeError(
+                StructuredOutputError(
                     "Failed to generate structured output for model.",
                 ),
-                RuntimeError(
+                StructuredOutputError(
                     "Failed to generate structured output for model.",
                 ),
                 final_error,
             ],
         )
 
-        with self.assertRaises(RuntimeError) as raised:
+        with self.assertRaises(StructuredOutputError) as raised:
             await model.generate_structured_output(
                 self.messages,
                 self.schema,

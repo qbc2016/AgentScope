@@ -6,7 +6,7 @@ import json
 from abc import abstractmethod
 from copy import deepcopy
 from pathlib import Path
-from typing import Type, Any, AsyncGenerator, cast
+from typing import Type, Any, AsyncGenerator
 
 import jsonschema
 from pydantic import BaseModel, ValidationError as PydanticValidationError
@@ -17,7 +17,7 @@ from ._utils import _StreamAccumulator
 from .._logging import logger
 from .._utils._common import _json_loads_with_repair
 from ..credential import CredentialBase
-from ..exception import ToolJSONDecodeError
+from ..exception import StructuredOutputError, ToolJSONDecodeError
 from ..message import (
     Msg,
     TextBlock,
@@ -32,7 +32,6 @@ from ..tool import ToolChoice
 
 _TOOL_CHOICE_LITERAL_MODES = {"auto", "none", "required"}
 _MULTIMODAL_DATA_BLOCK_TOKEN_ESTIMATE = 2000
-_TOOL_CHOICE_UNSET = object()
 
 
 class ChatModelBase:
@@ -120,35 +119,17 @@ class ChatModelBase:
         """
         return {}
 
-    @staticmethod
-    def _is_structured_output_fallback_error(error: Exception) -> bool:
-        """Whether another structured-output strategy may help.
-
-        Provider authentication, quota, moderation, and context-length
-        failures must propagate immediately. Only local parsing or validation
-        failures and provider errors explicitly related to ``tool_choice``
-        are eligible for a strategy fallback.
+    @classmethod
+    def _get_structured_output_fallback_exceptions(
+        cls,
+    ) -> tuple[Type[Exception], ...]:
+        """Provider exceptions that indicate the request shape was rejected
+        (e.g. a forced ``tool_choice`` while thinking is enabled), so that
+        another structured-output strategy may succeed. Subclasses should
+        return the provider's bad-request exception types; the default is
+        empty, i.e. only local structured-output failures trigger a fallback.
         """
-        if isinstance(
-            error,
-            (
-                jsonschema.ValidationError,
-                PydanticValidationError,
-                ToolJSONDecodeError,
-            ),
-        ):
-            return True
-
-        if isinstance(error, RuntimeError):
-            return str(error).startswith(
-                (
-                    "Failed to get the completed response from model ",
-                    "Failed to generate structured output for model.",
-                ),
-            )
-
-        error_text = str(error).lower()
-        return "tool_choice" in error_text or "tool choice" in error_text
+        return ()
 
     @classmethod
     def list_models(
@@ -482,9 +463,12 @@ class ChatModelBase:
         """Generate structured output, trying fallback strategies in order.
 
         Each strategy is retried on transient (retryable) errors. A
-        structural failure (e.g. a provider rejecting a forced
-        ``tool_choice`` while thinking is enabled) moves on to the next
-        strategy. The strategies are immutable and local to each call:
+        :class:`~agentscope.exception.StructuredOutputError` (the model did
+        not produce a valid structured output) or a provider error listed in
+        ``_get_structured_output_fallback_exceptions()`` (e.g. a provider
+        rejecting a forced ``tool_choice`` while thinking is enabled) moves
+        on to the next strategy; any other error is raised immediately. The
+        strategies are immutable and local to each call:
 
         - ``forced``: current config + forced ``tool_choice``
         - ``auto``: current config + ``auto`` ``tool_choice``
@@ -511,8 +495,8 @@ class ChatModelBase:
                 "`generate_structured_output` method.",
             )
 
-        user_tool_choice = kwargs.pop("tool_choice", _TOOL_CHOICE_UNSET)
-        if user_tool_choice is _TOOL_CHOICE_UNSET:
+        user_tool_choice = kwargs.pop("tool_choice", None)
+        if user_tool_choice is None:
             forced_tc = ToolChoice(mode="generate_structured_output")
             disable_kwargs = self._get_disable_thinking_kwargs()
             # (name, extra `_call_api` kwargs, tool_choice), best first.
@@ -529,15 +513,13 @@ class ChatModelBase:
                 ("none", {}, None),
             )
         else:
-            strategies = (
-                (
-                    "explicit",
-                    {},
-                    cast(ToolChoice | None, user_tool_choice),
-                ),
-            )
+            strategies = (("explicit", {}, user_tool_choice),)
 
         retryable = tuple(self._get_retryable_exceptions())
+        fallback = (
+            StructuredOutputError,
+            *self._get_structured_output_fallback_exceptions(),
+        )
         first_error: Exception | None = None
         last_error: Exception | None = None
         for name, extra_kwargs, tool_choice in strategies:
@@ -588,7 +570,7 @@ class ChatModelBase:
                             await asyncio.sleep(self.retry_delay)
                             continue
                         raise  # retries exhausted -> give up
-                    if not self._is_structured_output_fallback_error(e):
+                    if not isinstance(e, fallback):
                         raise
                     # Structured-output compatibility failure: try the next
                     # strategy.
@@ -708,38 +690,47 @@ class ChatModelBase:
             completed_response = res
 
         if completed_response is None or not completed_response.content:
-            raise RuntimeError(
+            raise StructuredOutputError(
                 f"Failed to get the completed response from model "
                 f"{model_name}.",
             )
 
         structured_output: dict[str, Any] | None = None
-        for _ in completed_response.content:
-            if isinstance(_, ToolCallBlock) and _.name == func_name:
-                structured_output = _json_loads_with_repair(
-                    _.input,
-                    input_schema,
+        try:
+            for _ in completed_response.content:
+                if isinstance(_, ToolCallBlock) and _.name == func_name:
+                    structured_output = _json_loads_with_repair(
+                        _.input,
+                        input_schema,
+                    )
+                    break
+
+            if structured_output is None:
+                raise StructuredOutputError(
+                    "Failed to generate structured output for model.",
                 )
-                break
 
-        if structured_output is None:
-            raise RuntimeError(
-                "Failed to generate structured output for model.",
-            )
+            # Validate the output
+            if isinstance(structured_model, dict):
+                jsonschema.validate(structured_output, structured_model)
 
-        # Validate the output
-        if isinstance(structured_model, dict):
-            jsonschema.validate(structured_output, structured_model)
+            elif issubclass(structured_model, BaseModel):
+                structured_model.model_validate(structured_output)
 
-        elif issubclass(structured_model, BaseModel):
-            structured_model.model_validate(structured_output)
-
-        else:
-            raise ValueError(
-                "The structured_model is expected to be a subclass of "
-                "Pydantic.BaseModel or a dict, "
-                f"but got {type(structured_model)}.",
-            )
+            else:
+                raise ValueError(
+                    "The structured_model is expected to be a subclass of "
+                    "Pydantic.BaseModel or a dict, "
+                    f"but got {type(structured_model)}.",
+                )
+        except (
+            ToolJSONDecodeError,
+            jsonschema.ValidationError,
+            PydanticValidationError,
+        ) as e:
+            raise StructuredOutputError(
+                f"Invalid structured output from model {model_name}: {e}",
+            ) from e
 
         return StructuredResponse(
             id=completed_response.id,
