@@ -75,29 +75,6 @@ def _index_hubs(hubs: list | None, kind: str) -> dict:
     return indexed
 
 
-def _check_duplicate_chunker_types(
-    chunker_classes: list[Type[ChunkerBase]],
-) -> None:
-    """Raise if two chunker classes share the same ``chunker_type``.
-
-    Args:
-        chunker_classes (`list[Type[ChunkerBase]]`):
-            The chunker classes to check.
-
-    Raises:
-        `ValueError`:
-            If a duplicate ``chunker_type`` is found.
-    """
-    seen: dict[str, Type[ChunkerBase]] = {}
-    for cls in chunker_classes:
-        if cls.chunker_type in seen:
-            raise ValueError(
-                f"Duplicate chunker_type {cls.chunker_type!r}: "
-                f"{seen[cls.chunker_type].__name__} and {cls.__name__}.",
-            )
-        seen[cls.chunker_type] = cls
-
-
 def create_app(
     storage: StorageBase,
     message_bus: MessageBus,
@@ -105,7 +82,6 @@ def create_app(
     knowledge_base_manager: KnowledgeBaseManagerBase | None = None,
     knowledge_parsers: list[ParserBase] | dict[str, ParserBase] | None = None,
     knowledge_chunkers: list[Type[ChunkerBase]] | None = None,
-    knowledge_chunker: ChunkerBase | None = None,
     blob_store: BlobStoreBase | None = None,
     enable_index_worker: bool = True,
     mcp_hubs: list[MCPHubBase] | None = None,
@@ -122,6 +98,7 @@ def create_app(
     download_secret: str | None = None,
     title: str = "AgentScope",
     version: str = __version__,
+    **kwargs: Any,
 ) -> FastAPI:
     """Create and configure a FastAPI application.
 
@@ -191,11 +168,6 @@ def create_app(
             on the knowledge base record and reconstructed by the index
             worker.  Defaults to ``[ApproxTokenChunker]`` when
             ``knowledge_base_manager`` is set.
-        knowledge_chunker (`ChunkerBase | None`, optional):
-            Deprecated, use ``knowledge_chunkers`` instead.  When given,
-            it is used as the fallback chunker for legacy knowledge
-            bases created without a ``chunker_config``, and its class is
-            appended to ``knowledge_chunkers`` if not already present.
         blob_store (`BlobStoreBase | None`, optional):
             Backend storing uploaded document bytes between the
             upload endpoint and the indexing worker.  Required when
@@ -336,20 +308,26 @@ def create_app(
             if knowledge_chunkers is not None
             else [ApproxTokenChunker],
         )
-        if knowledge_chunker is not None:
+        # Backward compatibility: the deprecated ``knowledge_chunker``
+        # instance is only used for its class.
+        if "knowledge_chunker" in kwargs:
             logger.warning(
                 "The `knowledge_chunker` argument of create_app() is "
                 "deprecated, use `knowledge_chunkers` instead.",
             )
-            if type(knowledge_chunker) not in chunker_classes:
-                chunker_classes.append(type(knowledge_chunker))
-        _check_duplicate_chunker_types(chunker_classes)
+            legacy_cls = type(kwargs["knowledge_chunker"])
+            if legacy_cls not in chunker_classes:
+                chunker_classes.append(legacy_cls)
+        seen_types: dict[str, Type[ChunkerBase]] = {}
+        for cls in chunker_classes:
+            if cls.chunker_type in seen_types:
+                raise ValueError(
+                    f"Duplicate chunker_type {cls.chunker_type!r}: "
+                    f"{seen_types[cls.chunker_type].__name__} and "
+                    f"{cls.__name__}.",
+                )
+            seen_types[cls.chunker_type] = cls
         app.state.knowledge_chunkers = chunker_classes
-        app.state.default_chunker = (
-            knowledge_chunker
-            if knowledge_chunker is not None
-            else ApproxTokenChunker()
-        )
         app.state.blob_store = (
             blob_store
             if blob_store is not None
@@ -358,7 +336,6 @@ def create_app(
     else:
         app.state.knowledge_parsers = knowledge_parsers
         app.state.knowledge_chunkers = knowledge_chunkers
-        app.state.default_chunker = knowledge_chunker
         app.state.blob_store = blob_store
     app.state.enable_index_worker = (
         enable_index_worker and knowledge_base_manager is not None
