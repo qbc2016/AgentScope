@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from ._model_response import StructuredResponse, ChatResponse, FinishedReason
 from ._model_card import ModelCard
+from ._utils import _StreamAccumulator
 from .._logging import logger
 from .._utils._common import _json_loads_with_repair
 from ..credential import CredentialBase
@@ -241,17 +242,11 @@ class ChatModelBase:
         if isinstance(res, ChatResponse):
             return res
 
-        # The accumulated chat response
-        acc_res = ChatResponse(
-            content=[],
-            is_last=True,
-            finished_reason=FinishedReason.COMPLETED,
-        )
-
         async def _stream() -> AsyncGenerator[ChatResponse, None]:
             """The wrapper around model calling."""
             # For backward compatibility
             yield_acc_res = True
+            acc_res = _StreamAccumulator()
             try:
                 async for chunk in res:
                     if not chunk.is_last:
@@ -275,7 +270,7 @@ class ChatModelBase:
                 yield_acc_res = True
 
             if yield_acc_res:
-                yield acc_res
+                yield acc_res.build()
 
         return _stream()
 
@@ -596,13 +591,28 @@ class ChatModelBase:
 
         completed_response: ChatResponse | None = None
         if self.stream:
+            # ``_call_api`` yields raw incremental chunks whose ``is_last``
+            # is always ``False``; subclasses rely on the ``__call__``
+            # wrapper to accumulate them and emit a final ``is_last=True``
+            # chunk. Since this method calls ``_call_api`` directly (to
+            # avoid duplicating the retry logic in ``__call__``), we must
+            # replicate that accumulation here, otherwise the stream may
+            # end without ever producing an ``is_last=True`` chunk.
+            acc_res = _StreamAccumulator()
+
             async for chunk in res:
                 if chunk.is_last:
                     completed_response = chunk
+                    break
+                acc_res.append_chat_response(chunk)
+                acc_res.id = chunk.id
+
+            if completed_response is None:
+                completed_response = acc_res.build()
         else:
             completed_response = res
 
-        if completed_response is None:
+        if completed_response is None or not completed_response.content:
             raise RuntimeError(
                 f"Failed to get the completed response from model "
                 f"{model_name}.",
