@@ -409,7 +409,7 @@
 	},
 	"chunker-types": {
 		"approx_token": {
-			"label": "Approximate Token Chunker",
+			"label": "Approx Token",
 			"params": {
 				"chunk_size": {
 					"label": "Chunk Size",

@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dialog.tsx';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field.tsx';
 import { Input } from '@/components/ui/input.tsx';
+import { Separator } from '@/components/ui/separator.tsx';
 import { Textarea } from '@/components/ui/textarea.tsx';
 import { useChunkers } from '@/hooks/useChunkers';
 import { useKbEmbeddingModels } from '@/hooks/useKbEmbeddingModels';
@@ -47,6 +48,8 @@ interface Props {
 }
 
 const NO_SKIP = new Set<string>();
+/** Same control width for every label-left field, as in the schedule dialog. */
+const HORIZONTAL_FIELD_WIDTH = '[&>[data-orientation=horizontal]>:last-child]:w-48';
 
 interface SelectedEmbedding {
 	type: string;
@@ -233,7 +236,7 @@ export function CreateKnowledgeBaseDialog({
 					</Alert>
 				)}
 
-				<FieldGroup>
+				<FieldGroup className={HORIZONTAL_FIELD_WIDTH}>
 					<Field>
 						<FieldLabel>{t('dialog-knowledge-base-create.name.label')}</FieldLabel>
 						<Input
@@ -257,6 +260,9 @@ export function CreateKnowledgeBaseDialog({
 							rows={3}
 						/>
 					</Field>
+
+					<Separator />
+
 					<Field orientation="horizontal">
 						<FieldLabel>
 							{t('dialog-knowledge-base-create.embeddingModel.label')}
@@ -289,6 +295,8 @@ export function CreateKnowledgeBaseDialog({
 
 					{chunkers.length > 0 && (
 						<>
+							<Separator />
+
 							<Field orientation="horizontal">
 								<FieldLabel>
 									{t('dialog-knowledge-base-create.chunker.label')}
@@ -308,6 +316,8 @@ export function CreateKnowledgeBaseDialog({
 									onChange={handleChunkerParamChange}
 									skipFields={NO_SKIP}
 									idPrefix="chunker-param"
+									orientation="horizontal"
+									className={HORIZONTAL_FIELD_WIDTH}
 									labelFor={(key, prop) =>
 										t(
 											`chunker-types.${selectedChunkerType}.params.${key}.label`,

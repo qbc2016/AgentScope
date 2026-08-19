@@ -409,7 +409,7 @@
 	},
 	"chunker-types": {
 		"approx_token": {
-			"label": "近似 Token 分块",
+			"label": "近似 Token 数",
 			"params": {
 				"chunk_size": {
 					"label": "块大小",
