@@ -4,9 +4,11 @@ import asyncio
 import collections
 import inspect
 import re
+import warnings
 
 from asyncio import Queue
 from copy import deepcopy
+from fnmatch import fnmatch
 from datetime import datetime
 from typing import (
     Any,
@@ -209,6 +211,10 @@ class Agent:
         self._compress_context_middlewares = [
             _ for _ in middlewares if _.is_implemented("on_compress_context")
         ]
+
+        # Set when a `ReplyEndEvent` escapes the reply middleware chain; the
+        # reply loop only exits after the event is delivered (not swallowed)
+        self._receive_reply_end: bool = False
 
     def _validate_configs(self) -> None:
         """Validate the config combinations that a single config class cannot
@@ -538,13 +544,14 @@ class Agent:
             context_overflow = True
 
         # Compress the messages
+        res = None
         try:
             res = await self.model.generate_structured_output(
                 messages=messages,
                 structured_model=cfg.summary_schema,
             )
 
-        except Exception as e:
+        except Exception as error:
             if context_overflow:
                 logger.warning(
                     "Failed to compress context, which may be caused by "
@@ -577,15 +584,25 @@ class Agent:
                     ):
                         break
 
-                res = await self.model.generate_structured_output(
-                    messages=messages,
-                    structured_model=cfg.summary_schema,
+                try:
+                    res = await self.model.generate_structured_output(
+                        messages=messages,
+                        structured_model=cfg.summary_schema,
+                    )
+                except Exception as retry_error:
+                    error = retry_error
+
+            if res is None:
+                logger.warning(
+                    "[AGENT %s]: Summary generation failed: %s. "
+                    "Falling back to context truncation.",
+                    self.name,
+                    error,
                 )
 
-            else:
-                raise e from None
-
-        if res.finished_reason == FinishedReason.INTERRUPTED:
+        if res is not None and (
+            res.finished_reason == FinishedReason.INTERRUPTED
+        ):
             logger.warning(
                 "The context compression was interrupted and skipped. ",
             )
@@ -594,22 +611,45 @@ class Agent:
         # Update the summary
         async def _apply_change() -> None:
             """Apply the context change with interruption protection."""
-            new_summary = cfg.summary_template.format(**res.content)
+            if res is not None:
+                new_summary = cfg.summary_template.format(**res.content)
+            else:
+                # Keep the previous summary if the compression failed
+                new_summary = self.state.summary or (
+                    "<system-info>Some earlier messages were truncated for "
+                    "limited context.</system-info>"
+                )
+
+            # Offload the compressed context if offloader is provided
             if self.offloader:
                 path = await self.offloader.offload_context(
                     self.state.session_id,
                     msgs=msgs_to_compress,
                 )
-                new_summary += (
-                    f"\n<system-reminder>The compressed context is offloaded "
-                    f"to '{path}', you can refer to it when needed."
-                    f"</system-reminder>"
+                offload_reminder = (
+                    f"<system-reminder>The compressed context"
+                    f" is offloaded to '{path}', you can refer"
+                    f" to it when needed.</system-reminder>"
                 )
+                # Avoid duplicating the reminder when the previous summary
+                # is reused after a failed compression
+                if isinstance(new_summary, list):
+                    if not any(
+                        isinstance(block, TextBlock)
+                        and block.text == offload_reminder
+                        for block in new_summary
+                    ):
+                        new_summary = [
+                            *new_summary,
+                            TextBlock(text=offload_reminder),
+                        ]
+                elif offload_reminder not in new_summary:
+                    new_summary += f"\n{offload_reminder}"
 
-            # Protected from interruption
+            # Clear the read tool cache
             await self._clear_unreserved_read_cache(msgs_to_reserve)
 
-            # Update the context
+            # Update the context and summary
             self.state.summary = new_summary
             self.state.context = msgs_to_reserve
 
@@ -639,13 +679,15 @@ class Agent:
         | None = None,
         structured_schema: Type[BaseModel] | None = None,
     ) -> AsyncGenerator[AgentEvent | Msg, None]:
-        """Reply entry point (maybe wrapped by middleware)."""
+        """Reply entry point (maybe wrapped by middleware). The reply loop
+        exits only after its ``ReplyEndEvent`` escapes the middleware chain,
+        so an ``on_reply`` middleware can swallow the event (receive it
+        without yielding) to force another reasoning-acting round."""
         if not self._reply_middlewares:
-            async for item in self._reply_impl(
+            agen = self._reply_impl(
                 inputs=inputs,
                 structured_schema=structured_schema,
-            ):
-                yield item
+            )
         else:
 
             async def execute_chain(
@@ -687,8 +729,15 @@ class Agent:
                     ):
                         yield item
 
-            async for item in execute_chain():
-                yield item
+            agen = execute_chain()
+
+        self._receive_reply_end = False
+        async for item in agen:
+            # Set before the yield: the suspended `_reply_impl` checks the
+            # flag once resumed by the next pull
+            if isinstance(item, ReplyEndEvent):
+                self._receive_reply_end = True
+            yield item
 
     async def _close_unfinished_tool_calls(
         self,
@@ -755,7 +804,7 @@ class Agent:
                 ),
             )
 
-    async def _reply_impl(
+    async def _reply_impl(  # pylint: disable=too-many-branches
         self,
         inputs: Msg
         | list[Msg]
@@ -859,6 +908,9 @@ class Agent:
             #  or no more tool calls to execute
             # =================================================================
             final_msg: Msg | None = None
+            # Detects middlewares swallowing the ReplyEndEvent repeatedly
+            # without any reasoning/acting in between (a busy loop)
+            made_progress = True
             while True:
                 # =============================================================
                 # Step 3.1: Decide the next action based on the current state
@@ -867,13 +919,36 @@ class Agent:
 
                 match next_action:
                     case Exit(exit_msg=exit_msg, exit_events=exit_events):
-                        for exit_event in exit_events or []:
-                            yield exit_event
-                        if exit_msg:
+                        if not exit_events:
+                            # Parked on HITL: the reply is not finished, so
+                            # the continuation protocol doesn't apply
                             yield exit_msg
-                        return
+                            return
+
+                        for exit_event in exit_events:
+                            yield exit_event
+
+                        # Exit unless a middleware swallowed the ReplyEndEvent
+                        # to force another reasoning-acting round
+                        if self._receive_reply_end:
+                            yield exit_msg
+                            return
+
+                        if not made_progress:
+                            raise RuntimeError(
+                                "A middleware swallowed the ReplyEndEvent "
+                                "twice without any reasoning/acting in "
+                                "between. Unblock the next round (e.g. "
+                                "adjust 'cur_iter', 'max_iters' or the "
+                                "structured output state) before swallowing "
+                                "the event again.",
+                            )
+                        made_progress = False
+                        final_msg = None
+                        continue
 
                     case Reasoning(hint=hint, tool_choice=tool_choice):
+                        made_progress = True
                         final_msg = None
                         if hint:
                             self.state.append_context(self.name, [hint])
@@ -915,6 +990,7 @@ class Agent:
                             return
 
                     case Acting(tool_calls=tool_calls):
+                        made_progress = True
                         for batch in await self._batch_tool_calls(tool_calls):
                             if batch.type == "sequential":
                                 evt_generator = (
@@ -969,15 +1045,12 @@ class Agent:
                             if break_execution_for_hitl:
                                 break
 
-                        if break_execution_for_hitl:
-                            # Stop executing the next batches, and go back to
-                            # ``_next_action``, which parks the reply on the
-                            # awaiting tool calls. The unfinished round isn't
-                            # counted into ``cur_iter``
-                            continue
-
-                # Update iteration count after each round of reasoning-acting
-                self.state.cur_iter += 1
+                # One reasoning-acting round is over once every tool call it
+                # produced has a result. Reasoning that generated tool calls,
+                # or Acting that parked some of them on a user confirmation
+                # or an external execution, leaves the round unfinished
+                if not self.state.get_unfinished_tool_calls(self.name):
+                    self.state.cur_iter += 1
 
         except asyncio.CancelledError:
             # Handle the CancelledError within the _reply_impl for the
@@ -1676,6 +1749,39 @@ class Agent:
                         f"and should not contain tool calls, "
                         f"tool results or thinking blocks.",
                     )
+
+                # Handle the unsupported input data
+                supported = self.model.formatter.supported_input_media_types
+                for i, block in enumerate(msg.content):
+                    if not isinstance(block, DataBlock) or any(
+                        fnmatch(block.source.media_type, pattern)
+                        for pattern in supported
+                    ):
+                        continue
+
+                    # Convert unsupported input data block into a text block,
+                    # and offload it into the workspace
+                    url = ""
+                    if isinstance(block.source, URLSource):
+                        url = str(block.source.url)
+                    elif self.offloader is not None:
+                        saved = await self.offloader.offload_data_block(block)
+                        if isinstance(saved.source, URLSource):
+                            url = str(saved.source.url)
+
+                    name = f"named '{block.name}' " if block.name else ""
+                    if url:
+                        text = (
+                            f"<system-reminder>An attached file {name}is "
+                            f"saved into {url}.</system-reminder>"
+                        )
+                    else:
+                        text = (
+                            f"<system-reminder>An unsupported input file "
+                            f"{name}is attached with media type "
+                            f"'{block.source.media_type}'.</system-reminder>"
+                        )
+                    msg.content[i] = TextBlock(type="text", text=text)
 
                 self.state.context.append(msg)
 
@@ -3110,12 +3216,17 @@ class Agent:
                 >= self.react_config.max_iters
                 + self.react_config.structured_output_grace_iters
             ):
+                # Deprecated but still emitted for backward compatibility;
+                # suppressed since the warning targets consumers
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    exceed_event = ExceedMaxItersEvent(
+                        reply_id=self.state.reply_id,
+                        name=self.name,
+                    )
                 return Exit(
                     exit_events=[
-                        ExceedMaxItersEvent(
-                            reply_id=self.state.reply_id,
-                            name=self.name,
-                        ),
+                        exceed_event,
                         ReplyEndEvent(
                             session_id=self.state.session_id,
                             reply_id=self.state.reply_id,
@@ -3189,12 +3300,17 @@ class Agent:
                 self.react_config.max_iters,
             )
 
+            # Deprecated but still emitted for backward compatibility;
+            # suppressed since the warning targets consumers
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                exceed_event = ExceedMaxItersEvent(
+                    reply_id=self.state.reply_id,
+                    name=self.name,
+                )
             return Exit(
                 exit_events=[
-                    ExceedMaxItersEvent(
-                        reply_id=self.state.reply_id,
-                        name=self.name,
-                    ),
+                    exceed_event,
                     ReplyEndEvent(
                         session_id=self.state.session_id,
                         reply_id=self.state.reply_id,

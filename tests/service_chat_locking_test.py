@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from agentscope.agent import ContextConfig, ReActConfig
 from agentscope.app._service import ChatService
-from agentscope.app.message_bus import InMemoryMessageBus
+from agentscope.app.message_bus import InMemoryMessageBus, MessageBusKeys
 from agentscope.app.storage import (
     AgentData,
     AgentRecord,
@@ -41,7 +41,12 @@ class _ContendedBus(InMemoryMessageBus):
         ttl_secs: int = 600,
     ) -> AsyncGenerator[None, None]:
         """Serialize callers and signal immediately before caller two waits."""
-        del key, ttl_secs
+        if key != MessageBusKeys.session_lock("session-1"):
+            # Locks on other keys (e.g. the inbox lock taken while the
+            # session lock is held) must not contend with the session lock.
+            async with super().acquire_lock(key, ttl_secs=ttl_secs):
+                yield
+            return
         self.acquire_attempts += 1
         if self.acquire_attempts == 2:
             self.second_attempted.set()
