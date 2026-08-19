@@ -2,12 +2,13 @@
 """The read tool in agentscope."""
 import base64
 import fnmatch
-import io
 import os
 import re
-from typing import Any, List, Literal
+from typing import Any, List
 
-from .._base import ToolBase, ToolMiddlewareBase
+from pydantic import Field
+
+from .._base import ParamsBase, ToolBase, ToolMiddlewareBase
 from ...permission import (
     PermissionContext,
     PermissionDecision,
@@ -41,6 +42,37 @@ _IMAGE_EXTENSIONS: dict[str, str] = {
 _PDF_MAX_PAGES_WITHOUT_RANGE = 10
 _PDF_MAX_PAGES_PER_READ = 20
 
+# Image types accepted by the Anthropic, OpenAI, Gemini and DashScope APIs.
+_DEFAULT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+
+
+class _ReadParams(ParamsBase):
+    """The parameters of the Read tool."""
+
+    file_path: str = Field(
+        description="The absolute path to the file to read.",
+    )
+    offset: int = Field(
+        default=1,
+        ge=1,
+        description="Optional 1-based line number to start reading from. "
+        "Only applies to plain text files (default: 1)",
+    )
+    limit: int = Field(
+        default=2000,
+        ge=1,
+        le=2000,
+        description="Optional maximum number of lines to read. Only applies "
+        "to plain text files (default: 2000, max: 2000)",
+    )
+    pages: str | None = Field(
+        default=None,
+        description='Page range for PDF files (e.g. "1-5", "3", "10-20"), '
+        f"max {_PDF_MAX_PAGES_PER_READ} pages per request; required for "
+        f"PDFs over {_PDF_MAX_PAGES_WITHOUT_RANGE} pages. Only applies to "
+        "PDF files.",
+    )
+
 
 class Read(ToolBase):
     """The read tool."""
@@ -49,7 +81,7 @@ class Read(ToolBase):
     """The tool name presented to the agent."""
 
     # pylint: disable=line-too-long
-    description: str = """Reads a file from the local filesystem. You can access any file directly by using this tool.
+    _DESCRIPTION_TEMPLATE: str = """Reads a file from the local filesystem. You can access any file directly by using this tool.
 Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 Usage:
@@ -57,41 +89,23 @@ Usage:
 - By default, it reads up to 2000 lines starting from the beginning of the file
 - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
 - Results are returned using cat -n format, with line numbers starting at 1
-- This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as you're a multimodal LLM.
-- This tool can read PDF files (.pdf). Text is extracted per page. For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific pages (max 20 pages per request)."""  # noqa: E501
-    """The description presented to the agent."""
+- This tool allows you to read images ({image_types}). When reading an image file the contents are presented visually as you're a multimodal LLM.
+- This tool can read PDF files (.pdf). Text is extracted per page. For large PDFs (more than {max_pages_without_range} pages), you MUST provide the pages parameter to read specific pages (max {max_pages_per_read} pages per request)."""  # noqa: E501
 
-    input_schema: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "file_path": {
-                "type": "string",
-                "description": "The absolute path to the file to read.",
-            },
-            "offset": {
-                "type": "integer",
-                "description": "Optional 1-based line number to start reading "
-                "from. Only applies to plain text files (default: 1)",
-                "default": 1,
-                "minimum": 1,
-            },
-            "limit": {
-                "type": "integer",
-                "description": "Optional maximum number of lines to read. "
-                "Only applies to plain text files (default: 2000, max: 2000)",
-                "default": 2000,
-                "maximum": 2000,
-                "minimum": 1,
-            },
-            "pages": {
-                "type": "string",
-                "description": 'Page range for PDF files (e.g. "1-5", '
-                '"3", "10-20"), max 20 pages per request; required '
-                "for PDFs over 10 pages. Only applies to PDF files.",
-            },
-        },
-        "required": ["file_path"],
-    }
+    @property
+    def description(self) -> str:  # type: ignore[override]
+        """The description presented to the agent, rendered with the
+        supported image types."""
+        return self._DESCRIPTION_TEMPLATE.format(
+            image_types=", ".join(self._image_types),
+            max_pages_without_range=_PDF_MAX_PAGES_WITHOUT_RANGE,
+            max_pages_per_read=_PDF_MAX_PAGES_PER_READ,
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:  # type: ignore[override]
+        """The input schema of the tool."""
+        return _ReadParams.model_json_schema()
 
     is_mcp: bool = False
     is_read_only: bool = True
@@ -99,15 +113,10 @@ Usage:
     is_external_tool: bool = False
     is_state_injected: bool = True
 
-    _IMAGE_FORMAT_MAP: dict[str, tuple[str, str]] = {
-        "png": ("PNG", "image/png"),
-        "jpeg": ("JPEG", "image/jpeg"),
-    }
-
     def __init__(
         self,
         max_line_characters: int = 2000,
-        image_format: Literal["png", "jpeg"] | None = None,
+        image_types: list[str] | None = None,
         middlewares: List[ToolMiddlewareBase] | None = None,
         backend: BackendBase | None = None,
     ) -> None:
@@ -115,37 +124,34 @@ Usage:
 
         Args:
             max_line_characters (`int`, defaults to 2000):
-                The maximum number of characters to include
-                for each line when reading files. Lines longer
-                than this will be truncated with a "[truncated]"
-                suffix.
-            image_format (`Literal["png","jpeg"] | None`,
-                optional):
-                Target format for image conversion. Accepts
-                ``"png"`` or ``"jpeg"``. When ``None`` (default),
-                images are returned in their original format.
-                Requires Pillow when set.
-            middlewares (`List[ToolMiddlewareBase] | None`,
-                optional):
+                The maximum number of characters to include for each line when
+                reading files. Lines longer than this will be truncated with
+                a "[truncated]" suffix. This prevents overwhelming the agent
+                with excessively long lines while still providing useful
+                content.
+            image_types (`list[str] | None`, optional):
+                The image media types the downstream model accepts, e.g.
+                ``["image/png", "image/jpeg"]`` or glob patterns like
+                ``"image/*"``. A model card's ``input_types`` can be passed
+                directly since non-image entries are ignored. Reading an
+                image of any other type returns an error. Defaults to
+                ``image/png``, ``image/jpeg``, ``image/gif`` and
+                ``image/webp``.
+            middlewares (`List[ToolMiddlewareBase] | None`, optional):
                 Tool middlewares wrapping the tool execution.
             backend (`BackendBase | None`, optional):
-                The sandbox backend to use for file I/O. When
-                ``None``, a :class:`LocalBackend` is created.
+                The sandbox backend to use for file I/O. When ``None``,
+                a :class:`LocalBackend` is created.
         """
         from ._backend import LocalBackend
 
-        if (
-            image_format is not None
-            and image_format not in self._IMAGE_FORMAT_MAP
-        ):
-            raise ValueError(
-                f"image_format must be 'png', 'jpeg', or "
-                f"None, got '{image_format}'",
-            )
-
         super().__init__(middlewares=middlewares)
         self._max_line_characters = max_line_characters
-        self._image_format = image_format
+        self._image_types = [
+            t
+            for t in (image_types or _DEFAULT_IMAGE_TYPES)
+            if t.startswith("image/")
+        ]
         self._backend = backend or LocalBackend()
 
     async def check_permissions(
@@ -306,44 +312,20 @@ Usage:
     ) -> ToolChunk:
         """Read an image file and return as DataBlock."""
         media_type = _IMAGE_EXTENSIONS[ext]
+        if not any(fnmatch.fnmatch(media_type, t) for t in self._image_types):
+            return ToolChunk(
+                content=[
+                    TextBlock(
+                        text=f"Error: Unsupported image type {media_type}, "
+                        f"only {', '.join(self._image_types)} are supported.",
+                    ),
+                ],
+                state=ToolResultState.ERROR,
+                is_last=True,
+            )
 
         try:
             raw = await self._backend.read_file(file_path)
-
-            if self._image_format is not None:
-                from PIL import Image
-
-                pil_fmt, media_type = self._IMAGE_FORMAT_MAP[
-                    self._image_format
-                ]
-                img = Image.open(io.BytesIO(raw))
-                if pil_fmt == "JPEG" and img.mode not in (
-                    "L",
-                    "RGB",
-                    "CMYK",
-                ):
-                    img = img.convert("RGB")
-                buf = io.BytesIO()
-                img.save(buf, format=pil_fmt)
-                raw = buf.getvalue()
-
-            encoded = base64.b64encode(raw).decode(
-                "ascii",
-            )
-
-            return ToolChunk(
-                content=[
-                    DataBlock(
-                        source=Base64Source(
-                            data=encoded,
-                            media_type=media_type,
-                        ),
-                        name=self._backend.basename(file_path),
-                    ),
-                ],
-                state=ToolResultState.RUNNING,
-                is_last=True,
-            )
         except Exception as e:
             return ToolChunk(
                 content=[
@@ -352,6 +334,20 @@ Usage:
                 state=ToolResultState.ERROR,
                 is_last=True,
             )
+
+        return ToolChunk(
+            content=[
+                DataBlock(
+                    source=Base64Source(
+                        data=base64.b64encode(raw).decode("ascii"),
+                        media_type=media_type,
+                    ),
+                    name=self._backend.basename(file_path),
+                ),
+            ],
+            state=ToolResultState.RUNNING,
+            is_last=True,
+        )
 
     async def _read_pdf(
         self,

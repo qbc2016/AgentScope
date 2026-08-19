@@ -4,7 +4,6 @@ import base64
 import os
 import tempfile
 from unittest.async_case import IsolatedAsyncioTestCase
-from utils import AnyString
 
 from agentscope.tool import ToolChunk, Read
 from agentscope.permission import (
@@ -44,7 +43,15 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         """Test read tool properties."""
         self.assertEqual(self.read_tool.name, "Read")
         self.assertIsInstance(self.read_tool.description, str)
-        self.assertIsInstance(self.read_tool.input_schema, dict)
+        self.assertEqual(
+            set(self.read_tool.input_schema["properties"]),
+            {"file_path", "offset", "limit", "pages"},
+        )
+        self.assertEqual(
+            self.read_tool.input_schema["required"],
+            ["file_path"],
+        )
+        self.assertIn("image/png, image/jpeg", self.read_tool.description)
         self.assertFalse(self.read_tool.is_mcp)
         self.assertTrue(self.read_tool.is_read_only)
         self.assertTrue(self.read_tool.is_concurrency_safe)
@@ -346,190 +353,39 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         finally:
             os.unlink(path)
 
-    async def test_image_format_converts_bmp_to_png(self) -> None:
-        """Test image_format converts BMP to PNG."""
-        try:
-            from PIL import Image
-        except ImportError:
-            self.skipTest("Pillow not installed")
+    async def test_read_image_unsupported_type(self) -> None:
+        """Test images outside ``image_types`` return an error."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".bmp") as f:
+            f.write(b"BM" + b"\x00" * 100)
+        self.addCleanup(os.unlink, f.name)
 
-        img = Image.new("RGB", (2, 2), color="red")
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".bmp",
-        ) as f:
-            img.save(f.name, format="BMP")
-            bmp_path = f.name
-
-        try:
-            tool = Read(image_format="png")
-            chunk = await tool(file_path=bmp_path)
-
-            self.assertEqual(
-                chunk.model_dump(mode="json"),
-                {
-                    "content": [
-                        {
-                            "type": "data",
-                            "id": AnyString(),
-                            "source": {
-                                "type": "base64",
-                                "data": AnyString(),
-                                "media_type": "image/png",
-                            },
-                            "name": os.path.basename(
-                                bmp_path,
-                            ),
-                            "created_at": AnyString(),
-                            "finished_at": None,
-                        },
-                    ],
-                    "state": "running",
-                    "is_last": True,
-                    "metadata": {},
-                    "id": AnyString(),
-                },
-            )
-        finally:
-            os.unlink(bmp_path)
-
-    async def test_image_format_converts_png_to_jpeg(self) -> None:
-        """Test image_format converts PNG to JPEG."""
-        try:
-            from PIL import Image
-        except ImportError:
-            self.skipTest("Pillow not installed")
-
-        img = Image.new("RGB", (2, 2), color="blue")
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".png",
-        ) as f:
-            img.save(f.name, format="PNG")
-            png_path = f.name
-
-        try:
-            tool = Read(image_format="jpeg")
-            chunk = await tool(file_path=png_path)
-
-            self.assertEqual(
-                chunk.model_dump(mode="json"),
-                {
-                    "content": [
-                        {
-                            "type": "data",
-                            "id": AnyString(),
-                            "source": {
-                                "type": "base64",
-                                "data": AnyString(),
-                                "media_type": "image/jpeg",
-                            },
-                            "name": os.path.basename(
-                                png_path,
-                            ),
-                            "created_at": AnyString(),
-                            "finished_at": None,
-                        },
-                    ],
-                    "state": "running",
-                    "is_last": True,
-                    "metadata": {},
-                    "id": AnyString(),
-                },
-            )
-        finally:
-            os.unlink(png_path)
-
-    async def test_image_format_converts_la_png_to_jpeg(self) -> None:
-        """Test image_format converts an LA mode PNG to JPEG."""
-        try:
-            from PIL import Image
-        except ImportError:
-            self.skipTest("Pillow not installed")
-
-        img = Image.new("LA", (2, 2), color=(128, 64))
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".png",
-        ) as f:
-            img.save(f.name, format="PNG")
-            png_path = f.name
-
-        try:
-            tool = Read(image_format="jpeg")
-            chunk = await tool(file_path=png_path)
-
-            self.assertEqual(
-                chunk.model_dump(mode="json"),
-                {
-                    "content": [
-                        {
-                            "type": "data",
-                            "id": AnyString(),
-                            "source": {
-                                "type": "base64",
-                                "data": AnyString(),
-                                "media_type": "image/jpeg",
-                            },
-                            "name": os.path.basename(
-                                png_path,
-                            ),
-                            "created_at": AnyString(),
-                            "finished_at": None,
-                        },
-                    ],
-                    "state": "running",
-                    "is_last": True,
-                    "metadata": {},
-                    "id": AnyString(),
-                },
-            )
-            jpeg_data = base64.b64decode(chunk.content[0].source.data)
-            self.assertTrue(jpeg_data.startswith(b"\xff\xd8\xff"))
-        finally:
-            os.unlink(png_path)
-
-    async def test_image_format_none_keeps_original(self) -> None:
-        """Test image_format=None keeps original format."""
-        img_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-        expected_b64 = base64.b64encode(img_data).decode(
-            "ascii",
+        # image/bmp is not in the default image types.
+        chunk = await self.read_tool(file_path=f.name)
+        self.assertEqual(chunk.state, "error")
+        self.assertIn(
+            "Unsupported image type image/bmp",
+            chunk.content[0].text,
         )
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".png",
-        ) as f:
-            f.write(img_data)
-            png_path = f.name
+        self.assertIn("image/png", chunk.content[0].text)
 
-        try:
-            tool = Read(image_format=None)
-            chunk = await tool(file_path=png_path)
+        # Model card style input_types, non-image entries ignored.
+        tool = Read(image_types=["text/plain", "image/bmp"])
+        chunk = await tool(file_path=f.name)
+        self.assertEqual(chunk.state, "running")
+        self.assertEqual(chunk.content[0].source.media_type, "image/bmp")
+        self.assertIn("image/bmp", tool.description)
+        self.assertNotIn("text/plain", tool.description)
 
-            self.assertEqual(
-                chunk.model_dump(mode="json"),
-                {
-                    "content": [
-                        {
-                            "type": "data",
-                            "id": AnyString(),
-                            "source": {
-                                "type": "base64",
-                                "data": expected_b64,
-                                "media_type": "image/png",
-                            },
-                            "name": os.path.basename(
-                                png_path,
-                            ),
-                            "created_at": AnyString(),
-                            "finished_at": None,
-                        },
-                    ],
-                    "state": "running",
-                    "is_last": True,
-                    "metadata": {},
-                    "id": AnyString(),
-                },
-            )
-        finally:
-            os.unlink(png_path)
+        # Glob patterns are accepted.
+        tool = Read(image_types=["image/*"])
+        chunk = await tool(file_path=f.name)
+        self.assertEqual(chunk.state, "running")
+
+        # A supported image is rejected once it's excluded.
+        tool = Read(image_types=["image/png"])
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
+            f.write(b"\xff\xd8\xff" + b"\x00" * 100)
+        self.addCleanup(os.unlink, f.name)
+        chunk = await tool(file_path=f.name)
+        self.assertEqual(chunk.state, "error")
+        self.assertIn("only image/png are supported", chunk.content[0].text)
