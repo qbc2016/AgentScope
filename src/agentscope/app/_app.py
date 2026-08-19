@@ -297,6 +297,13 @@ def create_app(
     # KB feature is actually enabled.  When ``knowledge_base_manager`` is
     # ``None`` every KB endpoint is disabled, so leaving these as ``None``
     # avoids unused imports being eagerly constructed at app startup.
+    unknown_kwargs = set(kwargs) - {"knowledge_chunker"}
+    if unknown_kwargs:
+        logger.warning(
+            "Ignoring unknown create_app() arguments: %s",
+            sorted(unknown_kwargs),
+        )
+
     if knowledge_base_manager is not None:
         app.state.knowledge_parsers = (
             knowledge_parsers
@@ -318,15 +325,15 @@ def create_app(
             legacy_cls = type(kwargs["knowledge_chunker"])
             if legacy_cls not in chunker_classes:
                 chunker_classes.append(legacy_cls)
-        seen_types: dict[str, Type[ChunkerBase]] = {}
+        seen_chunker_types: dict[str, Type[ChunkerBase]] = {}
         for cls in chunker_classes:
-            if cls.chunker_type in seen_types:
+            if cls.chunker_type in seen_chunker_types:
                 raise ValueError(
                     f"Duplicate chunker_type {cls.chunker_type!r}: "
-                    f"{seen_types[cls.chunker_type].__name__} and "
+                    f"{seen_chunker_types[cls.chunker_type].__name__} and "
                     f"{cls.__name__}.",
                 )
-            seen_types[cls.chunker_type] = cls
+            seen_chunker_types[cls.chunker_type] = cls
         app.state.knowledge_chunkers = chunker_classes
         app.state.blob_store = (
             blob_store

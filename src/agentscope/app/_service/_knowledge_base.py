@@ -29,6 +29,7 @@ from ..rag.knowledge_base_manager import (
     KnowledgeBaseNotFoundError,
 )
 from ..storage import (
+    ChunkerConfig,
     KnowledgeDocumentData,
     KnowledgeDocumentRecord,
 )
@@ -42,7 +43,6 @@ if TYPE_CHECKING:
     from ..rag.knowledge_base_manager import KnowledgeBaseManagerBase
     from ..message_bus import MessageBus
     from ..storage import (
-        ChunkerConfig,
         EmbeddingModelConfig,
         KnowledgeBaseRecord,
         StorageBase,
@@ -118,7 +118,7 @@ class KnowledgeBaseService:
         name: str,
         description: str,
         embedding_model_config: "EmbeddingModelConfig",
-        chunker_config: "ChunkerConfig",
+        chunker_config: "ChunkerConfig | None" = None,
     ) -> "KnowledgeBaseRecord":
         """Delegate creation to the manager, mapping policy errors.
 
@@ -131,8 +131,9 @@ class KnowledgeBaseService:
                 Free-form description.
             embedding_model_config (`EmbeddingModelConfig`):
                 Embedding model configuration; pinned to the record.
-            chunker_config (`ChunkerConfig`):
-                Chunker configuration; pinned to the record.
+            chunker_config (`ChunkerConfig | None`, optional):
+                Chunker configuration; pinned to the record.  Defaults
+                to the first configured chunker with default parameters.
 
         Returns:
             `KnowledgeBaseRecord`:
@@ -145,6 +146,11 @@ class KnowledgeBaseService:
                 ``422`` when the chunker type or parameters are
                 invalid.
         """
+        if chunker_config is None:
+            chunker_config = ChunkerConfig(
+                type=next(iter(self._chunkers_by_type)),
+                parameters={},
+            )
         chunker_cls = self._chunkers_by_type.get(chunker_config.type)
         if chunker_cls is None:
             raise HTTPException(

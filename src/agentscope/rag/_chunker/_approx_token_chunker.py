@@ -84,10 +84,22 @@ class ApproxTokenChunker(ChunkerBase):
                 ignored.
 
         Raises:
+            `TypeError`:
+                If ``parameters`` is not a ``Parameters`` instance.
             `ValueError`:
                 If ``chunk_size`` is not positive, or ``overlap`` is
                 negative or not smaller than ``chunk_size``.
         """
+        if parameters is not None and not isinstance(
+            parameters,
+            self.Parameters,
+        ):
+            raise TypeError(
+                "The first argument of ApproxTokenChunker must be an "
+                "ApproxTokenChunker.Parameters instance, got "
+                f"{type(parameters).__name__}. Use keyword arguments "
+                "chunk_size=/overlap= or parameters=Parameters(...).",
+            )
         legacy = {
             key: kwargs[key]
             for key in ("chunk_size", "overlap")

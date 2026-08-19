@@ -64,7 +64,7 @@ import socket
 import uuid
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import AsyncExitStack
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ..._service import IndexTaskConsumer, IndexWorker
 from ...._logging import logger
@@ -89,6 +89,7 @@ async def run_worker(
     worker_max_concurrency: int = 4,
     consumer_max_batch: int = 32,
     parser_executor: ProcessPoolExecutor | None = None,
+    **kwargs: Any,
 ) -> None:
     """Run the out-of-process index worker until cancelled.
 
@@ -136,6 +137,9 @@ async def run_worker(
         parser_executor (`ProcessPoolExecutor | None`, optional):
             Process pool for CPU-bound parses. ``None`` runs parses
             inline (fine for text-only deployments).
+        **kwargs (`Any`):
+            Deprecated arguments forwarded to :class:`IndexWorker`
+            (e.g. the old ``chunker`` instance).
     """
     resolved_node_id = (
         node_id or f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
@@ -156,6 +160,7 @@ async def run_worker(
             node_id=resolved_node_id,
             max_concurrency=worker_max_concurrency,
             parser_executor=parser_executor,
+            **kwargs,
         )
         await stack.enter_async_context(
             IndexTaskConsumer(

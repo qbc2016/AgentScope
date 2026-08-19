@@ -25,7 +25,7 @@ import contextlib
 import mimetypes
 from concurrent.futures import ProcessPoolExecutor
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from pydantic import ValidationError
 
@@ -123,6 +123,7 @@ class IndexWorker:
         max_concurrency: int = 4,
         lease_ttl: timedelta = timedelta(seconds=90),
         parser_executor: ProcessPoolExecutor | None = None,
+        **kwargs: Any,
     ) -> None:
         """Initialize the worker.
 
@@ -174,13 +175,32 @@ class IndexWorker:
                 third-party byte-oriented parsers.  Injected so a
                 single pool can be shared across the app (built in
                 lifespan).
+            **kwargs (`Any`):
+                Deprecated. ``chunker`` (a shared chunker instance) is
+                still accepted for backward compatibility; only its
+                class is used.
         """
+        chunker_classes = list(chunkers or [ApproxTokenChunker])
+        if "chunker" in kwargs:
+            logger.warning(
+                "The `chunker` argument of IndexWorker is deprecated, "
+                "use `chunkers` instead.",
+            )
+            legacy_cls = type(kwargs.pop("chunker"))
+            if legacy_cls not in chunker_classes:
+                chunker_classes.append(legacy_cls)
+        if kwargs:
+            logger.warning(
+                "Ignoring unknown IndexWorker arguments: %s",
+                sorted(kwargs),
+            )
+
         self._storage = storage
         self._blob_store = blob_store
         self._manager = knowledge_base_manager
         self._parsers_by_media_type = _build_parser_registry(parsers)
         self._chunkers_by_type = {
-            cls.chunker_type: cls for cls in (chunkers or [ApproxTokenChunker])
+            cls.chunker_type: cls for cls in chunker_classes
         }
         self._node_id = node_id
         self._lease_ttl = lease_ttl

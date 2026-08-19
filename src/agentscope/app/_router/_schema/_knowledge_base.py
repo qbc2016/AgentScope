@@ -31,11 +31,13 @@ class CreateKnowledgeBaseRequest(BaseModel):
             "invalidate every previously inserted vector."
         ),
     )
-    chunker_config: ChunkerConfig = Field(
+    chunker_config: ChunkerConfig | None = Field(
+        default=None,
         description=(
             "Chunker configuration determining how uploaded documents "
             "are split into chunks.  Pinned at creation time and "
-            "cannot be changed afterwards."
+            "cannot be changed afterwards.  Defaults to the first "
+            "configured chunker with its default parameters."
         ),
     )
 
