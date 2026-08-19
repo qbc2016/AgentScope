@@ -18,7 +18,7 @@ guarantee preserves the structural metadata attached by the Parser
 """
 from abc import ABC, abstractmethod
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 from .._document import Chunk, Section
 
@@ -55,8 +55,6 @@ class ChunkerBase(ABC):
 
     class Parameters(BaseModel):
         """The tunable parameters of the chunker."""
-
-        model_config = ConfigDict(extra="forbid")
 
     def __init__(
         self,

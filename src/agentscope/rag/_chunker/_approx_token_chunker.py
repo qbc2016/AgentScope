@@ -80,25 +80,19 @@ class ApproxTokenChunker(ChunkerBase):
             **kwargs (`Any`):
                 Deprecated. ``chunk_size`` and ``overlap`` are still
                 accepted for backward compatibility and override the
-                corresponding fields in ``parameters``.
+                corresponding fields in ``parameters``; other keys are
+                ignored.
 
         Raises:
-            `TypeError`:
-                If an unexpected keyword argument is given.
             `ValueError`:
                 If ``chunk_size`` is not positive, or ``overlap`` is
                 negative or not smaller than ``chunk_size``.
         """
         legacy = {
-            key: kwargs.pop(key)
+            key: kwargs[key]
             for key in ("chunk_size", "overlap")
             if key in kwargs
         }
-        if kwargs:
-            raise TypeError(
-                "ApproxTokenChunker.__init__() got unexpected keyword "
-                f"argument(s): {sorted(kwargs)}",
-            )
         if legacy:
             logger.warning(
                 "Passing %s to ApproxTokenChunker directly is deprecated, "
@@ -109,7 +103,6 @@ class ApproxTokenChunker(ChunkerBase):
             parameters = self.Parameters(**{**base, **legacy})
 
         super().__init__(parameters)
-        self.parameters: ApproxTokenChunker.Parameters
 
     @property
     def chunk_size(self) -> int:
