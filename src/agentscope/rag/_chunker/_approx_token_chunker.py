@@ -7,11 +7,13 @@ within the right order of magnitude for most LLM tokenizers.
 """
 from bisect import bisect_right
 from itertools import accumulate
+from typing import Any
 
 from pydantic import Field, model_validator
 
 from ._base import ChunkerBase
 from .._document import Chunk, Section
+from ..._logging import logger
 from ...message import TextBlock, DataBlock
 
 
@@ -35,7 +37,7 @@ class ApproxTokenChunker(ChunkerBase):
     chunker_type = "approx_token"
 
     class Parameters(ChunkerBase.Parameters):
-        """Tunable parameters for the approximate-token chunker."""
+        """The tunable parameters of the approximate-token chunker."""
 
         chunk_size: int = Field(
             default=512,
@@ -64,35 +66,60 @@ class ApproxTokenChunker(ChunkerBase):
                 )
             return self
 
-    def __init__(self, chunk_size: int = 512, overlap: int = 50) -> None:
+    def __init__(
+        self,
+        parameters: "ApproxTokenChunker.Parameters | None" = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the approx token chunker.
 
         Args:
-            chunk_size (`int`, defaults to `512`):
-                The maximum number of approximate tokens per chunk.
-                Must be a positive integer.
-            overlap (`int`, defaults to `50`):
-                The number of approximate tokens shared between two
-                consecutive chunks.  Must be non-negative and smaller
-                than ``chunk_size``.
+            parameters (`ApproxTokenChunker.Parameters | None`, optional):
+                The chunker parameters (``chunk_size`` and ``overlap``).
+                Defaults to ``Parameters()`` when not provided.
+            **kwargs (`Any`):
+                Deprecated. ``chunk_size`` and ``overlap`` are still
+                accepted for backward compatibility and override the
+                corresponding fields in ``parameters``.
 
         Raises:
+            `TypeError`:
+                If an unexpected keyword argument is given.
             `ValueError`:
                 If ``chunk_size`` is not positive, or ``overlap`` is
                 negative or not smaller than ``chunk_size``.
         """
-        if chunk_size <= 0:
-            raise ValueError(
-                f"chunk_size must be positive, got {chunk_size}.",
+        legacy = {
+            key: kwargs.pop(key)
+            for key in ("chunk_size", "overlap")
+            if key in kwargs
+        }
+        if kwargs:
+            raise TypeError(
+                "ApproxTokenChunker.__init__() got unexpected keyword "
+                f"argument(s): {sorted(kwargs)}",
             )
-        if overlap < 0 or overlap >= chunk_size:
-            raise ValueError(
-                "overlap must satisfy 0 <= overlap < chunk_size, "
-                f"got overlap={overlap}, chunk_size={chunk_size}.",
+        if legacy:
+            logger.warning(
+                "Passing %s to ApproxTokenChunker directly is deprecated, "
+                "use ApproxTokenChunker.Parameters instead.",
+                ", ".join(f"``{k}``" for k in legacy),
             )
+            base = parameters.model_dump() if parameters is not None else {}
+            parameters = self.Parameters(**{**base, **legacy})
 
-        self.chunk_size = chunk_size
-        self.overlap = overlap
+        super().__init__(parameters)
+        self.parameters: ApproxTokenChunker.Parameters
+
+    @property
+    def chunk_size(self) -> int:
+        """The maximum number of approximate tokens per chunk."""
+        return self.parameters.chunk_size
+
+    @property
+    def overlap(self) -> int:
+        """The number of approximate tokens shared between chunks."""
+        return self.parameters.overlap
 
     async def chunk(self, sections: list[Section]) -> list[Chunk]:
         """Chunk the input sections into smaller chunks based on an approx

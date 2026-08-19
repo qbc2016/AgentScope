@@ -45,7 +45,7 @@ if TYPE_CHECKING:
         KnowledgeBaseRecord,
         StorageBase,
     )
-    from ...rag import VectorSearchResult
+    from ...rag import ChunkerBase, VectorSearchResult
 
 
 class KnowledgeBaseService:
@@ -66,6 +66,7 @@ class KnowledgeBaseService:
         blob_store: "BlobStoreBase",
         message_bus: "MessageBus",
         resource_access_service: "ResourceAccessService",
+        chunkers: "list[type[ChunkerBase]] | None" = None,
     ) -> None:
         """Initialize the service.
 
@@ -91,12 +92,21 @@ class KnowledgeBaseService:
                 *and* mutation) goes through it so shared knowledge
                 bases work end-to-end: readers see documents +
                 search hits, editors can also upload / delete.
+            chunkers (`list[type[ChunkerBase]] | None`, optional):
+                The chunker classes users can choose from when creating
+                a knowledge base; used to validate ``chunker_config``.
+                Defaults to ``[ApproxTokenChunker]``.
         """
+        from ...rag import ApproxTokenChunker
+
         self._storage = storage
         self._manager = knowledge_base_manager
         self._blob_store = blob_store
         self._bus = message_bus
         self._access = resource_access_service
+        self._chunkers_by_type = {
+            cls.chunker_type: cls for cls in (chunkers or [ApproxTokenChunker])
+        }
 
     # ------------------------------------------------------------------
     # Knowledge base CRUD
@@ -137,18 +147,17 @@ class KnowledgeBaseService:
         """
         from pydantic import ValidationError
 
-        from ...rag import create_chunker_from_config
-
-        try:
-            create_chunker_from_config(
-                chunker_config.type,
-                chunker_config.parameters,
-            )
-        except KeyError as exc:
+        chunker_cls = self._chunkers_by_type.get(chunker_config.type)
+        if chunker_cls is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Unknown chunker type: {chunker_config.type!r}",
-            ) from exc
+                detail=(
+                    f"Unknown chunker type: {chunker_config.type!r}, "
+                    f"available: {sorted(self._chunkers_by_type)}"
+                ),
+            )
+        try:
+            chunker_cls.Parameters(**chunker_config.parameters)
         except (TypeError, ValueError, ValidationError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

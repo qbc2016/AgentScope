@@ -11,10 +11,9 @@ from ._session import EmbeddingModelConfig
 class ChunkerConfig(BaseModel):
     """Chunker configuration persisted alongside a knowledge base.
 
-    Stores the chunker ``type`` identifier (registered via
-    :func:`~agentscope.rag.get_chunker_registry`) and the
-    keyword-argument ``parameters`` used to reconstruct it at
-    indexing time.  Defaults to ``approx_token`` with empty
+    Stores the chunker ``type`` identifier (as declared by
+    ``ChunkerBase.chunker_type``) and the keyword-argument
+    ``parameters`` used to reconstruct it at indexing time.  Defaults to ``approx_token`` with empty
     parameters (uses the chunker's own defaults).
     """
 
@@ -28,7 +27,7 @@ class ChunkerConfig(BaseModel):
     parameters: dict = Field(
         default_factory=dict,
         description=(
-            "Keyword arguments forwarded to " "``ChunkerBase.from_config()``."
+            "Keyword arguments used to build ``ChunkerBase.Parameters``."
         ),
     )
 

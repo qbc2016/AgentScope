@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     from ..knowledge_base_manager import KnowledgeBaseManagerBase
     from ...message_bus import MessageBus
     from ...storage import StorageBase
-    from ....rag import ParserBase
+    from ....rag import ChunkerBase, ParserBase
 
 
 async def run_worker(
@@ -84,6 +84,7 @@ async def run_worker(
     blob_store: "BlobStoreBase",
     knowledge_base_manager: "KnowledgeBaseManagerBase",
     parsers: "list[ParserBase] | dict[str, ParserBase]",
+    chunkers: "list[type[ChunkerBase]] | None" = None,
     node_id: str | None = None,
     worker_max_concurrency: int = 4,
     consumer_max_batch: int = 32,
@@ -114,6 +115,10 @@ async def run_worker(
             ``supported_media_types`` (later entries override earlier
             ones, with a warning); dict mode is used verbatim for
             explicit routing.
+        chunkers (`list[type[ChunkerBase]] | None`, optional):
+            The chunker classes that can be rebuilt from a knowledge
+            base's ``chunker_config``.  Defaults to
+            ``[ApproxTokenChunker]``.
         node_id (`str | None`, optional):
             Stable identifier for this worker process used on the
             storage lease. Defaults to
@@ -147,6 +152,7 @@ async def run_worker(
             blob_store=blob_store,
             knowledge_base_manager=knowledge_base_manager,
             parsers=parsers,
+            chunkers=chunkers,
             node_id=resolved_node_id,
             max_concurrency=worker_max_concurrency,
             parser_executor=parser_executor,

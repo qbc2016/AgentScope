@@ -115,6 +115,7 @@ class IndexWorker:
         blob_store: "BlobStoreBase",
         knowledge_base_manager: "KnowledgeBaseManagerBase",
         parsers: "list[ParserBase] | dict[str, ParserBase]",
+        chunkers: "list[type[ChunkerBase]] | None" = None,
         node_id: str = "",
         max_concurrency: int = 4,
         lease_ttl: timedelta = timedelta(seconds=90),
@@ -145,6 +146,10 @@ class IndexWorker:
                   declare.
 
                 Same registry the upload service uses, passed in by DI.
+            chunkers (`list[type[ChunkerBase]] | None`, optional):
+                The chunker classes that can be rebuilt from a knowledge
+                base's ``chunker_config``.  Defaults to
+                ``[ApproxTokenChunker]``.
             node_id (`str`):
                 Stable identifier for this worker process.  Used as
                 ``processing_node`` on the lease so the sweeper can
@@ -170,7 +175,12 @@ class IndexWorker:
         self._storage = storage
         self._blob_store = blob_store
         self._manager = knowledge_base_manager
+        from ...rag import ApproxTokenChunker
+
         self._parsers_by_media_type = _build_parser_registry(parsers)
+        self._chunkers_by_type = {
+            cls.chunker_type: cls for cls in (chunkers or [ApproxTokenChunker])
+        }
         self._node_id = node_id
         self._lease_ttl = lease_ttl
         self._sem = asyncio.Semaphore(max_concurrency)
@@ -416,26 +426,30 @@ class IndexWorker:
     ) -> "ChunkerBase":
         """Resolve the chunker from a pre-fetched KB record.
 
-        Instantiates the matching chunker from the registry using the
-        record's ``chunker_config``.  Falls back to
+        Instantiates the matching chunker class using the record's
+        ``chunker_config``.  Falls back to
         :class:`~agentscope.rag.ApproxTokenChunker` for legacy
         records that predate per-KB chunker support
         (``chunker_config`` is ``None``).
         """
         from pydantic import ValidationError
 
-        from ...rag import create_chunker_from_config, ApproxTokenChunker
+        from ...rag import ApproxTokenChunker
 
         cfg = kb_record.data.chunker_config if kb_record is not None else None
         if cfg is not None:
-            try:
-                return create_chunker_from_config(cfg.type, cfg.parameters)
-            except KeyError:
+            chunker_cls = self._chunkers_by_type.get(cfg.type)
+            if chunker_cls is None:
                 logger.warning(
                     "Unknown chunker type %r on KB %s — "
                     "falling back to ApproxTokenChunker.",
                     cfg.type,
                     kb_record.id,
+                )
+                return ApproxTokenChunker()
+            try:
+                return chunker_cls(
+                    parameters=chunker_cls.Parameters(**cfg.parameters),
                 )
             except (ValidationError, TypeError, ValueError) as exc:
                 logger.warning(

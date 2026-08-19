@@ -23,6 +23,7 @@ from ..deps import (
     get_current_user_id,
     get_knowledge_base_manager,
     get_knowledge_base_service,
+    get_knowledge_chunkers,
     get_knowledge_parsers,
     get_resource_access_service,
 )
@@ -52,7 +53,7 @@ from .._service import (
     ResourceAccessService,
 )
 from ...middleware import RAGMiddleware
-from ...rag import ParserBase, get_chunker_registry
+from ...rag import ChunkerBase, ParserBase
 
 
 knowledge_base_router = APIRouter(
@@ -138,8 +139,11 @@ async def list_kb_embedding_models(
 )
 async def list_chunkers(
     _: str = Depends(get_current_user_id),
+    chunker_classes: list[type[ChunkerBase]] = Depends(
+        get_knowledge_chunkers,
+    ),
 ) -> ListChunkersResponse:
-    """List every registered chunker type with its parameter schema.
+    """List every available chunker type with its parameter schema.
 
     The front-end uses this to populate the chunker selector and
     to render a dynamic parameter form when creating a knowledge
@@ -149,24 +153,27 @@ async def list_chunkers(
         _ (`str`):
             Injected authenticated user ID; only used to gate the
             endpoint behind authentication.
+        chunker_classes (`list[type[ChunkerBase]]`):
+            The chunker classes configured via
+            ``create_app(knowledge_chunkers=...)``.
 
     Returns:
         `ListChunkersResponse`:
-            All registered chunker types with their JSON Schemas.
+            All available chunker types with their JSON Schemas.
     """
-    registry = get_chunker_registry()
     chunkers = [
         ChunkerInfo(
             type=cls.chunker_type,
             description=(cls.__doc__ or "").strip().split("\n")[0],
-            parameter_schema=cls.parameter_schema(),
+            parameter_schema=cls.Parameters.model_json_schema(),
         )
-        for cls in registry.values()
+        for cls in chunker_classes
     ]
-    first_type = next(iter(registry), None)
     return ListChunkersResponse(
         chunkers=chunkers,
-        default_type=first_type,
+        default_type=chunker_classes[0].chunker_type
+        if chunker_classes
+        else None,
     )
 
 
