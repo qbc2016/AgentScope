@@ -610,6 +610,8 @@ class ToolResultCompressionTest(IsolatedAsyncioTestCase):
             {
                 "type": "tool_result",
                 "id": "fc_xyz",
+                "created_at": AnyString(),
+                "finished_at": None,
                 "call_id": "call-xyz",
                 "name": "test_tool",
                 "state": "running",
@@ -618,6 +620,8 @@ class ToolResultCompressionTest(IsolatedAsyncioTestCase):
                     {
                         "type": "text",
                         "id": "block1",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "text": "A" * 20 + "B" * 80,
                     },
                 ],
@@ -628,6 +632,8 @@ class ToolResultCompressionTest(IsolatedAsyncioTestCase):
             {
                 "type": "tool_result",
                 "id": "fc_xyz",
+                "created_at": AnyString(),
+                "finished_at": None,
                 "call_id": "call-xyz",
                 "name": "test_tool",
                 "state": "running",
@@ -636,6 +642,8 @@ class ToolResultCompressionTest(IsolatedAsyncioTestCase):
                     {
                         "type": "text",
                         "id": "block2",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "text": "B" * 120,
                     },
                 ],
