@@ -100,13 +100,19 @@ Usage:
         """The description presented to the agent, with the image and PDF
         bullets rendered from the model's accepted input types."""
         lines = [self._DESCRIPTION_HEAD]
-        if self._image_types:
+        image_types = [
+            t for t in self.model_input_types if t.startswith("image/")
+        ]
+        if image_types:
             lines.append(
-                f"- This tool allows you to read images ({', '.join(self._image_types)}). When reading an image file the contents are presented visually as you're a multimodal LLM.",  # noqa: E501
+                f"- This tool allows you to read images ({', '.join(image_types)}). When reading an image file the contents are presented visually as you're a multimodal LLM.",  # noqa: E501
             )
         pdf_presentation = (
             "When reading a PDF file the pages are presented to you as a document."  # noqa: E501
-            if self._pdf_passthrough
+            if any(
+                fnmatch.fnmatch("application/pdf", t)
+                for t in self.model_input_types
+            )
             else "Text is extracted per page."
         )
         lines.append(
@@ -159,13 +165,10 @@ Usage:
 
         super().__init__(middlewares=middlewares)
         self._max_line_characters = max_line_characters
-        model_input_types = model_input_types or _DEFAULT_MODEL_INPUT_TYPES
-        self._image_types = [
-            t for t in model_input_types if t.startswith("image/")
-        ]
-        self._pdf_passthrough = any(
-            fnmatch.fnmatch("application/pdf", t) for t in model_input_types
+        self.model_input_types = (
+            model_input_types or _DEFAULT_MODEL_INPUT_TYPES
         )
+        """The media types the model accepts as input, see ``__init__``."""
         self._backend = backend or LocalBackend()
 
     async def check_permissions(
@@ -326,12 +329,18 @@ Usage:
     ) -> ToolChunk:
         """Read an image file and return as DataBlock."""
         media_type = _IMAGE_EXTENSIONS[ext]
-        if not any(fnmatch.fnmatch(media_type, t) for t in self._image_types):
+        if not any(
+            fnmatch.fnmatch(media_type, t) for t in self.model_input_types
+        ):
+            image_types = [
+                t for t in self.model_input_types if t.startswith("image/")
+            ]
             return ToolChunk(
                 content=[
                     TextBlock(
                         text=f"Error: Unsupported image type {media_type}, "
-                        f"only {', '.join(self._image_types)} are supported.",
+                        f"only {', '.join(image_types) or 'none'} are "
+                        "supported.",
                     ),
                 ],
                 state=ToolResultState.ERROR,
@@ -442,7 +451,10 @@ Usage:
                     is_last=True,
                 )
 
-        if not self._pdf_passthrough:
+        if not any(
+            fnmatch.fnmatch("application/pdf", t)
+            for t in self.model_input_types
+        ):
             text_parts = [
                 f"--- Page {page_num}/{total_pages} ---\n"
                 f"{reader.pages[page_num - 1].extract_text() or ''}"

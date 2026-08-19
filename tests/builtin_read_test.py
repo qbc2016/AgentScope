@@ -385,10 +385,15 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         self.assertIn("image/bmp", tool.description)
         self.assertNotIn("text/plain", tool.description)
 
-        # Glob patterns are accepted.
+        # Glob patterns are accepted, and the attribute can be changed
+        # after construction.
         tool = Read(model_input_types=["image/*"])
         chunk = await tool(file_path=f.name)
         self.assertEqual(chunk.state, "running")
+        tool.model_input_types = ["text/plain"]
+        chunk = await tool(file_path=f.name)
+        self.assertEqual(chunk.state, "error")
+        self.assertNotIn("read images", tool.description)
 
         # A supported image is rejected once it's excluded.
         tool = Read(model_input_types=["image/png"])
