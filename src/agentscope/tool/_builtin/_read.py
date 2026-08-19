@@ -42,8 +42,13 @@ _IMAGE_EXTENSIONS: dict[str, str] = {
 _PDF_MAX_PAGES_WITHOUT_RANGE = 10
 _PDF_MAX_PAGES_PER_READ = 20
 
-# Media types accepted by the Anthropic, OpenAI, Gemini and DashScope APIs.
-_DEFAULT_INPUT_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+# Image types accepted by the Anthropic, OpenAI, Gemini and DashScope APIs.
+_DEFAULT_MODEL_INPUT_TYPES = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+]
 
 
 class _ReadParams(ParamsBase):
@@ -93,6 +98,17 @@ Usage:
 - This tool can read PDF files (.pdf). Text is extracted per page. For large PDFs (more than {max_pages_without_range} pages), you MUST provide the pages parameter to read specific pages (max {max_pages_per_read} pages per request)."""  # noqa: E501
 
     @property
+    def _image_types(self) -> list[str]:
+        """The image media types (or patterns) the model accepts."""
+        return [t for t in self._model_input_types if t.startswith("image/")]
+
+    def _is_model_input(self, media_type: str) -> bool:
+        """Whether the model accepts ``media_type`` natively."""
+        return any(
+            fnmatch.fnmatch(media_type, t) for t in self._model_input_types
+        )
+
+    @property
     def description(self) -> str:  # type: ignore[override]
         """The description presented to the agent, rendered with the
         supported image types."""
@@ -116,7 +132,7 @@ Usage:
     def __init__(
         self,
         max_line_characters: int = 2000,
-        input_types: list[str] | None = None,
+        model_input_types: list[str] | None = None,
         middlewares: List[ToolMiddlewareBase] | None = None,
         backend: BackendBase | None = None,
     ) -> None:
@@ -129,16 +145,15 @@ Usage:
                 a "[truncated]" suffix. This prevents overwhelming the agent
                 with excessively long lines while still providing useful
                 content.
-            input_types (`list[str] | None`, optional):
+            model_input_types (`list[str] | None`, optional):
                 The media types the downstream model accepts as input,
                 aligned with the model card's ``input_types`` field so it
                 can be passed through directly, e.g.
-                ``Read(input_types=model_card.input_types)``. Glob patterns
-                like ``"image/*"`` are accepted. Files whose media type is
-                listed are returned as ``DataBlock`` for the model to
-                consume natively; currently only image types are consulted
-                (an image of any other type returns an error, PDFs are
-                always extracted to text locally). Defaults to
+                ``Read(model_input_types=model_card.input_types)``. Glob
+                patterns like ``"image/*"`` are accepted. Files whose media
+                type is listed are returned as ``DataBlock`` for the model
+                to consume natively; otherwise images return an error and
+                PDFs fall back to local text extraction. Defaults to
                 ``image/png``, ``image/jpeg``, ``image/gif`` and
                 ``image/webp``.
             middlewares (`List[ToolMiddlewareBase] | None`, optional):
@@ -151,11 +166,9 @@ Usage:
 
         super().__init__(middlewares=middlewares)
         self._max_line_characters = max_line_characters
-        self._image_types = [
-            t
-            for t in (input_types or _DEFAULT_INPUT_TYPES)
-            if t.startswith("image/")
-        ]
+        self._model_input_types = (
+            model_input_types or _DEFAULT_MODEL_INPUT_TYPES
+        )
         self._backend = backend or LocalBackend()
 
     async def check_permissions(
@@ -358,15 +371,17 @@ Usage:
         file_path: str,
         pages: str | None = None,
     ) -> ToolChunk:
-        """Read a PDF file, extract text, and return as TextBlock."""
-        from ...rag import PDFParser
+        """Read a PDF file. When the model accepts ``application/pdf`` the
+        requested pages are returned as a PDF ``DataBlock``, otherwise their
+        text is extracted locally into a ``TextBlock``."""
+        import io
+
+        from pypdf import PdfReader, PdfWriter
 
         try:
             raw = await self._backend.read_file(file_path)
-            sections = await PDFParser().parse(
-                raw,
-                self._backend.basename(file_path),
-            )
+            reader = PdfReader(io.BytesIO(raw))
+            total_pages = len(reader.pages)
         except Exception as e:
             return ToolChunk(
                 content=[TextBlock(text=f"Error reading PDF: {str(e)}")],
@@ -374,7 +389,6 @@ Usage:
                 is_last=True,
             )
 
-        total_pages = len(sections)
         if pages is None:
             if total_pages > _PDF_MAX_PAGES_WITHOUT_RANGE:
                 return ToolChunk(
@@ -431,13 +445,36 @@ Usage:
                     is_last=True,
                 )
 
-        text_parts = [
-            f"--- Page {page_num}/{total_pages} ---\n"
-            f"{sections[page_num - 1].content.text}"
-            for page_num in range(first, last + 1)
-        ]
+        if not self._is_model_input("application/pdf"):
+            text_parts = [
+                f"--- Page {page_num}/{total_pages} ---\n"
+                f"{reader.pages[page_num - 1].extract_text() or ''}"
+                for page_num in range(first, last + 1)
+            ]
+            return ToolChunk(
+                content=[TextBlock(text="\n\n".join(text_parts))],
+                state=ToolResultState.RUNNING,
+                is_last=True,
+            )
+
+        # Hand the PDF itself to the model, trimmed to the requested pages.
+        if (first, last) != (1, total_pages):
+            writer = PdfWriter()
+            for page_num in range(first, last + 1):
+                writer.add_page(reader.pages[page_num - 1])
+            buf = io.BytesIO()
+            writer.write(buf)
+            raw = buf.getvalue()
         return ToolChunk(
-            content=[TextBlock(text="\n\n".join(text_parts))],
+            content=[
+                DataBlock(
+                    source=Base64Source(
+                        data=base64.b64encode(raw).decode("ascii"),
+                        media_type="application/pdf",
+                    ),
+                    name=self._backend.basename(file_path),
+                ),
+            ],
             state=ToolResultState.RUNNING,
             is_last=True,
         )

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Read tool test case."""
 import base64
+import io
 import os
 import tempfile
 from unittest.async_case import IsolatedAsyncioTestCase
@@ -354,7 +355,7 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             os.unlink(path)
 
     async def test_read_image_unsupported_type(self) -> None:
-        """Test images outside ``input_types`` return an error."""
+        """Test images outside ``model_input_types`` return an error."""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".bmp") as f:
             f.write(b"BM" + b"\x00" * 100)
         self.addCleanup(os.unlink, f.name)
@@ -369,7 +370,7 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         self.assertIn("image/png", chunk.content[0].text)
 
         # Model card style input_types, non-image entries ignored.
-        tool = Read(input_types=["text/plain", "image/bmp"])
+        tool = Read(model_input_types=["text/plain", "image/bmp"])
         chunk = await tool(file_path=f.name)
         self.assertEqual(chunk.state, "running")
         self.assertEqual(chunk.content[0].source.media_type, "image/bmp")
@@ -377,15 +378,43 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         self.assertNotIn("text/plain", tool.description)
 
         # Glob patterns are accepted.
-        tool = Read(input_types=["image/*"])
+        tool = Read(model_input_types=["image/*"])
         chunk = await tool(file_path=f.name)
         self.assertEqual(chunk.state, "running")
 
         # A supported image is rejected once it's excluded.
-        tool = Read(input_types=["image/png"])
+        tool = Read(model_input_types=["image/png"])
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
             f.write(b"\xff\xd8\xff" + b"\x00" * 100)
         self.addCleanup(os.unlink, f.name)
         chunk = await tool(file_path=f.name)
         self.assertEqual(chunk.state, "error")
         self.assertIn("only image/png are supported", chunk.content[0].text)
+
+    async def test_read_pdf_passthrough(self) -> None:
+        """Test PDFs are handed to the model as DataBlock when accepted."""
+        from pypdf import PdfReader
+
+        pdf_path = self._write_pdf(5)
+        tool = Read(model_input_types=["image/*", "application/pdf"])
+
+        # Without pages the original bytes are returned untouched.
+        chunk = await tool(file_path=pdf_path)
+        self.assertEqual(chunk.state, "running")
+        block = chunk.content[0]
+        self.assertIsInstance(block, DataBlock)
+        self.assertEqual(block.source.media_type, "application/pdf")
+        self.assertEqual(block.name, os.path.basename(pdf_path))
+        with open(pdf_path, "rb") as f:
+            self.assertEqual(base64.b64decode(block.source.data), f.read())
+
+        # With pages only the requested pages are kept.
+        chunk = await tool(file_path=pdf_path, pages="2-3")
+        self.assertEqual(chunk.state, "running")
+        trimmed = base64.b64decode(chunk.content[0].source.data)
+        self.assertEqual(len(PdfReader(io.BytesIO(trimmed)).pages), 2)
+
+        # The page limits still apply.
+        chunk = await tool(file_path=self._write_pdf(11))
+        self.assertEqual(chunk.state, "error")
+        self.assertIn("pages parameter", chunk.content[0].text)
