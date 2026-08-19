@@ -86,42 +86,35 @@ class Read(ToolBase):
     """The tool name presented to the agent."""
 
     # pylint: disable=line-too-long
-    _DESCRIPTION_TEMPLATE: str = """Reads a file from the local filesystem. You can access any file directly by using this tool.
+    _DESCRIPTION_HEAD: str = """Reads a file from the local filesystem. You can access any file directly by using this tool.
 Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 Usage:
 - The file_path parameter must be an absolute path, not a relative path
 - By default, it reads up to 2000 lines starting from the beginning of the file
 - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
-- Results are returned using cat -n format, with line numbers starting at 1
-- This tool allows you to read images ({image_types}). When reading an image file the contents are presented visually as you're a multimodal LLM.
-- This tool can read PDF files (.pdf). Text is extracted per page. For large PDFs (more than {max_pages_without_range} pages), you MUST provide the pages parameter to read specific pages (max {max_pages_per_read} pages per request)."""  # noqa: E501
-
-    @property
-    def _image_types(self) -> list[str]:
-        """The image media types (or patterns) the model accepts."""
-        return [t for t in self._model_input_types if t.startswith("image/")]
-
-    def _is_model_input(self, media_type: str) -> bool:
-        """Whether the model accepts ``media_type`` natively."""
-        return any(
-            fnmatch.fnmatch(media_type, t) for t in self._model_input_types
-        )
+- Results are returned using cat -n format, with line numbers starting at 1"""  # noqa: E501
 
     @property
     def description(self) -> str:  # type: ignore[override]
-        """The description presented to the agent, rendered with the
-        supported image types."""
-        return self._DESCRIPTION_TEMPLATE.format(
-            image_types=", ".join(self._image_types),
-            max_pages_without_range=_PDF_MAX_PAGES_WITHOUT_RANGE,
-            max_pages_per_read=_PDF_MAX_PAGES_PER_READ,
+        """The description presented to the agent, with the image and PDF
+        bullets rendered from the model's accepted input types."""
+        lines = [self._DESCRIPTION_HEAD]
+        if self._image_types:
+            lines.append(
+                f"- This tool allows you to read images ({', '.join(self._image_types)}). When reading an image file the contents are presented visually as you're a multimodal LLM.",  # noqa: E501
+            )
+        pdf_presentation = (
+            "When reading a PDF file the pages are presented to you as a document."  # noqa: E501
+            if self._pdf_passthrough
+            else "Text is extracted per page."
         )
+        lines.append(
+            f"- This tool can read PDF files (.pdf). {pdf_presentation} For large PDFs (more than {_PDF_MAX_PAGES_WITHOUT_RANGE} pages), you MUST provide the pages parameter to read specific pages (max {_PDF_MAX_PAGES_PER_READ} pages per request).",  # noqa: E501
+        )
+        return "\n".join(lines)
 
-    @property
-    def input_schema(self) -> dict[str, Any]:  # type: ignore[override]
-        """The input schema of the tool."""
-        return _ReadParams.model_json_schema()
+    input_schema: dict[str, Any] = _ReadParams.model_json_schema()
 
     is_mcp: bool = False
     is_read_only: bool = True
@@ -166,8 +159,12 @@ Usage:
 
         super().__init__(middlewares=middlewares)
         self._max_line_characters = max_line_characters
-        self._model_input_types = (
-            model_input_types or _DEFAULT_MODEL_INPUT_TYPES
+        model_input_types = model_input_types or _DEFAULT_MODEL_INPUT_TYPES
+        self._image_types = [
+            t for t in model_input_types if t.startswith("image/")
+        ]
+        self._pdf_passthrough = any(
+            fnmatch.fnmatch("application/pdf", t) for t in model_input_types
         )
         self._backend = backend or LocalBackend()
 
@@ -445,7 +442,7 @@ Usage:
                     is_last=True,
                 )
 
-        if not self._is_model_input("application/pdf"):
+        if not self._pdf_passthrough:
             text_parts = [
                 f"--- Page {page_num}/{total_pages} ---\n"
                 f"{reader.pages[page_num - 1].extract_text() or ''}"

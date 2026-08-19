@@ -53,6 +53,14 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             ["file_path"],
         )
         self.assertIn("image/png, image/jpeg", self.read_tool.description)
+        # A text-only model gets no image bullet at all.
+        text_only = Read(model_input_types=["text/plain"]).description
+        self.assertNotIn("read images", text_only)
+        self.assertIn("Text is extracted per page", text_only)
+        self.assertIn(
+            "presented to you as a document",
+            Read(model_input_types=["application/pdf"]).description,
+        )
         self.assertFalse(self.read_tool.is_mcp)
         self.assertTrue(self.read_tool.is_read_only)
         self.assertTrue(self.read_tool.is_concurrency_safe)
