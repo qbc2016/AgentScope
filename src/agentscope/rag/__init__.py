@@ -22,6 +22,7 @@ from ._parser import (
 )
 from ._vdb import (
     DocumentSummary,
+    ElasticsearchStore,
     MilvusLiteStore,
     VectorStoreBase,
     VectorRecord,
@@ -38,6 +39,7 @@ __all__ = [
     "get_chunker_registry",
     "Chunk",
     "DocumentSummary",
+    "ElasticsearchStore",
     "ImageParser",
     "MilvusLiteStore",
     "ParserBase",

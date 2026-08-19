@@ -426,11 +426,8 @@ class IndexWorker:
 
         from ...rag import create_chunker_from_config, ApproxTokenChunker
 
-        if (
-            kb_record is not None
-            and getattr(kb_record, "chunker_config", None) is not None
-        ):
-            cfg = kb_record.chunker_config
+        cfg = kb_record.data.chunker_config if kb_record is not None else None
+        if cfg is not None:
             try:
                 return create_chunker_from_config(cfg.type, cfg.parameters)
             except KeyError:
