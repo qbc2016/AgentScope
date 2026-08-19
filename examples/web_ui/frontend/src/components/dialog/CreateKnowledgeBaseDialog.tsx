@@ -100,15 +100,14 @@ export function CreateKnowledgeBaseDialog({
 		setChunkerParams((prev) => ({ ...prev, [key]: value }));
 	}, []);
 
+	// Default to the first available chunker so the form is submittable
+	// without an explicit pick; re-pick when the list changes underneath.
 	useEffect(() => {
-		if (
-			chunkers.length > 0 &&
-			selectedChunkerType &&
-			!chunkers.some((c) => c.type === selectedChunkerType)
-		) {
-			setSelectedChunkerType('');
+		if (!open || chunkers.length === 0) return;
+		if (!chunkers.some((c) => c.type === selectedChunkerType)) {
+			handleSelectChunker(chunkers[0].type);
 		}
-	}, [chunkers, selectedChunkerType]);
+	}, [open, chunkers, selectedChunkerType, handleSelectChunker]);
 
 	useEffect(() => {
 		if (!open) {
