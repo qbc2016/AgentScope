@@ -5,6 +5,7 @@ import io
 import os
 import tempfile
 from unittest.async_case import IsolatedAsyncioTestCase
+from utils import AnyString
 
 from agentscope.tool import ToolChunk, Read
 from agentscope.permission import (
@@ -12,7 +13,7 @@ from agentscope.permission import (
     PermissionBehavior,
     PermissionRule,
 )
-from agentscope.message import TextBlock, DataBlock, Base64Source
+from agentscope.message import TextBlock
 
 
 # pylint: disable=too-many-public-methods
@@ -43,23 +44,72 @@ class ReadToolTest(IsolatedAsyncioTestCase):
     async def test_tool_properties(self) -> None:
         """Test read tool properties."""
         self.assertEqual(self.read_tool.name, "Read")
-        self.assertIsInstance(self.read_tool.description, str)
+        self.assertDictEqual(
+            self.read_tool.input_schema,
+            {
+                "type": "object",
+                "description": "The parameters of the Read tool.",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "The absolute path to the file to "
+                        "read.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "default": 1,
+                        "minimum": 1,
+                        "description": "Optional 1-based line number to "
+                        "start reading from. Only applies to plain text "
+                        "files (default: 1)",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "default": 2000,
+                        "minimum": 1,
+                        "maximum": 2000,
+                        "description": "Optional maximum number of lines to "
+                        "read. Only applies to plain text files (default: "
+                        "2000, max: 2000)",
+                    },
+                    "pages": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "default": None,
+                        "description": 'Page range for PDF files (e.g. "1-5", '
+                        '"3", "10-20"), max 20 pages per request; required '
+                        "for PDFs over 10 pages. Only applies to PDF files.",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        )
+        # The image and PDF bullets follow the model's input types.
         self.assertEqual(
-            set(self.read_tool.input_schema["properties"]),
-            {"file_path", "offset", "limit", "pages"},
+            self.read_tool.description.splitlines()[-2:],
+            [
+                "- This tool allows you to read images (image/png, "
+                "image/jpeg, image/gif, image/webp). When reading an image "
+                "file the contents are presented visually as you're a "
+                "multimodal LLM.",
+                "- This tool can read PDF files (.pdf). Text is extracted "
+                "per page. For large PDFs (more than 10 pages), you MUST "
+                "provide the pages parameter to read specific pages (max "
+                "20 pages per request).",
+            ],
         )
         self.assertEqual(
-            self.read_tool.input_schema["required"],
-            ["file_path"],
-        )
-        self.assertIn("image/png, image/jpeg", self.read_tool.description)
-        # A text-only model gets no image bullet at all.
-        text_only = Read(model_input_types=["text/plain"]).description
-        self.assertNotIn("read images", text_only)
-        self.assertIn("Text is extracted per page", text_only)
-        self.assertIn(
-            "presented to you as a document",
-            Read(model_input_types=["application/pdf"]).description,
+            Read(
+                model_input_types=["text/plain", "application/pdf"],
+            ).description.splitlines()[-2:],
+            [
+                "- Results are returned using cat -n format, with line "
+                "numbers starting at 1",
+                "- This tool can read PDF files (.pdf). When reading a PDF "
+                "file the pages are presented to you as a document. For "
+                "large PDFs (more than 10 pages), you MUST provide the "
+                "pages parameter to read specific pages (max 20 pages per "
+                "request).",
+            ],
         )
         self.assertFalse(self.read_tool.is_mcp)
         self.assertTrue(self.read_tool.is_read_only)
@@ -209,158 +259,36 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         self.assertGreater(len(suggestions), 0)
 
     async def test_read_image_file_returns_data_block(self) -> None:
-        """Test reading an image file returns DataBlock."""
+        """Test reading an image file returns a base64 DataBlock."""
         img_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".png",
-        ) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f:
             f.write(img_data)
-            img_path = f.name
-
-        try:
-            chunk = await self.read_tool(file_path=img_path)
-
-            self.assertIsInstance(chunk, ToolChunk)
-            self.assertEqual(chunk.state, "running")
-            self.assertEqual(len(chunk.content), 1)
-            self.assertIsInstance(chunk.content[0], DataBlock)
-
-            block = chunk.content[0]
-            self.assertIsInstance(block.source, Base64Source)
-            self.assertEqual(block.source.media_type, "image/png")
-            self.assertEqual(block.name, os.path.basename(img_path))
-
-            decoded = base64.b64decode(block.source.data)
-            self.assertEqual(decoded, img_data)
-        finally:
-            os.unlink(img_path)
-
-    async def test_read_jpeg_file_returns_data_block(self) -> None:
-        """Test reading a JPEG file returns DataBlock."""
-        jpg_data = b"\xff\xd8\xff\xe0" + b"\x00" * 50
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".jpg",
-        ) as f:
-            f.write(jpg_data)
-            jpg_path = f.name
-
-        try:
-            chunk = await self.read_tool(file_path=jpg_path)
-
-            self.assertEqual(chunk.state, "running")
-            self.assertIsInstance(chunk.content[0], DataBlock)
-            self.assertEqual(
-                chunk.content[0].source.media_type,
-                "image/jpeg",
-            )
-        finally:
-            os.unlink(jpg_path)
-
-    def _write_pdf(self, n_pages: int) -> str:
-        """Write a blank PDF with ``n_pages`` pages and return its path."""
-        from pypdf import PdfWriter
-
-        writer = PdfWriter()
-        for _ in range(n_pages):
-            writer.add_blank_page(width=612, height=792)
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".pdf",
-        ) as f:
-            writer.write(f)
         self.addCleanup(os.unlink, f.name)
-        return f.name
 
-    async def test_read_pdf_file(self) -> None:
-        """Test reading a PDF file extracts text."""
-        pdf_path = self._write_pdf(1)
-        chunk = await self.read_tool(file_path=pdf_path)
-
-        self.assertIsInstance(chunk, ToolChunk)
-        self.assertEqual(chunk.state, "running")
-        self.assertEqual(len(chunk.content), 1)
-        self.assertIsInstance(chunk.content[0], TextBlock)
-        self.assertIn("--- Page 1/1 ---", chunk.content[0].text)
-
-    async def test_read_pdf_with_pages_param(self) -> None:
-        """Test reading a page range and a single page from a PDF."""
-        pdf_path = self._write_pdf(5)
-
-        chunk = await self.read_tool(file_path=pdf_path, pages="2-3")
-        self.assertEqual(chunk.state, "running")
-        text = chunk.content[0].text
-        self.assertNotIn("--- Page 1/5 ---", text)
-        self.assertIn("--- Page 2/5 ---", text)
-        self.assertIn("--- Page 3/5 ---", text)
-        self.assertNotIn("--- Page 4/5 ---", text)
-
-        chunk = await self.read_tool(file_path=pdf_path, pages="4")
-        self.assertEqual(chunk.state, "running")
-        text = chunk.content[0].text
-        self.assertIn("--- Page 4/5 ---", text)
-        self.assertNotIn("--- Page 3/5 ---", text)
-        self.assertNotIn("--- Page 5/5 ---", text)
-
-        # A range past the end is clipped to the last page.
-        chunk = await self.read_tool(file_path=pdf_path, pages="4-99")
-        self.assertEqual(chunk.state, "running")
-        self.assertIn("--- Page 5/5 ---", chunk.content[0].text)
-
-    async def test_read_pdf_invalid_pages(self) -> None:
-        """Test malformed or out-of-range pages return an error."""
-        pdf_path = self._write_pdf(2)
-
-        for pages in ["abc", "0", "3", "2-1", "1-2-3", ""]:
-            chunk = await self.read_tool(file_path=pdf_path, pages=pages)
-            self.assertEqual(chunk.state, "error", pages)
-            self.assertIn("Invalid pages", chunk.content[0].text)
-
-    async def test_read_large_pdf_requires_pages(self) -> None:
-        """Test PDFs over 10 pages must be read with the pages parameter."""
-        pdf_path = self._write_pdf(11)
-
-        chunk = await self.read_tool(file_path=pdf_path)
-        self.assertEqual(chunk.state, "error")
-        self.assertIn("11 pages", chunk.content[0].text)
-        self.assertIn("pages parameter", chunk.content[0].text)
-
-        chunk = await self.read_tool(file_path=pdf_path, pages="10-11")
-        self.assertEqual(chunk.state, "running")
-        self.assertIn("--- Page 11/11 ---", chunk.content[0].text)
-
-    async def test_read_pdf_max_pages_per_request(self) -> None:
-        """Test a single read returns at most 20 pages."""
-        pdf_path = self._write_pdf(25)
-
-        chunk = await self.read_tool(file_path=pdf_path, pages="1-21")
-        self.assertEqual(chunk.state, "error")
-        self.assertIn("at most 20 pages", chunk.content[0].text)
-
-        chunk = await self.read_tool(file_path=pdf_path, pages="1-20")
-        self.assertEqual(chunk.state, "running")
-        self.assertIn("--- Page 20/25 ---", chunk.content[0].text)
-        self.assertNotIn("--- Page 21/25 ---", chunk.content[0].text)
-
-    async def test_read_unknown_extension_as_text(self) -> None:
-        """Test that unknown extensions are read as text."""
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            delete=False,
-            suffix=".xyz",
-        ) as f:
-            f.write("hello world\n")
-            path = f.name
-
-        try:
-            chunk = await self.read_tool(file_path=path)
-
-            self.assertEqual(chunk.state, "running")
-            self.assertIsInstance(chunk.content[0], TextBlock)
-            self.assertIn("hello world", chunk.content[0].text)
-        finally:
-            os.unlink(path)
+        chunk = await self.read_tool(file_path=f.name)
+        self.assertDictEqual(
+            chunk.model_dump(mode="json"),
+            {
+                "content": [
+                    {
+                        "type": "data",
+                        "id": AnyString(),
+                        "source": {
+                            "type": "base64",
+                            "data": base64.b64encode(img_data).decode(),
+                            "media_type": "image/png",
+                        },
+                        "name": os.path.basename(f.name),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "running",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
+        )
 
     async def test_read_image_unsupported_type(self) -> None:
         """Test images outside ``model_input_types`` return an error."""
@@ -368,66 +296,340 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             f.write(b"BM" + b"\x00" * 100)
         self.addCleanup(os.unlink, f.name)
 
-        # image/bmp is not in the default image types.
+        # image/bmp is not in the default input types.
         chunk = await self.read_tool(file_path=f.name)
-        self.assertEqual(chunk.state, "error")
-        self.assertIn(
-            "Unsupported image type image/bmp",
-            chunk.content[0].text,
+        self.assertDictEqual(
+            chunk.model_dump(mode="json"),
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Error: Unsupported image type image/bmp, "
+                        "only image/png, image/jpeg, image/gif, image/webp "
+                        "are supported.",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "error",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
         )
-        self.assertIn("image/png", chunk.content[0].text)
 
-        # Model card style input_types, non-image entries ignored.
-        tool = Read(model_input_types=["text/plain", "image/bmp"])
-        chunk = await tool(file_path=f.name)
-        self.assertEqual(chunk.state, "running")
-        self.assertEqual(chunk.content[0].source.media_type, "image/bmp")
-        self.assertIn("image/bmp", tool.description)
-        self.assertNotIn("text/plain", tool.description)
+        # Model card style input types (non-image entries ignored) and glob
+        # patterns are accepted.
+        for model_input_types in [["text/plain", "image/bmp"], ["image/*"]]:
+            tool = Read(model_input_types=model_input_types)
+            chunk = await tool(file_path=f.name)
+            self.assertDictEqual(
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "data",
+                            "id": AnyString(),
+                            "source": {
+                                "type": "base64",
+                                "data": base64.b64encode(
+                                    b"BM" + b"\x00" * 100,
+                                ).decode(),
+                                "media_type": "image/bmp",
+                            },
+                            "name": os.path.basename(f.name),
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                    ],
+                    "state": "running",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
+            )
 
-        # Glob patterns are accepted, and the attribute can be changed
-        # after construction.
-        tool = Read(model_input_types=["image/*"])
-        chunk = await tool(file_path=f.name)
-        self.assertEqual(chunk.state, "running")
+        # The attribute can be changed after construction.
         tool.model_input_types = ["text/plain"]
         chunk = await tool(file_path=f.name)
-        self.assertEqual(chunk.state, "error")
+        self.assertDictEqual(
+            chunk.model_dump(mode="json"),
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Error: Unsupported image type image/bmp, "
+                        "only none are supported.",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "error",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
+        )
         self.assertNotIn("read images", tool.description)
 
-        # A supported image is rejected once it's excluded.
-        tool = Read(model_input_types=["image/png"])
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
-            f.write(b"\xff\xd8\xff" + b"\x00" * 100)
+    async def test_read_pdf_file(self) -> None:
+        """Test reading a PDF file extracts text per page."""
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        writer.add_blank_page(width=612, height=792)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            writer.write(f)
         self.addCleanup(os.unlink, f.name)
-        chunk = await tool(file_path=f.name)
-        self.assertEqual(chunk.state, "error")
-        self.assertIn("only image/png are supported", chunk.content[0].text)
+
+        chunk = await self.read_tool(file_path=f.name)
+        self.assertDictEqual(
+            chunk.model_dump(mode="json"),
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "--- Page 1/2 ---\n\n\n--- Page 2/2 ---\n",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "running",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
+        )
+
+    async def test_read_pdf_with_pages_param(self) -> None:
+        """Test reading a page range and a single page from a PDF."""
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        for _ in range(5):
+            writer.add_blank_page(width=612, height=792)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            writer.write(f)
+        self.addCleanup(os.unlink, f.name)
+
+        # A range, a single page, and a range clipped to the last page.
+        for pages, text in [
+            ("2-3", "--- Page 2/5 ---\n\n\n--- Page 3/5 ---\n"),
+            ("4", "--- Page 4/5 ---\n"),
+            ("4-99", "--- Page 4/5 ---\n\n\n--- Page 5/5 ---\n"),
+        ]:
+            chunk = await self.read_tool(file_path=f.name, pages=pages)
+            self.assertDictEqual(
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": text,
+                            "id": AnyString(),
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                    ],
+                    "state": "running",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
+                pages,
+            )
+
+    async def test_read_pdf_invalid_pages(self) -> None:
+        """Test malformed or out-of-range pages return an error."""
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=612, height=792)
+        writer.add_blank_page(width=612, height=792)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            writer.write(f)
+        self.addCleanup(os.unlink, f.name)
+
+        for pages, text in [
+            (
+                "abc",
+                "Error: Invalid pages 'abc'. Expected a page number or "
+                'range like "3" or "1-5".',
+            ),
+            (
+                "1-2-3",
+                "Error: Invalid pages '1-2-3'. Expected a page number or "
+                'range like "3" or "1-5".',
+            ),
+            ("0", "Error: Invalid pages '0'. PDF has 2 page(s)."),
+            ("3", "Error: Invalid pages '3'. PDF has 2 page(s)."),
+            ("2-1", "Error: Invalid pages '2-1'. PDF has 2 page(s)."),
+        ]:
+            chunk = await self.read_tool(file_path=f.name, pages=pages)
+            self.assertDictEqual(
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": text,
+                            "id": AnyString(),
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                    ],
+                    "state": "error",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
+                pages,
+            )
+
+    async def test_read_large_pdf_page_limits(self) -> None:
+        """Test PDFs over 10 pages need ``pages`` and reads cap at 20."""
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        for _ in range(25):
+            writer.add_blank_page(width=612, height=792)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            writer.write(f)
+        self.addCleanup(os.unlink, f.name)
+
+        for pages, text in [
+            (
+                None,
+                "Error: PDF has 25 pages, more than 10. You must provide "
+                'the pages parameter (e.g. "1-5") to read specific pages, '
+                "max 20 pages per request.",
+            ),
+            (
+                "1-21",
+                "Error: Requested 21 pages, at most 20 pages can be read "
+                "per request.",
+            ),
+        ]:
+            chunk = await self.read_tool(file_path=f.name, pages=pages)
+            self.assertDictEqual(
+                chunk.model_dump(mode="json"),
+                {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": text,
+                            "id": AnyString(),
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                    ],
+                    "state": "error",
+                    "is_last": True,
+                    "metadata": {},
+                    "id": AnyString(),
+                },
+                pages,
+            )
+
+        chunk = await self.read_tool(file_path=f.name, pages="6-25")
+        self.assertDictEqual(
+            chunk.model_dump(mode="json"),
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "\n\n".join(
+                            f"--- Page {i}/25 ---\n" for i in range(6, 26)
+                        ),
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "running",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
+        )
 
     async def test_read_pdf_passthrough(self) -> None:
         """Test PDFs are handed to the model as DataBlock when accepted."""
-        from pypdf import PdfReader
+        from pypdf import PdfReader, PdfWriter
 
-        pdf_path = self._write_pdf(5)
+        writer = PdfWriter()
+        for _ in range(5):
+            writer.add_blank_page(width=612, height=792)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
+            writer.write(f)
+        self.addCleanup(os.unlink, f.name)
+        with open(f.name, "rb") as fp:
+            pdf_bytes = fp.read()
+
         tool = Read(model_input_types=["image/*", "application/pdf"])
 
         # Without pages the original bytes are returned untouched.
-        chunk = await tool(file_path=pdf_path)
-        self.assertEqual(chunk.state, "running")
-        block = chunk.content[0]
-        self.assertIsInstance(block, DataBlock)
-        self.assertEqual(block.source.media_type, "application/pdf")
-        self.assertEqual(block.name, os.path.basename(pdf_path))
-        with open(pdf_path, "rb") as f:
-            self.assertEqual(base64.b64decode(block.source.data), f.read())
+        chunk = await tool(file_path=f.name)
+        self.assertDictEqual(
+            chunk.model_dump(mode="json"),
+            {
+                "content": [
+                    {
+                        "type": "data",
+                        "id": AnyString(),
+                        "source": {
+                            "type": "base64",
+                            "data": base64.b64encode(pdf_bytes).decode(),
+                            "media_type": "application/pdf",
+                        },
+                        "name": os.path.basename(f.name),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "running",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
+        )
 
         # With pages only the requested pages are kept.
-        chunk = await tool(file_path=pdf_path, pages="2-3")
-        self.assertEqual(chunk.state, "running")
+        chunk = await tool(file_path=f.name, pages="2-3")
+        self.assertEqual(chunk.content[0].source.media_type, "application/pdf")
         trimmed = base64.b64decode(chunk.content[0].source.data)
         self.assertEqual(len(PdfReader(io.BytesIO(trimmed)).pages), 2)
 
-        # The page limits still apply.
-        chunk = await tool(file_path=self._write_pdf(11))
-        self.assertEqual(chunk.state, "error")
-        self.assertIn("pages parameter", chunk.content[0].text)
+    async def test_read_unknown_extension_as_text(self) -> None:
+        """Test files with unknown extensions are read as text."""
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            delete=False,
+            suffix=".xyz",
+        ) as f:
+            f.write("hello world\nsecond line\n")
+        self.addCleanup(os.unlink, f.name)
+
+        chunk = await self.read_tool(file_path=f.name)
+        self.assertDictEqual(
+            chunk.model_dump(mode="json"),
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "     1\thello world\n     2\tsecond line",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "running",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
+        )
