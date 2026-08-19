@@ -118,8 +118,8 @@ class IndexWorker:
         blob_store: "BlobStoreBase",
         knowledge_base_manager: "KnowledgeBaseManagerBase",
         parsers: "list[ParserBase] | dict[str, ParserBase]",
+        node_id: str,
         chunkers: "list[type[ChunkerBase]] | None" = None,
-        node_id: str = "",
         max_concurrency: int = 4,
         lease_ttl: timedelta = timedelta(seconds=90),
         parser_executor: ProcessPoolExecutor | None = None,
@@ -150,15 +150,15 @@ class IndexWorker:
                   declare.
 
                 Same registry the upload service uses, passed in by DI.
-            chunkers (`list[type[ChunkerBase]] | None`, optional):
-                The chunker classes that can be rebuilt from a knowledge
-                base's ``chunker_config``.  Defaults to
-                ``[ApproxTokenChunker]``.
             node_id (`str`):
                 Stable identifier for this worker process.  Used as
                 ``processing_node`` on the lease so the sweeper can
                 tell whose work expired.  Typically
                 ``f"{hostname}:{pid}:{uuid}"``.
+            chunkers (`list[type[ChunkerBase]] | None`, optional):
+                The chunker classes that can be rebuilt from a knowledge
+                base's ``chunker_config``.  Defaults to
+                ``[ApproxTokenChunker]``.
             max_concurrency (`int`, defaults to ``4``):
                 Maximum number of documents processed concurrently by
                 this worker.  Higher values trade memory for
@@ -353,6 +353,19 @@ class IndexWorker:
             )
             return
 
+        kb_record = await self._manager.get_knowledge_base(
+            user_id,
+            knowledge_base_id,
+        )
+        if kb_record is None:
+            logger.warning(
+                "Knowledge base %s vanished before processing document %s.",
+                knowledge_base_id,
+                document_id,
+            )
+            return
+        chunker = self._resolve_chunker_from_record(kb_record)
+
         data = record.data
         media_type = (
             data.content_type or mimetypes.guess_type(data.filename)[0]
@@ -376,13 +389,6 @@ class IndexWorker:
         )
         file_bytes = await self._read_blob(data.blob_uri)
         sections = await self._parse(parser, file_bytes, data.filename)
-
-        # ---- resolve chunker from KB record ----
-        kb_record = await self._manager.get_knowledge_base(
-            user_id,
-            knowledge_base_id,
-        )
-        chunker = self._resolve_chunker_from_record(kb_record)
 
         # ---- chunking ----
         await self._storage.update_knowledge_document_status(
@@ -443,7 +449,7 @@ class IndexWorker:
 
     def _resolve_chunker_from_record(
         self,
-        kb_record: "KnowledgeBaseRecord | None",
+        kb_record: "KnowledgeBaseRecord",
     ) -> "ChunkerBase":
         """Resolve the chunker from a pre-fetched KB record.
 
@@ -453,7 +459,7 @@ class IndexWorker:
         records that predate per-KB chunker support
         (``chunker_config`` is ``None``).
         """
-        cfg = kb_record.data.chunker_config if kb_record is not None else None
+        cfg = kb_record.data.chunker_config
         if cfg is not None:
             chunker_cls = self._chunkers_by_type.get(cfg.type)
             if chunker_cls is None:

@@ -55,7 +55,7 @@ class CollectionPerKbManager(KnowledgeBaseManagerBase):
         name: str,
         description: str,
         embedding_model_config: "EmbeddingModelConfig",
-        chunker_config: "ChunkerConfig",
+        chunker_config: "ChunkerConfig | None" = None,
     ) -> KnowledgeBaseRecord:
         """Allocate a new collection and persist the knowledge base record.
 
@@ -68,8 +68,9 @@ class CollectionPerKbManager(KnowledgeBaseManagerBase):
                 Free-form description.
             embedding_model_config (`EmbeddingModelConfig`):
                 Embedding model configuration; pinned to the record.
-            chunker_config (`ChunkerConfig`):
-                Chunker configuration; pinned to the record.
+            chunker_config (`ChunkerConfig | None`, optional):
+                Chunker configuration; pinned to the record.  ``None``
+                leaves the record without a pinned chunker (legacy).
 
         Returns:
             `KnowledgeBaseRecord`:
