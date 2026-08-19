@@ -135,7 +135,7 @@ async def list_kb_embedding_models(
 @knowledge_base_router.get(
     "/chunkers",
     response_model=ListChunkersResponse,
-    summary="List registered chunker types and their parameter schemas",
+    summary="List available chunker types and their parameter schemas",
 )
 async def list_chunkers(
     _: str = Depends(get_current_user_id),
@@ -161,19 +161,14 @@ async def list_chunkers(
         `ListChunkersResponse`:
             All available chunker types with their JSON Schemas.
     """
-    chunkers = [
-        ChunkerInfo(
-            type=cls.chunker_type,
-            description=(cls.__doc__ or "").strip().split("\n")[0],
-            parameter_schema=cls.Parameters.model_json_schema(),
-        )
-        for cls in chunker_classes
-    ]
     return ListChunkersResponse(
-        chunkers=chunkers,
-        default_type=chunker_classes[0].chunker_type
-        if chunker_classes
-        else None,
+        chunkers=[
+            ChunkerInfo(
+                type=cls.chunker_type,
+                parameter_schema=cls.Parameters.model_json_schema(),
+            )
+            for cls in chunker_classes
+        ],
     )
 
 

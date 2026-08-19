@@ -21,6 +21,7 @@ import uuid
 from typing import IO, TYPE_CHECKING
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 
 from ..access import ResourceKind
 from ..rag.knowledge_base_manager import (
@@ -32,6 +33,7 @@ from ..storage import (
     KnowledgeDocumentRecord,
 )
 from ..._logging import logger
+from ...rag import ApproxTokenChunker
 from .._bus_ops import enqueue_index_task
 from ._access import ResourceAccessService
 
@@ -97,8 +99,6 @@ class KnowledgeBaseService:
                 a knowledge base; used to validate ``chunker_config``.
                 Defaults to ``[ApproxTokenChunker]``.
         """
-        from ...rag import ApproxTokenChunker
-
         self._storage = storage
         self._manager = knowledge_base_manager
         self._blob_store = blob_store
@@ -145,8 +145,6 @@ class KnowledgeBaseService:
                 ``422`` when the chunker type or parameters are
                 invalid.
         """
-        from pydantic import ValidationError
-
         chunker_cls = self._chunkers_by_type.get(chunker_config.type)
         if chunker_cls is None:
             raise HTTPException(

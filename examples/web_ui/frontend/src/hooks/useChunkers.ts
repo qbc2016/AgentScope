@@ -10,7 +10,6 @@ import type { ChunkerInfo } from '@/api';
  */
 export function useChunkers() {
 	const [chunkers, setChunkers] = useState<ChunkerInfo[]>([]);
-	const [defaultType, setDefaultType] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 
 	const refetch = useCallback(async () => {
@@ -18,7 +17,6 @@ export function useChunkers() {
 		try {
 			const res = await knowledgeBaseApi.listChunkers();
 			setChunkers(res.chunkers);
-			setDefaultType(res.default_type);
 		} catch {
 			// Graceful fallback — if the endpoint is unavailable
 			// (older backend), the dialog works without chunker
@@ -32,5 +30,5 @@ export function useChunkers() {
 		refetch();
 	}, [refetch]);
 
-	return { chunkers, defaultType, loading, refetch };
+	return { chunkers, loading, refetch };
 }

@@ -847,13 +847,11 @@ export interface ChunkerConfig {
 
 export interface ChunkerInfo {
 	type: string;
-	description: string;
 	parameter_schema: JSONSchema;
 }
 
 export interface ListChunkersResponse {
 	chunkers: ChunkerInfo[];
-	default_type: string | null;
 }
 
 // ─── Knowledge Base ───────────────────────────────────────────────────────────

@@ -283,32 +283,20 @@ class ListSupportedContentTypesResponse(BaseModel):
 
 
 class ChunkerInfo(BaseModel):
-    """Describes one registered chunker type and its parameter schema."""
+    """One available chunker type and its parameter schema."""
 
     type: str = Field(description="The chunker type identifier.")
-    description: str = Field(
-        default="",
-        description="Human-readable description of the chunker.",
-    )
     parameter_schema: dict = Field(
         description=(
-            "JSON Schema for the chunker's tunable parameters, "
-            "suitable for driving a dynamic form on the front-end."
+            "JSON Schema produced by `ChunkerBase.Parameters."
+            "model_json_schema()`, used to render the parameter form."
         ),
     )
 
 
 class ListChunkersResponse(BaseModel):
-    """Response body listing all registered chunker types."""
+    """Response body listing the available chunker types."""
 
     chunkers: list[ChunkerInfo] = Field(
-        description="All registered chunker types with their schemas.",
-    )
-    default_type: str | None = Field(
-        default=None,
-        description=(
-            "The first registered chunker type, surfaced as a hint "
-            "for the front-end's default selection.  ``None`` when "
-            "the registry is empty."
-        ),
+        description="The available chunker types, in configured order.",
     )

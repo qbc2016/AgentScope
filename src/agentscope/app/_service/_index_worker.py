@@ -27,7 +27,10 @@ from concurrent.futures import ProcessPoolExecutor
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from ..._logging import logger
+from ...rag import ApproxTokenChunker
 
 if TYPE_CHECKING:
     from ..rag.blob_store import BlobStoreBase
@@ -175,8 +178,6 @@ class IndexWorker:
         self._storage = storage
         self._blob_store = blob_store
         self._manager = knowledge_base_manager
-        from ...rag import ApproxTokenChunker
-
         self._parsers_by_media_type = _build_parser_registry(parsers)
         self._chunkers_by_type = {
             cls.chunker_type: cls for cls in (chunkers or [ApproxTokenChunker])
@@ -432,10 +433,6 @@ class IndexWorker:
         records that predate per-KB chunker support
         (``chunker_config`` is ``None``).
         """
-        from pydantic import ValidationError
-
-        from ...rag import ApproxTokenChunker
-
         cfg = kb_record.data.chunker_config if kb_record is not None else None
         if cfg is not None:
             chunker_cls = self._chunkers_by_type.get(cfg.type)
