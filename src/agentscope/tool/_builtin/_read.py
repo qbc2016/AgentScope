@@ -3,6 +3,8 @@
 import base64
 import fnmatch
 import io
+import os
+import re
 from typing import Any, List, Literal
 
 from .._base import ToolBase, ToolMiddlewareBase
@@ -22,7 +24,7 @@ from ...message import (
 from ...state import AgentState
 from ._backend import BackendBase, _normalize_newlines
 
-_DATA_MEDIA_EXTENSIONS: dict[str, str] = {
+_IMAGE_EXTENSIONS: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -32,16 +34,12 @@ _DATA_MEDIA_EXTENSIONS: dict[str, str] = {
     ".tiff": "image/tiff",
     ".tif": "image/tiff",
     ".ico": "image/x-icon",
-    ".mp3": "audio/mpeg",
-    ".wav": "audio/wav",
-    ".ogg": "audio/ogg",
-    ".flac": "audio/flac",
-    ".aac": "audio/aac",
-    ".mp4": "video/mp4",
-    ".webm": "video/webm",
-    ".avi": "video/x-msvideo",
-    ".mov": "video/quicktime",
 }
+
+# PDFs with more pages than this require an explicit ``pages`` range, and a
+# single read returns at most ``_PDF_MAX_PAGES_PER_READ`` pages.
+_PDF_MAX_PAGES_WITHOUT_RANGE = 10
+_PDF_MAX_PAGES_PER_READ = 20
 
 
 class Read(ToolBase):
@@ -59,9 +57,8 @@ Usage:
 - By default, it reads up to 2000 lines starting from the beginning of the file
 - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
 - Results are returned using cat -n format, with line numbers starting at 1
-- This tool allows you to read images (eg PNG, JPG, GIF, WebP), audio (MP3, WAV, OGG), and video (MP4, WebM) files. Binary data files are returned as base64-encoded DataBlocks.
-- This tool can read PDF files (.pdf). Text is extracted per page. You can optionally provide the pages parameter to read specific pages.
-- For other text-based files, content is returned with line numbers."""  # noqa: E501
+- This tool allows you to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as you're a multimodal LLM.
+- This tool can read PDF files (.pdf). Text is extracted per page. For large PDFs (more than 10 pages), you MUST provide the pages parameter to read specific pages (max 20 pages per request)."""  # noqa: E501
     """The description presented to the agent."""
 
     input_schema: dict[str, Any] = {
@@ -87,10 +84,10 @@ Usage:
                 "minimum": 1,
             },
             "pages": {
-                "type": "array",
-                "items": {"type": "integer", "minimum": 1},
-                "description": "Optional list of 1-based page numbers to "
-                "read from a PDF file. If not provided, all pages are read.",
+                "type": "string",
+                "description": 'Page range for PDF files (e.g. "1-5", '
+                '"3", "10-20"), max 20 pages per request; required '
+                "for PDFs over 10 pages. Only applies to PDF files.",
             },
         },
         "required": ["file_path"],
@@ -239,14 +236,14 @@ Usage:
         file_path: str,
         offset: int = 1,
         limit: int = 2000,
-        pages: List[int] | None = None,
+        pages: str | None = None,
         _agent_state: AgentState | None = None,
     ) -> ToolChunk:
         """Read a file and return content as appropriate block types.
 
         Dispatches to format-specific readers based on file extension:
         - PDF: text extraction via RAG parser
-        - Image/audio/video: base64-encoded DataBlock
+        - Image: base64-encoded DataBlock
         - Other: line-numbered text (TextBlock)
         """
 
@@ -286,13 +283,14 @@ Usage:
                 is_last=True,
             )
 
-        # Determine file type by extension
-        ext = self._get_extension(file_path).lower()
+        # Determine file type by extension. splitext on the basename works
+        # for both posix and windows style backend paths.
+        ext = os.path.splitext(self._backend.basename(file_path))[1].lower()
 
         if ext == ".pdf":
             return await self._read_pdf(file_path, pages)
-        if ext in _DATA_MEDIA_EXTENSIONS:
-            return await self._read_media_file(file_path, ext)
+        if ext in _IMAGE_EXTENSIONS:
+            return await self._read_image_file(file_path, ext)
 
         return await self._read_text_file(
             file_path,
@@ -301,26 +299,18 @@ Usage:
             _agent_state,
         )
 
-    def _get_extension(self, file_path: str) -> str:
-        """Extract file extension from path."""
-        # pylint: disable=protected-access
-        return self._backend._path_module.splitext(file_path)[1]
-
-    async def _read_media_file(
+    async def _read_image_file(
         self,
         file_path: str,
         ext: str,
     ) -> ToolChunk:
-        """Read a binary media file and return as DataBlock."""
-        media_type = _DATA_MEDIA_EXTENSIONS[ext]
+        """Read an image file and return as DataBlock."""
+        media_type = _IMAGE_EXTENSIONS[ext]
 
         try:
             raw = await self._backend.read_file(file_path)
 
-            if (
-                media_type.startswith("image/")
-                and self._image_format is not None
-            ):
+            if self._image_format is not None:
                 from PIL import Image
 
                 pil_fmt, media_type = self._IMAGE_FORMAT_MAP[
@@ -366,76 +356,91 @@ Usage:
     async def _read_pdf(
         self,
         file_path: str,
-        pages: List[int] | None = None,
+        pages: str | None = None,
     ) -> ToolChunk:
         """Read a PDF file, extract text, and return as TextBlock."""
-        try:
-            from ...rag import PDFParser
-        except ImportError:
-            return ToolChunk(
-                content=[
-                    TextBlock(
-                        text="Error: PDF reading requires the "
-                        "'rag' extra. Install with: "
-                        'pip install "agentscope[rag]"',
-                    ),
-                ],
-                state=ToolResultState.ERROR,
-                is_last=True,
-            )
+        from ...rag import PDFParser
 
         try:
             raw = await self._backend.read_file(file_path)
-
-            parser = PDFParser()
-            sections = await parser.parse(
+            sections = await PDFParser().parse(
                 raw,
                 self._backend.basename(file_path),
             )
-
-            total_pages = len(sections)
-            if pages is not None:
-                target_pages = [p for p in pages if 1 <= p <= total_pages]
-                if not target_pages:
-                    return ToolChunk(
-                        content=[
-                            TextBlock(
-                                text=f"Error: No valid pages in {pages}. "
-                                f"PDF has {total_pages} page(s).",
-                            ),
-                        ],
-                        state=ToolResultState.ERROR,
-                        is_last=True,
-                    )
-                sections = [
-                    s
-                    for s in sections
-                    if s.metadata.get("page") in target_pages
-                ]
-
-            text_parts: list[str] = []
-            for s in sections:
-                page_num = s.metadata.get("page", "?")
-                text_parts.append(
-                    f"--- Page {page_num}/{total_pages} ---\n"
-                    f"{s.content.text}",
-                )
-
-            result = "\n\n".join(text_parts)
-            return ToolChunk(
-                content=[TextBlock(text=result)],
-                state=ToolResultState.RUNNING,
-                is_last=True,
-            )
-
         except Exception as e:
             return ToolChunk(
-                content=[
-                    TextBlock(text=f"Error reading PDF: {str(e)}"),
-                ],
+                content=[TextBlock(text=f"Error reading PDF: {str(e)}")],
                 state=ToolResultState.ERROR,
                 is_last=True,
             )
+
+        total_pages = len(sections)
+        if pages is None:
+            if total_pages > _PDF_MAX_PAGES_WITHOUT_RANGE:
+                return ToolChunk(
+                    content=[
+                        TextBlock(
+                            text=f"Error: PDF has {total_pages} pages, "
+                            f"more than {_PDF_MAX_PAGES_WITHOUT_RANGE}. "
+                            "You must provide the pages parameter (e.g. "
+                            '"1-5") to read specific pages, max '
+                            f"{_PDF_MAX_PAGES_PER_READ} pages per request.",
+                        ),
+                    ],
+                    state=ToolResultState.ERROR,
+                    is_last=True,
+                )
+            first, last = 1, total_pages
+        else:
+            match = re.fullmatch(r"\s*(\d+)\s*(?:-\s*(\d+)\s*)?", pages)
+            if not match:
+                return ToolChunk(
+                    content=[
+                        TextBlock(
+                            text=f"Error: Invalid pages {pages!r}. Expected "
+                            'a page number or range like "3" or "1-5".',
+                        ),
+                    ],
+                    state=ToolResultState.ERROR,
+                    is_last=True,
+                )
+            first = int(match.group(1))
+            last = int(match.group(2)) if match.group(2) else first
+            if first < 1 or first > last or first > total_pages:
+                return ToolChunk(
+                    content=[
+                        TextBlock(
+                            text=f"Error: Invalid pages {pages!r}. PDF has "
+                            f"{total_pages} page(s).",
+                        ),
+                    ],
+                    state=ToolResultState.ERROR,
+                    is_last=True,
+                )
+            last = min(last, total_pages)
+            if last - first + 1 > _PDF_MAX_PAGES_PER_READ:
+                return ToolChunk(
+                    content=[
+                        TextBlock(
+                            text=f"Error: Requested {last - first + 1} "
+                            f"pages, at most {_PDF_MAX_PAGES_PER_READ} "
+                            "pages can be read per request.",
+                        ),
+                    ],
+                    state=ToolResultState.ERROR,
+                    is_last=True,
+                )
+
+        text_parts = [
+            f"--- Page {page_num}/{total_pages} ---\n"
+            f"{sections[page_num - 1].content.text}"
+            for page_num in range(first, last + 1)
+        ]
+        return ToolChunk(
+            content=[TextBlock(text="\n\n".join(text_parts))],
+            state=ToolResultState.RUNNING,
+            is_last=True,
+        )
 
     async def _read_text_file(
         self,

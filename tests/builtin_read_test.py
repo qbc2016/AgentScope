@@ -242,116 +242,90 @@ class ReadToolTest(IsolatedAsyncioTestCase):
         finally:
             os.unlink(jpg_path)
 
-    async def test_read_audio_file_returns_data_block(self) -> None:
-        """Test reading an audio file returns DataBlock."""
-        audio_data = b"\x00" * 200
+    def _write_pdf(self, n_pages: int) -> str:
+        """Write a blank PDF with ``n_pages`` pages and return its path."""
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        for _ in range(n_pages):
+            writer.add_blank_page(width=612, height=792)
         with tempfile.NamedTemporaryFile(
             delete=False,
-            suffix=".mp3",
+            suffix=".pdf",
         ) as f:
-            f.write(audio_data)
-            mp3_path = f.name
-
-        try:
-            chunk = await self.read_tool(file_path=mp3_path)
-
-            self.assertEqual(chunk.state, "running")
-            self.assertIsInstance(chunk.content[0], DataBlock)
-            self.assertEqual(
-                chunk.content[0].source.media_type,
-                "audio/mpeg",
-            )
-        finally:
-            os.unlink(mp3_path)
+            writer.write(f)
+        self.addCleanup(os.unlink, f.name)
+        return f.name
 
     async def test_read_pdf_file(self) -> None:
         """Test reading a PDF file extracts text."""
-        try:
-            from pypdf import PdfWriter
-        except ImportError:
-            self.skipTest("pypdf not installed")
+        pdf_path = self._write_pdf(1)
+        chunk = await self.read_tool(file_path=pdf_path)
 
-        writer = PdfWriter()
-        writer.add_blank_page(width=612, height=792)
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".pdf",
-        ) as f:
-            writer.write(f)
-            pdf_path = f.name
-
-        try:
-            chunk = await self.read_tool(file_path=pdf_path)
-
-            self.assertIsInstance(chunk, ToolChunk)
-            self.assertEqual(chunk.state, "running")
-            self.assertEqual(len(chunk.content), 1)
-            self.assertIsInstance(chunk.content[0], TextBlock)
-            self.assertIn("--- Page 1/1 ---", chunk.content[0].text)
-        finally:
-            os.unlink(pdf_path)
+        self.assertIsInstance(chunk, ToolChunk)
+        self.assertEqual(chunk.state, "running")
+        self.assertEqual(len(chunk.content), 1)
+        self.assertIsInstance(chunk.content[0], TextBlock)
+        self.assertIn("--- Page 1/1 ---", chunk.content[0].text)
 
     async def test_read_pdf_with_pages_param(self) -> None:
-        """Test reading specific pages from a PDF."""
-        try:
-            from pypdf import PdfWriter
-        except ImportError:
-            self.skipTest("pypdf not installed")
+        """Test reading a page range and a single page from a PDF."""
+        pdf_path = self._write_pdf(5)
 
-        writer = PdfWriter()
-        for _ in range(5):
-            writer.add_blank_page(width=612, height=792)
+        chunk = await self.read_tool(file_path=pdf_path, pages="2-3")
+        self.assertEqual(chunk.state, "running")
+        text = chunk.content[0].text
+        self.assertNotIn("--- Page 1/5 ---", text)
+        self.assertIn("--- Page 2/5 ---", text)
+        self.assertIn("--- Page 3/5 ---", text)
+        self.assertNotIn("--- Page 4/5 ---", text)
 
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".pdf",
-        ) as f:
-            writer.write(f)
-            pdf_path = f.name
+        chunk = await self.read_tool(file_path=pdf_path, pages="4")
+        self.assertEqual(chunk.state, "running")
+        text = chunk.content[0].text
+        self.assertIn("--- Page 4/5 ---", text)
+        self.assertNotIn("--- Page 3/5 ---", text)
+        self.assertNotIn("--- Page 5/5 ---", text)
 
-        try:
-            chunk = await self.read_tool(
-                file_path=pdf_path,
-                pages=[1, 3],
-            )
+        # A range past the end is clipped to the last page.
+        chunk = await self.read_tool(file_path=pdf_path, pages="4-99")
+        self.assertEqual(chunk.state, "running")
+        self.assertIn("--- Page 5/5 ---", chunk.content[0].text)
 
-            self.assertEqual(chunk.state, "running")
-            text = chunk.content[0].text
-            self.assertIn("--- Page 1/5 ---", text)
-            self.assertIn("--- Page 3/5 ---", text)
-            self.assertNotIn("--- Page 2/5 ---", text)
-        finally:
-            os.unlink(pdf_path)
+    async def test_read_pdf_invalid_pages(self) -> None:
+        """Test malformed or out-of-range pages return an error."""
+        pdf_path = self._write_pdf(2)
 
-    async def test_read_pdf_invalid_pages_filtered(self) -> None:
-        """Test that out-of-range pages are filtered out."""
-        try:
-            from pypdf import PdfWriter
-        except ImportError:
-            self.skipTest("pypdf not installed")
+        for pages in ["abc", "0", "3", "2-1", "1-2-3", ""]:
+            chunk = await self.read_tool(file_path=pdf_path, pages=pages)
+            self.assertEqual(chunk.state, "error", pages)
+            self.assertIn("Invalid pages", chunk.content[0].text)
 
-        writer = PdfWriter()
-        writer.add_blank_page(width=612, height=792)
+    async def test_read_large_pdf_requires_pages(self) -> None:
+        """Test PDFs over 10 pages must be read with the pages parameter."""
+        pdf_path = self._write_pdf(11)
 
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".pdf",
-        ) as f:
-            writer.write(f)
-            pdf_path = f.name
+        chunk = await self.read_tool(file_path=pdf_path)
+        self.assertEqual(chunk.state, "error")
+        self.assertIn("11 pages", chunk.content[0].text)
+        self.assertIn("pages parameter", chunk.content[0].text)
 
-        try:
-            chunk = await self.read_tool(
-                file_path=pdf_path,
-                pages=[1, 99],
-            )
+        chunk = await self.read_tool(file_path=pdf_path, pages="10-11")
+        self.assertEqual(chunk.state, "running")
+        self.assertIn("--- Page 11/11 ---", chunk.content[0].text)
 
-            self.assertEqual(chunk.state, "running")
-            text = chunk.content[0].text
-            self.assertIn("--- Page 1/1 ---", text)
-            self.assertNotIn("Page 99", text)
-        finally:
-            os.unlink(pdf_path)
+    async def test_read_pdf_max_pages_per_request(self) -> None:
+        """Test a single read returns at most 20 pages."""
+        pdf_path = self._write_pdf(25)
+
+        chunk = await self.read_tool(file_path=pdf_path, pages="1-21")
+        self.assertEqual(chunk.state, "error")
+        self.assertIn("at most 20 pages", chunk.content[0].text)
+
+        chunk = await self.read_tool(file_path=pdf_path, pages="1-20")
+        self.assertEqual(chunk.state, "running")
+        self.assertIn("--- Page 20/25 ---", chunk.content[0].text)
+        self.assertNotIn("--- Page 21/25 ---", chunk.content[0].text)
 
     async def test_read_unknown_extension_as_text(self) -> None:
         """Test that unknown extensions are read as text."""
@@ -559,48 +533,3 @@ class ReadToolTest(IsolatedAsyncioTestCase):
             )
         finally:
             os.unlink(png_path)
-
-    async def test_image_format_skips_audio(self) -> None:
-        """Test image_format does not affect audio files."""
-        audio_data = b"\x00" * 200
-        expected_b64 = base64.b64encode(audio_data).decode(
-            "ascii",
-        )
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".mp3",
-        ) as f:
-            f.write(audio_data)
-            mp3_path = f.name
-
-        try:
-            tool = Read(image_format="png")
-            chunk = await tool(file_path=mp3_path)
-
-            self.assertEqual(
-                chunk.model_dump(mode="json"),
-                {
-                    "content": [
-                        {
-                            "type": "data",
-                            "id": AnyString(),
-                            "source": {
-                                "type": "base64",
-                                "data": expected_b64,
-                                "media_type": "audio/mpeg",
-                            },
-                            "name": os.path.basename(
-                                mp3_path,
-                            ),
-                            "created_at": AnyString(),
-                            "finished_at": None,
-                        },
-                    ],
-                    "state": "running",
-                    "is_last": True,
-                    "metadata": {},
-                    "id": AnyString(),
-                },
-            )
-        finally:
-            os.unlink(mp3_path)
