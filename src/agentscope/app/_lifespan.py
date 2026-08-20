@@ -21,6 +21,7 @@ from ._service import (
     KnowledgeBaseService,
     ResourceAccessService,
     SessionService,
+    WorkspaceService,
 )
 
 if TYPE_CHECKING:
@@ -155,6 +156,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.session_service = SessionService(
             storage=storage,
             message_bus=message_bus,
+            workspace_manager=workspace_manager,
+        )
+
+        app.state.workspace_service = WorkspaceService(
+            storage=storage,
+            workspace_manager=workspace_manager,
+            download_secret=app.state.download_secret,
         )
 
         # ---------------- Knowledge-base wiring ----------------
@@ -189,7 +197,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     blob_store=blob_store,
                     knowledge_base_manager=knowledge_base_manager,
                     parsers=app.state.knowledge_parsers,
-                    chunker=app.state.knowledge_chunker,
+                    chunkers=app.state.knowledge_chunkers,
                     node_id=node_id,
                 )
                 await stack.enter_async_context(
@@ -212,6 +220,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 blob_store=blob_store,
                 message_bus=message_bus,
                 resource_access_service=resource_access_service,
+                chunkers=app.state.knowledge_chunkers,
             )
 
         app.state.knowledge_base_service = knowledge_base_service

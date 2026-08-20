@@ -304,49 +304,61 @@ class _AnthropicFormatterBase(FormatterBase, ABC):
             )
             return None
 
-        # Anthropic only supports images
-        if not media_type.startswith("image/"):
-            logger.warning(
-                "Anthropic only supports image data, got %s, skipped.",
-                media_type,
+        # Anthropic supports images and PDF documents
+        if media_type.startswith("image/"):
+            return self._format_source(
+                source,
+                "image",
+                block.model_extra,
             )
-            return None
+        if media_type == "application/pdf":
+            return self._format_source(
+                source,
+                "document",
+                block.model_extra,
+            )
 
-        return self._format_image_source(source, block.model_extra)
+        logger.warning(
+            "Anthropic only supports image and PDF data, got %s, skipped.",
+            media_type,
+        )
+        return None
 
     @staticmethod
-    def _format_image_source(
+    def _format_source(
         source: URLSource | Base64Source,
+        block_type: str,
         extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Format an image source into Anthropic API format.
+        """Format an image or document source into an Anthropic base64
+        content block.
 
-        Extra fields are merged into the image block itself, at the same level
-        as ``type`` and ``source`` (for example provider-specific cache
+        Extra fields are merged into the content block itself, at the same
+        level as ``type`` and ``source`` (for example provider-specific cache
         controls).
 
         Args:
             source (`URLSource | Base64Source`):
-                The image source to format.
+                The source to format. Local ``file://`` URLs are read from
+                disk and remote URLs are downloaded.
+            block_type (`str`):
+                The Anthropic block type, ``"image"`` or ``"document"``.
             extra (`dict[str, Any] | None`, optional):
-                Provider-specific image parameters to merge into the image
-                block, at the same level as ``type`` and ``source``.
+                Provider-specific parameters to merge into the content block,
+                at the same level as ``type`` and ``source``.
 
         Returns:
             `dict[str, Any]`:
-                The formatted image source.
+                The formatted content block.
         """
         if isinstance(source, Base64Source):
             data = source.data
         elif isinstance(source, URLSource):
             url = str(source.url)
             if url.startswith("file://"):
-                # Local file - read and convert to base64
-                file_path = url.removeprefix("file://")
-                with open(file_path, "rb") as f:
+                with open(url.removeprefix("file://"), "rb") as f:
                     data = base64.b64encode(f.read()).decode("utf-8")
             else:
-                # Remote URL - download and convert to base64
                 response = requests.get(url, timeout=30)
                 response.raise_for_status()
                 data = base64.b64encode(response.content).decode("utf-8")
@@ -354,7 +366,7 @@ class _AnthropicFormatterBase(FormatterBase, ABC):
             raise ValueError(f"Unsupported source type: {type(source)}")
 
         result = {
-            "type": "image",
+            "type": block_type,
             "source": {
                 "type": "base64",
                 "media_type": source.media_type,
@@ -373,10 +385,10 @@ class AnthropicChatFormatter(_AnthropicFormatterBase):
     """
 
     input_types: list[str] = Field(
-        default_factory=lambda: ["text/plain", "image/*"],
+        default_factory=lambda: ["text/plain", "image/*", "application/pdf"],
         description=(
             "The supported input types. "
-            'Defaults to ``["text/plain", "image/*"]``.'
+            'Defaults to ``["text/plain", "image/*", "application/pdf"]``.'
         ),
     )
 
@@ -418,10 +430,10 @@ class AnthropicMultiAgentFormatter(_AnthropicFormatterBase):
     )
 
     input_types: list[str] = Field(
-        default_factory=lambda: ["text/plain", "image/*"],
+        default_factory=lambda: ["text/plain", "image/*", "application/pdf"],
         description=(
             "The supported input types. "
-            'Defaults to ``["text/plain", "image/*"]``.'
+            'Defaults to ``["text/plain", "image/*", "application/pdf"]``.'
         ),
     )
 
