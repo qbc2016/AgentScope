@@ -13,7 +13,8 @@ that wants them subscribes through the
 """
 import asyncio
 import inspect
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Literal, TYPE_CHECKING
 
 from fastapi import HTTPException
 
@@ -29,12 +30,14 @@ from ..message_bus import MessageBus, MessageBusKeys
 from ..rag.knowledge_base_manager import KnowledgeBaseManagerBase
 from ..channel import ChatKind
 from ..storage import StorageBase, AgentRecord, SessionRecord, SessionSource
+from ..storage._utils import _resolve_team_leader
 from .._manager import BackgroundTaskManager, SchedulerManager
 from ..workspace_manager import WorkspaceManagerBase
 from ..middleware import (
     InboxMiddleware,
     StateChangeMiddleware,
     ToolOffloadMiddleware,
+    TeamMemberLoopMiddleware,
 )
 from ...middleware import TTSMiddleware, RAGMiddleware
 from ...rag import KnowledgeBase
@@ -69,6 +72,24 @@ from ...permission import AdditionalWorkingDirectory
 
 if TYPE_CHECKING:
     from ..channel import ChannelLifecycleDispatcher
+
+
+@dataclass(frozen=True)
+class _LeaderContext:
+    """This session leads its team."""
+
+    role: Literal["leader"] = "leader"
+
+
+@dataclass(frozen=True)
+class _WorkerContext:
+    """This session is a worker; its leader is fully resolved."""
+
+    leader_name: str
+    role: Literal["worker"] = "worker"
+
+
+_TeamContext = _LeaderContext | _WorkerContext
 
 
 class ChatService:
@@ -165,7 +186,7 @@ class ChatService:
             channel_dispatcher (`ChannelLifecycleDispatcher | None`, \
 optional):
                 The node's channel dispatcher, forwarded to
-                :func:`get_toolkit` so a channel-originated session's
+                the run context so a channel-originated session's
                 agent gets that channel's platform tools.
         """
         self._storage = storage
@@ -587,6 +608,60 @@ optional):
                     )
 
                 # -------------------------------------------------------------
+                # 1b. Resolve team identity + channel binding ONCE; all
+                # downstream consumers reuse these instead of re-fetching.
+                # -------------------------------------------------------------
+                team_ctx: _TeamContext | None = None
+                if session_record.team_id is not None:
+                    team = await self._storage.get_team(
+                        user_id,
+                        session_record.team_id,
+                    )
+                    if team is None:
+                        # Dissolved concurrently, or a stale team_id:
+                        # nothing to be a member of, so run teamless.
+                        logger.warning(
+                            "Session %r points at team %r which no longer "
+                            "exists; running teamless.",
+                            session_id,
+                            session_record.team_id,
+                        )
+                    elif team.session_id == session_record.id:
+                        team_ctx = _LeaderContext()
+                    else:
+                        leader = await _resolve_team_leader(
+                            self._storage,
+                            user_id,
+                            team,
+                        )
+                        if leader is None:
+                            # Unreachable while the data is consistent:
+                            # deleting a leader dissolves the team.
+                            raise HTTPException(
+                                status_code=409,
+                                detail=(
+                                    f"Team {team.id!r} has no resolvable "
+                                    f"leader; worker session "
+                                    f"{session_id!r} cannot run."
+                                ),
+                            )
+                        team_ctx = _WorkerContext(leader_name=leader.name)
+
+                channel = (
+                    self._channel_dispatcher.get_local_channel(
+                        session_record.source_channel_id,
+                    )
+                    if session_record.source_channel_id
+                    and self._channel_dispatcher is not None
+                    else None
+                )
+                channel_tools = (
+                    await channel.list_tools(workspace)
+                    if channel is not None
+                    else []
+                )
+
+                # -------------------------------------------------------------
                 # 2. Middlewares — framework-supplied first, then caller
                 # extras. Background-tool completions deliver their results
                 # via ``message_bus.inbox_push + enqueue_wakeup``, so the
@@ -606,6 +681,14 @@ optional):
                         agent_id=agent_id,
                     ),
                 ]
+                # Equip the member middleware for loop control
+                if isinstance(team_ctx, _WorkerContext):
+                    middlewares.append(
+                        TeamMemberLoopMiddleware(
+                            leader_name=team_ctx.leader_name,
+                        ),
+                    )
+
                 if self._extra_agent_middlewares is not None:
                     factory_args: tuple = (user_id, agent_id, session_id)
                     if self._middlewares_take_workspace:
@@ -701,7 +784,8 @@ optional):
                     resource_access_service=self._access,
                     extra_factory=self._extra_agent_tools,
                     sub_agent_templates=self._sub_agent_templates,
-                    channel_dispatcher=self._channel_dispatcher,
+                    team_role=team_ctx.role if team_ctx else None,
+                    channel_tools=channel_tools,
                 )
 
                 # -------------------------------------------------------------
@@ -731,44 +815,35 @@ optional):
                 attachment = f"You're within a session (id={session_id})."
 
                 # Channel-bound sessions: tell the agent which chat it serves.
-                if (
-                    session_record.source_channel_id
-                    and self._channel_dispatcher is not None
-                ):
-                    channel = self._channel_dispatcher.get_local_channel(
-                        session_record.source_channel_id,
+                if channel is not None:
+                    tools = ", ".join(t.name for t in channel_tools)
+                    chat_id = session_record.source_chat_id or ""
+                    kind = await channel.chat_kind(chat_id)
+                    name = await channel.chat_name(chat_id)
+                    where = f' named "{name}"' if name else ""
+                    attachment += (
+                        f" This session is bound to a chat{where} on the "
+                        f"{channel.display_name} platform: the messages, "
+                        f"images and files people send there are relayed "
+                        f"to you here, and your replies are delivered "
+                        f"back to that same chat."
                     )
-                    if channel is not None:
-                        tools = ", ".join(
-                            t.name for t in await channel.list_tools(workspace)
-                        )
-                        chat_id = session_record.source_chat_id or ""
-                        kind = await channel.chat_kind(chat_id)
-                        name = await channel.chat_name(chat_id)
-                        where = f' named "{name}"' if name else ""
+                    if kind is ChatKind.GROUP:
                         attachment += (
-                            f" This session is bound to a chat{where} on the "
-                            f"{channel.display_name} platform: the messages, "
-                            f"images and files people send there are relayed "
-                            f"to you here, and your replies are delivered "
-                            f"back to that same chat."
+                            " It is a group chat, so messages may come "
+                            "from several different people; each incoming "
+                            "user turn is labelled with its sender."
                         )
-                        if kind is ChatKind.GROUP:
-                            attachment += (
-                                " It is a group chat, so messages may come "
-                                "from several different people; each incoming "
-                                "user turn is labelled with its sender."
-                            )
-                        elif kind is ChatKind.PRIVATE:
-                            attachment += (
-                                " It is a one-to-one private chat with a "
-                                "single user."
-                            )
-                        if tools:
-                            attachment += (
-                                f" You also have these {channel.display_name} "
-                                f"tools available: {tools}."
-                            )
+                    elif kind is ChatKind.PRIVATE:
+                        attachment += (
+                            " It is a one-to-one private chat with a "
+                            "single user."
+                        )
+                    if tools:
+                        attachment += (
+                            f" You also have these {channel.display_name} "
+                            f"tools available: {tools}."
+                        )
 
                 attachment = (
                     f"<system-notification>{attachment}</system-notification>"
