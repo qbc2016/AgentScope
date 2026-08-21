@@ -13,10 +13,10 @@ import { EditRenderer } from './EditRenderer';
 import { GlobRenderer } from './GlobRenderer';
 import { GrepRenderer } from './GrepRenderer';
 import { ReadRenderer } from './ReadRenderer';
-import { RequestUserInputRenderer } from './RequestUserInputRenderer';
 import { TaskCreateRenderer } from './TaskCreateRenderer';
 import type { TFunction, ToolCallWithResult, ToolRenderer } from './types';
 import { WriteRenderer } from './WriteRenderer';
+import { getClientExternalToolRegistration } from '@/lib/client-external-tools';
 
 const renderers: Record<string, ToolRenderer> = {
 	Bash: BashRenderer,
@@ -26,11 +26,12 @@ const renderers: Record<string, ToolRenderer> = {
 	Glob: GlobRenderer,
 	Grep: GrepRenderer,
 	TaskCreate: TaskCreateRenderer,
-	RequestUserInput: RequestUserInputRenderer,
 };
 
 function getRenderer(toolName: string): ToolRenderer {
-	return renderers[toolName] ?? {};
+	return (
+		getClientExternalToolRegistration(toolName)?.historyRenderer ?? renderers[toolName] ?? {}
+	);
 }
 
 export function getDisplayName(call: ToolCallBlock, t: TFunction): string {

@@ -44,6 +44,7 @@ from .._types import (
     EventProjector,
     SubAgentTemplate,
 )
+from .._client_external_tool import ClientExternalToolDefinition
 from ._access import ResourceAccessService
 from ._model import get_model
 from ._tts_model import get_tts_model
@@ -211,6 +212,8 @@ optional):
         | ExternalExecutionResultEvent
         | UserInterruptEvent
         | None = None,
+        client_external_tools: list[ClientExternalToolDefinition]
+        | None = None,
     ) -> None:
         """Drive a chat run to completion.
 
@@ -250,9 +253,17 @@ optional):
                 - ``UserInterruptEvent``: abort a parked reply — the
                   agent closes pending tool calls with interrupted
                   results and ends the reply (Case B, no reasoning).
+            client_external_tools:
+                External tools supported by the active client for this run.
         """
         try:
-            await self._run_impl(user_id, session_id, agent_id, input_msg)
+            await self._run_impl(
+                user_id,
+                session_id,
+                agent_id,
+                input_msg,
+                client_external_tools,
+            )
         except Exception as e:
             logger.exception(
                 "ChatService.run failed for user_id=%s session_id=%s "
@@ -515,6 +526,8 @@ optional):
         | ExternalExecutionResultEvent
         | UserInterruptEvent
         | None,
+        client_external_tools: list[ClientExternalToolDefinition]
+        | None = None,
     ) -> None:
         """The actual chat-run body; wrapped by :meth:`run` for error
         swallowing. Separated so the try/except doesn't bury the
@@ -689,6 +702,7 @@ optional):
                 extra_factory=self._extra_agent_tools,
                 sub_agent_templates=self._sub_agent_templates,
                 channel_dispatcher=self._channel_dispatcher,
+                client_external_tools=client_external_tools,
             )
 
             # ----------------------------------------------------------------

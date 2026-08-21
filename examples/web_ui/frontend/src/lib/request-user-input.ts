@@ -1,6 +1,58 @@
 import type { ContentBlock } from '@agentscope-ai/agentscope/message';
 
-export const REQUEST_USER_INPUT_TOOL_NAME = 'RequestUserInput';
+import type { ClientExternalToolDefinition } from '@/api/types';
+
+export const REQUEST_USER_INPUT_TOOL_NAME = 'client__request_user_input';
+export const LEGACY_REQUEST_USER_INPUT_TOOL_NAME = 'RequestUserInput';
+
+export const REQUEST_USER_INPUT_EXTERNAL_TOOL: ClientExternalToolDefinition = {
+	name: REQUEST_USER_INPUT_TOOL_NAME,
+	description:
+		'Ask the user one question when their choice is required before continuing. ' +
+		'Provide 2 to 4 mutually exclusive options with concise labels and optional ' +
+		'descriptions. Mark at most one option as recommended. Do not add an Other ' +
+		'option because the client always adds it and lets the user enter custom text.',
+	read_only: true,
+	input_schema: {
+		type: 'object',
+		properties: {
+			question: {
+				type: 'string',
+				minLength: 1,
+				maxLength: 500,
+				description: 'The question the user must answer.',
+			},
+			options: {
+				type: 'array',
+				minItems: 2,
+				maxItems: 4,
+				description: 'Mutually exclusive choices. Do not include Other.',
+				items: {
+					type: 'object',
+					properties: {
+						label: {
+							type: 'string',
+							minLength: 1,
+							maxLength: 80,
+						},
+						description: {
+							type: 'string',
+							maxLength: 300,
+						},
+						recommended: {
+							type: 'boolean',
+							default: false,
+						},
+					},
+					required: ['label'],
+					additionalProperties: false,
+				},
+			},
+		},
+		required: ['question', 'options'],
+		additionalProperties: false,
+	},
+};
 
 export type RequestUserInputResult =
 	| { type: 'option'; option_index: number; label: string }

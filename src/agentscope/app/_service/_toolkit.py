@@ -9,6 +9,10 @@ tools, and caller-supplied extras — into one :class:`Toolkit`.
 from typing import Any, Literal, TYPE_CHECKING
 
 from .._manager import BackgroundTaskManager, SchedulerManager
+from .._client_external_tool import (
+    ClientExternalTool,
+    ClientExternalToolDefinition,
+)
 from ..message_bus import MessageBus
 from .._tool import (
     AgentCreate,
@@ -18,7 +22,7 @@ from .._tool import (
     TeamSay,
 )
 from .._types import AgentToolFactory, SubAgentTemplate
-from ..storage import AgentRecord, SessionRecord, SessionSource, StorageBase
+from ..storage import AgentRecord, SessionRecord, StorageBase
 from ..workspace_manager import WorkspaceManagerBase
 from ...middleware import MiddlewareBase
 from ...tool import (
@@ -26,7 +30,6 @@ from ...tool import (
     TaskGet,
     TaskList,
     TaskUpdate,
-    RequestUserInput,
     Toolkit,
     ToolGroup,
 )
@@ -54,6 +57,7 @@ async def get_toolkit(
     extra_factory: AgentToolFactory | None = None,
     sub_agent_templates: dict[str, SubAgentTemplate] | None = None,
     channel_dispatcher: "ChannelLifecycleDispatcher | None" = None,
+    client_external_tools: list[ClientExternalToolDefinition] | None = None,
 ) -> Toolkit:
     """Assemble the complete :class:`Toolkit` for one chat turn.
 
@@ -78,12 +82,11 @@ async def get_toolkit(
        that is its team's leader gets the full leader-side toolset
        (``TeamCreate / AgentCreate / TeamSay / TeamDelete``, plus
        ``AgentInvite`` when the user has at least one invitable agent).
-    6. User interaction (:class:`RequestUserInput`) for ordinary user
-       sessions and team leaders
-    7. Caller-supplied extras (``extra_factory``)
-    8. Channel platform tools — only for a session that originated from
+    6. Caller-supplied extras (``extra_factory``)
+    7. Channel platform tools — only for a session that originated from
        a channel; the channel exposes them via
        :meth:`ChannelBase.list_tools` (e.g. send a file to another user).
+    8. Client external tools declared for this chat run
 
     Plus the workspace's skills and MCPs, which become the toolkit's
     ``skills_or_loaders`` and ``mcps`` parameters.
@@ -97,6 +100,9 @@ async def get_toolkit(
             Pre-resolved per-session workspace (caller resolves it
             via :meth:`WorkspaceManagerBase.get_workspace`). Used here
             for tool / skill / MCP discovery.
+        workspace_manager (`WorkspaceManagerBase`):
+            Workspace manager passed to team tools so they can resolve
+            session workspaces during cross-agent operations.
         scheduler_manager (`SchedulerManager`):
             Application scheduler. Provides the four schedule tools and
             persists schedules through it.
@@ -123,6 +129,9 @@ async def get_toolkit(
             :attr:`SessionRecord.team_id` and the resolved team's
             leader session id — for deciding which team tools to
             attach.
+        resource_access_service (`ResourceAccessService`):
+            Resource access service used to list agents visible to the
+            caller when constructing the optional ``AgentInvite`` tool.
         extra_factory (`AgentToolFactory | None`, optional):
             Async factory invoked once per assembly to produce
             user/session-specific extra tools.
@@ -136,6 +145,10 @@ optional):
             The node's channel dispatcher. When the session came from a
             channel, its local channel is resolved through this to attach
             that channel's platform tools. ``None`` disables them.
+        client_external_tools (`list[ClientExternalToolDefinition] | None`, \
+optional):
+            Validated external tools supported by the active client for this
+            run. They are not persisted in the session.
 
     Returns:
         `Toolkit`: Fully populated toolkit (tools + skills + MCPs).
@@ -245,12 +258,6 @@ time or interval"
                 ),
             )
 
-    # Structured user input currently has clients in the Web UI and console.
-    # Channel adapters and projected worker HITL need their own structured
-    # result contract, so do not expose a tool there that they cannot resume.
-    if team_role != "worker" and session_record.source == SessionSource.USER:
-        tools.append(RequestUserInput())
-
     # Caller-supplied extras.
     if extra_factory is not None:
         tools += await extra_factory(
@@ -273,6 +280,22 @@ time or interval"
         )
         if channel is not None:
             tools += await channel.list_tools(workspace)
+
+    # Client-provided tools are appended last, but never replace a server
+    # tool. Fail closed on a conflict because the client dispatches pending
+    # calls by name and cannot safely guess which implementation won.
+    server_tool_names = {tool.name for tool in tools}
+    server_tool_names.update(
+        tool.name for group in tool_groups for tool in group.tools
+    )
+    for definition in client_external_tools or []:
+        if definition.name in server_tool_names:
+            raise ValueError(
+                f"Client external tool '{definition.name}' conflicts with "
+                "a server tool.",
+            )
+        tools.append(ClientExternalTool(definition))
+        server_tool_names.add(definition.name)
 
     return Toolkit(
         tools=tools,

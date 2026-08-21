@@ -11,10 +11,12 @@ import { Button } from '../ui/button';
 import { DiffStats } from './tool-renderers/_shared';
 import type { GitStatus } from '@/api';
 import { ASMessageBubble } from '@/components/chat/ASMessageBubble.tsx';
+import { ClientToolsMenu } from '@/components/chat/ClientToolsMenu';
 import { ConfirmCard } from '@/components/chat/ConfirmCard.tsx';
 import { FlipCard } from '@/components/chat/FlipCard.tsx';
-import { RequestUserInputCard } from '@/components/chat/RequestUserInputCard';
+import { ManualClientToolCard } from '@/components/chat/ManualClientToolCard';
 import { TextInput } from '@/components/chat/TextInput.tsx';
+import { UnsupportedClientToolCard } from '@/components/chat/UnsupportedClientToolCard';
 import { WorkingDirectoryDialog } from '@/components/dialog/WorkingDirectoryDialog';
 import {
 	MessageScroller,
@@ -28,10 +30,9 @@ import { Spinner } from '@/components/ui/spinner';
 import type { ReplyPhase } from '@/hooks/useMessages';
 import { useTranslation } from '@/i18n/useI18n';
 import {
-	REQUEST_USER_INPUT_TOOL_NAME,
-	toOtherUserInputResult,
-	type RequestUserInputResult,
-} from '@/lib/request-user-input';
+	getClientExternalToolRegistration,
+	type ClientExternalToolResult,
+} from '@/lib/client-external-tools';
 import { cn } from '@/lib/utils';
 
 /** How long a load may run before it is worth showing a spinner. */
@@ -59,9 +60,9 @@ interface ChatContentProps {
 		replyId: string,
 		rules?: ToolCallBlock['suggested_rules'],
 	) => Promise<void>;
-	onRequestUserInput: (
+	onClientExternalToolResult: (
 		toolCall: ToolCallBlock,
-		result: RequestUserInputResult,
+		result: ClientExternalToolResult,
 		replyId: string,
 	) => Promise<void>;
 	autoComplete?: (input: string) => string | null;
@@ -101,7 +102,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	disabled,
 	onSend,
 	onUserConfirm,
-	onRequestUserInput,
+	onClientExternalToolResult,
 	autoComplete,
 	className,
 	onInterrupt,
@@ -144,29 +145,37 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 			.map((tc) => ({ replyId: lastMsg.id, toolCall: tc }));
 	}, [msgs]);
 
-	const pendingUserInputs = useMemo(() => {
+	const pendingExternalTools = useMemo(() => {
 		if (msgs.length === 0) return [];
 
 		const lastMsg = msgs[msgs.length - 1];
+		// The backend reserves `submitted` for external tool calls that are
+		// waiting for an ExternalExecutionResultEvent from the active client.
 		return getContentBlocks(lastMsg, 'tool_call')
-			.filter(
-				(toolCall) =>
-					toolCall.state === 'submitted' &&
-					toolCall.name === REQUEST_USER_INPUT_TOOL_NAME,
-			)
+			.filter((toolCall) => toolCall.state === 'submitted')
 			.map((toolCall) => ({ replyId: lastMsg.id, toolCall }));
 	}, [msgs]);
+	const pendingExternalTool = pendingExternalTools[0];
+	const pendingExternalToolRegistration = pendingExternalTool
+		? getClientExternalToolRegistration(pendingExternalTool.toolCall.name)
+		: undefined;
+	const PendingExternalToolComponent = pendingExternalToolRegistration?.PendingComponent;
+	const isManualClientTool =
+		pendingExternalTool?.toolCall.name.startsWith('client__') === true &&
+		!PendingExternalToolComponent;
 
 	const handleSend = (content: ContentBlock[]) => {
-		const pending = pendingUserInputs[0];
+		const pending = pendingExternalTool;
 		if (!pending) {
 			onSend(content);
 			return;
 		}
 
-		const result = toOtherUserInputResult(content);
-		if (!result) return;
-		void onRequestUserInput(pending.toolCall, result, pending.replyId).catch(() => undefined);
+		const result = pendingExternalToolRegistration?.composerResult?.(content);
+		if (result === null || result === undefined) return;
+		void onClientExternalToolResult(pending.toolCall, result, pending.replyId).catch(
+			() => undefined,
+		);
 	};
 
 	// On an empty session the prompt and the input centre together, so every box
@@ -213,7 +222,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 					<FlipCard
 						visible={
 							toConfirmedToolCalls.length > 0 ||
-							pendingUserInputs.length > 0 ||
+							pendingExternalTools.length > 0 ||
 							footerSlot !== null
 						}
 						className="absolute bottom-full left-0 right-0 mb-2 z-50"
@@ -231,20 +240,43 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 									)
 								}
 							/>
-						) : pendingUserInputs.length > 0 ? (
-							<RequestUserInputCard
-								key={`${pendingUserInputs[0].replyId}:${pendingUserInputs[0].toolCall.id}`}
-								toolCall={pendingUserInputs[0].toolCall}
-								onSubmit={(result) =>
-									onRequestUserInput(
-										pendingUserInputs[0].toolCall,
-										result,
-										pendingUserInputs[0].replyId,
-									)
-								}
-								onCancel={onInterrupt}
-								cancelling={phase === 'interrupting'}
-							/>
+						) : pendingExternalTool ? (
+							PendingExternalToolComponent ? (
+								<PendingExternalToolComponent
+									key={`${pendingExternalTool.replyId}:${pendingExternalTool.toolCall.id}`}
+									toolCall={pendingExternalTool.toolCall}
+									onSubmit={(result) =>
+										onClientExternalToolResult(
+											pendingExternalTool.toolCall,
+											result,
+											pendingExternalTool.replyId,
+										)
+									}
+									onCancel={onInterrupt}
+									cancelling={phase === 'interrupting'}
+								/>
+							) : isManualClientTool ? (
+								<ManualClientToolCard
+									key={`${pendingExternalTool.replyId}:${pendingExternalTool.toolCall.id}`}
+									toolCall={pendingExternalTool.toolCall}
+									onSubmit={(result) =>
+										onClientExternalToolResult(
+											pendingExternalTool.toolCall,
+											result,
+											pendingExternalTool.replyId,
+										)
+									}
+									onCancel={onInterrupt}
+									cancelling={phase === 'interrupting'}
+								/>
+							) : (
+								<UnsupportedClientToolCard
+									key={`${pendingExternalTool.replyId}:${pendingExternalTool.toolCall.id}`}
+									toolCall={pendingExternalTool.toolCall}
+									onCancel={onInterrupt}
+									cancelling={phase === 'interrupting'}
+								/>
+							)
 						) : (
 							footerSlot
 						)}
@@ -259,10 +291,10 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 						onSend={handleSend}
 						disabled={disabled}
 						autoComplete={autoComplete}
-						allowedInputTypes={pendingUserInputs.length > 0 ? [] : allowedInputTypes}
+						allowedInputTypes={pendingExternalTools.length > 0 ? [] : allowedInputTypes}
 						fileProcessor={fileProcessor}
 						phase={phase}
-						acceptsInput={pendingUserInputs.length > 0}
+						acceptsInput={Boolean(pendingExternalToolRegistration?.composerResult)}
 						onInterrupt={onInterrupt}
 						headerSlot={
 							<div className="flex w-full items-center justify-between px-2 py-1 text-sm text-muted-foreground">
@@ -272,39 +304,42 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 									value={cwd}
 									onChange={onCwdChange}
 								/>
-								{git && (
-									<Button
-										className="font-mono"
-										variant="secondary"
-										size="sm"
-										onClick={() => void onRefreshGit?.()}
-										title={t('workdir.gitTooltip', {
-											staged: git.staged,
-											unstaged: git.unstaged,
-											untracked: git.untracked,
-										})}
-									>
-										<GitBranch />
-										{/* A detached HEAD has no branch to name, so
-										    fall back to the commit it sits on. The
-										    server sends no git at all when it has
-										    neither. */}
-										{git.branch ?? git.head?.slice(0, 7)}
-										{git.ahead !== null && git.ahead > 0 && (
-											<span className="text-xs">↑{git.ahead}</span>
-										)}
-										{git.behind !== null && git.behind > 0 && (
-											<span className="text-xs">↓{git.behind}</span>
-										)}
-										{/* Renders nothing when both are zero, so a
-										    clean tree shows just the branch. */}
-										<DiffStats
-											className="text-xs font-mono"
-											insertions={git.insertions}
-											deletions={git.deletions}
-										/>
-									</Button>
-								)}
+								<div className="flex items-center gap-1.5">
+									<ClientToolsMenu agentId={agentId} sessionId={sessionId} />
+									{git && (
+										<Button
+											className="font-mono"
+											variant="secondary"
+											size="sm"
+											onClick={() => void onRefreshGit?.()}
+											title={t('workdir.gitTooltip', {
+												staged: git.staged,
+												unstaged: git.unstaged,
+												untracked: git.untracked,
+											})}
+										>
+											<GitBranch />
+											{/* A detached HEAD has no branch to name, so
+											    fall back to the commit it sits on. The
+											    server sends no git at all when it has
+											    neither. */}
+											{git.branch ?? git.head?.slice(0, 7)}
+											{git.ahead !== null && git.ahead > 0 && (
+												<span className="text-xs">↑{git.ahead}</span>
+											)}
+											{git.behind !== null && git.behind > 0 && (
+												<span className="text-xs">↓{git.behind}</span>
+											)}
+											{/* Renders nothing when both are zero, so a
+											    clean tree shows just the branch. */}
+											<DiffStats
+												className="text-xs font-mono"
+												insertions={git.insertions}
+												deletions={git.deletions}
+											/>
+										</Button>
+									)}
+								</div>
 							</div>
 						}
 					/>

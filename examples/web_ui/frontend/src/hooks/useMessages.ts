@@ -17,7 +17,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { sessionApi, takeFreshlyCreated } from '@/api';
 import { chatApi } from '@/api';
 import { useAudioManager } from '@/context/AudioContext';
-import type { RequestUserInputResult } from '@/lib/request-user-input';
+import type { ClientExternalToolResult } from '@/lib/client-external-tools';
 
 /**
  * One pending subagent HITL request, projected from a team *member*
@@ -420,9 +420,9 @@ export function useMessages(
 		[agentId, sessionId],
 	);
 
-	/** Return a structured user choice as the result of RequestUserInput. */
-	const onRequestUserInput = useCallback(
-		async (toolCall: ToolCallBlock, result: RequestUserInputResult, replyId: string) => {
+	/** Return a client-executed tool result and resume the parked reply. */
+	const onClientExternalToolResult = useCallback(
+		async (toolCall: ToolCallBlock, result: ClientExternalToolResult, replyId: string) => {
 			if (!agentId || !sessionId) return;
 
 			currentReplyRef.current = msgsRef.current.find((msg) => msg.id === replyId) ?? null;
@@ -590,7 +590,7 @@ export function useMessages(
 		error,
 		send,
 		onUserConfirm,
-		onRequestUserInput,
+		onClientExternalToolResult,
 		onSubagentConfirm,
 		subagentHitl,
 		abort,

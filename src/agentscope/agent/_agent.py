@@ -2159,6 +2159,11 @@ class Agent:
                     f"Input validation failed for tool '{tool_call.name}': "
                     f"{e.message}",
                 ) from e
+            except Exception as e:
+                raise AgentOrientedException(
+                    f"Input schema evaluation failed for tool "
+                    f"'{tool_call.name}': {e}",
+                ) from e
 
         # The exceptions that
         #  - cannot found tool
