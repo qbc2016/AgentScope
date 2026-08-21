@@ -28,7 +28,10 @@ export function useKnowledgeDocuments(knowledgeBaseId: string | null) {
 		setLoading(true);
 		setError(null);
 		try {
-			const { documents: list } = await knowledgeBaseApi.listDocuments(knowledgeBaseId);
+			// The panel merges rows with in-flight upload tasks and the
+			// status poller into one flat list, so drain all pages of
+			// the paginated endpoint.
+			const list = await knowledgeBaseApi.listAllDocuments(knowledgeBaseId);
 			if (seq !== requestSeq.current) return;
 			setDocuments(list);
 		} catch (e) {
