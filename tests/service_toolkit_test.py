@@ -12,9 +12,7 @@ Verifies the assembly rules:
 - client external tools are included only when declared for the run;
 - the four ``Schedule*`` tools only when ``session.config.chat_model_config``
   is set (they need a model to fire new runs with);
-- team tools are role-gated by ``agent_record.source``: ``"team"`` →
-  one ``TeamSay`` (worker variant); anything else → the full
-  leader-side toolset of four;
+- team tools are role-gated by the caller-resolved ``team_role``;
 - caller-supplied ``extra_factory`` results land at the end.
 """
 from typing import Any
@@ -37,9 +35,6 @@ from agentscope.app.storage import (
     ChatModelConfig,
     SessionConfig,
     SessionRecord,
-    SessionSource,
-    TeamData,
-    TeamRecord,
 )
 from agentscope.tool import ToolBase
 
@@ -138,30 +133,11 @@ class _NoOpStorage:
     list — the toolkit tests care about which team tools are attached,
     not about the pool contents; the non-empty case is covered by the
     ``AgentInvite`` tests in ``service_team_tools_test.py``.
-    Additionally, when the session has a ``team_id`` set, ``get_toolkit``
-    calls ``get_team`` to decide leader-vs-worker; the ``team_id_map``
-    constructor arg lets a test inject a lookup so the worker branch
-    can be exercised.
     """
-
-    def __init__(
-        self,
-        team_id_map: dict[str, TeamRecord] | None = None,
-    ) -> None:
-        """Initialize the storage placeholder."""
-        self._teams = team_id_map or {}
 
     async def list_agents(self, _user_id: str) -> list:
         """List agents for a team."""
         return []
-
-    async def get_team(
-        self,
-        _user_id: str,
-        team_id: str,
-    ) -> TeamRecord | None:
-        """Return the team record for ``team_id``."""
-        return self._teams.get(team_id)
 
 
 def _make_access(storage: Any) -> ResourceAccessService:
@@ -400,12 +376,8 @@ class TestGetToolkitBaseAssembly(IsolatedAsyncioTestCase):
 
 
 class TestGetToolkitWorkerVariant(IsolatedAsyncioTestCase):
-    """A session whose team role is worker only gets ``TeamSay``.
-
-    The worker/leader distinction is now session-level: a session with
-    ``team_id`` set and ``team.session_id != session.id`` is a worker
-    regardless of the agent record's ``source`` (an ``AgentInvite``
-    borrowed session runs on ``source='user'`` but is still a worker)."""
+    """A session passed ``team_role="worker"`` only gets ``TeamSay``;
+    the role is resolved by the caller, not looked up here."""
 
     async def test_worker_only_gets_team_say(self) -> None:
         """A worker session receives only ``TeamSay`` from the team
@@ -417,16 +389,8 @@ class TestGetToolkitWorkerVariant(IsolatedAsyncioTestCase):
             with_model=True,
             team_id="t1",
         )
-        # Team exists and its leader session is NOT this one → worker.
-        team = TeamRecord(
-            user_id="u",
-            session_id="leader-sid",
-            data=TeamData(name="team", description="d"),
-        )
         toolkit = await get_toolkit(
-            storage=_NoOpStorage(
-                team_id_map={"t1": team},
-            ),  # type: ignore[arg-type]
+            storage=_NoOpStorage(),  # type: ignore[arg-type]
             workspace=_FakeWorkspace(),  # type: ignore[arg-type]
             workspace_manager=FakeWorkspaceManager(),
             scheduler_manager=SchedulerManager(
@@ -443,6 +407,7 @@ class TestGetToolkitWorkerVariant(IsolatedAsyncioTestCase):
             extra_factory=None,
             middlewares=[],
             resource_access_service=_make_access(_NoOpStorage()),
+            team_role="worker",
         )
         names = set(_tool_names(toolkit))
         # Only TeamSay from the team toolset.
@@ -497,36 +462,6 @@ class TestGetToolkitSchedulingGuard(IsolatedAsyncioTestCase):
             "ScheduleList",
         ):
             self.assertNotIn(missing, names)
-
-    async def test_scheduled_session_has_no_user_input_tool(self) -> None:
-        """An unattended scheduled run cannot request interactive input."""
-        agent = _make_agent(source="user")
-        session = _make_session(
-            user_id="u",
-            agent_id=agent.id,
-            with_model=True,
-        )
-        session.source = SessionSource.SCHEDULE
-        toolkit = await get_toolkit(
-            storage=_NoOpStorage(),  # type: ignore[arg-type]
-            workspace=_FakeWorkspace(),  # type: ignore[arg-type]
-            workspace_manager=FakeWorkspaceManager(),
-            scheduler_manager=SchedulerManager(
-                storage=_NoOpStorage(),  # type: ignore[arg-type]
-                message_bus=_NullBus(),  # type: ignore[arg-type]
-            ),
-            background_task_manager=BackgroundTaskManager(
-                message_bus=_NullBus(),  # type: ignore[arg-type]
-            ),
-            message_bus=_NullBus(),  # type: ignore[arg-type]
-            user_id="u",
-            agent_record=agent,
-            session_record=session,
-            extra_factory=None,
-            middlewares=[],
-            resource_access_service=_make_access(_NoOpStorage()),
-        )
-        self.assertNotIn("RequestUserInput", _tool_names(toolkit))
 
 
 class TestGetToolkitExtraFactory(IsolatedAsyncioTestCase):

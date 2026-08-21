@@ -6,7 +6,7 @@ workspace builtins, MCPs, skills, planning tools (Task*), background-task
 control (ToolStop), schedule control (Schedule*), team participation
 tools, and caller-supplied extras — into one :class:`Toolkit`.
 """
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Literal
 
 from .._manager import BackgroundTaskManager, SchedulerManager
 from .._client_external_tool import (
@@ -30,15 +30,13 @@ from ...tool import (
     TaskGet,
     TaskList,
     TaskUpdate,
+    ToolBase,
     Toolkit,
     ToolGroup,
 )
 from ...workspace import WorkspaceBase
 from ..access import ResourceKind
 from ._access import ResourceAccessService
-
-if TYPE_CHECKING:
-    from ..channel import ChannelLifecycleDispatcher
 
 
 async def get_toolkit(
@@ -56,7 +54,8 @@ async def get_toolkit(
     resource_access_service: ResourceAccessService,
     extra_factory: AgentToolFactory | None = None,
     sub_agent_templates: dict[str, SubAgentTemplate] | None = None,
-    channel_dispatcher: "ChannelLifecycleDispatcher | None" = None,
+    team_role: Literal["leader", "worker"] | None = None,
+    channel_tools: list[ToolBase] | None = None,
     client_external_tools: list[ClientExternalToolDefinition] | None = None,
 ) -> Toolkit:
     """Assemble the complete :class:`Toolkit` for one chat turn.
@@ -73,20 +72,12 @@ async def get_toolkit(
        :meth:`SchedulerManager.list_tools`). Only attached when the
        session has a model configured (Schedule tools need a model to
        fire new chats with).
-    5. Team tools — variant based on the *session's* team role, not
-       the agent's ``source``. This matters because a borrowed
-       ("invited") agent's session must see worker-only tools even
-       though its underlying :class:`AgentRecord` still has
-       ``source='user'``. A session that is a worker in some team
-       gets only ``TeamSay``. A session that is not in any team OR
-       that is its team's leader gets the full leader-side toolset
-       (``TeamCreate / AgentCreate / TeamSay / TeamDelete``, plus
-       ``AgentInvite`` when the user has at least one invitable agent).
+    5. Team tools — by caller-resolved ``team_role``: a worker gets only
+       ``TeamSay``; anyone else gets the full leader-side toolset.
     6. Caller-supplied extras (``extra_factory``)
-    7. Channel platform tools — only for a session that originated from
-       a channel; the channel exposes them via
-       :meth:`ChannelBase.list_tools` (e.g. send a file to another user).
-    8. Client external tools declared for this chat run
+    7. Channel platform tools — the caller resolves them (once, shared
+       with the system-prompt attachment) and passes ``channel_tools``.
+    8. Client external tools declared for this chat run.
 
     Plus the workspace's skills and MCPs, which become the toolkit's
     ``skills_or_loaders`` and ``mcps`` parameters.
@@ -122,13 +113,10 @@ async def get_toolkit(
             Pre-loaded agent record (loaded once by the caller). Still
             used for its identity (``id``) and for pipeline consumers
             downstream; the ``source`` field is no longer the team-tool
-            gate — see :attr:`session_record.team_id` below.
+            gate — see ``team_role`` below.
         session_record (`SessionRecord`):
             Pre-loaded session record (loaded once by the caller).
-            Used for the schedule-tool model configuration and — via
-            :attr:`SessionRecord.team_id` and the resolved team's
-            leader session id — for deciding which team tools to
-            attach.
+            Used for the schedule-tool model configuration.
         resource_access_service (`ResourceAccessService`):
             Resource access service used to list agents visible to the
             caller when constructing the optional ``AgentInvite`` tool.
@@ -141,10 +129,12 @@ optional):
             Passed to the ``AgentCreate`` tool so it can route to
             the appropriate template when a ``subagent_type`` is
             specified by the leader agent.
-        channel_dispatcher (`ChannelLifecycleDispatcher | None`, optional):
-            The node's channel dispatcher. When the session came from a
-            channel, its local channel is resolved through this to attach
-            that channel's platform tools. ``None`` disables them.
+        team_role (`Literal["leader", "worker"] | None`, optional):
+            The session's team role, resolved once by the caller.
+            ``None`` means not in any team.
+        channel_tools (`list[ToolBase] | None`, optional):
+            Platform tools of the originating channel, resolved once
+            by the caller. ``None`` / empty when channel-less.
         client_external_tools (`list[ClientExternalToolDefinition] | None`, \
 optional):
             Validated external tools supported by the active client for this
@@ -194,14 +184,8 @@ time or interval"
             ),
         )
 
-    # Team tools — variant based on the session's team role rather
-    # than the agent's ``source`` field. A borrowed ("invited") agent
-    # runs with ``source='user'`` on its underlying AgentRecord but
-    # its session must behave as a worker; the session-level check
-    # captures both created and invited workers uniformly. Sessions
-    # not in a team fall through to the leader-side toolset — each
-    # leader tool has a runtime precondition check anyway (am I in a
-    # team? am I the leader?), so attaching the full set is safe.
+    # Team tools by caller-resolved role; non-team sessions get the
+    # leader set (each leader tool rechecks its precondition at call time).
     team_tool_kwargs: dict[str, Any] = {
         "storage": storage,
         "message_bus": message_bus,
@@ -210,13 +194,6 @@ time or interval"
         "session_id": session_record.id,
         "agent_id": agent_record.id,
     }
-    team_role: Literal["leader", "worker"] | None = None
-    if session_record.team_id is not None:
-        team = await storage.get_team(user_id, session_record.team_id)
-        if team is not None:
-            team_role = (
-                "leader" if team.session_id == session_record.id else "worker"
-            )
     if team_role == "worker":
         tools.append(TeamSay(**team_tool_kwargs, role="worker"))
     else:
@@ -270,16 +247,10 @@ time or interval"
     for mw in middlewares:
         tools.extend(await mw.list_tools())
 
-    # Channel platform tools — when this session originated from a
-    # channel, ask that channel (resolved locally; every node runs every
-    # channel) for the tools it lets the agent call, e.g. send a file to
-    # another user. Mirrors ``workspace.list_tools`` / ``mw.list_tools``.
-    if session_record.source_channel_id and channel_dispatcher is not None:
-        channel = channel_dispatcher.get_local_channel(
-            session_record.source_channel_id,
-        )
-        if channel is not None:
-            tools += await channel.list_tools(workspace)
+    # Channel platform tools, resolved once by the caller (also feeds
+    # the channel section of the system prompt).
+    if channel_tools:
+        tools += channel_tools
 
     # Client-provided tools are appended last, but never replace a server
     # tool. Fail closed on a conflict because the client dispatches pending
