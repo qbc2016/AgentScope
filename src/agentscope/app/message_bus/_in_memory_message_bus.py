@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+import time
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator
@@ -27,15 +28,17 @@ from typing import Callable, Self
 from ._base import MessageBus
 
 
-class InMemoryMessageBus(MessageBus):
+class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
+    MessageBus,
+):
     """In-memory implementation of :class:`MessageBus`.
 
     Mapping of bus modes to in-memory structures:
 
-    - **Mode A (drain queue)** — each key maps to a
-      :class:`list[tuple[str, dict]]` of ``(entry_id, payload)`` pairs.
-      ``queue_push`` appends; ``queue_drain`` pops from the front (FIFO)
-      and deletes the returned entries.
+    - **Mode A (drain queue)** — each key maps to
+      ``(entry_id, payload, expire_at)`` tuples. ``queue_push`` appends;
+      ``queue_drain`` pops from the front (FIFO) and deletes the returned
+      entries.
     - **Mode C (replay log)** — same underlying list structure, but
       ``log_read`` is non-destructive.  ``log_trim`` removes entries
       in-place.
@@ -59,7 +62,11 @@ class InMemoryMessageBus(MessageBus):
         self._seq: int = 0
 
         # Mode A — drain queues: key -> [(entry_id, payload), ...]
-        self._queues: dict[str, list[tuple[str, dict]]] = defaultdict(list)
+        # (entry_id, payload, expire_at | None) — expire_at is monotonic.
+        self._queues: dict[
+            str,
+            list[tuple[str, dict, float | None]],
+        ] = defaultdict(list)
 
         # Mode C — replay logs: key -> [(entry_id, payload), ...]
         self._logs: dict[str, list[tuple[str, dict]]] = defaultdict(list)
@@ -128,8 +135,9 @@ class InMemoryMessageBus(MessageBus):
     ) -> str:
         """Append ``payload`` to the in-memory drain queue at ``key``.
 
-        ``ttl_secs`` is accepted for API compatibility but ignored — the
-        in-memory implementation does not expire keys.
+        When ``ttl_secs`` is set the entry expires after that many
+        seconds; expired entries are dropped here and on drain, so a
+        never-drained key stays bounded.
 
         Args:
             key (`str`):
@@ -137,14 +145,18 @@ class InMemoryMessageBus(MessageBus):
             payload (`dict`):
                 JSON-serializable dict to enqueue.
             ttl_secs (`int | None`, optional):
-                Ignored (no-op).
+                Entry lifetime in seconds; ``None`` never expires.
 
         Returns:
             `str`:
                 The synthetic entry id assigned to this entry.
         """
         entry_id = self._next_id()
-        self._queues[key].append((entry_id, deepcopy(payload)))
+        queue = self._queues[key]
+        now = time.monotonic()
+        queue[:] = [e for e in queue if e[2] is None or e[2] > now]
+        expire_at = now + ttl_secs if ttl_secs else None
+        queue.append((entry_id, deepcopy(payload), expire_at))
         return entry_id
 
     async def queue_drain(
@@ -169,9 +181,13 @@ class InMemoryMessageBus(MessageBus):
         q = self._queues.get(key)
         if not q:
             return []
-        drained = deepcopy(q[:max_count])
-        del q[:max_count]
-        return drained
+        now = time.monotonic()
+        alive = [e for e in q if e[2] is None or e[2] > now]
+        drained = alive[:max_count]
+        self._queues[key] = alive[max_count:]
+        return deepcopy(
+            [(entry_id, payload) for entry_id, payload, _ in drained],
+        )
 
     async def queue_read(
         self,
@@ -190,7 +206,17 @@ class InMemoryMessageBus(MessageBus):
             `list[tuple[str, dict]]`:
                 Deep-copied ``(entry_id, payload)`` pairs.
         """
-        return deepcopy(self._queues.get(key, [])[:max_count])
+        q = self._queues.get(key, [])
+        now = time.monotonic()
+        alive = [entry for entry in q if entry[2] is None or entry[2] > now]
+        if q:
+            self._queues[key] = alive
+        return deepcopy(
+            [
+                (entry_id, payload)
+                for entry_id, payload, _expire_at in alive[:max_count]
+            ],
+        )
 
     async def queue_replace(
         self,
@@ -210,13 +236,13 @@ class InMemoryMessageBus(MessageBus):
                 Fresh transport-level ids assigned to the new entries.
         """
         entries = [
-            (self._next_id(), deepcopy(payload)) for payload in payloads
+            (self._next_id(), deepcopy(payload), None) for payload in payloads
         ]
         if entries:
             self._queues[key] = entries
         else:
             self._queues.pop(key, None)
-        return [entry_id for entry_id, _payload in entries]
+        return [entry_id for entry_id, _payload, _expire_at in entries]
 
     async def queue_delete(self, key: str) -> None:
         """Delete the drain queue at ``key``.
@@ -432,6 +458,17 @@ class InMemoryMessageBus(MessageBus):
         """
         return key in self._lock_holders
 
+    async def try_lock(self, key: str, *, ttl_secs: int = 600) -> bool:
+        """Non-blocking claim on ``key``. See base."""
+        if key in self._lock_holders:
+            return False
+        self._lock_holders[key] = "1"
+        return True
+
+    async def unlock(self, key: str) -> None:
+        """Release a ``try_lock`` claim."""
+        self._lock_holders.pop(key, None)
+
     # ------------------------------------------------------------------
     # Mode F — registry map
     # ------------------------------------------------------------------
@@ -505,6 +542,26 @@ class InMemoryMessageBus(MessageBus):
                 All entries (shallow copy). Empty dict when absent.
         """
         return dict(self._registries.get(namespace, {}))
+
+    async def registry_get(
+        self,
+        namespace: str,
+        field: str,
+    ) -> str | None:
+        """Return a single field value from the registry at
+        ``namespace``, or ``None`` if absent.
+
+        Args:
+            namespace (`str`):
+                Registry key.
+            field (`str`):
+                Field to retrieve.
+
+        Returns:
+            `str | None`:
+                The stored value, or ``None`` if missing.
+        """
+        return self._registries.get(namespace, {}).get(field)
 
     async def registry_drop(self, namespace: str) -> None:
         """Delete the entire registry at ``namespace``.

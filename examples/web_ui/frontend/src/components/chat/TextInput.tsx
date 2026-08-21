@@ -1,5 +1,5 @@
 import type { ContentBlock, TextBlock } from '@agentscope-ai/agentscope/message';
-import { Paperclip, Send, Loader2, Square, XIcon, FileText } from 'lucide-react';
+import { ArrowUp, FileText, Loader2, Paperclip, Square, XIcon } from 'lucide-react';
 import mime from 'mime';
 import React, {
 	useState,
@@ -76,6 +76,18 @@ interface TextInputProps {
 	/** Number of accepted user turns that have not started a reply yet. */
 	queuedCount?: number;
 	onInterrupt?: () => void;
+	/**
+	 * Content rendered directly above the input pill, inside the outer
+	 * wrapper that {@link className} styles (e.g. the working directory
+	 * and git status).
+	 *
+	 * The pill keeps all four of its corners, so the two only read as one
+	 * surface if the caller gives that wrapper a background and a radius
+	 * concentric with the pill's — outer radius = 28px + the wrapper's
+	 * padding. Anything less and the pill's top corners cut into the
+	 * header's edges.
+	 */
+	headerSlot?: React.ReactNode;
 }
 
 export interface TextInputRef {
@@ -122,6 +134,7 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 			phase = 'idle',
 			queuedCount = 0,
 			onInterrupt,
+			headerSlot,
 		},
 		ref,
 	) => {
@@ -290,7 +303,8 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		};
 
 		return (
-			<div className={cn('flex flex-col gap-1', className)}>
+			<div className={cn('flex flex-col', className)}>
+				{headerSlot}
 				<div
 					id="tour-chat-input"
 					className="flex w-full flex-col rounded-[28px] border bg-background px-2"
@@ -503,7 +517,7 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 										{submitting ? (
 											<Loader2 className="h-4 w-4 animate-spin" />
 										) : (
-											<Send className="h-4 w-4" />
+											<ArrowUp className="h-4 w-4" />
 										)}
 									</Button>
 								</TooltipTrigger>

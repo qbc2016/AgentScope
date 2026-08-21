@@ -2,8 +2,19 @@
 """Storage models for persisted resources."""
 
 from ._agent import AgentRecord, AgentData, InviteConfig
+from ._channel import (
+    ChannelBinding,
+    ChannelRecord,
+    RoutingConfig,
+    SessionScope,
+    SessionSettings,
+)
 from ._credential import CredentialRecord
-from ._knowledge_base import KnowledgeBaseData, KnowledgeBaseRecord
+from ._knowledge_base import (
+    ChunkerConfig,
+    KnowledgeBaseData,
+    KnowledgeBaseRecord,
+)
 from ._knowledge_document import (
     KnowledgeDocumentData,
     KnowledgeDocumentRecord,
@@ -27,6 +38,12 @@ from ._user import UserRecord
 __all__ = [
     "AgentData",
     "AgentRecord",
+    "ChannelBinding",
+    "ChannelRecord",
+    "ChunkerConfig",
+    "RoutingConfig",
+    "SessionScope",
+    "SessionSettings",
     "CredentialRecord",
     "KnowledgeBaseData",
     "KnowledgeBaseRecord",

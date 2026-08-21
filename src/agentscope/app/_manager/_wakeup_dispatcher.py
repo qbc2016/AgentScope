@@ -12,15 +12,18 @@ funnels through this one serial consumer.
 Each queue entry carries a ``kind`` that selects how a busy session is
 handled:
 
-- ``wake`` (idle-session wake-up, ``input_msg=None``): skipped while the
-  session is already running — the live run will drain the inbox.
+- ``wake`` (idle-session wake-up, ``input_msg=None``): delivers pending
+  inbox content and is retried while the session is running.
 - ``resume`` (a parked HITL run being fed its result): must *not* be
   skipped while running, because the session is typically still running
   the parked tail at trigger time. It is re-queued after a short backoff
   until the parked run releases its session lock, then spawned with the
   carried input event.
-- ``message`` (ordinary user input): drains a per-session FIFO only after
-  the current reply is complete and the session is not parked on HITL.
+- ``message`` (an inbound-channel ``Msg``): carries a genuine user message
+  and is retried until it can start a run.
+- ``queued_message`` (ordinary browser input): drains a per-session FIFO
+  only after the current reply is complete and the session is not parked
+  on HITL. Durable recovery replaces per-session hot retries.
 
 All bus keys live on the :class:`MessageBus` base class (see
 ``enqueue_wakeup`` / ``enqueue_input``, ``dequeue_wakeups``,
@@ -39,10 +42,12 @@ from ..._logging import logger
 from ...event import (
     CustomEvent,
     ExternalExecutionResultEvent,
+    ReplyEndEvent,
     UserConfirmResultEvent,
     UserInterruptEvent,
 )
 from ...message import Msg, ToolCallState
+from ...types import ErrorInfo, ErrorType, ReplyFinishedReason
 from ..message_bus import MessageBusKeys
 from .._bus_ops import (
     ChatQueueBusyError,
@@ -64,10 +69,9 @@ _RESUME_INPUT_ADAPTER: TypeAdapter = TypeAdapter(
 )
 _MESSAGE_INPUT_ADAPTER: TypeAdapter = TypeAdapter(Msg | list[Msg])
 
-# Delay before re-queuing a ``resume`` trigger whose target session is
-# still running (the parked run is finishing and about to free its
-# lock). Short enough to feel instant to the user, long enough to avoid
-# a hot re-enqueue loop while the lock is held.
+# Delay before re-queuing a trigger whose target session still holds
+# its run lock. Short enough to feel instant to the user, long enough
+# to avoid a hot re-enqueue loop while the lock is held.
 _RESUME_RETRY_BACKOFF_SECS = 0.1
 
 # Durably indexed pending queues are revisited at this low frequency.
@@ -341,8 +345,9 @@ class WakeupDispatcher:
 
         Returns:
             `int`:
-                Number of durable ``message`` triggers pushed. The caller
-                publishes one shared signal when this value is non-zero.
+                Number of durable ``queued_message`` triggers pushed. The
+                caller publishes one shared signal when this value is
+                non-zero.
         """
         pushed_count = 0
         pending_sessions = await self._bus.registry_getall(
@@ -411,7 +416,7 @@ class WakeupDispatcher:
                     user_id=user_id,
                     session_id=session_id,
                     agent_id=agent_id,
-                    kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                    kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
                     signal=False,
                 )
                 pushed_count += 1
@@ -430,7 +435,7 @@ class WakeupDispatcher:
                 MessageBusKeys.wakeup_queue(),
                 max_count=64,
             )
-            entries = [payload for _entry_id, payload in raw_entries]
+            entries = [payload for _, payload in raw_entries]
         except Exception:  # pylint: disable=broad-except
             logger.exception("WakeupDispatcher: dequeue_wakeups failed.")
             return
@@ -474,18 +479,19 @@ class WakeupDispatcher:
             agent_id (`str`):
                 The agent that owns the session.
             kind (`str`):
-                Trigger kind (``wake`` / ``resume`` / ``message``); see
-                the module docstring.
+                Trigger kind (``wake`` / ``resume`` / ``message`` /
+                ``queued_message``); see the module docstring.
             raw_input (`dict | list[dict] | None`):
                 Serialised input event for ``resume`` triggers, else
                 ``None``.
         """
         is_resume = kind == MessageBusKeys.WAKEUP_KIND_RESUME
         is_message = kind == MessageBusKeys.WAKEUP_KIND_MESSAGE
+        is_queued_message = kind == MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE
 
-        # Message triggers are only hints. Avoid storage/lock work for
-        # stale completion nudges after the durable queue is already empty.
-        if is_message:
+        # Queued-message triggers are only hints. Avoid storage/lock work
+        # for stale completion nudges after the durable queue is empty.
+        if is_queued_message:
             pending = await self._bus.queue_read(
                 MessageBusKeys.chat_inputs(session_id),
                 max_count=1,
@@ -500,26 +506,40 @@ class WakeupDispatcher:
                 MessageBusKeys.chat_input_dispatch_lock(session_id),
             ):
                 return
+        # ``resume`` and ``message`` both carry input that must be
+        # delivered — never dropped while the session is busy.
+        carries_input = is_resume or is_message
 
-        # Parse the resume input early so every downstream path
-        # (lock-retry, spawn-retry) receives a typed event object
-        # rather than a raw dict.
-        input_msg: UserConfirmResultEvent | ExternalExecutionResultEvent | None
-        input_msg = None
-        if is_resume:
+        # Parse the carried input early so every downstream path
+        # (lock-retry, spawn-retry) receives a typed object rather than a
+        # raw dict.
+        input_msg: (
+            UserConfirmResultEvent
+            | ExternalExecutionResultEvent
+            | UserInterruptEvent
+            | Msg
+            | None
+        ) = None
+        if carries_input:
             if raw_input is None:
                 logger.warning(
-                    "WakeupDispatcher: dropping resume trigger for session "
-                    "%s — no input event carried.",
+                    "WakeupDispatcher: dropping %s trigger for session "
+                    "%s — no input carried.",
+                    kind,
                     session_id,
                 )
                 return
             try:
-                input_msg = _RESUME_INPUT_ADAPTER.validate_python(raw_input)
+                input_msg = (
+                    Msg.model_validate(raw_input)
+                    if is_message
+                    else _RESUME_INPUT_ADAPTER.validate_python(raw_input)
+                )
             except Exception:  # pylint: disable=broad-except
                 logger.exception(
-                    "WakeupDispatcher: dropping resume trigger for session "
-                    "%s — input event failed to parse: %r",
+                    "WakeupDispatcher: dropping %s trigger for session "
+                    "%s — input failed to parse: %r",
+                    kind,
                     session_id,
                     raw_input,
                 )
@@ -528,20 +548,18 @@ class WakeupDispatcher:
         if await self._bus.is_locked(
             MessageBusKeys.session_lock(session_id),
         ):
-            if is_resume:
-                # The session is busy finishing its parked tail. Do NOT
-                # drop the resume — re-queue it after a short backoff so
-                # it lands once the parked run releases its lock.
-                self._schedule_resume_retry(
+            # The durable pending-session registry plus fallback tick
+            # revisits browser queues without per-session hot polling.
+            # Every other kind carries work that is not durably indexed
+            # there, so it must be retried until the run lock is free.
+            if not is_queued_message:
+                self._schedule_retry(
                     user_id,
                     session_id,
                     agent_id,
+                    kind,
                     input_msg,
                 )
-            # The durable pending-session registry plus fallback tick
-            # revisits message queues without per-session hot polling.
-            # ``wake`` triggers are safe to drop while running — the
-            # live run drains the inbox itself.
             return
 
         # Orphan guard: the queue is unaware of session lifecycle. A
@@ -565,9 +583,24 @@ class WakeupDispatcher:
                 agent_id,
                 user_id,
             )
+            # Surface an error on the event stream so collectors (e.g. the
+            # channel gateway) fail fast instead of waiting for a timeout.
+            await publish_session_event(
+                self._bus,
+                session_id,
+                ReplyEndEvent(
+                    session_id=session_id,
+                    reply_id="",
+                    finished_reason=ReplyFinishedReason.ERROR,
+                    error=ErrorInfo(
+                        type=ErrorType.INTERNAL,
+                        message="Session no longer exists.",
+                    ),
+                ).model_dump(mode="json"),
+            )
             return
 
-        if is_message and self._is_session_parked(session):
+        if is_queued_message and self._is_session_parked(session):
             # A normal user turn cannot satisfy an ASKING/SUBMITTED tool
             # call. Keep it queued until the resume/interrupt control
             # path has finished the parked reply.
@@ -576,7 +609,7 @@ class WakeupDispatcher:
         try:
             run_coro = (
                 self._drain_chat_inputs(user_id, session_id, agent_id)
-                if is_message
+                if is_queued_message
                 else self._run_resume_serialized(
                     user_id=user_id,
                     session_id=session_id,
@@ -596,7 +629,7 @@ class WakeupDispatcher:
                 session_id=session_id,
                 name=f"{kind}-run:{session_id}",
             )
-            if is_message:
+            if is_queued_message:
                 # Registry cleanup is registered inside spawn() before this
                 # callback. A successful/cancelled pump therefore nudges
                 # the next turn only after its local run slot is free.
@@ -618,28 +651,17 @@ class WakeupDispatcher:
                 )
         except RuntimeError:
             # A local run was registered between the running-check and
-            # the spawn. For ``wake`` that run will drain the inbox; for
-            # ``resume`` re-queue so the result is not lost.
-            if is_resume:
-                run_coro.close()
-                self._schedule_resume_retry(
+            # the spawn. Close the unscheduled coroutine first. Browser
+            # queue work remains durably indexed; all other trigger kinds
+            # must be re-enqueued because no durable queue owns their input.
+            run_coro.close()
+            if not is_queued_message:
+                self._schedule_retry(
                     user_id,
                     session_id,
                     agent_id,
+                    kind,
                     input_msg,
-                )
-            elif is_message:
-                # ``run_coro`` was created but never scheduled because
-                # the registry rejected it. Close it to avoid an
-                # un-awaited coroutine warning, then retry the durable
-                # per-session queue later.
-                run_coro.close()
-            else:
-                run_coro.close()
-                logger.debug(
-                    "WakeupDispatcher: skipping wake trigger for session "
-                    "%s; a local run is already registered.",
-                    session_id,
                 )
 
     @staticmethod
@@ -1231,7 +1253,7 @@ class WakeupDispatcher:
                         user_id=user_id,
                         session_id=session_id,
                         agent_id=agent_id,
-                        kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                        kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
                     )
             except Exception:  # pylint: disable=broad-except
                 logger.exception(
@@ -1263,31 +1285,37 @@ class WakeupDispatcher:
         self._retry_tasks.add(task)
         task.add_done_callback(self._retry_tasks.discard)
 
-    def _schedule_resume_retry(
+    def _schedule_retry(
         self,
         user_id: str,
         session_id: str,
         agent_id: str,
+        kind: str,
         input_msg: UserConfirmResultEvent
         | ExternalExecutionResultEvent
+        | UserInterruptEvent
+        | Msg
         | None,
     ) -> None:
-        """Re-enqueue a ``resume`` trigger after a short backoff.
+        """Re-enqueue an input-carrying (``resume``/``message``) trigger
+        after a short backoff.
 
-        Spawns a detached timer that sleeps, then re-enqueues the resume
+        Spawns a detached timer that sleeps, then re-enqueues the trigger
         (which re-fires the signal, re-driving the drain). This keeps the
-        resume alive across the window where the parked run still holds
+        input alive across the window where the running turn still holds
         the session lock, without a hot re-enqueue loop.
 
         Args:
             user_id (`str`):
                 The owning user id.
             session_id (`str`):
-                The session to resume.
+                The session to trigger.
             agent_id (`str`):
                 The agent that owns the session.
+            kind (`str`):
+                The trigger kind to re-enqueue (``resume`` / ``message``).
             input_msg:
-                The parsed input event to redeliver.
+                The parsed input to redeliver.
         """
 
         async def _retry() -> None:
@@ -1298,21 +1326,22 @@ class WakeupDispatcher:
                     user_id=user_id,
                     session_id=session_id,
                     agent_id=agent_id,
-                    kind=MessageBusKeys.WAKEUP_KIND_RESUME,
+                    kind=kind,  # type: ignore[arg-type]
                     inputs=input_msg,
                 )
             except asyncio.CancelledError:
                 pass
             except Exception:  # pylint: disable=broad-except
                 logger.exception(
-                    "WakeupDispatcher: failed to re-enqueue resume trigger "
+                    "WakeupDispatcher: failed to re-enqueue %s trigger "
                     "for session %s.",
+                    kind,
                     session_id,
                 )
 
         task = asyncio.create_task(
             _retry(),
-            name=f"resume-retry:{session_id}",
+            name=f"{kind}-retry:{session_id}",
         )
         self._retry_tasks.add(task)
         task.add_done_callback(self._retry_tasks.discard)

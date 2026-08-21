@@ -226,6 +226,18 @@ class _FakeBus(MessageBus):
     async def is_locked(self, key: str) -> bool:
         return key in self._locks
 
+    async def try_lock(
+        self,
+        key: str,
+        *,
+        ttl_secs: int = 600,
+    ) -> bool:
+        return True
+
+    async def unlock(self, key: str) -> None:
+        pass
+
+    # Mode F — registry
     async def registry_set(
         self,
         namespace: str,
@@ -244,6 +256,13 @@ class _FakeBus(MessageBus):
 
     async def registry_getall(self, namespace: str) -> dict[str, str]:
         return dict(self.registries.get(namespace, {}))
+
+    async def registry_get(
+        self,
+        namespace: str,
+        field: str,
+    ) -> str | None:
+        return self.registries.get(namespace, {}).get(field)
 
     async def registry_drop(self, namespace: str) -> None:
         self.registries.pop(namespace, None)
@@ -298,7 +317,7 @@ class _BlockingChatService(_FakeChatService):
             user_id=user_id,
             session_id=session_id,
             agent_id=agent_id,
-            kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+            kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
         )
 
 
@@ -308,7 +327,9 @@ async def _yield_a_few_times(ticks: int = 8) -> None:
         await asyncio.sleep(0)
 
 
-class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
+class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
+    IsolatedAsyncioTestCase,
+):
     """Verifies the signal-driven dispatch path."""
 
     async def test_run_trigger_can_be_batched_without_signal(self) -> None:
@@ -320,7 +341,7 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
             user_id="u",
             session_id="s",
             agent_id="a",
-            kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+            kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
             signal=False,
         )
 
@@ -334,13 +355,49 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
                 "user_id": "u",
                 "session_id": "s",
                 "agent_id": "a",
-                "kind": MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                "kind": MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
                 "input": None,
             },
         )
         self.assertEqual(
             bus._channel(MessageBusKeys.wakeup_signal()).qsize(),
             0,
+        )
+
+    async def test_direct_message_and_queued_message_are_distinct(
+        self,
+    ) -> None:
+        """Channel messages carry input instead of draining the web FIFO."""
+        bus = _FakeBus()
+        chat = _FakeChatService()
+        message = UserMsg("channel-user", "from channel", id="channel-msg")
+
+        async with WakeupDispatcher(
+            message_bus=bus,
+            storage=_FakeStorage(),
+            chat_service=chat,
+            chat_run_registry=ChatRunRegistry(),
+        ):
+            await enqueue_run_trigger(
+                bus,
+                user_id="u",
+                session_id="channel-session",
+                agent_id="a",
+                kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                inputs=message,
+            )
+            await asyncio.wait_for(chat.notify.wait(), timeout=2.0)
+
+        self.assertEqual(
+            chat.calls,
+            [
+                {
+                    "user_id": "u",
+                    "session_id": "channel-session",
+                    "agent_id": "a",
+                    "input_msg": message,
+                },
+            ],
         )
 
     async def test_signal_drives_dispatch(self) -> None:
@@ -404,8 +461,8 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_active_session_skipped(self) -> None:
-        """If the target session is already running, no chat run is
+    async def test_active_session_not_spawned_while_locked(self) -> None:
+        """While the target session holds its run lock, no chat run is
         spawned for it."""
         bus = _FakeBus()
         chat = _FakeChatService()
@@ -534,7 +591,7 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
                 "user_id": "attacker",
                 "session_id": "shared-sid",
                 "agent_id": "a",
-                "kind": MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                "kind": MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
                 "input": None,
             },
         )
@@ -581,7 +638,7 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
             user_id="u",
             session_id="s",
             agent_id="a",
-            kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+            kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
         )
 
         async with WakeupDispatcher(
@@ -1038,7 +1095,7 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
                 user_id="u",
                 session_id="busy-message",
                 agent_id="a",
-                kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
             )
             await asyncio.wait_for(chat.notify.wait(), timeout=2.0)
 
@@ -1171,11 +1228,43 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
                 user_id="u",
                 session_id="parked",
                 agent_id="a",
-                kind=MessageBusKeys.WAKEUP_KIND_MESSAGE,
+                kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
             )
             await asyncio.wait_for(chat.notify.wait(), timeout=2.0)
 
         self.assertEqual(chat.calls[0]["input_msg"].id, "after-hitl")
+
+    async def test_wake_running_session_requeues_until_free(self) -> None:
+        """A busy ``wake`` is retained until the inbox can be drained."""
+        bus = _FakeBus()
+        chat = _FakeChatService()
+        lock_key = MessageBusKeys.session_lock("w2")
+        bus._locks.add(lock_key)
+
+        async with WakeupDispatcher(
+            message_bus=bus,
+            storage=_FakeStorage(),
+            chat_service=chat,
+            chat_run_registry=ChatRunRegistry(),
+        ):
+            await bus.queue_push(
+                MessageBusKeys.wakeup_queue(),
+                {
+                    "user_id": "u",
+                    "session_id": "w2",
+                    "agent_id": "wa2",
+                },
+            )
+            await bus.publish(MessageBusKeys.wakeup_signal(), {})
+            await asyncio.sleep(0.25)
+            self.assertEqual(chat.calls, [])
+
+            bus._locks.discard(lock_key)
+            await asyncio.wait_for(chat.notify.wait(), timeout=2.0)
+
+        self.assertEqual(len(chat.calls), 1)
+        self.assertEqual(chat.calls[0]["session_id"], "w2")
+        self.assertIsNone(chat.calls[0]["input_msg"])
 
 
 class TestChatInputClaimReliability(IsolatedAsyncioTestCase):
@@ -1352,7 +1441,7 @@ class TestWakeupDispatcherLifecycle(IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             triggers[0][1]["kind"],
-            MessageBusKeys.WAKEUP_KIND_MESSAGE,
+            MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
         )
 
 
@@ -1393,7 +1482,7 @@ class TestChatEndpointQueue(IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             triggers[0][1]["kind"],
-            MessageBusKeys.WAKEUP_KIND_MESSAGE,
+            MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
         )
 
     async def test_cross_user_message_is_rejected_without_queue_damage(
