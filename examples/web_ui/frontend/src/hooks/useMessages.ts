@@ -14,7 +14,7 @@ import type { ToolCallBlock } from '@agentscope-ai/agentscope/message';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 
-import { chatApi, sessionApi } from '@/api';
+import { chatApi, sessionApi, takeFreshlyCreated } from '@/api';
 import type { ChatQueueItem } from '@/api/chat';
 import { useAudioManager } from '@/context/AudioContext';
 import {
@@ -112,6 +112,7 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
  * @param sessionId - The session to subscribe. ``null`` to skip.
  * @returns Message/reply state, editable queue state and mutations, HITL
  *   handlers, send/interrupt actions, loading state, and the latest error.
+ *   ``loading`` stays true until history for the current session lands.
  */
 export function useMessages(
 	agentId: string | null,
@@ -135,7 +136,12 @@ export function useMessages(
 ) {
 	const { t } = useTranslation();
 	const [msgs, setMsgs] = useState<Msg[]>([]);
-	const [loading, setLoading] = useState(false);
+	// The (agent, session) pair `msgs` actually belongs to. Loading is
+	// derived from it rather than set inside the fetch effect: an effect
+	// runs *after* the render that changed `sessionId`, so a flag it owns
+	// is still `false` for one frame — long enough to paint the empty
+	// state over a session that does have messages.
+	const [loadedKey, setLoadedKey] = useState<string | null>(null);
 	const [phase, setPhase] = useState<ReplyPhase>('idle');
 	const [activeReplyId, setActiveReplyId] = useState<string | null>(null);
 	const [error, setError] = useState<Error | null>(null);
@@ -257,11 +263,24 @@ export function useMessages(
 				return;
 			}
 			if (event.type === EventType.REPLY_START) {
-				audioManager?.stopAllPlayback();
 				const e = event as ReplyStartEvent;
-				const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
-				msgsRef.current = [...msgsRef.current, msg];
-				currentReplyRef.current = msg;
+				// A continuation (the run resuming after a confirmation or an
+				// external execution result) re-emits REPLY_START with the
+				// *same* reply_id. Re-point at the existing reply instead of
+				// appending a second msg under that id: a duplicate would
+				// collide on React keys, strand the original bubble in its
+				// running state, and hide any still-pending confirmation card
+				// — those are read off the tail msg, which would be the empty
+				// duplicate.
+				const existing = msgsRef.current.find((m) => m.id === e.reply_id);
+				if (existing) {
+					currentReplyRef.current = existing;
+				} else {
+					audioManager?.stopAllPlayback();
+					const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
+					msgsRef.current = [...msgsRef.current, msg];
+					currentReplyRef.current = msg;
+				}
 				setActiveReplyId(e.reply_id);
 				clearInterruptTimer();
 				setPhase('streaming');
@@ -332,40 +351,54 @@ export function useMessages(
 		let cancelled = false;
 
 		(async () => {
-			// 1. Fetch persisted history
-			setLoading(true);
-			try {
-				const { messages, is_running } = await sessionApi.messages(sessionId, agentId);
-				if (cancelled) return;
-				msgsRef.current = messages;
-				// If a reply is in flight (running on a worker) OR the
-				// tail msg is parked on a pending tool_call (awaiting
-				// user confirmation / external execution), initialise the
-				// phase to ``streaming`` so the interrupt button is
-				// available immediately — otherwise a fresh page load
-				// while parked leaves the UI stuck on ``idle`` with no
-				// way to abort.
-				const tail = messages[messages.length - 1];
-				const pendingToolCall = hasPendingToolCall(tail);
-				if (is_running || pendingToolCall) {
-					setPhase('streaming');
-					// A HITL continuation keeps the parked reply id and emits no
-					// new REPLY_START, so restore its identity before resuming.
-					if (tail?.role === 'assistant') {
-						setActiveReplyId(tail.id);
+			// 1. Fetch persisted history — unless this tab just created the
+			// session, in which case there is provably none.
+			if (takeFreshlyCreated(sessionId)) {
+				if (!cancelled) setLoadedKey(`${agentId}:${sessionId}`);
+			} else {
+				try {
+					const { messages, is_running } = await sessionApi.messages(sessionId, agentId);
+					if (cancelled) return;
+					msgsRef.current = messages;
+					// If a reply is in flight (running on a worker) OR the
+					// tail msg is parked on a pending tool_call (awaiting
+					// user confirmation / external execution), initialise the
+					// phase to ``streaming`` so the interrupt button is
+					// available immediately — otherwise a fresh page load
+					// while parked leaves the UI stuck on ``idle`` with no
+					// way to abort.
+					const tail = messages[messages.length - 1];
+					const pendingToolCall = hasPendingToolCall(tail);
+					if (is_running || pendingToolCall) {
+						setPhase('streaming');
+						if (tail?.role === 'assistant') {
+							setActiveReplyId(tail.id);
+						}
+						if (pendingToolCall) {
+							// Prime the ref so continuation events (which
+							// arrive without a fresh REPLY_START) apply to
+							// the right msg.
+							currentReplyRef.current = tail ?? null;
+						}
 					}
-					if (pendingToolCall) {
-						// Prime the ref so continuation events (no fresh
-						// REPLY_START) apply to the right msg.
-						currentReplyRef.current = tail ?? null;
-					}
+					// Published synchronously, not through `scheduleUpdate`:
+					// its requestAnimationFrame batching exists for
+					// high-frequency streaming deltas, and deferring here
+					// would let `loadedKey` below clear `loading` a frame
+					// before the messages land — painting the empty-session
+					// greeting over a conversation that does have history.
+					// Both setters now land in the same React batch.
+					setMsgs([...msgsRef.current]);
+				} catch (e) {
+					if (!cancelled) setError(e as Error);
+					return;
+				} finally {
+					// Marks the load done whether it succeeded or threw —
+					// an error surfaces through `error`, and leaving
+					// `loading` stuck on would hide it behind a spinner
+					// forever.
+					if (!cancelled) setLoadedKey(`${agentId}:${sessionId}`);
 				}
-				scheduleUpdate();
-			} catch (e) {
-				if (!cancelled) setError(e as Error);
-				return;
-			} finally {
-				if (!cancelled) setLoading(false);
 			}
 
 			// 2. Open SSE long connection for live events
@@ -483,6 +516,7 @@ export function useMessages(
 				});
 			} catch (e) {
 				setError(e as Error);
+				throw e;
 			}
 		},
 		[agentId, sessionId],
@@ -564,9 +598,6 @@ export function useMessages(
 				],
 			};
 
-			// Optimistically clear; the backend's clear event re-confirms.
-			setSubagentHitl((prev) => prev.filter((x) => hitlKey(x) !== hitlKey(entry)));
-
 			try {
 				// Post to the leader front door — backend routes to the
 				// worker session (§3.6). Do NOT address the worker here.
@@ -577,10 +608,36 @@ export function useMessages(
 				});
 			} catch (e) {
 				setError(e as Error);
+				// Rethrow so the card can re-enable itself and be retried.
+				throw e;
 			}
+
+			// Drop only the call just answered — an entry can carry several
+			// pending tool calls, and clearing the whole entry would take the
+			// unanswered siblings' cards down with it. The backend's clear
+			// event removes whatever is left.
+			setSubagentHitl((prev) =>
+				prev.flatMap((x) => {
+					if (hitlKey(x) !== hitlKey(entry)) return [x];
+					const remaining = (x.event.tool_calls ?? []).filter(
+						(tc) => tc.id !== toolCall.id,
+					);
+					return remaining.length > 0
+						? [{ ...x, event: { ...x.event, tool_calls: remaining } }]
+						: [];
+				}),
+			);
 		},
 		[agentId, sessionId],
 	);
+
+	// True from the very first render after `sessionId` changes, because
+	// it compares props against what was fetched rather than tracking a
+	// flag an effect has yet to flip. `msgs` is still the previous
+	// session's until the effect clears it, so consumers must render the
+	// loading state in preference to `msgs`.
+	const loading =
+		agentId !== null && sessionId !== null && loadedKey !== `${agentId}:${sessionId}`;
 
 	return {
 		msgs,

@@ -1,6 +1,15 @@
 # -*- coding: utf-8 -*-
 """Schema models for the agent service."""
 
+from ._channel import (
+    ChannelActionResponse,
+    ChannelChatId,
+    ChannelChatIdsResponse,
+    ChannelResponse,
+    ChannelSessionsResponse,
+    CreateChannelRequest,
+    UpdateChannelRequest,
+)
 from ._chat import (
     ChatRequest,
     ChatTriggerResponse,
@@ -10,6 +19,7 @@ from ._chat import (
     SteerChatQueueItemRequest,
     UpdateChatQueueItemRequest,
 )
+from ._health import ComponentStatus, HealthResponse
 from ._hub import HubInfo
 from ._hub_mcp import InstallMCPRequest, MCPView, UpdateMCPRequest
 from ._hub_skill import SkillView
@@ -18,8 +28,15 @@ from ._workspace import (
     AddFromLibraryResponse,
     AddSkillRequest,
     AddSkillsFromLibraryRequest,
+    DirectoryEntry,
+    DirectoryListing,
+    DownloadTokenResponse,
     MCPClientStatus,
     ToolInfo,
+)
+from ._embedding_model import (
+    ListEmbeddingModelsResponse,
+    ListEmbeddingModelsRequest,
 )
 from ._model import ListModelsResponse, ListModelsRequest
 from ._tts_model import ListTTSModelsResponse, ListTTSModelsRequest
@@ -46,13 +63,17 @@ from ._credential import (
     ListCredentialSchemasResponse,
 )
 from ._knowledge_base import (
+    ChunkerInfo,
     CreateKnowledgeBaseRequest,
     CreateKnowledgeBaseResponse,
     KbEmbeddingProvider,
     KbMiddlewareParametersSchemaResponse,
     KnowledgeDocumentView,
+    ListChunkersResponse,
     ListKbEmbeddingModelsResponse,
     ListKnowledgeBasesResponse,
+    ListDocumentChunksResponse,
+    DocumentDownloadTokenResponse,
     ListKnowledgeDocumentsResponse,
     ListKnowledgeDocumentStatusResponse,
     ListSupportedContentTypesResponse,
@@ -76,6 +97,9 @@ from ._session import (
 )
 
 __all__ = [
+    # Health
+    "ComponentStatus",
+    "HealthResponse",
     # Hub
     "HubInfo",
     "InstallMCPRequest",
@@ -87,6 +111,9 @@ __all__ = [
     "AddFromLibraryResponse",
     "AddSkillRequest",
     "AddSkillsFromLibraryRequest",
+    "DirectoryEntry",
+    "DirectoryListing",
+    "DownloadTokenResponse",
     "MCPClientStatus",
     "ToolInfo",
     # Agent
@@ -97,6 +124,14 @@ __all__ = [
     "CreateAgentResponse",
     "UpdateAgentRequest",
     "ListSchedulesResponse",
+    # Channel
+    "ChannelActionResponse",
+    "ChannelChatId",
+    "ChannelChatIdsResponse",
+    "ChannelResponse",
+    "ChannelSessionsResponse",
+    "CreateChannelRequest",
+    "UpdateChannelRequest",
     # Chat
     "ChatRequest",
     "ChatTriggerResponse",
@@ -112,13 +147,17 @@ __all__ = [
     "ListCredentialsResponse",
     "ListCredentialSchemasResponse",
     # Knowledge base
+    "ChunkerInfo",
     "CreateKnowledgeBaseRequest",
     "CreateKnowledgeBaseResponse",
     "KbEmbeddingProvider",
     "KbMiddlewareParametersSchemaResponse",
     "KnowledgeDocumentView",
+    "ListChunkersResponse",
     "ListKbEmbeddingModelsResponse",
     "ListKnowledgeBasesResponse",
+    "ListDocumentChunksResponse",
+    "DocumentDownloadTokenResponse",
     "ListKnowledgeDocumentsResponse",
     "ListKnowledgeDocumentStatusResponse",
     "ListSupportedContentTypesResponse",
@@ -127,6 +166,8 @@ __all__ = [
     "UpdateKnowledgeBaseRequest",
     "UploadKnowledgeDocumentResponse",
     # Model
+    "ListEmbeddingModelsRequest",
+    "ListEmbeddingModelsResponse",
     "ListModelsRequest",
     "ListModelsResponse",
     # TTS Model
