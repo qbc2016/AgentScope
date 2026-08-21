@@ -119,6 +119,7 @@
 		"cancel": "Cancel",
 		"stateQueued": "Queued",
 		"stateSteering": "Steering",
+		"stateSteered": "Steered",
 		"stateFailed": "Failed",
 		"injected": "The queued message was injected into the current reply.",
 		"steerFailed": "The queued message could not steer the current reply.",

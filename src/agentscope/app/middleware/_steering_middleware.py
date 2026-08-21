@@ -23,6 +23,7 @@ from ...message import (
 from ...middleware import MiddlewareBase
 
 _MESSAGE_INPUT_ADAPTER: TypeAdapter = TypeAdapter(Msg | list[Msg])
+_STEERING_HINT_SOURCE = "chat_input_steering"
 
 
 class SteeringMiddleware(MiddlewareBase):
@@ -226,7 +227,7 @@ class SteeringMiddleware(MiddlewareBase):
                 HintBlock(
                     id=f"{item_id}:{index}",
                     hint=content,
-                    source=message.name,
+                    source=_STEERING_HINT_SOURCE,
                 ),
             )
         return hints

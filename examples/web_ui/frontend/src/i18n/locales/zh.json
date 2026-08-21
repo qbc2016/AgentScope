@@ -119,6 +119,7 @@
 		"cancel": "取消",
 		"stateQueued": "排队中",
 		"stateSteering": "引导中",
+		"stateSteered": "已引导",
 		"stateFailed": "失败",
 		"injected": "排队消息已注入当前回复。",
 		"steerFailed": "排队消息未能引导当前回复。",

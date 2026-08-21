@@ -265,15 +265,29 @@ export function useChatQueue(
 	const steerQueued = useCallback(
 		async (itemId: string, replyId: string) => {
 			if (!agentId || !sessionId) return;
+			const previousItem = itemsRef.current.find((item) => item.id === itemId);
+			if (!previousItem) return;
+			updateItems(
+				itemsRef.current.map((item) =>
+					item.id === itemId
+						? { ...item, state: 'steering' as const, error: null }
+						: item,
+				),
+			);
 			try {
 				const response = await chatApi.steerQueued(itemId, agentId, sessionId, replyId);
 				applyQueueSnapshot(response.items);
 			} catch (error) {
+				updateItems(
+					itemsRef.current.map((item) =>
+						item.id === itemId && item.state === 'steering' ? previousItem : item,
+					),
+				);
 				onError(error as Error);
 				throw error;
 			}
 		},
-		[agentId, sessionId, applyQueueSnapshot, onError],
+		[agentId, sessionId, applyQueueSnapshot, onError, updateItems],
 	);
 
 	const reorderQueued = useCallback(
@@ -361,7 +375,7 @@ export function useChatQueue(
 
 	return {
 		items: visibleItems,
-		visibleCount: visibleItems.length,
+		visibleCount: visibleItems.filter((item) => item.state !== 'steering').length,
 		pendingCount: items.length,
 		reorderDisabled,
 		addOptimistic,

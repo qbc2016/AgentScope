@@ -24,6 +24,8 @@ from agentscope.message import (
     UserMsg,
 )
 
+_STEERING_HINT_SOURCE = "chat_input_steering"
+
 
 def _make_agent() -> SimpleNamespace:
     """Build the state shape used by SteeringMiddleware."""
@@ -78,7 +80,7 @@ def _expected_hint_message(item_id: str, message: Msg) -> Msg:
         content=[
             HintBlock(
                 id=f"{item_id}:0",
-                source=message.name,
+                source=_STEERING_HINT_SOURCE,
                 hint=list(message.content),
             ),
         ],
@@ -91,7 +93,7 @@ def _expected_hint_event(item_id: str, message: Msg) -> dict:
         HintBlockEvent(
             reply_id="reply",
             block_id=f"{item_id}:0",
-            source=message.name,
+            source=_STEERING_HINT_SOURCE,
             hint=list(message.content),
         ),
     )

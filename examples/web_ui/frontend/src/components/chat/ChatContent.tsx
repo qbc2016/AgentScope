@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import type { GitStatus } from '@/api';
 import type { ChatQueueItem } from '@/api/chat';
-import { ASMessageBubble } from '@/components/chat/ASMessageBubble.tsx';
+import { ASMessageBubble, SteeringMessageBubble } from '@/components/chat/ASMessageBubble.tsx';
 import { ConfirmCard } from '@/components/chat/ConfirmCard.tsx';
 import { FlipCard } from '@/components/chat/FlipCard.tsx';
 import { QueuedMessages } from '@/components/chat/QueuedMessages.tsx';
@@ -128,10 +128,29 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 	onRefreshGit,
 }) => {
 	const { t } = useTranslation();
+	const { deferredItems, steeringMessages } = useMemo(() => {
+		const deferred: ChatQueueItem[] = [];
+		const steering: Array<{ id: string; content: ContentBlock[] }> = [];
+		for (const item of queuedItems) {
+			if (item.state !== 'steering') {
+				deferred.push(item);
+				continue;
+			}
+			const messages = Array.isArray(item.input) ? item.input : [item.input];
+			for (const message of messages) {
+				steering.push({
+					id: `${item.id}:${message.id}`,
+					content: message.content,
+				});
+			}
+		}
+		return { deferredItems: deferred, steeringMessages: steering };
+	}, [queuedItems]);
+
 	// Only a session that finished loading with nothing in it is empty.
 	// Treating "no messages yet" as empty would flash the greeting over
 	// every session that does have history.
-	const isEmpty = !loading && msgs.length === 0;
+	const isEmpty = !loading && msgs.length === 0 && steeringMessages.length === 0;
 
 	// A spinner that appears and vanishes inside a couple of frames reads
 	// as a flicker, not as feedback — so hold it back until the load has
@@ -185,6 +204,17 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 											key={message.id}
 											message={message}
 											onUserConfirm={onUserConfirm}
+										/>
+									</MessageScrollerItem>
+								))}
+								{steeringMessages.map((message) => (
+									<MessageScrollerItem
+										key={message.id}
+										messageId={`steering:${message.id}`}
+									>
+										<SteeringMessageBubble
+											blocks={message.content}
+											status="steering"
 										/>
 									</MessageScrollerItem>
 								))}
@@ -258,7 +288,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 						)}
 					</FlipCard>
 					<QueuedMessages
-						items={queuedItems}
+						items={deferredItems}
 						reorderDisabled={queueReorderDisabled}
 						activeReplyId={activeReplyId}
 						onUpdate={onUpdateQueued}
