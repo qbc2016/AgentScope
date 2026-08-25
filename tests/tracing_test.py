@@ -21,6 +21,7 @@ from agentscope.event import (
     RequireExternalExecutionEvent,
     RequireUserConfirmEvent,
     UserConfirmResultEvent,
+    UserInterruptEvent,
 )
 from agentscope.message import (
     TextBlock,
@@ -35,8 +36,12 @@ from agentscope.permission import (
     PermissionDecision,
     PermissionBehavior,
 )
+from agentscope.state import AgentState
 from agentscope.tool import Toolkit, ToolBase
 from agentscope.middleware import TracingMiddleware
+
+
+_TRACE_MIDDLE_CONTEXT_KEY = "agentscope.tracing.hitl"
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +164,9 @@ def _make_text_response(text: str) -> ChatResponse:
     )
 
 
-class TracingTest(IsolatedAsyncioTestCase):
+class TracingTest(  # pylint: disable=too-many-public-methods
+    IsolatedAsyncioTestCase,
+):
     """Tests that OTel spans are emitted with correct attributes.
 
     The in-memory exporter is set up once per class (setUpClass) because
@@ -603,6 +610,314 @@ class TracingTest(IsolatedAsyncioTestCase):
             reply_id_first,
             reply_id_second,
             "Both HITL calls must share the same reply_id",
+        )
+
+    async def test_hitl_trace_survives_state_reload(self) -> None:
+        """A resumed agent uses the persisted span as its parent and links
+        the trace that delivered the resume event."""
+        first_model = MockModel()
+        first_model.set_responses(
+            [_make_tool_call_response("persisted-h1", "Hangzhou")],
+        )
+        first_agent = Agent(
+            name="persisted-hitl-agent",
+            system_prompt="You are a test assistant.",
+            model=first_model,
+            toolkit=Toolkit(tools=[HitlWeatherTool()]),
+            middlewares=[TracingMiddleware()],
+        )
+        self.exporter.clear()
+
+        require_confirm_event = None
+        async for event in first_agent.reply_stream(
+            UserMsg(name="user", content="Weather in Hangzhou?"),
+        ):
+            if isinstance(event, RequireUserConfirmEvent):
+                require_confirm_event = event
+
+        self.assertIsNotNone(require_confirm_event)
+        assert require_confirm_event is not None
+        first_span = self._spans_by_name("invoke_agent")[0]
+        self.assertEqual(
+            first_agent.state.middle_context,
+            {
+                _TRACE_MIDDLE_CONTEXT_KEY: {
+                    "reply_id": require_confirm_event.reply_id,
+                    "carrier": {
+                        "traceparent": (
+                            f"00-{first_span.context.trace_id:032x}-"
+                            f"{first_span.context.span_id:016x}-"
+                            f"{int(first_span.context.trace_flags):02x}"
+                        ),
+                    },
+                },
+            },
+        )
+
+        restored_state = AgentState.model_validate_json(
+            first_agent.state.model_dump_json(),
+        )
+        second_model = MockModel()
+        second_model.set_responses(
+            [_make_text_response("Hangzhou: sunny, 24°C.")],
+        )
+        second_agent = Agent(
+            name="persisted-hitl-agent",
+            system_prompt="You are a test assistant.",
+            model=second_model,
+            toolkit=Toolkit(tools=[HitlWeatherTool()]),
+            middlewares=[TracingMiddleware()],
+            state=restored_state,
+        )
+        confirm_event = UserConfirmResultEvent(
+            reply_id=require_confirm_event.reply_id,
+            confirm_results=[
+                ConfirmResult(
+                    confirmed=True,
+                    tool_call=require_confirm_event.tool_calls[0],
+                ),
+            ],
+        )
+
+        tracer = otel_trace.get_tracer(__name__)
+        with tracer.start_as_current_span("resume-trigger") as trigger_span:
+            trigger_context = trigger_span.get_span_context()
+            await second_agent.reply(inputs=confirm_event)
+
+        invoke_spans = self._spans_by_name("invoke_agent")
+        self.assertEqual(len(invoke_spans), 2)
+        resumed_span = invoke_spans[1]
+        self.assertEqual(
+            (
+                resumed_span.context.trace_id,
+                resumed_span.parent.trace_id,
+                resumed_span.parent.span_id,
+                [
+                    (link.context.trace_id, link.context.span_id)
+                    for link in resumed_span.links
+                ],
+                second_agent.state.middle_context,
+            ),
+            (
+                first_span.context.trace_id,
+                first_span.context.trace_id,
+                first_span.context.span_id,
+                [(trigger_context.trace_id, trigger_context.span_id)],
+                {},
+            ),
+        )
+
+    async def test_multi_round_hitl_updates_persisted_parent(self) -> None:
+        """Each additional HITL round continues from the previous agent
+        span rather than the original span."""
+        hitl_agent = Agent(
+            name="multi-hitl-agent",
+            system_prompt="You are a test assistant.",
+            model=self.model,
+            toolkit=Toolkit(tools=[HitlWeatherTool()]),
+            middlewares=[TracingMiddleware()],
+        )
+        self.model.set_responses(
+            [_make_tool_call_response("multi-h1", "Beijing")],
+        )
+        self.exporter.clear()
+
+        first_event = None
+        async for event in hitl_agent.reply_stream(
+            UserMsg(name="user", content="Compare two cities."),
+        ):
+            if isinstance(event, RequireUserConfirmEvent):
+                first_event = event
+        self.assertIsNotNone(first_event)
+        assert first_event is not None
+
+        self.model.set_responses(
+            [_make_tool_call_response("multi-h2", "Shanghai")],
+        )
+        second_event = None
+        async for event in hitl_agent.reply_stream(
+            UserConfirmResultEvent(
+                reply_id=first_event.reply_id,
+                confirm_results=[
+                    ConfirmResult(
+                        confirmed=True,
+                        tool_call=first_event.tool_calls[0],
+                    ),
+                ],
+            ),
+        ):
+            if isinstance(event, RequireUserConfirmEvent):
+                second_event = event
+        self.assertIsNotNone(second_event)
+        assert second_event is not None
+
+        first_two_spans = self._spans_by_name("invoke_agent")
+        self.assertEqual(len(first_two_spans), 2)
+        second_trace_flags = int(first_two_spans[1].context.trace_flags)
+        self.assertEqual(
+            (
+                first_two_spans[1].context.trace_id,
+                first_two_spans[1].parent.span_id,
+                hitl_agent.state.middle_context,
+            ),
+            (
+                first_two_spans[0].context.trace_id,
+                first_two_spans[0].context.span_id,
+                {
+                    _TRACE_MIDDLE_CONTEXT_KEY: {
+                        "reply_id": second_event.reply_id,
+                        "carrier": {
+                            "traceparent": (
+                                f"00-"
+                                f"{first_two_spans[1].context.trace_id:032x}-"
+                                f"{first_two_spans[1].context.span_id:016x}-"
+                                f"{second_trace_flags:02x}"
+                            ),
+                        },
+                    },
+                },
+            ),
+        )
+
+        self.model.set_responses(
+            [_make_text_response("Beijing and Shanghai compared.")],
+        )
+        await hitl_agent.reply(
+            inputs=UserConfirmResultEvent(
+                reply_id=second_event.reply_id,
+                confirm_results=[
+                    ConfirmResult(
+                        confirmed=True,
+                        tool_call=second_event.tool_calls[0],
+                    ),
+                ],
+            ),
+        )
+
+        invoke_spans = self._spans_by_name("invoke_agent")
+        self.assertEqual(len(invoke_spans), 3)
+        self.assertEqual(
+            (
+                [span.context.trace_id for span in invoke_spans],
+                invoke_spans[2].parent.span_id,
+                hitl_agent.state.middle_context,
+            ),
+            (
+                [invoke_spans[0].context.trace_id] * 3,
+                invoke_spans[1].context.span_id,
+                {},
+            ),
+        )
+
+    async def test_hitl_interrupt_clears_persisted_context(self) -> None:
+        """Interrupting a parked reply ends its persisted trace chain."""
+        hitl_agent = Agent(
+            name="interrupt-hitl-agent",
+            system_prompt="You are a test assistant.",
+            model=self.model,
+            toolkit=Toolkit(tools=[HitlWeatherTool()]),
+            middlewares=[TracingMiddleware()],
+        )
+        self.model.set_responses(
+            [_make_tool_call_response("interrupt-h1", "Wuhan")],
+        )
+        self.exporter.clear()
+
+        require_confirm_event = None
+        async for event in hitl_agent.reply_stream(
+            UserMsg(name="user", content="Weather in Wuhan?"),
+        ):
+            if isinstance(event, RequireUserConfirmEvent):
+                require_confirm_event = event
+        self.assertIsNotNone(require_confirm_event)
+        assert require_confirm_event is not None
+        self.assertIn(
+            _TRACE_MIDDLE_CONTEXT_KEY,
+            hitl_agent.state.middle_context,
+        )
+
+        await hitl_agent.reply(
+            inputs=UserInterruptEvent(
+                reply_id=require_confirm_event.reply_id,
+            ),
+        )
+
+        invoke_spans = self._spans_by_name("invoke_agent")
+        self.assertEqual(
+            (
+                len(invoke_spans),
+                invoke_spans[1].context.trace_id,
+                invoke_spans[1].parent.span_id,
+                hitl_agent.state.middle_context,
+            ),
+            (
+                2,
+                invoke_spans[0].context.trace_id,
+                invoke_spans[0].context.span_id,
+                {},
+            ),
+        )
+
+    async def test_stale_reply_context_falls_back_to_current_trace(
+        self,
+    ) -> None:
+        """Telemetry belonging to another reply is never reused."""
+        hitl_agent = Agent(
+            name="invalid-context-hitl-agent",
+            system_prompt="You are a test assistant.",
+            model=self.model,
+            toolkit=Toolkit(tools=[HitlWeatherTool()]),
+            middlewares=[TracingMiddleware()],
+        )
+        self.model.set_responses(
+            [_make_tool_call_response("invalid-h1", "Chengdu")],
+        )
+        self.exporter.clear()
+
+        require_confirm_event = None
+        async for event in hitl_agent.reply_stream(
+            UserMsg(name="user", content="Weather in Chengdu?"),
+        ):
+            if isinstance(event, RequireUserConfirmEvent):
+                require_confirm_event = event
+        self.assertIsNotNone(require_confirm_event)
+        assert require_confirm_event is not None
+        persisted_context = hitl_agent.state.middle_context[
+            _TRACE_MIDDLE_CONTEXT_KEY
+        ]
+        persisted_context["reply_id"] = "stale-reply"
+        self.model.set_responses(
+            [_make_text_response("Chengdu: cloudy, 15°C.")],
+        )
+        confirm_event = UserConfirmResultEvent(
+            reply_id=require_confirm_event.reply_id,
+            confirm_results=[
+                ConfirmResult(
+                    confirmed=True,
+                    tool_call=require_confirm_event.tool_calls[0],
+                ),
+            ],
+        )
+
+        tracer = otel_trace.get_tracer(__name__)
+        with tracer.start_as_current_span("fallback-trigger") as trigger_span:
+            trigger_context = trigger_span.get_span_context()
+            await hitl_agent.reply(inputs=confirm_event)
+
+        resumed_span = self._spans_by_name("invoke_agent")[1]
+        self.assertEqual(
+            (
+                resumed_span.context.trace_id,
+                resumed_span.parent.span_id,
+                list(resumed_span.links),
+                hitl_agent.state.middle_context,
+            ),
+            (
+                trigger_context.trace_id,
+                trigger_context.span_id,
+                [],
+                {},
+            ),
         )
 
     async def test_hitl_second_call_has_incoming_event_type(self) -> None:

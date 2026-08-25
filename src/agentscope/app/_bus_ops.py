@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from .._utils._trace_context import inject_trace_context
 from .message_bus._keys import MessageBusKeys
 
 if TYPE_CHECKING:
@@ -104,7 +105,9 @@ async def enqueue_run_trigger(
 
     The payload is serialised to a plain dict before being pushed to the
     wakeup queue; the ``MessageBus`` transport layer never sees event
-    types.
+    types. When the producer has an active OpenTelemetry span, its W3C
+    trace context is carried in an optional ``_trace`` field so another
+    process can continue the same trace.
 
     Args:
         bus (`MessageBus`):
@@ -123,16 +126,17 @@ async def enqueue_run_trigger(
             ``model_dump(mode="json")`` internally — callers pass the
             event object, not a pre-serialised dict.
     """
-    await bus.queue_push(
-        MessageBusKeys.wakeup_queue(),
-        {
-            "user_id": user_id,
-            "session_id": session_id,
-            "agent_id": agent_id,
-            "kind": kind,
-            "input": inputs.model_dump(mode="json") if inputs else None,
-        },
-    )
+    payload = {
+        "user_id": user_id,
+        "session_id": session_id,
+        "agent_id": agent_id,
+        "kind": kind,
+        "input": inputs.model_dump(mode="json") if inputs else None,
+    }
+    trace_context = inject_trace_context()
+    if trace_context is not None:
+        payload["_trace"] = trace_context
+    await bus.queue_push(MessageBusKeys.wakeup_queue(), payload)
     await bus.publish(MessageBusKeys.wakeup_signal(), {})
 
 

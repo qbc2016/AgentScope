@@ -33,6 +33,10 @@ from typing import TYPE_CHECKING, Self
 from pydantic import TypeAdapter
 
 from ..._logging import logger
+from ..._utils._trace_context import (
+    extract_trace_context,
+    use_trace_context,
+)
 from ...event import (
     ExternalExecutionResultEvent,
     ReplyEndEvent,
@@ -200,13 +204,15 @@ class WakeupDispatcher:
                 continue
             # Entries from older producers omit ``kind`` — treat as wake.
             kind = payload.get("kind", MessageBusKeys.WAKEUP_KIND_WAKE)
-            await self._dispatch_one(
-                user_id=user_id,
-                session_id=session_id,
-                agent_id=agent_id,
-                kind=kind,
-                raw_input=payload.get("input"),
-            )
+            trace_context = extract_trace_context(payload.get("_trace"))
+            with use_trace_context(trace_context):
+                await self._dispatch_one(
+                    user_id=user_id,
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    kind=kind,
+                    raw_input=payload.get("input"),
+                )
 
     async def _dispatch_one(
         self,

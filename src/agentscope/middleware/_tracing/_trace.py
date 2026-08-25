@@ -15,7 +15,7 @@ import aioitertools
 
 from opentelemetry import context as otel_context
 from opentelemetry import trace as otel_trace
-from opentelemetry.trace import StatusCode
+from opentelemetry.trace import Link, StatusCode
 
 from .._base import MiddlewareBase
 from ...event import (
@@ -23,9 +23,15 @@ from ...event import (
     RequireExternalExecutionEvent,
     RequireUserConfirmEvent,
     ReplyStartEvent,
+    UserConfirmResultEvent,
+    UserInterruptEvent,
 )
 from ...message import Msg, ToolCallBlock
 from ...model import ChatModelBase
+from ..._utils._trace_context import (
+    extract_trace_context,
+    inject_trace_context,
+)
 
 from ._attributes import SpanAttributes, OperationNameValues
 from ._extractor import (
@@ -49,6 +55,13 @@ if TYPE_CHECKING:
     from ...model import ChatResponse
 
 T = TypeVar("T")
+
+_CONTINUATION_EVENTS = (
+    UserConfirmResultEvent,
+    UserInterruptEvent,
+    ExternalExecutionResultEvent,
+)
+_TRACE_MIDDLE_CONTEXT_KEY = "agentscope.tracing.hitl"
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +154,15 @@ class TracingMiddleware(MiddlewareBase):
         next_handler: Callable[..., AsyncGenerator],
     ) -> AsyncGenerator:
         if not _check_tracing_enabled():
-            async for item in next_handler(**input_kwargs):
-                yield item
+            try:
+                async for item in next_handler(**input_kwargs):
+                    yield item
+            finally:
+                if not agent.state.has_awaiting_tool_calls(agent.name):
+                    agent.state.middle_context.pop(
+                        _TRACE_MIDDLE_CONTEXT_KEY,
+                        None,
+                    )
             return
 
         session_id = agent.state.session_id
@@ -155,12 +175,44 @@ class TracingMiddleware(MiddlewareBase):
         )
         span_name = _get_agent_span_name(request_attributes)
 
+        event_arg = input_kwargs.get("inputs")
+        is_continuation = isinstance(event_arg, _CONTINUATION_EVENTS)
+        parent_context = None
+        if is_continuation:
+            persisted_context = agent.state.middle_context.get(
+                _TRACE_MIDDLE_CONTEXT_KEY,
+            )
+            if (
+                isinstance(persisted_context, dict)
+                and persisted_context.get("reply_id") == agent.state.reply_id
+            ):
+                parent_context = extract_trace_context(
+                    persisted_context.get("carrier"),
+                )
+
+        current_span_context = otel_trace.get_current_span().get_span_context()
+        links = None
+        if parent_context is not None and current_span_context.is_valid:
+            persisted_span_context = otel_trace.get_current_span(
+                parent_context,
+            ).get_span_context()
+            if (
+                persisted_span_context.trace_id,
+                persisted_span_context.span_id,
+            ) != (
+                current_span_context.trace_id,
+                current_span_context.span_id,
+            ):
+                links = [Link(current_span_context)]
+
         span = tracer.start_span(
             name=span_name,
             attributes={
                 **request_attributes,
                 **common_attrs,
             },
+            context=parent_context,
+            links=links,
         )
         # Keep the reply span as parent for downstream spans, but do NOT hold
         # it as the current OTel context across ``yield`` boundaries.  The
@@ -171,7 +223,6 @@ class TracingMiddleware(MiddlewareBase):
         span_context = otel_trace.set_span_in_context(span)
 
         # Synthetic execute_tool spans for externally executed tools
-        event_arg = input_kwargs.get("inputs")
         if isinstance(event_arg, ExternalExecutionResultEvent):
             for result in event_arg.execution_results:
                 tool_attrs: dict[str, Any] = {
@@ -228,6 +279,26 @@ class TracingMiddleware(MiddlewareBase):
             error_exc = e
             raise
         finally:
+            if agent.state.has_awaiting_tool_calls(agent.name):
+                if (
+                    observed_reply_id is not None
+                    or parent_context is not None
+                    or (is_continuation and not has_error)
+                ):
+                    carrier = inject_trace_context(span_context)
+                    if carrier is not None:
+                        agent.state.middle_context[
+                            _TRACE_MIDDLE_CONTEXT_KEY
+                        ] = {
+                            "reply_id": agent.state.reply_id,
+                            "carrier": carrier,
+                        }
+            else:
+                agent.state.middle_context.pop(
+                    _TRACE_MIDDLE_CONTEXT_KEY,
+                    None,
+                )
+
             reply_id = observed_reply_id or agent.state.reply_id
             if reply_id:
                 span.set_attribute(

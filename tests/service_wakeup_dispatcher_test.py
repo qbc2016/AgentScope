@@ -19,8 +19,30 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, Callable
 from unittest import IsolatedAsyncioTestCase
 
+from opentelemetry import trace as otel_trace
+from opentelemetry.trace import (
+    NonRecordingSpan,
+    SpanContext,
+    TraceFlags,
+)
+
+from agentscope.app._bus_ops import enqueue_run_trigger
 from agentscope.app._manager import ChatRunRegistry, WakeupDispatcher
 from agentscope.app.message_bus import MessageBus, MessageBusKeys
+
+
+_TRACE_ID = 0x1234567890ABCDEF1234567890ABCDEF
+_SPAN_ID = 0x1234567890ABCDEF
+
+
+def _make_span_context() -> SpanContext:
+    """Build a deterministic parent context for dispatcher tests."""
+    return SpanContext(
+        trace_id=_TRACE_ID,
+        span_id=_SPAN_ID,
+        is_remote=False,
+        trace_flags=TraceFlags(TraceFlags.SAMPLED),
+    )
 
 
 class _FakeStorage:
@@ -197,6 +219,7 @@ class _FakeChatService:
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.trace_contexts: list[SpanContext] = []
         self.notify = asyncio.Event()
 
     async def run(
@@ -214,6 +237,9 @@ class _FakeChatService:
                 "agent_id": agent_id,
                 "input_msg": input_msg,
             },
+        )
+        self.trace_contexts.append(
+            otel_trace.get_current_span().get_span_context(),
         )
         self.notify.set()
 
@@ -257,6 +283,77 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
                 },
             ],
         )
+
+    async def test_trace_context_propagates_to_chat_run(self) -> None:
+        """A trigger produced under a span restores that parent before
+        the chat run starts."""
+        bus = _FakeBus()
+        chat = _FakeChatService()
+        parent = _make_span_context()
+        with otel_trace.use_span(
+            NonRecordingSpan(parent),
+            end_on_exit=False,
+        ):
+            await enqueue_run_trigger(bus, "u", "traced", "a")
+
+        queued = bus.queues[MessageBusKeys.wakeup_queue()][0][1]
+        self.assertEqual(
+            queued["_trace"],
+            {
+                "traceparent": (
+                    "00-1234567890abcdef1234567890abcdef-"
+                    "1234567890abcdef-01"
+                ),
+            },
+        )
+
+        async with WakeupDispatcher(
+            message_bus=bus,
+            storage=_FakeStorage(),
+            chat_service=chat,
+            chat_run_registry=ChatRunRegistry(),
+        ):
+            await asyncio.wait_for(chat.notify.wait(), timeout=2.0)
+
+        restored = chat.trace_contexts[0]
+        self.assertEqual(
+            (
+                restored.trace_id,
+                restored.span_id,
+                restored.trace_flags,
+                restored.is_remote,
+            ),
+            (
+                parent.trace_id,
+                parent.span_id,
+                parent.trace_flags,
+                True,
+            ),
+        )
+
+    async def test_malformed_trace_context_does_not_block_run(self) -> None:
+        """Invalid telemetry is ignored while the business payload runs."""
+        bus = _FakeBus()
+        chat = _FakeChatService()
+        await bus.queue_push(
+            MessageBusKeys.wakeup_queue(),
+            {
+                "user_id": "u",
+                "session_id": "invalid-trace",
+                "agent_id": "a",
+                "_trace": {"traceparent": "invalid"},
+            },
+        )
+
+        async with WakeupDispatcher(
+            message_bus=bus,
+            storage=_FakeStorage(),
+            chat_service=chat,
+            chat_run_registry=ChatRunRegistry(),
+        ):
+            await asyncio.wait_for(chat.notify.wait(), timeout=2.0)
+
+        self.assertFalse(chat.trace_contexts[0].is_valid)
 
     async def test_initial_drain_picks_up_pending_entries(self) -> None:
         """Entries on the queue from before ``__aenter__`` are picked up
@@ -436,6 +533,7 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
             reply_id="r1",
             confirm_results=[],
         )
+        parent = _make_span_context()
 
         async with WakeupDispatcher(
             message_bus=bus,
@@ -443,17 +541,18 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
             chat_service=chat,
             chat_run_registry=ChatRunRegistry(),
         ):
-            await bus.queue_push(
-                MessageBusKeys.wakeup_queue(),
-                {
-                    "user_id": "u",
-                    "session_id": "w1",
-                    "agent_id": "wa1",
-                    "kind": MessageBusKeys.WAKEUP_KIND_RESUME,
-                    "input": event.model_dump(mode="json"),
-                },
-            )
-            await bus.publish(MessageBusKeys.wakeup_signal(), {})
+            with otel_trace.use_span(
+                NonRecordingSpan(parent),
+                end_on_exit=False,
+            ):
+                await enqueue_run_trigger(
+                    bus,
+                    user_id="u",
+                    session_id="w1",
+                    agent_id="wa1",
+                    kind=MessageBusKeys.WAKEUP_KIND_RESUME,
+                    inputs=event,
+                )
 
             # While locked, the resume must keep deferring — no run yet.
             await asyncio.sleep(0.25)
@@ -469,6 +568,8 @@ class TestWakeupDispatcherDispatch(IsolatedAsyncioTestCase):
             chat.calls[0]["input_msg"],
             UserConfirmResultEvent,
         )
+        self.assertEqual(chat.trace_contexts[0].trace_id, parent.trace_id)
+        self.assertEqual(chat.trace_contexts[0].span_id, parent.span_id)
 
     async def test_wake_running_session_requeues_until_free(self) -> None:
         """A ``wake`` whose target is still running is NOT dropped.
