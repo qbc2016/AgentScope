@@ -10,7 +10,7 @@ import unittest
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock
 
-from openai.types.responses import ResponseReasoningItem
+from pydantic import BaseModel
 
 from utils import AnyString
 
@@ -26,6 +26,24 @@ from agentscope.credential import OpenAICredential
 from agentscope.tool import ToolChoice
 
 A = AnyString()
+
+
+class _MockReasoningSummary(BaseModel):
+    """Mock an OpenAI reasoning summary item."""
+
+    text: str
+    type: str = "summary_text"
+
+
+class _MockReasoningItem(BaseModel):
+    """Mock an OpenAI reasoning output item."""
+
+    id: str
+    summary: list[_MockReasoningSummary]
+    type: str = "reasoning"
+    content: list[dict[str, Any]] | None = None
+    encrypted_content: str | None = None
+    status: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +274,7 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
             "encrypted_content": "encrypted_payload",
             "status": "completed",
         }
-        reasoning_item = ResponseReasoningItem.model_validate(
+        reasoning_item = _MockReasoningItem.model_validate(
             reasoning_item_raw,
         )
         mock_create = AsyncMock(
@@ -318,7 +336,7 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
 
     async def test_reasoning_raw_item_excludes_none_fields(self) -> None:
         """Optional null SDK fields are not stored for history replay."""
-        reasoning_item = ResponseReasoningItem.model_validate(
+        reasoning_item = _MockReasoningItem.model_validate(
             {
                 "id": "rs_without_nulls",
                 "summary": [],
@@ -601,7 +619,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
             "type": "reasoning",
             "encrypted_content": "encrypted_stream_payload",
         }
-        reasoning_item = ResponseReasoningItem.model_validate(
+        reasoning_item = _MockReasoningItem.model_validate(
             reasoning_item_raw,
         )
 

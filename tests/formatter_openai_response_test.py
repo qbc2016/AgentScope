@@ -439,8 +439,12 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         reasoning_item_raw = {
             "type": "reasoning",
             "id": "rs_encrypted",
-            "summary": [],
-            "content": [],
+            "summary": [
+                {"type": "summary_text", "text": "summary"},
+            ],
+            "content": [
+                {"type": "reasoning_text", "text": "reasoning"},
+            ],
             "encrypted_content": "encrypted_payload",
             "status": "completed",
         }
@@ -473,39 +477,65 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
             ],
         )
         self.assertIsNot(res[0], reasoning_item_raw)
+        self.assertIsNot(res[0]["summary"], reasoning_item_raw["summary"])
+        self.assertIsNot(res[0]["content"], reasoning_item_raw["content"])
 
     async def test_chat_formatter_invalid_raw_reasoning_uses_fallback(
         self,
     ) -> None:
-        """A mismatched raw item cannot bypass the reconstructed fallback."""
-        thinking = ThinkingBlock(
-            thinking="summary",
-            reasoning_item_id="rs_expected",
-            reasoning_item_raw={
+        """Malformed raw items cannot bypass the reconstructed fallback."""
+        fmt = OpenAIResponseFormatter()
+        invalid_raw_items = [
+            {
                 "type": "reasoning",
                 "id": "rs_other",
-                "encrypted_content": "wrong_payload",
+                "summary": [],
             },
-        )
-        fmt = OpenAIResponseFormatter()
+            {
+                "type": "reasoning",
+                "id": "rs_expected",
+                "encrypted_content": "missing_summary",
+            },
+            {
+                "type": "reasoning",
+                "id": "rs_expected",
+                "summary": [],
+                "content": "not_a_list",
+            },
+            {
+                "type": "reasoning",
+                "id": "rs_expected",
+                "summary": [],
+                "encrypted_content": 123,
+            },
+        ]
 
-        res = await fmt.format(
-            [AssistantMsg(name="assistant", content=[thinking])],
-        )
-
-        self.assertListEqual(
-            res,
-            [
-                {
-                    "type": "reasoning",
-                    "id": "rs_expected",
-                    "summary": [
-                        {"type": "summary_text", "text": "summary"},
+        for reasoning_item_raw in invalid_raw_items:
+            with self.subTest(reasoning_item_raw=reasoning_item_raw):
+                thinking = ThinkingBlock(
+                    thinking="summary",
+                    reasoning_item_id="rs_expected",
+                    reasoning_item_raw=reasoning_item_raw,
+                )
+                res = await fmt.format(
+                    [AssistantMsg(name="assistant", content=[thinking])],
+                )
+                self.assertListEqual(
+                    res,
+                    [
+                        {
+                            "type": "reasoning",
+                            "id": "rs_expected",
+                            "summary": [
+                                {
+                                    "type": "summary_text",
+                                    "text": "summary",
+                                },
+                            ],
+                            "content": [],
+                        },
                     ],
-                    "content": [],
-                },
-            ],
-        )
+                )
 
     async def test_chat_formatter_empty_thinking_echoed_with_reasoning_item_id(
         self,

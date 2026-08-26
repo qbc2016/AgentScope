@@ -6,11 +6,9 @@ from typing import (
     Literal,
     Any,
     AsyncGenerator,
-    Callable,
     List,
     TYPE_CHECKING,
     Type,
-    cast,
 )
 
 from pydantic import BaseModel, Field
@@ -53,15 +51,11 @@ def _dump_reasoning_item(item: Any) -> dict[str, Any] | None:
             The JSON-safe item dictionary, or ``None`` when the object cannot
             be serialized by the SDK model.
     """
-    model_dump: Callable[..., Any] | None = getattr(
-        item,
-        "model_dump",
-        None,
-    )
+    model_dump = getattr(item, "model_dump", None)
     if model_dump is None or not callable(model_dump):
         return None
 
-    dumped_item = cast(Callable[..., Any], model_dump)(
+    dumped_item = model_dump(
         mode="json",
         exclude_none=True,
     )
