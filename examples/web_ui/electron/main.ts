@@ -101,6 +101,7 @@ async function createWindow(config: DesktopBackendConfig): Promise<BrowserWindow
 			webSecurity: true,
 		},
 	});
+	mainWindow = window;
 
 	hardenNavigation(window, applicationUrl);
 	if (!isDev) {
@@ -155,7 +156,7 @@ async function startDesktop(): Promise<void> {
 		onUnexpectedExit: unexpectedBackendExit,
 	});
 	backendConfig = await backend.start();
-	mainWindow = await createWindow(backendConfig);
+	await createWindow(backendConfig);
 }
 
 async function stopDesktop(): Promise<void> {

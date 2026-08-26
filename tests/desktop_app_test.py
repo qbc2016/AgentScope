@@ -1,20 +1,28 @@
 # -*- coding: utf-8 -*-
 """Tests for the self-contained AgentScope Desktop backend."""
+import json
 import os
+import sys
+from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from agentscope._version import __version__
+from agentscope.tool._builtin._glob import _default_glob_helper_path
+from agentscope.workspace._base import _MIGRATE_SKILLS_SHIM
 from examples.desktop.build_backend import resolve_ripgrep_executable
 from examples.desktop.main import (
     DESKTOP_SHUTDOWN_COMMAND,
     build_packaged_tool_path,
     build_sqlite_url,
+    configure_desktop_logging,
     create_desktop_app,
     monitor_shutdown_stream,
+    run_packaged_helper,
 )
 
 
@@ -64,6 +72,92 @@ def test_build_packaged_tool_path_prepends_the_bundle(tmp_path: Path) -> None:
         f"{tmp_path}{os.pathsep}host-path"
     )
     assert build_packaged_tool_path(tmp_path, "") == f"{tmp_path}"
+
+
+def test_configure_desktop_logging_uses_data_directory(
+    tmp_path: Path,
+) -> None:
+    """Desktop logs must be stored beside its persistent application data."""
+    data_dir = tmp_path / "nested"
+    with patch("examples.desktop.main.setup_logger") as setup:
+        configure_desktop_logging(data_dir)
+
+    assert data_dir.is_dir()
+    setup.assert_called_once_with(
+        "INFO",
+        str(data_dir / "agentscope.log"),
+    )
+
+
+def test_packaged_helper_runs_an_allowlisted_workspace_shim(
+    tmp_path: Path,
+) -> None:
+    """The frozen backend must handle its known workspace shims."""
+    skills_dir = tmp_path / "skills"
+    legacy_dir = skills_dir / "legacy"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "SKILL.md").write_text(
+        "---\nname: legacy\ndescription: test\n---\n",
+        encoding="utf-8",
+    )
+
+    with (
+        patch.object(sys, "frozen", True, create=True),
+        patch.object(sys, "argv", ["agentscope-backend"]),
+    ):
+        handled = run_packaged_helper(
+            [
+                "-c",
+                _MIGRATE_SKILLS_SHIM,
+                str(skills_dir),
+                ".seed",
+            ],
+        )
+        assert sys.argv == ["agentscope-backend"]
+
+    assert handled is True
+    assert sorted(
+        path.relative_to(skills_dir).as_posix()
+        for path in skills_dir.rglob("*")
+    ) == [
+        ".seed",
+        ".seed/legacy",
+        ".seed/legacy/SKILL.md",
+    ]
+
+
+def test_packaged_helper_rejects_unknown_python_code() -> None:
+    """The frozen backend must not expose a general Python command."""
+    with patch.object(sys, "frozen", True, create=True):
+        assert run_packaged_helper(["-c", "print('unexpected')"]) is False
+
+
+def test_packaged_helper_runs_the_bundled_glob_helper(
+    tmp_path: Path,
+) -> None:
+    """The frozen backend must dispatch only the bundled Glob script."""
+    matched_file = tmp_path / "matched.txt"
+    matched_file.write_text("content", encoding="utf-8")
+    output = StringIO()
+
+    with (
+        patch.object(sys, "frozen", True, create=True),
+        patch.object(sys, "argv", ["agentscope-backend"]),
+        redirect_stdout(output),
+    ):
+        handled = run_packaged_helper(
+            [
+                _default_glob_helper_path(),
+                "--pattern",
+                "*.txt",
+                "--base-dir",
+                str(tmp_path),
+            ],
+        )
+        assert sys.argv == ["agentscope-backend"]
+
+    assert handled is True
+    assert json.loads(output.getvalue()) == [str(matched_file)]
 
 
 def test_resolve_ripgrep_executable_uses_python_scripts_dir(

@@ -21,6 +21,7 @@ from starlette.middleware.base import (
 )
 from starlette.responses import Response
 
+from agentscope import setup_logger
 from agentscope.app import create_app
 from agentscope.app.deps import get_current_user_id
 from agentscope.app.message_bus import InMemoryMessageBus
@@ -29,6 +30,16 @@ from agentscope.app.rag.knowledge_base_manager import CollectionPerKbManager
 from agentscope.app.storage import AsyncSQLAlchemyStorage
 from agentscope.app.workspace_manager import LocalWorkspaceManager
 from agentscope.rag import QdrantStore
+from agentscope.tool._builtin._glob import _default_glob_helper_path
+from agentscope.tool._builtin._scripts._glob_helper import (
+    main as glob_helper_main,
+)
+from agentscope.workspace._base import (
+    _EQUIP_PARTITION_SHIM,
+    _EXTRACT_ARCHIVE_SHIM,
+    _EXTRACT_TAR_SHIM,
+    _MIGRATE_SKILLS_SHIM,
+)
 
 AUTH_TOKEN_ENV = "AGENTSCOPE_DESKTOP_TOKEN"
 BACKEND_PORT_PREFIX = "AGENTSCOPE_BACKEND_PORT="
@@ -37,6 +48,14 @@ DESKTOP_USER_ID = "local-user"
 DEFAULT_DATA_DIR = Path.home() / ".agentscope"
 _DOCUMENT_DOWNLOAD_PATH = re.compile(
     r"^/knowledge_bases/[^/]+/documents/[^/]+$",
+)
+_PACKAGED_WORKSPACE_SHIMS = frozenset(
+    {
+        _EQUIP_PARTITION_SHIM,
+        _EXTRACT_ARCHIVE_SHIM,
+        _EXTRACT_TAR_SHIM,
+        _MIGRATE_SKILLS_SHIM,
+    },
 )
 
 
@@ -67,6 +86,48 @@ def configure_packaged_tool_path() -> None:
             Path(bundle_dir),
             os.environ.get("PATH", ""),
         )
+
+
+def configure_desktop_logging(data_dir: Path) -> None:
+    """Write AgentScope logs to the desktop data directory."""
+    resolved_data_dir = data_dir.expanduser().resolve()
+    resolved_data_dir.mkdir(parents=True, exist_ok=True)
+    setup_logger(
+        "INFO",
+        str(resolved_data_dir / "agentscope.log"),
+    )
+
+
+def run_packaged_helper(args: list[str]) -> bool:
+    """Run an allowlisted workspace helper in the frozen backend."""
+    if not getattr(sys, "frozen", False) or not args:
+        return False
+
+    original_argv = sys.argv
+    try:
+        if (
+            len(args) >= 2
+            and args[0] == "-c"
+            and args[1] in _PACKAGED_WORKSPACE_SHIMS
+        ):
+            sys.argv = [original_argv[0], *args[2:]]
+            # The source must exactly match an AgentScope-owned shim.
+            exec(  # pylint: disable=exec-used
+                args[1],
+                {"__name__": "__main__"},
+            )
+            return True
+
+        helper_path = Path(args[0]).resolve()
+        expected_path = Path(_default_glob_helper_path()).resolve()
+        if helper_path == expected_path:
+            sys.argv = [args[0], *args[1:]]
+            glob_helper_main()
+            return True
+    finally:
+        sys.argv = original_argv
+
+    return False
 
 
 def monitor_shutdown_stream(
@@ -210,8 +271,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Start the desktop backend on a pre-bound loopback socket."""
+    if run_packaged_helper(sys.argv[1:]):
+        return
     configure_packaged_tool_path()
     args = parse_args()
+    configure_desktop_logging(args.data_dir)
     auth_token = os.environ.pop(AUTH_TOKEN_ENV, "")
     if not auth_token:
         raise RuntimeError(f"{AUTH_TOKEN_ENV} must be set by Electron.")

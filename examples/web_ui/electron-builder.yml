@@ -17,6 +17,8 @@ electronFuses:
     enableEmbeddedAsarIntegrityValidation: true
     onlyLoadAppFromAsar: true
 mac:
+    identity: "-"
+    hardenedRuntime: false
     category: public.app-category.developer-tools
     target:
         - dmg
