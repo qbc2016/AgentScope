@@ -7,7 +7,14 @@ settings:
 importers:
 
   .:
+    dependencies:
+      tree-kill:
+        specifier: ^1.2.2
+        version: 1.2.2
     devDependencies:
+      '@types/node':
+        specifier: ^24.12.4
+        version: 24.12.4
       concurrently:
         specifier: ^8.2.2
         version: 8.2.2
@@ -7794,7 +7801,7 @@ snapshots:
 
   '@types/cors@2.8.19':
     dependencies:
-      '@types/node': 20.19.41
+      '@types/node': 24.12.4
 
   '@types/d3-array@3.2.2': {}
 

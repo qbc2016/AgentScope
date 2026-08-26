@@ -1,15 +1,22 @@
 import { toast } from 'sonner';
 
 type ElectronAPI = {
-	getBackendUrl: () => string;
-	getUserId: () => string;
+	getBackendConfig: () => DesktopBackendConfig | null;
 };
 
+type DesktopBackendConfig = Readonly<{
+	backendUrl: string;
+	authToken: string;
+	userId: string;
+}>;
+
 const electronAPI = (window as { electronAPI?: ElectronAPI }).electronAPI;
+const desktopConfig = electronAPI?.getBackendConfig() ?? null;
 
 export const getBaseUrl = () =>
-	electronAPI?.getBackendUrl?.() ?? localStorage.getItem('server_url') ?? '';
-export const getUserId = () => electronAPI?.getUserId?.() ?? localStorage.getItem('username') ?? '';
+	desktopConfig?.backendUrl ?? localStorage.getItem('server_url') ?? '';
+export const getUserId = () => desktopConfig?.userId ?? localStorage.getItem('username') ?? '';
+export const getAuthToken = () => desktopConfig?.authToken ?? '';
 
 /**
  * Structured error thrown for non-2xx HTTP responses.
@@ -47,6 +54,8 @@ export const TIMEOUT_STATUS = 408;
 
 function buildHeaders(hasBody: boolean, userId?: string): Record<string, string> {
 	const headers: Record<string, string> = { 'X-User-ID': userId ?? getUserId() };
+	const authToken = getAuthToken();
+	if (authToken) headers.Authorization = `Bearer ${authToken}`;
 	if (hasBody) headers['Content-Type'] = 'application/json';
 	return headers;
 }

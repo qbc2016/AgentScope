@@ -159,6 +159,10 @@ uv.lock
 *.local
 .eslintcache
 .vite/
+.pnpm-store/
+examples/web_ui/electron-dist/
+examples/web_ui/electron-test-dist/
+examples/web_ui/dist-electron/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*

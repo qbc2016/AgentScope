@@ -2,12 +2,20 @@ appId: com.agentscope.desktop
 productName: AgentScope
 directories:
     output: dist-electron
-    buildResources: build
+asar: true
 files:
     - electron-dist/**/*
+    - package.json
 extraResources:
-    - from: ../desktop/main.py
-      to: desktop_main.py
+    - from: ../desktop/dist/agentscope-backend
+      to: backend
+electronFuses:
+    runAsNode: false
+    enableCookieEncryption: true
+    enableNodeOptionsEnvironmentVariable: false
+    enableNodeCliInspectArguments: false
+    enableEmbeddedAsarIntegrityValidation: true
+    onlyLoadAppFromAsar: true
 mac:
     category: public.app-category.developer-tools
     target:

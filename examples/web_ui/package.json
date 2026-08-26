@@ -1,7 +1,13 @@
 {
 	"name": "agentscope-web-ui",
 	"version": "1.0.0",
+	"description": "AgentScope: A Flexible yet Robust Multi-Agent Platform.",
+	"author": "SysML team of Alibaba Tongyi Lab",
 	"private": true,
+	"packageManager": "pnpm@10.34.5",
+	"engines": {
+		"node": ">=22.12.0"
+	},
 	"main": "electron-dist/main.js",
 	"scripts": {
 		"dev:frontend": "pnpm --filter frontend dev",
@@ -10,12 +16,20 @@
 		"build:frontend": "pnpm --filter frontend build",
 		"build:backend": "pnpm --filter backend build",
 		"build": "pnpm build:frontend && pnpm build:backend",
-		"electron:compile": "npx tsc -p electron/tsconfig.json",
-		"electron:dev": "pnpm electron:compile && concurrently \"pnpm dev:frontend\" \"npx wait-on http://localhost:5173 && npx electron .\"",
-		"electron:build": "pnpm build:frontend && pnpm electron:compile && npx electron-builder --config electron-builder.yml",
+		"desktop:backend:build": "python ../desktop/build_backend.py",
+		"electron:typecheck": "pnpm exec tsc -p electron/tsconfig.json --noEmit",
+		"electron:compile": "pnpm exec tsc -p electron/tsconfig.json",
+		"electron:test": "pnpm exec tsc -p electron/tsconfig.test.json && node --test electron-test-dist/tests/backend.test.js",
+		"electron:stage": "pnpm --filter frontend build:electron && pnpm electron:compile",
+		"electron:dev": "pnpm electron:compile && concurrently \"pnpm dev:frontend\" \"pnpm exec wait-on http://localhost:5173 && pnpm exec electron .\"",
+		"electron:pack": "pnpm electron:stage && pnpm exec electron-builder --dir --config electron-builder.yml",
+		"electron:build": "pnpm desktop:backend:build && pnpm electron:stage && pnpm exec electron-builder --config electron-builder.yml",
 		"format": "prettier --write . && pnpm --filter frontend lint:fix",
 		"format:check": "prettier --check . && pnpm --filter frontend lint",
 		"prepare": "husky"
+	},
+	"dependencies": {
+		"tree-kill": "^1.2.2"
 	},
 	"lint-staged": {
 		"frontend/**/*.{ts,tsx}": [
@@ -30,6 +44,7 @@
 		]
 	},
 	"devDependencies": {
+		"@types/node": "^24.12.4",
 		"concurrently": "^8.2.2",
 		"electron": "^43.1.1",
 		"electron-builder": "^26.15.3",
