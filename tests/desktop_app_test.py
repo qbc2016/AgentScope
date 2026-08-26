@@ -92,6 +92,28 @@ def test_monitor_shutdown_stream_requests_graceful_exit() -> None:
     assert target.should_exit is True
 
 
+def test_monitor_shutdown_stream_exits_when_electron_disconnects() -> None:
+    """An Electron crash must not leave the desktop backend running."""
+    target = FakeShutdownTarget()
+    monitor_shutdown_stream(StringIO(""), target)
+    assert target.should_exit is True
+
+
+def test_alembic_config_is_safe_for_ascii_locales() -> None:
+    """Desktop migrations must not depend on the host text encoding."""
+    config_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "agentscope"
+        / "app"
+        / "storage"
+        / "_sql"
+        / "_alembic"
+        / "alembic.ini"
+    )
+    assert config_path.read_bytes().isascii()
+
+
 def test_create_desktop_app_rejects_an_empty_token(tmp_path: Path) -> None:
     """An empty launch token must never create an unauthenticated app."""
     with pytest.raises(

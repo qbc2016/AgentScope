@@ -78,6 +78,7 @@ def monitor_shutdown_stream(
         if line.strip() == DESKTOP_SHUTDOWN_COMMAND:
             target.should_exit = True
             return
+    target.should_exit = True
 
 
 def is_signed_download_request(request: Request) -> bool:
