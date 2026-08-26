@@ -392,9 +392,7 @@ export function useMessages(
 
 			const userMsg = UserMsg({ name: 'user', content });
 			const text =
-				content.length === 1 && content[0].type === 'text'
-					? content[0].text.trim()
-					: '';
+				content.length === 1 && content[0].type === 'text' ? content[0].text.trim() : '';
 			const token = text.startsWith('/') ? text.split(/\s+/, 1)[0].toLowerCase() : '';
 			const commandIntent = optionsRef.current?.commands?.some(
 				(command) =>

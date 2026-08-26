@@ -20,6 +20,5 @@ export const chatApi = {
 	 * @param body - The chat request payload.
 	 * @returns A confirmation object ``{ status, session_id }``.
 	 */
-	trigger: (body: ChatRequest) =>
-		client.post<ChatTriggerResponse>('/chat/', body),
+	trigger: (body: ChatRequest) => client.post<ChatTriggerResponse>('/chat/', body),
 };
