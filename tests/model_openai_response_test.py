@@ -10,9 +10,17 @@ import unittest
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock
 
+from openai.types.responses import ResponseReasoningItem
+
 from utils import AnyString
 
-from agentscope.message import TextBlock, ToolCallBlock, ThinkingBlock
+from agentscope.message import (
+    AssistantMsg,
+    Msg,
+    TextBlock,
+    ToolCallBlock,
+    ThinkingBlock,
+)
 from agentscope.model import OpenAIResponseModel
 from agentscope.credential import OpenAICredential
 from agentscope.tool import ToolChoice
@@ -40,11 +48,15 @@ def _mock_completion(
     reasoning_summary: Any = None,
     reasoning_id: str = "rs_test123",
     response_id: str = "resp-openai-1",
+    reasoning_output_item: Any = None,
 ) -> MagicMock:
     """Build a mock non-streaming Responses API response."""
     output = []
 
-    if reasoning_summary is not None:
+    if reasoning_output_item is not None:
+        output.append(reasoning_output_item)
+
+    elif reasoning_summary is not None:
         reasoning_item = MagicMock()
         reasoning_item.type = "reasoning"
         reasoning_item.id = reasoning_id
@@ -227,6 +239,118 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
                     ),
                 ],
             ),
+        )
+
+    async def test_reasoning_raw_item_round_trip(self) -> None:
+        """Encrypted reasoning metadata survives parsing and formatting."""
+        reasoning_item_raw = {
+            "id": "rs_encrypted",
+            "summary": [
+                {
+                    "text": "Thinking step...",
+                    "type": "summary_text",
+                },
+            ],
+            "type": "reasoning",
+            "content": [],
+            "encrypted_content": "encrypted_payload",
+            "status": "completed",
+        }
+        reasoning_item = ResponseReasoningItem.model_validate(
+            reasoning_item_raw,
+        )
+        mock_create = AsyncMock(
+            return_value=_mock_completion(
+                text="Answer",
+                reasoning_output_item=reasoning_item,
+            ),
+        )
+        self.mock_client.responses.create = mock_create
+
+        result = await self.model([])
+
+        self.assertEqual(
+            (result.is_last, result.content),
+            (
+                True,
+                [
+                    ThinkingBlock.model_construct(
+                        id=A,
+                        created_at=A,
+                        thinking="Thinking step...",
+                        reasoning_item_id="rs_encrypted",
+                        reasoning_item_raw=reasoning_item_raw,
+                    ),
+                    TextBlock.model_construct(
+                        id=A,
+                        created_at=A,
+                        text="Answer",
+                    ),
+                ],
+            ),
+        )
+
+        msg = AssistantMsg(
+            name="assistant",
+            content=result.content,
+        )
+        restored_msg = Msg.model_validate(msg.model_dump())
+        self.assertEqual(restored_msg.content, result.content)
+
+        formatted = await self.model.formatter.format(
+            [restored_msg],
+        )
+        self.assertListEqual(
+            formatted,
+            [
+                reasoning_item_raw,
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Answer",
+                        },
+                    ],
+                },
+            ],
+        )
+
+    async def test_reasoning_raw_item_excludes_none_fields(self) -> None:
+        """Optional null SDK fields are not stored for history replay."""
+        reasoning_item = ResponseReasoningItem.model_validate(
+            {
+                "id": "rs_without_nulls",
+                "summary": [],
+                "type": "reasoning",
+                "encrypted_content": "encrypted_payload",
+            },
+        )
+        mock_create = AsyncMock(
+            return_value=_mock_completion(
+                reasoning_output_item=reasoning_item,
+            ),
+        )
+        self.mock_client.responses.create = mock_create
+
+        result = await self.model([])
+
+        self.assertEqual(
+            result.content,
+            [
+                ThinkingBlock.model_construct(
+                    id=A,
+                    created_at=A,
+                    thinking="",
+                    reasoning_item_id="rs_without_nulls",
+                    reasoning_item_raw={
+                        "id": "rs_without_nulls",
+                        "summary": [],
+                        "type": "reasoning",
+                        "encrypted_content": "encrypted_payload",
+                    },
+                ),
+            ],
         )
 
     async def test_empty_reasoning_summary_response(
@@ -471,9 +595,15 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
         self,
     ) -> None:
         """Stream empty reasoning summary still preserves its item id."""
-        reasoning_item = MagicMock()
-        reasoning_item.type = "reasoning"
-        reasoning_item.id = "rs_empty"
+        reasoning_item_raw = {
+            "id": "rs_empty",
+            "summary": [],
+            "type": "reasoning",
+            "encrypted_content": "encrypted_stream_payload",
+        }
+        reasoning_item = ResponseReasoningItem.model_validate(
+            reasoning_item_raw,
+        )
 
         msg_item = MagicMock()
         msg_item.type = "message"
@@ -523,6 +653,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
                             created_at=A,
                             thinking="",
                             reasoning_item_id="rs_empty",
+                            reasoning_item_raw=reasoning_item_raw,
                         ),
                     ],
                 ),
@@ -539,6 +670,7 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
                             created_at=A,
                             thinking="",
                             reasoning_item_id="rs_empty",
+                            reasoning_item_raw=reasoning_item_raw,
                         ),
                     ],
                 ),

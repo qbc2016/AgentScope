@@ -2,7 +2,16 @@
 """The OpenAI Responses API chat model implementation."""
 from collections import OrderedDict
 from datetime import datetime
-from typing import Literal, Any, AsyncGenerator, List, TYPE_CHECKING, Type
+from typing import (
+    Literal,
+    Any,
+    AsyncGenerator,
+    Callable,
+    List,
+    TYPE_CHECKING,
+    Type,
+    cast,
+)
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +35,37 @@ else:
 
 # kwargs accepted by Chat Completions but NOT by the Responses API.
 _RESPONSES_UNSUPPORTED_KWARGS = frozenset({"modalities", "audio"})
+
+
+def _dump_reasoning_item(item: Any) -> dict[str, Any] | None:
+    """Serialize a Responses API reasoning item for history replay.
+
+    ``exclude_none=True`` avoids emitting optional response-only fields as
+    explicit ``null`` values, which some Responses-compatible APIs reject
+    when the item is replayed as input.
+
+    Args:
+        item (`Any`):
+            The reasoning item returned by the OpenAI SDK.
+
+    Returns:
+        `dict[str, Any] | None`:
+            The JSON-safe item dictionary, or ``None`` when the object cannot
+            be serialized by the SDK model.
+    """
+    model_dump: Callable[..., Any] | None = getattr(
+        item,
+        "model_dump",
+        None,
+    )
+    if model_dump is None or not callable(model_dump):
+        return None
+
+    dumped_item = cast(Callable[..., Any], model_dump)(
+        mode="json",
+        exclude_none=True,
+    )
+    return dumped_item if isinstance(dumped_item, dict) else None
 
 
 class OpenAIResponseModel(ChatModelBase):
@@ -357,6 +397,9 @@ class OpenAIResponseModel(ChatModelBase):
                                     thinking="",
                                     block_id=thinking_id,
                                     reasoning_item_id=reasoning_item_id,
+                                    reasoning_item_raw=(
+                                        _dump_reasoning_item(output_item)
+                                    ),
                                 )
 
                 if delta_res.content or usage:
@@ -387,6 +430,7 @@ class OpenAIResponseModel(ChatModelBase):
 
             if item_type == "reasoning":
                 reasoning_item_id = getattr(item, "id", None)
+                reasoning_item_raw = _dump_reasoning_item(item)
                 combined_summary = " ".join(
                     getattr(s, "text", "")
                     for s in getattr(item, "summary", [])
@@ -395,11 +439,18 @@ class OpenAIResponseModel(ChatModelBase):
                 # Keep even empty-summary reasoning items: the API requires
                 # reasoning_item_id to be echoed back in multi-turn history.
                 if combined_summary or reasoning_item_id:
+                    reasoning_metadata: dict[str, Any] = {
+                        "reasoning_item_id": reasoning_item_id,
+                    }
+                    if reasoning_item_raw is not None:
+                        reasoning_metadata[
+                            "reasoning_item_raw"
+                        ] = reasoning_item_raw
                     content_blocks.append(
                         ThinkingBlock(
                             type="thinking",
                             thinking=combined_summary,
-                            reasoning_item_id=reasoning_item_id,
+                            **reasoning_metadata,
                         ),
                     )
 
