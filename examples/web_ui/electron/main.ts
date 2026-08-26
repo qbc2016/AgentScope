@@ -3,7 +3,12 @@ import { app, BrowserWindow, dialog, ipcMain, shell, WebContents } from 'electro
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 
-import { BackendExitDetails, BackendProcess, DesktopBackendConfig } from './backend';
+import {
+	BackendExitDetails,
+	BackendProcess,
+	DesktopBackendConfig,
+	buildDesktopCsp,
+} from './backend';
 
 const DEV_SERVER_URL = 'http://localhost:5173';
 const DESKTOP_USER_ID = 'local-user';
@@ -54,7 +59,29 @@ function hardenNavigation(window: BrowserWindow, applicationUrl: URL): void {
 	});
 }
 
-function createWindow(): BrowserWindow {
+function installDesktopCsp(window: BrowserWindow, applicationUrl: URL, backendUrl: string): void {
+	const policy = buildDesktopCsp(backendUrl);
+	window.webContents.session.webRequest.onHeadersReceived(
+		{ urls: ['file://*/*'] },
+		(details, callback) => {
+			if (
+				details.resourceType !== 'mainFrame' ||
+				!isApplicationNavigation(details.url, applicationUrl)
+			) {
+				callback({ responseHeaders: details.responseHeaders });
+				return;
+			}
+			callback({
+				responseHeaders: {
+					...(details.responseHeaders ?? {}),
+					'Content-Security-Policy': [policy],
+				},
+			});
+		},
+	);
+}
+
+async function createWindow(config: DesktopBackendConfig): Promise<BrowserWindow> {
 	const isDev = !app.isPackaged;
 	const indexPath = path.join(__dirname, 'frontend-dist', 'index.html');
 	const applicationUrl = isDev ? new URL(DEV_SERVER_URL) : pathToFileURL(indexPath);
@@ -76,6 +103,9 @@ function createWindow(): BrowserWindow {
 	});
 
 	hardenNavigation(window, applicationUrl);
+	if (!isDev) {
+		installDesktopCsp(window, applicationUrl, config.backendUrl);
+	}
 	window.once('ready-to-show', () => window.show());
 	window.webContents.on('render-process-gone', (_event, details) => {
 		console.error(`Renderer crashed: ${details.reason}, exitCode=${details.exitCode}`);
@@ -88,9 +118,9 @@ function createWindow(): BrowserWindow {
 	});
 
 	if (isDev) {
-		void window.loadURL(DEV_SERVER_URL);
+		await window.loadURL(DEV_SERVER_URL);
 	} else {
-		void window.loadFile(indexPath);
+		await window.loadFile(indexPath);
 	}
 	return window;
 }
@@ -125,7 +155,7 @@ async function startDesktop(): Promise<void> {
 		onUnexpectedExit: unexpectedBackendExit,
 	});
 	backendConfig = await backend.start();
-	mainWindow = createWindow();
+	mainWindow = await createWindow(backendConfig);
 }
 
 async function stopDesktop(): Promise<void> {

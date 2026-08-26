@@ -5,9 +5,6 @@ application for macOS, Windows, and Linux. Release builds include Python,
 AgentScope, SQLite, and Qdrant Local; end users do not need to install Python
 or Redis.
 
-The architecture and security decisions are documented in
-[the desktop application design](../../docs/design/desktop_application.md).
-
 ## Development
 
 Install the Python and Web UI dependencies from the repository root:
@@ -53,6 +50,11 @@ pnpm electron:pack
 Generated backend, frontend, and installer artifacts are ignored by Git.
 PyInstaller output is written under `examples/desktop/dist`, and Electron
 Builder output is written under `examples/web_ui/dist-electron`.
+
+CI builds unpacked applications without code signing so they can be used for
+cross-platform smoke validation. Installers distributed to end users must be
+signed on Windows and signed and notarized on macOS using release credentials
+provided outside the repository.
 
 ## Local data
 

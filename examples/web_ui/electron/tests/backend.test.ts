@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
 	BACKEND_PORT_PREFIX,
 	DESKTOP_SHUTDOWN_COMMAND,
+	buildDesktopCsp,
 	getBundledExecutableName,
 	parseBackendPort,
 	requestGracefulShutdown,
@@ -35,6 +36,30 @@ test('getBundledExecutableName maps every supported platform', () => {
 			['linux', 'agentscope-backend'],
 			['win32', 'agentscope-backend.exe'],
 		],
+	);
+});
+
+test('buildDesktopCsp allows only the selected loopback port', () => {
+	assert.equal(
+		buildDesktopCsp('http://127.0.0.1:43123'),
+		[
+			"default-src 'self'",
+			"base-uri 'none'",
+			"object-src 'none'",
+			"form-action 'none'",
+			"script-src 'self'",
+			"style-src 'self' 'unsafe-inline'",
+			"font-src 'self' data:",
+			"img-src 'self' data: blob: https: http://127.0.0.1:43123",
+			"media-src 'self' data: blob: https: http://127.0.0.1:43123",
+			"connect-src 'self' http://127.0.0.1:43123",
+			'frame-src blob: http://127.0.0.1:43123',
+			"worker-src 'self' blob:",
+		].join('; '),
+	);
+	assert.throws(
+		() => buildDesktopCsp('http://localhost:43123'),
+		/Desktop backend URL must use a dynamic loopback port/,
 	);
 });
 

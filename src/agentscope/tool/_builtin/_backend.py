@@ -791,7 +791,16 @@ class LocalBackend(BackendBase):
                         0x08000000,
                     ),
                 )
-                await taskkill.wait()
+                try:
+                    await asyncio.wait_for(
+                        taskkill.wait(),
+                        timeout=grace,
+                    )
+                except asyncio.TimeoutError:
+                    try:
+                        taskkill.kill()
+                    except ProcessLookupError:
+                        pass
             except OSError:
                 pass
             if process.returncode is None:
@@ -799,7 +808,13 @@ class LocalBackend(BackendBase):
                     process.kill()
                 except ProcessLookupError:
                     pass
-            await process.wait()
+            try:
+                await asyncio.wait_for(
+                    process.wait(),
+                    timeout=grace,
+                )
+            except asyncio.TimeoutError:
+                pass
             return
 
         try:

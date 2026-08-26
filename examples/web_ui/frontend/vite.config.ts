@@ -15,6 +15,7 @@ const ELECTRON_CSP = [
 	"font-src 'self' data:",
 	"img-src 'self' data: blob: https: http://127.0.0.1:*",
 	"media-src 'self' data: blob: https: http://127.0.0.1:*",
+	// The main process intersects these fallbacks with an exact-port policy.
 	"connect-src 'self' http://127.0.0.1:*",
 	'frame-src blob: http://127.0.0.1:*',
 	"worker-src 'self' blob:",

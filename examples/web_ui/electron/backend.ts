@@ -56,6 +56,28 @@ export function getBundledExecutableName(platform: NodeJS.Platform): string {
 	return platform === 'win32' ? 'agentscope-backend.exe' : 'agentscope-backend';
 }
 
+export function buildDesktopCsp(backendUrl: string): string {
+	const backend = new URL(backendUrl);
+	if (backend.protocol !== 'http:' || backend.hostname !== '127.0.0.1' || !backend.port) {
+		throw new Error(`Desktop backend URL must use a dynamic loopback port: ${backendUrl}`);
+	}
+	const backendOrigin = backend.origin;
+	return [
+		"default-src 'self'",
+		"base-uri 'none'",
+		"object-src 'none'",
+		"form-action 'none'",
+		"script-src 'self'",
+		"style-src 'self' 'unsafe-inline'",
+		"font-src 'self' data:",
+		`img-src 'self' data: blob: https: ${backendOrigin}`,
+		`media-src 'self' data: blob: https: ${backendOrigin}`,
+		`connect-src 'self' ${backendOrigin}`,
+		`frame-src blob: ${backendOrigin}`,
+		"worker-src 'self' blob:",
+	].join('; ');
+}
+
 function findPython(configured?: string): CommandSpec {
 	const candidates: CommandSpec[] = configured
 		? [{ command: configured, args: [] }]
