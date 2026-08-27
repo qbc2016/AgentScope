@@ -1,13 +1,7 @@
 {
 	"name": "agentscope-web-ui",
 	"version": "1.0.0",
-	"description": "AgentScope: A Flexible yet Robust Multi-Agent Platform.",
-	"author": "SysML team of Alibaba Tongyi Lab",
 	"private": true,
-	"packageManager": "pnpm@10.34.5",
-	"engines": {
-		"node": ">=22.12.0"
-	},
 	"scripts": {
 		"dev:frontend": "pnpm --filter frontend dev",
 		"dev:backend": "pnpm --filter backend dev",

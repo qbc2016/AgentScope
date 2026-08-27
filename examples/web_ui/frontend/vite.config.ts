@@ -44,7 +44,7 @@ export default defineConfig(({ mode }) => {
 	const isElectron = mode === 'electron';
 	return {
 		plugins: [react(), tailwindcss(), svgr(), ...(isElectron ? [electronCspPlugin()] : [])],
-		base: './',
+		base: isElectron ? './' : undefined,
 		server: {
 			port: 5173,
 			strictPort: true,
