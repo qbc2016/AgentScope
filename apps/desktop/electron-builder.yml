@@ -7,7 +7,7 @@ files:
     - electron-dist/**/*
     - package.json
 extraResources:
-    - from: ../desktop/dist/agentscope-backend
+    - from: dist/agentscope-backend
       to: backend
 electronFuses:
     runAsNode: false

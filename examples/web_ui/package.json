@@ -8,7 +8,6 @@
 	"engines": {
 		"node": ">=22.12.0"
 	},
-	"main": "electron-dist/main.js",
 	"scripts": {
 		"dev:frontend": "pnpm --filter frontend dev",
 		"dev:backend": "pnpm --filter backend dev",
@@ -16,20 +15,9 @@
 		"build:frontend": "pnpm --filter frontend build",
 		"build:backend": "pnpm --filter backend build",
 		"build": "pnpm build:frontend && pnpm build:backend",
-		"desktop:backend:build": "python ../desktop/build_backend.py",
-		"electron:typecheck": "pnpm exec tsc -p electron/tsconfig.json --noEmit",
-		"electron:compile": "pnpm exec tsc -p electron/tsconfig.json",
-		"electron:test": "pnpm exec tsc -p electron/tsconfig.test.json && node --test electron-test-dist/tests/backend.test.js",
-		"electron:stage": "pnpm --filter frontend build:electron && pnpm electron:compile",
-		"electron:dev": "pnpm electron:compile && concurrently \"pnpm dev:frontend\" \"pnpm exec wait-on http://localhost:5173 && pnpm exec electron .\"",
-		"electron:pack": "pnpm electron:stage && pnpm exec electron-builder --dir --config electron-builder.yml",
-		"electron:build": "pnpm desktop:backend:build && pnpm electron:stage && pnpm exec electron-builder --config electron-builder.yml",
 		"format": "prettier --write . && pnpm --filter frontend lint:fix",
 		"format:check": "prettier --check . && pnpm --filter frontend lint",
 		"prepare": "husky"
-	},
-	"dependencies": {
-		"tree-kill": "^1.2.2"
 	},
 	"lint-staged": {
 		"frontend/**/*.{ts,tsx}": [
@@ -44,16 +32,11 @@
 		]
 	},
 	"devDependencies": {
-		"@types/node": "^24.12.4",
 		"concurrently": "^8.2.2",
-		"electron": "^43.1.1",
-		"electron-builder": "^26.15.3",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-prettier": "^5.5.5",
 		"husky": "^9.1.7",
 		"lint-staged": "^17.0.5",
-		"prettier": "^3.8.3",
-		"typescript": "^7.0.2",
-		"wait-on": "^9.0.10"
+		"prettier": "^3.8.3"
 	}
 }

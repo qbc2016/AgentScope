@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 from agentscope._version import __version__
 from agentscope.tool._builtin._glob import _default_glob_helper_path
 from agentscope.workspace._base import _MIGRATE_SKILLS_SHIM
-from examples.desktop.build_backend import resolve_ripgrep_executable
-from examples.desktop.main import (
+from apps.desktop.build_backend import resolve_ripgrep_executable
+from apps.desktop.main import (
     DESKTOP_SHUTDOWN_COMMAND,
     build_packaged_tool_path,
     build_sqlite_url,
@@ -79,7 +79,7 @@ def test_configure_desktop_logging_uses_data_directory(
 ) -> None:
     """Desktop logs must be stored beside its persistent application data."""
     data_dir = tmp_path / "nested"
-    with patch("examples.desktop.main.setup_logger") as setup:
+    with patch("apps.desktop.main.setup_logger") as setup:
         configure_desktop_logging(data_dir)
 
     assert data_dir.is_dir()

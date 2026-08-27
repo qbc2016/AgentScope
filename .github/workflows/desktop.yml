@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/desktop.yml"
-      - "examples/desktop/**"
+      - "apps/desktop/**"
       - "examples/web_ui/**"
       - "src/agentscope/**"
       - "tests/desktop_app_test.py"
@@ -16,7 +16,7 @@ on:
       - main
     paths:
       - ".github/workflows/desktop.yml"
-      - "examples/desktop/**"
+      - "apps/desktop/**"
       - "examples/web_ui/**"
       - "src/agentscope/**"
       - "tests/desktop_app_test.py"
@@ -53,7 +53,9 @@ jobs:
         with:
           node-version: 22.12.0
           cache: pnpm
-          cache-dependency-path: examples/web_ui/pnpm-lock.yaml
+          cache-dependency-path: |
+            apps/desktop/pnpm-lock.yaml
+            examples/web_ui/pnpm-lock.yaml
 
       - name: Install Python dependencies
         run: python -m pip install -e ".[desktop-build]" pytest
@@ -62,22 +64,26 @@ jobs:
         working-directory: examples/web_ui
         run: pnpm install --frozen-lockfile
 
+      - name: Install Desktop dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
       - name: Test desktop backend
         run: python -m pytest tests/desktop_app_test.py
 
       - name: Build and probe packaged backend
         run: |
-          python examples/desktop/build_backend.py
-          python examples/desktop/smoke_backend.py
+          python apps/desktop/build_backend.py
+          python apps/desktop/smoke_backend.py
 
       - name: Check Electron sources
-        working-directory: examples/web_ui
+        working-directory: apps/desktop
         run: |
           pnpm electron:typecheck
           pnpm electron:test
 
       - name: Build unpacked desktop application
-        working-directory: examples/web_ui
+        working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: pnpm electron:pack

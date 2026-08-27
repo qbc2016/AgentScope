@@ -148,7 +148,7 @@ async function startDesktop(): Promise<void> {
 	backend = new BackendProcess({
 		isPackaged: app.isPackaged,
 		resourcesPath: process.resourcesPath,
-		desktopScriptPath: path.resolve(__dirname, '../../desktop/main.py'),
+		desktopScriptPath: path.resolve(__dirname, '../main.py'),
 		dataDir: app.getPath('userData'),
 		authToken,
 		userId: DESKTOP_USER_ID,

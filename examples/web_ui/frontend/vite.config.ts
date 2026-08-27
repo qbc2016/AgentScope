@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => {
 		},
 		build: isElectron
 			? {
-					outDir: '../electron-dist/frontend-dist',
+					outDir: '../../../apps/desktop/electron-dist/frontend-dist',
 					emptyOutDir: true,
 				}
 			: undefined,

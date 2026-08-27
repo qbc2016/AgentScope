@@ -155,11 +155,17 @@ package-lock.json
 .angular/
 uv.lock
 
-# JS/Node frontend (examples/web_ui)
+# JS/Node examples
 *.local
 .eslintcache
 .vite/
 .pnpm-store/
+examples/desktop/electron-dist/
+examples/desktop/electron-test-dist/
+examples/desktop/dist-electron/
+apps/desktop/electron-dist/
+apps/desktop/electron-test-dist/
+apps/desktop/dist-electron/
 examples/web_ui/electron-dist/
 examples/web_ui/electron-test-dist/
 examples/web_ui/dist-electron/

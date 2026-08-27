@@ -7,23 +7,25 @@ or Redis.
 
 ## Development
 
-Install the Python and Web UI dependencies from the repository root:
+Install the Python, Web UI, and desktop dependencies from the repository root:
 
 ```bash
 python -m pip install -e ".[desktop-build]"
-cd examples/web_ui
-pnpm install --frozen-lockfile
+pnpm --dir examples/web_ui install --frozen-lockfile
+pnpm --dir apps/desktop install --frozen-lockfile
 ```
 
 Run Electron with the Python interpreter from the active environment:
 
 ```bash
+cd apps/desktop
 AGENTSCOPE_PYTHON="$(command -v python)" pnpm electron:dev
 ```
 
 On Windows PowerShell, set the executable explicitly:
 
 ```powershell
+cd apps/desktop
 $env:AGENTSCOPE_PYTHON = (Get-Command python).Source
 pnpm electron:dev
 ```
@@ -36,20 +38,21 @@ authentication, port-handshake, and process-lifecycle paths as a packaged app.
 Build the backend and the current platform's installer:
 
 ```bash
-cd examples/web_ui
+cd apps/desktop
 pnpm electron:build
 ```
 
 Build an unpacked application for a faster smoke test:
 
 ```bash
-python ../desktop/build_backend.py
+cd apps/desktop
+python build_backend.py
 pnpm electron:pack
 ```
 
 Generated backend, frontend, and installer artifacts are ignored by Git.
-PyInstaller output is written under `examples/desktop/dist`, and Electron
-Builder output is written under `examples/web_ui/dist-electron`.
+PyInstaller output is written under `apps/desktop/dist`, and Electron Builder
+output is written under `apps/desktop/dist-electron`.
 
 CI builds unpacked applications without code signing so they can be used for
 cross-platform smoke validation. Installers distributed to end users must be
