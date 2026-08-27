@@ -3417,6 +3417,12 @@ class Agent:
             exit_events: list[AgentEvent] = []
 
             if exceeded_max_iters:
+                logger.warning(
+                    "Agent %s exceeds the max iteration numbers %d. "
+                    "Stop the react loop.",
+                    self.name,
+                    self.react_config.max_iters,
+                )
                 final_msg.finished_reason = finished_reason
                 # Deprecated but still emitted for backward compatibility;
                 # suppressed since the warning targets consumers
@@ -3453,6 +3459,8 @@ class Agent:
                         f"and return the final answer as text. Do not call "
                         f"any tools.</system-reminder>"
                     ),
+                    source='{"label": "System", "sublabel": '
+                    '"Max Iterations Reached"}',
                 ),
                 tool_choice=ToolChoice(mode="none"),
             )
