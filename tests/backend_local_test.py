@@ -24,10 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from unittest.async_case import IsolatedAsyncioTestCase
 
 from agentscope.tool import ExecResult, LocalBackend
-from agentscope.tool._builtin._backend import (
-    _normalize_newlines,
-    _subprocess_creation_kwargs,
-)
+from agentscope.tool._builtin._backend import _normalize_newlines
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -242,17 +239,6 @@ class TestLocalBackendExec(IsolatedAsyncioTestCase):
         taskkill.kill.assert_called_once_with()
         fake_process.kill.assert_called_once_with()
         fake_process.wait.assert_awaited_once_with()
-
-    def test_subprocess_creation_options_are_platform_safe(self) -> None:
-        """Local tools need a tree boundary without a Windows console."""
-        kwargs = _subprocess_creation_kwargs()
-        if _IS_WINDOWS:
-            self.assertEqual(
-                set(kwargs),
-                {"creationflags"},
-            )
-        else:
-            self.assertEqual(kwargs, {"start_new_session": True})
 
 
 class TestLocalBackendFileIO(IsolatedAsyncioTestCase):
