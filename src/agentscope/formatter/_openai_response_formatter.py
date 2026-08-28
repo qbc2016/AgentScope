@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Formatters for the OpenAI Responses API."""
 from abc import ABC
+from copy import deepcopy
 from fnmatch import fnmatch
 from typing import Any
 
@@ -294,19 +295,37 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                         # pending assistant text for replay. Non-empty
                         # reasoning starts a new output segment, so flush text
                         # first.
-                        summary = (
-                            [{"type": "summary_text", "text": block.thinking}]
-                            if block.thinking
-                            else []
+                        reasoning_item_raw = getattr(
+                            block,
+                            "reasoning_item_raw",
+                            None,
                         )
-                        items.append(
-                            {
-                                "type": "reasoning",
-                                "id": reasoning_item_id,
-                                "summary": summary,
-                                "content": [],
-                            },
-                        )
+                        if (
+                            isinstance(reasoning_item_raw, dict)
+                            and reasoning_item_raw.get("type") == "reasoning"
+                            and reasoning_item_raw.get("id")
+                            == reasoning_item_id
+                        ):
+                            items.append(deepcopy(reasoning_item_raw))
+                        else:
+                            summary = (
+                                [
+                                    {
+                                        "type": "summary_text",
+                                        "text": block.thinking,
+                                    },
+                                ]
+                                if block.thinking
+                                else []
+                            )
+                            items.append(
+                                {
+                                    "type": "reasoning",
+                                    "id": reasoning_item_id,
+                                    "summary": summary,
+                                    "content": [],
+                                },
+                            )
 
                 elif isinstance(block, ToolCallBlock):
                     function_calls.append(
