@@ -482,27 +482,16 @@ class TestOpenAIResponseFormatter(IsolatedAsyncioTestCase):
         """Malformed raw items cannot bypass the reconstructed fallback."""
         fmt = OpenAIResponseFormatter()
         invalid_raw_items = [
+            None,
+            [],
+            {
+                "type": "message",
+                "id": "rs_expected",
+            },
             {
                 "type": "reasoning",
                 "id": "rs_other",
                 "summary": [],
-            },
-            {
-                "type": "reasoning",
-                "id": "rs_expected",
-                "encrypted_content": "missing_summary",
-            },
-            {
-                "type": "reasoning",
-                "id": "rs_expected",
-                "summary": [],
-                "content": "not_a_list",
-            },
-            {
-                "type": "reasoning",
-                "id": "rs_expected",
-                "summary": [],
-                "encrypted_content": 123,
             },
         ]
 

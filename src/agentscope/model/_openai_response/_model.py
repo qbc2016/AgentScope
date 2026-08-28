@@ -2,14 +2,7 @@
 """The OpenAI Responses API chat model implementation."""
 from collections import OrderedDict
 from datetime import datetime
-from typing import (
-    Literal,
-    Any,
-    AsyncGenerator,
-    List,
-    TYPE_CHECKING,
-    Type,
-)
+from typing import Literal, Any, AsyncGenerator, List, TYPE_CHECKING, Type
 
 from pydantic import BaseModel, Field
 
@@ -35,7 +28,7 @@ else:
 _RESPONSES_UNSUPPORTED_KWARGS = frozenset({"modalities", "audio"})
 
 
-def _dump_reasoning_item(item: Any) -> dict[str, Any] | None:
+def _dump_reasoning_item(item: Any) -> dict[str, Any]:
     """Serialize a Responses API reasoning item for history replay.
 
     ``exclude_none=True`` avoids emitting optional response-only fields as
@@ -47,19 +40,13 @@ def _dump_reasoning_item(item: Any) -> dict[str, Any] | None:
             The reasoning item returned by the OpenAI SDK.
 
     Returns:
-        `dict[str, Any] | None`:
-            The JSON-safe item dictionary, or ``None`` when the object cannot
-            be serialized by the SDK model.
+        `dict[str, Any]`:
+            The JSON-safe item dictionary.
     """
-    model_dump = getattr(item, "model_dump", None)
-    if model_dump is None or not callable(model_dump):
-        return None
-
-    dumped_item = model_dump(
+    return item.model_dump(
         mode="json",
         exclude_none=True,
     )
-    return dumped_item if isinstance(dumped_item, dict) else None
 
 
 class OpenAIResponseModel(ChatModelBase):
@@ -300,7 +287,7 @@ class OpenAIResponseModel(ChatModelBase):
         usage: ChatUsage | None = None
         response_id: str = _generate_id()
         text_id: str = _generate_id()
-        thinking_id: str = _generate_id()
+        reasoning_block_ids: dict[str, str] = {}
         # Mapping from Responses API item id (fc_xxx) to (call_id, name)
         # so subsequent argument deltas can be routed to the right tool
         # call block.
@@ -322,7 +309,10 @@ class OpenAIResponseModel(ChatModelBase):
                     # compatibility with models that do expose it.
                     delta_res.append_thinking(
                         event.delta,
-                        block_id=thinking_id,
+                        block_id=reasoning_block_ids.setdefault(
+                            event.item_id,
+                            _generate_id(),
+                        ),
                     )
 
                 elif event_type == "response.output_text.delta":
@@ -389,7 +379,10 @@ class OpenAIResponseModel(ChatModelBase):
                             if reasoning_item_id:
                                 delta_res.append_thinking(
                                     thinking="",
-                                    block_id=thinking_id,
+                                    block_id=reasoning_block_ids.setdefault(
+                                        reasoning_item_id,
+                                        _generate_id(),
+                                    ),
                                     reasoning_item_id=reasoning_item_id,
                                     reasoning_item_raw=(
                                         _dump_reasoning_item(output_item)
@@ -433,18 +426,12 @@ class OpenAIResponseModel(ChatModelBase):
                 # Keep even empty-summary reasoning items: the API requires
                 # reasoning_item_id to be echoed back in multi-turn history.
                 if combined_summary or reasoning_item_id:
-                    reasoning_metadata: dict[str, Any] = {
-                        "reasoning_item_id": reasoning_item_id,
-                    }
-                    if reasoning_item_raw is not None:
-                        reasoning_metadata[
-                            "reasoning_item_raw"
-                        ] = reasoning_item_raw
                     content_blocks.append(
                         ThinkingBlock(
                             type="thinking",
                             thinking=combined_summary,
-                            **reasoning_metadata,
+                            reasoning_item_id=reasoning_item_id,
+                            reasoning_item_raw=reasoning_item_raw,
                         ),
                     )
 

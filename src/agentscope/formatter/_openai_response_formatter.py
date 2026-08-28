@@ -3,7 +3,7 @@
 from abc import ABC
 from copy import deepcopy
 from fnmatch import fnmatch
-from typing import Any, TypeGuard
+from typing import Any
 
 from pydantic import Field
 
@@ -18,32 +18,6 @@ from ..message import (
     HintBlock,
     ThinkingBlock,
 )
-
-
-def _is_valid_reasoning_item_raw(
-    reasoning_item_raw: Any,
-    reasoning_item_id: str,
-) -> TypeGuard[dict[str, Any]]:
-    """Validate a raw reasoning item before replaying it as API input."""
-    if not isinstance(reasoning_item_raw, dict):
-        return False
-    if reasoning_item_raw.get("type") != "reasoning":
-        return False
-    if reasoning_item_raw.get("id") != reasoning_item_id:
-        return False
-    if not isinstance(reasoning_item_raw.get("summary"), list):
-        return False
-    if "content" in reasoning_item_raw and not isinstance(
-        reasoning_item_raw["content"],
-        list,
-    ):
-        return False
-    if "encrypted_content" in reasoning_item_raw and not isinstance(
-        reasoning_item_raw["encrypted_content"],
-        str,
-    ):
-        return False
-    return True
 
 
 class _OpenAIResponseFormatterBase(_OpenAIFormatterBase, ABC):
@@ -326,9 +300,11 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                             "reasoning_item_raw",
                             None,
                         )
-                        if _is_valid_reasoning_item_raw(
-                            reasoning_item_raw,
-                            reasoning_item_id,
+                        if (
+                            isinstance(reasoning_item_raw, dict)
+                            and reasoning_item_raw.get("type") == "reasoning"
+                            and reasoning_item_raw.get("id")
+                            == reasoning_item_id
                         ):
                             items.append(deepcopy(reasoning_item_raw))
                         else:
