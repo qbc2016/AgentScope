@@ -253,6 +253,10 @@ class GatewayMCPClient(MCPClient):
             )
         assert self._gateway is not None
         body = self.model_dump(mode="json")
+        if self._runtime_headers:
+            # model_dump cannot carry them, and the gateway connects to
+            # the MCP server inside this request.
+            body["runtime_headers"] = self._runtime_headers
         status, resp_body = await self._gateway.exec_request(
             "POST",
             "/mcps",
@@ -268,11 +272,6 @@ class GatewayMCPClient(MCPClient):
                 f"{_safe_detail(status, resp_body)}",
             )
         self._is_connected = True
-
-        # model_dump carries no runtime headers, so a reconnect would
-        # silently fall back to the configured ones.
-        if self._runtime_headers:
-            await self.set_runtime_headers(self._runtime_headers)
 
     async def close(self, ignore_errors: bool = True) -> None:
         """Deregister this MCP via ``DELETE /mcps/{name}``.
@@ -315,8 +314,8 @@ class GatewayMCPClient(MCPClient):
         """Replace headers on the registered gateway-side MCP client.
 
         Unlike a local client, the proxy must already be connected so that
-        the live client exists in the workspace. :meth:`connect` replays the
-        headers, so they survive a reconnect.
+        the live client exists in the workspace. :meth:`connect` sends them
+        with the registration, so they survive a reconnect.
 
         Args:
             headers (`dict[str, str]`):

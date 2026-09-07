@@ -238,6 +238,24 @@ class MCPRuntimeHeadersTest(IsolatedAsyncioTestCase):
                 with self.assertRaisesRegex(ValueError, "Streamable HTTP"):
                     await client.set_runtime_headers({"X-Runtime": "value"})
 
+    async def test_runtime_headers_reject_http_owned_names(self) -> None:
+        """httpx derives these with setdefault, so a value here would win."""
+        client = MCPClient(
+            name="runtime_headers",
+            is_stateful=False,
+            mcp_config=HttpMCPConfig(url="https://example.com/mcp"),
+        )
+
+        for name in (
+            "Host",
+            "Content-Length",
+            "Transfer-Encoding",
+            "connection",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "owned by the HTTP"):
+                    await client.set_runtime_headers({name: "hijacked"})
+
     async def test_runtime_headers_reject_invalid_wire_values(self) -> None:
         """Invalid names and values fail before an HTTP request is sent."""
         client = MCPClient(
@@ -297,6 +315,43 @@ class GatewayRuntimeHeadersRouteTest(unittest.TestCase):
                 "same_client": True,
                 "is_connected": True,
                 "runtime_headers": {"Authorization": "Bearer runtime"},
+            },
+        )
+
+    def test_registration_applies_headers_before_connect(self) -> None:
+        """The gateway's own handshake must use the rotated credential."""
+        at_connect: list[dict[str, str]] = []
+
+        async def capture(client: MCPClient) -> None:
+            at_connect.append(dict(client._runtime_headers))
+
+        with patch.object(MCPClient, "connect", capture), patch.object(
+            MCPClient,
+            "list_raw_tools",
+            AsyncMock(return_value=[]),
+        ):
+            response = self.client.post(
+                "/mcps",
+                params={"agent_id": "agent", "session_id": "session"},
+                json={
+                    "name": "fresh",
+                    "is_stateful": True,
+                    "mcp_config": {
+                        "type": "http_mcp",
+                        "url": "https://example.com/mcp",
+                    },
+                    "runtime_headers": {"Authorization": "Bearer runtime"},
+                },
+            )
+
+        self.assertDictEqual(
+            {
+                "status_code": response.status_code,
+                "headers_at_connect": at_connect,
+            },
+            {
+                "status_code": 200,
+                "headers_at_connect": [{"Authorization": "Bearer runtime"}],
             },
         )
 
@@ -368,12 +423,25 @@ class GatewayMCPClientRuntimeHeadersTest(IsolatedAsyncioTestCase):
             params={"agent_id": "agent", "session_id": "session"},
             body={"headers": {"Authorization": "Bearer runtime"}},
         )
-        self.assertIsNone(
-            client.model_dump(mode="json")["mcp_config"]["headers"],
+        self.assertDictEqual(
+            client.model_dump(mode="json"),
+            {
+                "name": "remote",
+                "is_stateful": False,
+                "mcp_config": {
+                    "type": "http_mcp",
+                    "url": "https://example.com/mcp",
+                    "headers": None,
+                    "timeout": 30.0,
+                },
+                "enable_tools": None,
+                "disable_tools": None,
+                "execution_timeout": None,
+            },
         )
 
-    async def test_proxy_replays_runtime_headers_on_reconnect(self) -> None:
-        """``model_dump`` drops them, so ``connect`` must push them again."""
+    async def test_proxy_registers_with_runtime_headers(self) -> None:
+        """The gateway connects during POST, so they must ride along."""
         gateway = GatewayClient(
             backend=object(),  # type: ignore[arg-type]
             gateway_port=5600,
@@ -388,12 +456,24 @@ class GatewayMCPClientRuntimeHeadersTest(IsolatedAsyncioTestCase):
         gateway.exec_request.reset_mock()
         await client.connect()
 
-        self.assertListEqual(
-            [call.args[:2] for call in gateway.exec_request.await_args_list],
-            [
-                ("POST", "/mcps"),
-                ("PUT", "/mcps/remote/runtime-headers"),
-            ],
+        gateway.exec_request.assert_awaited_once_with(
+            "POST",
+            "/mcps",
+            params={"agent_id": "agent", "session_id": "session"},
+            body={
+                "name": "remote",
+                "is_stateful": False,
+                "mcp_config": {
+                    "type": "http_mcp",
+                    "url": "https://example.com/mcp",
+                    "headers": None,
+                    "timeout": 30.0,
+                },
+                "enable_tools": None,
+                "disable_tools": None,
+                "execution_timeout": None,
+                "runtime_headers": {"Authorization": "Bearer runtime"},
+            },
         )
 
     async def test_proxy_rejects_update_before_connect(self) -> None:

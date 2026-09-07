@@ -13,8 +13,10 @@ import httpx
 import mcp.types
 from mcp import ClientSession, stdio_client, StdioServerParameters
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamable_http_client
-from mcp.shared._httpx_utils import create_mcp_http_client
+from mcp.client.streamable_http import (
+    create_mcp_http_client,
+    streamable_http_client,
+)
 from pydantic import Field, BaseModel, PrivateAttr
 
 from ._config import StdioMCPConfig, HttpMCPConfig
@@ -75,6 +77,12 @@ class MCPClient(BaseModel):
 
     """
 
+    # httpx derives these from the request URL and body with setdefault,
+    # so a client-level value silently wins and breaks routing or framing.
+    # The headers MCP itself sends are set per request and need no guard.
+    _RESERVED_HEADERS: ClassVar[frozenset[str]] = frozenset(
+        {"connection", "content-length", "host", "transfer-encoding"},
+    )
     # RFC 7230 token, and a field value of visible ASCII plus tab.
     _HEADER_NAME: ClassVar[re.Pattern[str]] = re.compile(
         r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+",
@@ -260,11 +268,13 @@ class MCPClient(BaseModel):
         from ``model_dump`` and workspace persistence.
 
         The update reaches the next outbound request without reconnecting.
-        Two things it cannot reach: a request already in flight, and the
-        long-lived GET stream of a Streamable HTTP session, whose headers
-        are fixed when the stream is established. Headers owned by the
-        transport (``mcp-session-id``, ``content-type``, ...) are set per
-        request and always win over the ones set here.
+        Two things it cannot reach: a call already under way, which keeps
+        the snapshot it started with, and the long-lived GET stream of a
+        Streamable HTTP session, whose headers are fixed when the stream
+        is established. Headers MCP sends itself (``mcp-session-id``,
+        ``content-type``, ...) are set per request and always win over
+        the ones set here; the few httpx derives from the URL and body
+        are rejected outright.
 
         Args:
             headers (`dict[str, str]`):
@@ -272,8 +282,8 @@ class MCPClient(BaseModel):
 
         Raises:
             `ValueError`:
-                The client is not Streamable HTTP, or a header name or
-                value is not valid on the wire.
+                The client is not Streamable HTTP, or a header is
+                invalid or owned by the HTTP layer.
         """
         if self.mcp_config.type != "http_mcp" or self._is_sse:
             raise ValueError(
@@ -292,6 +302,10 @@ class MCPClient(BaseModel):
                 or not self._HEADER_VALUE.fullmatch(value)
             ):
                 raise ValueError(f"Runtime header {name!r} is invalid.")
+            if name.lower() in self._RESERVED_HEADERS:
+                raise ValueError(
+                    f"Runtime header {name!r} is owned by the HTTP layer.",
+                )
 
         self._runtime_headers = dict(headers)
         if self._http_client is not None:
