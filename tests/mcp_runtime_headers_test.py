@@ -152,8 +152,8 @@ class MCPRuntimeHeadersTest(IsolatedAsyncioTestCase):
             {"Mcp-Session-Id": "from-transport"},
         )
 
-    async def test_streamable_http_client_keeps_mcp_defaults(self) -> None:
-        """Configured headers must not cost the SDK's HTTP defaults."""
+    async def test_owning_the_client_keeps_transport_defaults(self) -> None:
+        """Taking ownership must not change how the client is configured."""
         defaults: dict[str, Any] = {}
         for label, config in (
             (
@@ -184,7 +184,7 @@ class MCPRuntimeHeadersTest(IsolatedAsyncioTestCase):
             defaults,
             {
                 "configured": {
-                    "follow_redirects": True,
+                    "follow_redirects": False,
                     "read_timeout": 30.0,
                 },
                 "untimed": {

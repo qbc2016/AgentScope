@@ -42,11 +42,9 @@ class MCPClient(BaseModel):
     - _stack: AsyncExitStack for managing connection lifecycle
     - _is_connected: Connection state flag
     - _cached_tools: Cached list of tools
-    - _http_client: The live HTTP client, while a Streamable HTTP
-      transport is open
-    - _static_headers: The HTTP client's headers before any runtime override
-    - _runtime_headers: Headers overriding the configured ones, see
-      :meth:`set_runtime_headers`
+    - _http_client: The live HTTP client, while one is open
+    - _static_headers: Its headers before any runtime override
+    - _runtime_headers: See :meth:`set_runtime_headers`
 
     Example:
 
@@ -77,9 +75,11 @@ class MCPClient(BaseModel):
 
     """
 
-    _HEADER_NAME_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
+    # RFC 7230 token, and a field value of visible ASCII plus tab.
+    _HEADER_NAME: ClassVar[re.Pattern[str]] = re.compile(
         r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+",
     )
+    _HEADER_VALUE: ClassVar[re.Pattern[str]] = re.compile(r"[\t\x20-\x7e]*")
 
     name: str = Field(
         title="MCP Name",
@@ -212,12 +212,9 @@ class MCPClient(BaseModel):
 
     @property
     def _is_sse(self) -> bool:
-        """Whether the configured URL points at the SSE transport.
-
-        Only the URL *path* is inspected: an SSE endpoint carrying a query
-        string (e.g. ``https://mcp.amap.com/sse?key=API_KEY``) does not end
-        with ``/sse``, and would otherwise fall through to streamable HTTP
-        and fail the handshake with 'Session terminated'.
+        """Whether the configured URL points at the SSE transport. Only
+        the path is inspected, so a query string (``/sse?key=...``) still
+        resolves to SSE rather than falling through to streamable HTTP.
         """
         path = urlsplit(self.mcp_config.url).path
         return path.endswith("/sse") or path.endswith("/messages/")
@@ -228,10 +225,13 @@ class MCPClient(BaseModel):
     ) -> AsyncGenerator[Any, None]:
         """Create an owned HTTP client that runtime headers can update."""
         config = self.mcp_config
-        client = create_mcp_http_client(
-            headers=config.headers,
-            timeout=config.timeout,
-        )
+        if config.headers or config.timeout:
+            client = httpx.AsyncClient(
+                headers=config.headers,
+                timeout=config.timeout,
+            )
+        else:
+            client = create_mcp_http_client()
         # Snapshot before overlaying: clearing runtime headers restores it.
         self._static_headers = httpx.Headers(client.headers)
         client.headers.update(self._runtime_headers)
@@ -280,20 +280,16 @@ class MCPClient(BaseModel):
                 "Runtime headers require a Streamable HTTP MCP client.",
             )
         if not isinstance(headers, dict):
-            raise ValueError("Runtime headers must be a dict of strings.")
+            raise ValueError("Runtime headers must be a dict.")
 
         # httpx accepts illegal names and CRLF in values, and only h11
         # rejects them mid-request, so validate before storing.
         for name, value in headers.items():
-            if not isinstance(name, str) or not isinstance(value, str):
-                raise ValueError("Runtime headers must be a dict of strings.")
             if (
-                not self._HEADER_NAME_PATTERN.fullmatch(name)
-                or not value.isascii()
-                or any(
-                    (ord(char) < 32 and char != "\t") or ord(char) == 127
-                    for char in value
-                )
+                not isinstance(name, str)
+                or not isinstance(value, str)
+                or not self._HEADER_NAME.fullmatch(name)
+                or not self._HEADER_VALUE.fullmatch(value)
             ):
                 raise ValueError(f"Runtime header {name!r} is invalid.")
 
