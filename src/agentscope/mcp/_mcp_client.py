@@ -42,6 +42,11 @@ class MCPClient(BaseModel):
     - _stack: AsyncExitStack for managing connection lifecycle
     - _is_connected: Connection state flag
     - _cached_tools: Cached list of tools
+    - _http_client: The live HTTP client, while a Streamable HTTP
+      transport is open
+    - _static_headers: The HTTP client's headers before any runtime override
+    - _runtime_headers: Headers overriding the configured ones, see
+      :meth:`set_runtime_headers`
 
     Example:
 
@@ -72,20 +77,7 @@ class MCPClient(BaseModel):
 
     """
 
-    _RUNTIME_HEADER_DENYLIST: ClassVar[frozenset[str]] = frozenset(
-        {
-            "accept",
-            "connection",
-            "content-length",
-            "content-type",
-            "host",
-            "last-event-id",
-            "mcp-protocol-version",
-            "mcp-session-id",
-            "transfer-encoding",
-        },
-    )
-    _RUNTIME_HEADER_NAME_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
+    _HEADER_NAME_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
         r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+",
     )
 
@@ -127,10 +119,9 @@ class MCPClient(BaseModel):
     _stack: AsyncExitStack | None = PrivateAttr(default=None)
     _is_connected: bool = PrivateAttr(default=False)
     _cached_tools: list[mcp.types.Tool] | None = PrivateAttr(default=None)
+    _http_client: httpx.AsyncClient | None = PrivateAttr(default=None)
+    _static_headers: httpx.Headers | None = PrivateAttr(default=None)
     _runtime_headers: dict[str, str] = PrivateAttr(default_factory=dict)
-    _runtime_header_names: frozenset[str] = PrivateAttr(
-        default_factory=frozenset,
-    )
 
     @property
     def is_connected(self) -> bool:
@@ -210,15 +201,7 @@ class MCPClient(BaseModel):
     ) -> AbstractAsyncContextManager[Any]:
         """Create an HTTP MCP client (SSE or streamable HTTP)."""
         config = self.mcp_config
-
-        # Determine transport from the URL *path* only. Inspecting the full
-        # URL with endswith would misdetect SSE endpoints whose URL carries
-        # a query string (e.g. https://mcp.amap.com/sse?key=API_KEY): such
-        # URLs no longer end with '/sse' and would fall through to the
-        # streamable HTTP transport, which then fails to handshake against
-        # an SSE server with 'Session terminated'.
-        path = urlsplit(config.url).path
-        if path.endswith("/sse") or path.endswith("/messages/"):
+        if self._is_sse:
             return sse_client(
                 url=config.url,
                 headers=config.headers,
@@ -227,82 +210,61 @@ class MCPClient(BaseModel):
 
         return self._create_streamable_http_client()
 
+    @property
+    def _is_sse(self) -> bool:
+        """Whether the configured URL points at the SSE transport.
+
+        Only the URL *path* is inspected: an SSE endpoint carrying a query
+        string (e.g. ``https://mcp.amap.com/sse?key=API_KEY``) does not end
+        with ``/sse``, and would otherwise fall through to streamable HTTP
+        and fail the handshake with 'Session terminated'.
+        """
+        path = urlsplit(self.mcp_config.url).path
+        return path.endswith("/sse") or path.endswith("/messages/")
+
     @asynccontextmanager
     async def _create_streamable_http_client(
         self,
     ) -> AsyncGenerator[Any, None]:
-        """Create an owned HTTP client with live header injection."""
+        """Create an owned HTTP client that runtime headers can update."""
         config = self.mcp_config
-        if config.headers is None and config.timeout is None:
-            http_client = create_mcp_http_client()
-        else:
-            http_client = httpx.AsyncClient(
-                headers=config.headers,
-                timeout=config.timeout,
-            )
-        http_client.event_hooks["request"].append(
-            self._inject_runtime_headers,
+        client = create_mcp_http_client(
+            headers=config.headers,
+            timeout=config.timeout,
         )
+        # Snapshot before overlaying: clearing runtime headers restores it.
+        self._static_headers = httpx.Headers(client.headers)
+        client.headers.update(self._runtime_headers)
+        self._http_client = client
 
-        async with http_client:
-            async with streamable_http_client(
-                url=config.url,
-                http_client=http_client,
-            ) as transport:
-                yield transport
-
-    async def _inject_runtime_headers(
-        self,
-        request: httpx.Request,
-    ) -> None:
-        """Apply a runtime-header snapshot to a same-origin request."""
-        configured_url = httpx.URL(self.mcp_config.url)
-        same_origin = (
-            request.url.scheme,
-            request.url.host,
-            request.url.port,
-        ) == (
-            configured_url.scheme,
-            configured_url.host,
-            configured_url.port,
-        )
-
-        # Redirect requests inherit ordinary custom headers. Remove every
-        # name ever owned by the runtime layer before deciding whether the
-        # current request may receive a fresh snapshot.
-        runtime_header_names = self._runtime_header_names
-        for name in runtime_header_names:
-            request.headers.pop(name, None)
-        if not same_origin:
-            return
-
-        # Restore configured values that may have been shadowed by a prior
-        # runtime snapshot, then apply the current complete replacement map.
-        for name, value in (self.mcp_config.headers or {}).items():
-            if name.lower() in runtime_header_names:
-                request.headers[name] = value
-        request.headers.update(dict(self._runtime_headers))
+        try:
+            async with client:
+                async with streamable_http_client(
+                    url=config.url,
+                    http_client=client,
+                ) as transport:
+                    yield transport
+        finally:
+            if self._http_client is client:
+                self._http_client = None
 
     async def set_runtime_headers(
         self,
         headers: dict[str, str],
     ) -> None:
-        """Replace headers applied to subsequent Streamable HTTP requests.
+        """Replace the headers sent with subsequent HTTP requests.
 
-        This method replaces the complete runtime header map instead of
-        merging it. An empty map removes all runtime overrides, so static
-        headers from :attr:`mcp_config` apply again. It can be called before
-        connecting a local stateful client, or at any time for a stateless
-        client.
+        The map is replaced rather than merged: an empty map drops all
+        runtime overrides, so the static headers from :attr:`mcp_config`
+        apply again. Runtime headers are live instance state, excluded
+        from ``model_dump`` and workspace persistence.
 
-        The update applies to subsequent outbound requests to the configured
-        MCP origin. Runtime headers are not forwarded across cross-origin
-        redirects. A request already in progress may have read the previous
-        header snapshot. SSE transport is not supported because its headers
-        are fixed when the stream is established.
-
-        Runtime headers are live instance state. They are intentionally
-        excluded from ``model_dump`` and workspace persistence.
+        The update reaches the next outbound request without reconnecting.
+        Two things it cannot reach: a request already in flight, and the
+        long-lived GET stream of a Streamable HTTP session, whose headers
+        are fixed when the stream is established. Headers owned by the
+        transport (``mcp-session-id``, ``content-type``, ...) are set per
+        request and always win over the ones set here.
 
         Args:
             headers (`dict[str, str]`):
@@ -310,52 +272,36 @@ class MCPClient(BaseModel):
 
         Raises:
             `ValueError`:
-                The client is not Streamable HTTP, a header is invalid, or
-                a header is owned by the HTTP/MCP transport.
+                The client is not Streamable HTTP, or a header name or
+                value is not valid on the wire.
         """
-        if self.mcp_config.type != "http_mcp":
+        if self.mcp_config.type != "http_mcp" or self._is_sse:
             raise ValueError(
-                "Runtime headers require an HTTP MCP client.",
-            )
-        path = urlsplit(self.mcp_config.url).path
-        if path.endswith("/sse") or path.endswith("/messages/"):
-            raise ValueError(
-                "Runtime headers currently support only Streamable HTTP.",
+                "Runtime headers require a Streamable HTTP MCP client.",
             )
         if not isinstance(headers, dict):
             raise ValueError("Runtime headers must be a dict of strings.")
 
-        validated: dict[str, str] = {}
+        # httpx accepts illegal names and CRLF in values, and only h11
+        # rejects them mid-request, so validate before storing.
         for name, value in headers.items():
             if not isinstance(name, str) or not isinstance(value, str):
-                raise ValueError(
-                    "Runtime headers must be a dict of strings.",
-                )
-            if name.lower() in self._RUNTIME_HEADER_DENYLIST:
-                raise ValueError(
-                    f"Runtime header {name!r} is owned by the transport.",
-                )
-            invalid_value = any(
-                (ord(char) < 32 and char != "\t") or ord(char) == 127
-                for char in value
-            )
-            try:
-                value.encode("ascii")
-            except UnicodeEncodeError:
-                invalid_value = True
+                raise ValueError("Runtime headers must be a dict of strings.")
             if (
-                self._RUNTIME_HEADER_NAME_PATTERN.fullmatch(name) is None
-                or invalid_value
-            ):
-                raise ValueError(
-                    f"Runtime header {name!r} is invalid.",
+                not self._HEADER_NAME_PATTERN.fullmatch(name)
+                or not value.isascii()
+                or any(
+                    (ord(char) < 32 and char != "\t") or ord(char) == 127
+                    for char in value
                 )
-            validated[name] = value
+            ):
+                raise ValueError(f"Runtime header {name!r} is invalid.")
 
-        self._runtime_header_names = self._runtime_header_names.union(
-            name.lower() for name in validated
-        )
-        self._runtime_headers = validated
+        self._runtime_headers = dict(headers)
+        if self._http_client is not None:
+            merged = httpx.Headers(self._static_headers)
+            merged.update(self._runtime_headers)
+            self._http_client.headers = merged
 
     async def connect(self) -> None:
         """Connect to the MCP server (for stateful connections only).

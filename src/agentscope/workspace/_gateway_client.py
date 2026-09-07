@@ -269,6 +269,11 @@ class GatewayMCPClient(MCPClient):
             )
         self._is_connected = True
 
+        # model_dump carries no runtime headers, so a reconnect would
+        # silently fall back to the configured ones.
+        if self._runtime_headers:
+            await self.set_runtime_headers(self._runtime_headers)
+
     async def close(self, ignore_errors: bool = True) -> None:
         """Deregister this MCP via ``DELETE /mcps/{name}``.
 
@@ -309,9 +314,9 @@ class GatewayMCPClient(MCPClient):
     ) -> None:
         """Replace headers on the registered gateway-side MCP client.
 
-        Unlike a local client, the gateway proxy must already be connected so
-        that the live client exists in the workspace. The complete runtime
-        header map is replaced, and an empty map clears all runtime overrides.
+        Unlike a local client, the proxy must already be connected so that
+        the live client exists in the workspace. :meth:`connect` replays the
+        headers, so they survive a reconnect.
 
         Args:
             headers (`dict[str, str]`):
@@ -337,6 +342,12 @@ class GatewayMCPClient(MCPClient):
             },
             body={"headers": headers},
         )
+        if status == 404:
+            raise RuntimeError(
+                f"gateway has no runtime-headers route, or no live client "
+                f"for MCP {self.name!r}: the workspace image may predate "
+                f"the endpoint, or the gateway has restarted",
+            )
         if status == 400:
             raise ValueError(
                 f"gateway rejected runtime headers for "
@@ -347,6 +358,7 @@ class GatewayMCPClient(MCPClient):
                 f"gateway failed to update runtime headers for "
                 f"MCP {self.name!r}: {_safe_detail(status, body)}",
             )
+        self._runtime_headers = dict(headers)
 
     # ── tool discovery ────────────────────────────────────────────
 
