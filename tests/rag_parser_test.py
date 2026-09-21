@@ -1022,6 +1022,76 @@ class PPTParserTest(IsolatedAsyncioTestCase):
 class ExcelParserTest(IsolatedAsyncioTestCase):
     """Behavioural coverage for :class:`ExcelParser`."""
 
+    async def test_header_only_sheet(self) -> None:
+        """A sheet with only a header row is kept as a table."""
+        xlsx_bytes = _make_xlsx_simple({"Data": [["Revenue", "Year"]]})
+        sections = await ExcelParser().parse(xlsx_bytes, "header.xlsx")
+
+        self.assertListEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": (
+                            "Sheet: Data\n"
+                            "| Revenue | Year |\n"
+                            "| --- | --- |\n"
+                        ),
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    "source": "header.xlsx",
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_blank_sheet_has_no_sections(self) -> None:
+        """A blank sheet produces neither a table nor images."""
+        xlsx_bytes = _make_xlsx_simple({"Blank": []})
+        sections = await ExcelParser().parse(xlsx_bytes, "blank.xlsx")
+
+        self.assertListEqual(sections, [])
+
+    async def test_image_only_sheet(self) -> None:
+        """Images on a sheet without cell values are still extracted."""
+        from openpyxl import Workbook
+        from openpyxl.drawing.image import Image
+
+        workbook = Workbook()
+        workbook.active.title = "Images"
+        workbook.active.add_image(Image(io.BytesIO(_PNG_PIXEL)), "A3")
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+
+        parser = ExcelParser(include_image=True)
+        sections = await parser.parse(buffer.getvalue(), "images.xlsx")
+
+        self.assertListEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "data",
+                        "id": AnyString(),
+                        "source": {
+                            "type": "base64",
+                            "data": _PNG_PIXEL_B64,
+                            "media_type": "image/png",
+                        },
+                        "name": "images.xlsx",
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    "source": "images.xlsx",
+                    "metadata": {"sheet": "Images", "media_type": "image/png"},
+                },
+            ],
+        )
+
     async def test_single_sheet_markdown(self) -> None:
         """A single-sheet workbook produces one text Section with
         Markdown table."""
