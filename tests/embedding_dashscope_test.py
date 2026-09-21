@@ -62,6 +62,28 @@ def _mock_resp(embeddings: list[list[float]]) -> EmbeddingResponse:
 class DashScopeListModelsTest(IsolatedAsyncioTestCase):
     """Test list_models for DashScope."""
 
+    def test_multimodal_capability(self) -> None:
+        """Instances expose the multimodal capability of their model cards."""
+        self.assertDictEqual(
+            {
+                card.name: DashScopeEmbeddingModel(
+                    credential=_cred(),
+                    model=card.name,
+                    dimensions=card.dimensions,
+                ).supports_multimodal
+                for card in DashScopeEmbeddingModel.list_models()
+            },
+            {
+                "text-embedding-v4": False,
+                "tongyi-embedding-vision-flash": True,
+                "qwen3-vl-embedding": True,
+                "qwen2.5-vl-embedding": True,
+                "text-embedding-v3": False,
+                "multimodal-embedding-v1": True,
+                "tongyi-embedding-vision-plus": True,
+            },
+        )
+
     async def test_list_models(self) -> None:
         """Should list 7 models (text + multimodal)."""
         cards = DashScopeEmbeddingModel.list_models()
