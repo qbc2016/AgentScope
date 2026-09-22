@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from .._utils._common import _generate_id
 
 if TYPE_CHECKING:
+    from ..classifier import ClassifierModelBase
     from ..embedding import EmbeddingModelBase
     from ..model import ChatModelBase, ModelCard
     from ..realtime import RealtimeModelBase, RealtimeModelCard
@@ -28,14 +29,15 @@ class CredentialBase(BaseModel):
     )
 
     @classmethod
-    def get_chat_model_class(cls) -> Type["ChatModelBase"]:
-        """Return the :class:`ChatModelBase` subclass that consumes this
-        credential. Subclasses must override this method to return the
-        corresponding chat model class.
+    def get_chat_model_class(cls) -> Type["ChatModelBase"] | None:
+        """Return the chat model class that consumes this credential.
+
+        Subclasses must override this method. Classifier-only credentials
+        should explicitly return ``None``.
 
         Returns:
-            `Type[ChatModelBase]`:
-                The chat model class that uses this credential.
+            `Type[ChatModelBase] | None`:
+                The chat model class, or ``None`` when chat is unsupported.
         """
         raise NotImplementedError(
             f"{cls.__name__} must implement ``get_chat_model_class``.",
@@ -96,7 +98,8 @@ class CredentialBase(BaseModel):
             `list[ModelCard]`:
                 A list of candidate models described by their model cards.
         """
-        return cls.get_chat_model_class().list_models()
+        model_cls = cls.get_chat_model_class()
+        return [] if model_cls is None else model_cls.list_models()
 
     @classmethod
     def get_embedding_model_class(cls) -> Type["EmbeddingModelBase"] | None:
@@ -110,5 +113,20 @@ class CredentialBase(BaseModel):
         Returns:
             `Type[EmbeddingModelBase] | None`:
                 The embedding model class, or ``None``.
+        """
+        return None
+
+    @classmethod
+    def get_classifier_model_class(
+        cls,
+    ) -> Type["ClassifierModelBase"] | None:
+        """Return the classifier model class for this credential.
+
+        The default returns ``None`` for providers that do not support
+        classifier models.
+
+        Returns:
+            `Type[ClassifierModelBase] | None`:
+                The classifier model class, or ``None`` when unsupported.
         """
         return None
