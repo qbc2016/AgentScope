@@ -18,6 +18,8 @@ from ....event import (
     ReplyStartEvent,
     RequireExternalExecutionEvent,
     RequireUserConfirmEvent,
+    RoutingCallEndEvent,
+    RoutingCallStartEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
@@ -128,6 +130,18 @@ class AGUIProtocolMiddleware(ProtocolMiddlewareBase):
         if isinstance(event, ModelCallEndEvent):
             return AGUIStepFinishedEvent(
                 step_name=self._last_model_name,
+            )
+
+        if isinstance(event, RoutingCallStartEvent):
+            return AGUICustomEvent(
+                name="routing_call_start",
+                value=event.model_dump(exclude_none=True),
+            )
+
+        if isinstance(event, RoutingCallEndEvent):
+            return AGUICustomEvent(
+                name="routing_call_end",
+                value=event.model_dump(exclude_none=True),
             )
 
         if isinstance(event, TextBlockStartEvent):

@@ -26,6 +26,9 @@ from agentscope.event import (
     ReplyStartEvent,
     RequireExternalExecutionEvent,
     RequireUserConfirmEvent,
+    RoutingCallEndEvent,
+    RoutingCallStartEvent,
+    RoutingUsage,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
@@ -285,6 +288,82 @@ class AGUIProtocolStepTest(IsolatedAsyncioTestCase):
 
         self.assertEqual(result["type"], "STEP_FINISHED")
         self.assertEqual(result["stepName"], "gpt-4")
+
+    async def test_routing_call_start_to_custom(self) -> None:
+        """Test RoutingCallStartEvent -> named CUSTOM event."""
+        event = RoutingCallStartEvent(
+            id="routing-start-event",
+            created_at="2026-09-22T10:00:00",
+            reply_id="reply_1",
+            model_name="router-model",
+            model_type="classifier",
+        )
+
+        result = self.mw._convert_to_protocol(event)
+
+        self.assertDictEqual(
+            result,
+            {
+                "type": "CUSTOM",
+                "name": "routing_call_start",
+                "value": {
+                    "id": "routing-start-event",
+                    "created_at": "2026-09-22T10:00:00",
+                    "metadata": {},
+                    "type": "ROUTING_CALL_START",
+                    "reply_id": "reply_1",
+                    "model_name": "router-model",
+                    "model_type": "classifier",
+                },
+            },
+        )
+
+    async def test_routing_call_end_to_custom(self) -> None:
+        """Test RoutingCallEndEvent -> named CUSTOM event."""
+        event = RoutingCallEndEvent(
+            id="routing-end-event",
+            created_at="2026-09-22T10:00:01",
+            reply_id="reply_1",
+            model_name="router-model",
+            model_type="chat",
+            selected_model="reasoning",
+            usage=RoutingUsage(
+                input_tokens=20,
+                output_tokens=2,
+                time=0.3,
+                cache_input_tokens=4,
+                cache_creation_input_tokens=3,
+            ),
+            success=True,
+        )
+
+        result = self.mw._convert_to_protocol(event)
+
+        self.assertDictEqual(
+            result,
+            {
+                "type": "CUSTOM",
+                "name": "routing_call_end",
+                "value": {
+                    "id": "routing-end-event",
+                    "created_at": "2026-09-22T10:00:01",
+                    "metadata": {},
+                    "type": "ROUTING_CALL_END",
+                    "reply_id": "reply_1",
+                    "model_name": "router-model",
+                    "model_type": "chat",
+                    "selected_model": "reasoning",
+                    "usage": {
+                        "input_tokens": 20,
+                        "output_tokens": 2,
+                        "time": 0.3,
+                        "cache_input_tokens": 4,
+                        "cache_creation_input_tokens": 3,
+                    },
+                    "success": True,
+                },
+            },
+        )
 
     async def asyncTearDown(self) -> None:
         """The async teardown method."""
