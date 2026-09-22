@@ -898,6 +898,29 @@ class BashParserSedConstraintsTest(IsolatedAsyncioTestCase):
                 self.assertIsNotNone(result)
                 self.assertIn(expected_substring, result)
 
+    async def test_denylist_every_e_expression(self) -> None:
+        """Test denylist: every -e expression is checked, not only the 1st."""
+        self.assertEqual(
+            self.parser.check_sed_constraints(
+                "sed -e 's/a/b/' -e '/x/w /tmp/out' f",
+                self.dangerous_files,
+            ),
+            "sed write operation (w/W) not allowed",
+        )
+        self.assertEqual(
+            self.parser.check_sed_constraints(
+                "sed -e 's/a/b/' -e '1e id' f",
+                self.dangerous_files,
+            ),
+            "sed expression '1e id' not in allowlist",
+        )
+        self.assertIsNone(
+            self.parser.check_sed_constraints(
+                "sed -e 's/a/b/' -e 's/x/y/g' f",
+                self.dangerous_files,
+            ),
+        )
+
     async def test_denylist_execute_operations(self) -> None:
         """Test denylist: execute operations (e/E)."""
         test_cases = [
