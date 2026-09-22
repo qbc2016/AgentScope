@@ -789,16 +789,30 @@ class WorkspaceBase:
     # ── instance lifecycle ─────────────────────────────────────────
 
     @staticmethod
-    async def _close_mcp_instance(instance: MCPClient) -> None:
-        """Close one live handle, downgrading failures to warnings.
+    async def _close_mcp_instance(
+        instance: MCPClient,
+        *,
+        suppress_errors: bool = True,
+    ) -> None:
+        """Close one connected live handle.
 
-        Stateless clients hold no connection, so they are skipped.
+        A connected gateway proxy represents a registration even when its
+        upstream MCP is stateless, so connectedness rather than upstream
+        statefulness determines whether cleanup is required.
+
+        Args:
+            instance (`MCPClient`):
+                The live MCP handle to close.
+            suppress_errors (`bool`, defaults to `True`):
+                Whether to downgrade cleanup failures to warnings.
         """
-        if not (instance.is_stateful and instance.is_connected):
+        if not instance.is_connected:
             return
         try:
-            await instance.close()
+            await instance.close(ignore_errors=False)
         except Exception as e:
+            if not suppress_errors:
+                raise
             logger.warning("MCP %r close failed: %s", instance.name, e)
 
     async def _enforce_mcp_capacity(

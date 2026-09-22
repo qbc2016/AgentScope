@@ -383,7 +383,7 @@ class SandboxedWorkspaceBase(WorkspaceBase):
 
         Raises:
             `RuntimeError`:
-                If the gateway is not attached.
+                If the gateway is not attached or rejects deregistration.
         """
         if self._gateway is None:
             raise RuntimeError("Workspace has no MCP gateway attached.")
@@ -398,12 +398,17 @@ class SandboxedWorkspaceBase(WorkspaceBase):
                     session_id,
                 )
                 return
-            instance = self._mcp_instances.get(
+            live = self._mcp_instances.get(
                 (agent_id, session_id),
                 {},
-            ).pop(name, None)
+            )
+            instance = live.get(name)
             if instance is not None:
-                await self._close_mcp_instance(instance)
+                await self._close_mcp_instance(
+                    instance,
+                    suppress_errors=False,
+                )
+                live.pop(name)
             self._mcp_specs[(agent_id, session_id)] = [
                 m for m in specs if m.name != name
             ]
