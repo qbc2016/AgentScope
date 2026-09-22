@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """Provider-independent response types for classifier models."""
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Literal, TypeAlias
 
 from ._usage import ClassifierUsage
-from .._utils._common import _generate_id
+from .._utils._common import _generate_id, _generate_timestamp
 from .._utils._mixin import DictMixin
 from ..types import JSONSerializableObject
 
@@ -81,7 +80,7 @@ class ClassifierResponse(DictMixin):
     model: str
     """The concrete model that produced the answers."""
 
-    answers: dict[str, ClassifierAnswer]
+    content: dict[str, ClassifierAnswer]
     """Answers keyed by the corresponding question names."""
 
     usage: ClassifierUsage | None = field(default_factory=lambda: None)
@@ -90,7 +89,7 @@ class ClassifierResponse(DictMixin):
     id: str = field(default_factory=_generate_id)
     """The unique response identifier."""
 
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    created_at: str = field(default_factory=_generate_timestamp)
     """When the response was created."""
 
     type: Literal["classifier_response"] = field(

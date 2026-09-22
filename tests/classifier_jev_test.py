@@ -67,10 +67,9 @@ class JevClassifierModelTest(IsolatedAsyncioTestCase):
                 api_key="secret",
                 base_url="https://typesafe.example",
             ),
-            parameters=JevClassifierModel.Parameters(
-                extra_headers={"x-default": "default"},
-                extra_body={"trace": True},
-            ),
+            parameters=JevClassifierModel.Parameters(),
+            extra_headers={"x-default": "default"},
+            extra_body={"trace": True},
             max_retries=4,
             retry_delay=0.25,
         )
@@ -138,7 +137,7 @@ class JevClassifierModelTest(IsolatedAsyncioTestCase):
             asdict(response),
             {
                 "model": "jev-1.13.0",
-                "answers": {
+                "content": {
                     "urgent": {
                         "probability": 0.8,
                         "type": "binary_answer",
@@ -207,12 +206,11 @@ class JevClassifierModelTest(IsolatedAsyncioTestCase):
         """Missing SDK exports should produce an actionable error."""
         incompatible_sdk = SimpleNamespace(
             AsyncTypeSafeClient=MagicMock(),
-            RetryPolicy=MagicMock(),
         )
 
         with patch.dict("sys.modules", {"typesafe_sdk": incompatible_sdk}):
             with self.assertRaisesRegex(
                 ImportError,
-                "Unsupported typesafe-sdk version",
+                "requires a compatible optional",
             ):
                 JevClassifierModel(TypeSafeCredential(api_key="secret"))

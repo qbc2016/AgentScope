@@ -251,9 +251,10 @@ class Msg(BaseModel):
         content blocks are appended/updated by block-level events,
         ``finished_at`` is stamped by ``REPLY_END``, and ``usage`` is
         initialized then accumulated across each ``MODEL_CALL_END``.
-        Events whose ``reply_id`` does not match ``self.id`` are skipped with
-        a warning. Block-level delta/end events whose target block cannot be
-        found are also skipped with a warning.
+        Notification events without a ``reply_id`` are ignored. Events whose
+        ``reply_id`` does not match ``self.id`` are skipped with a warning.
+        Block-level delta/end events whose target block cannot be found are
+        also skipped with a warning.
 
         Args:
             event (`AgentEvent`):
@@ -261,12 +262,16 @@ class Msg(BaseModel):
         """
         from ..event import EventType  # local import to avoid circular dep
 
-        if event.reply_id != self.id:
+        event_reply_id = getattr(event, "reply_id", None)
+        if event_reply_id is None:
+            return self
+
+        if event_reply_id != self.id:
             logger.warning(
                 "Event %s with reply_id %r does not match message id %r, "
                 "skipping.",
                 event.__class__.__name__,
-                event.reply_id,
+                event_reply_id,
                 self.id,
             )
             return self

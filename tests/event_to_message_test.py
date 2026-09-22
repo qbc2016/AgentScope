@@ -29,6 +29,7 @@ from utils import AnyString
 
 from agentscope.event import (
     ConfirmResult,
+    CustomEvent,
     DataBlockDeltaEvent,
     DataBlockEndEvent,
     DataBlockStartEvent,
@@ -1002,6 +1003,19 @@ class EventToMessageTest(IsolatedAsyncioTestCase):
             original_dump,
             msg="Msg must not change when event.reply_id does not match",
         )
+
+    async def test_event_without_reply_id_is_skipped(self) -> None:
+        """A notification event without reply_id must be ignored."""
+        original_dump = self.msg.model_dump()
+
+        self.msg.append_event(
+            CustomEvent(
+                name="routing_call_start",
+                value={"reply_id": _REPLY_ID},
+            ),
+        )
+
+        self.assertDictEqual(self.msg.model_dump(), original_dump)
 
     async def test_missing_block_does_not_crash(self) -> None:
         """Sending a delta for a non-existent block must log a warning only."""

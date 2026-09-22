@@ -12,12 +12,7 @@ from ..classifier import (
     ClassifierModelBase,
     ClassifierUsage,
 )
-from ..event import (
-    ReplyStartEvent,
-    RoutingCallEndEvent,
-    RoutingCallStartEvent,
-    RoutingUsage,
-)
+from ..event import CustomEvent, ReplyStartEvent
 from ..message import Msg, SystemMsg, UserMsg
 from ..model import ChatModelBase, ChatUsage
 
@@ -29,6 +24,8 @@ _DEFAULT_INSTRUCTIONS = (
     "Select the most suitable chat model for responding to the user input."
 )
 _ROUTE_QUESTION_NAME = "chat_model"
+
+_RoutingUsage = dict[str, int | float | None]
 
 
 @dataclass
@@ -51,7 +48,7 @@ class _RoutingResult:
 
     model_name: str
     selected_model: str | None
-    usage: RoutingUsage | None
+    usage: _RoutingUsage | None
 
 
 @dataclass
@@ -70,7 +67,7 @@ class ModelRouterMiddleware(MiddlewareBase):
     model. The selected model remains subject to the Agent's fallback model.
 
     New routing calls happen after ``ReplyStartEvent`` and before the Agent
-    performs token counting or context compression. Each call emits dedicated
+    performs token counting or context compression. Each call emits custom
     routing start and end events, including normalized usage when available.
 
     The middleware does not own the routing or candidate model lifecycle.
@@ -189,10 +186,13 @@ class ModelRouterMiddleware(MiddlewareBase):
                     yield event
                     if routing_state is not None:
                         model_name, model_type = self._routing_model_info()
-                        yield RoutingCallStartEvent(
-                            reply_id=event.reply_id,
-                            model_name=model_name,
-                            model_type=model_type,
+                        yield CustomEvent(
+                            name="routing_call_start",
+                            value={
+                                "reply_id": event.reply_id,
+                                "model_name": model_name,
+                                "model_type": model_type,
+                            },
                         )
                         decision = await self._select_name(
                             agent,
@@ -215,14 +215,17 @@ class ModelRouterMiddleware(MiddlewareBase):
                     )
                     cache_pending = False
                     if routing_state is not None:
-                        yield RoutingCallEndEvent(
-                            reply_id=event.reply_id,
-                            model_name=decision.result.model_name,
-                            model_type=model_type,
-                            selected_model=selected_name,
-                            usage=decision.result.usage,
-                            success=decision.error is None,
-                            error=decision.error,
+                        yield CustomEvent(
+                            name="routing_call_end",
+                            value={
+                                "reply_id": event.reply_id,
+                                "model_name": decision.result.model_name,
+                                "model_type": model_type,
+                                "selected_model": selected_name,
+                                "usage": decision.result.usage,
+                                "success": decision.error is None,
+                                "error": decision.error,
+                            },
                         )
                     continue
                 yield event
@@ -305,7 +308,7 @@ class ModelRouterMiddleware(MiddlewareBase):
                     _ROUTE_QUESTION_NAME: self._routing_question,
                 },
             )
-            answer = response.answers.get(_ROUTE_QUESTION_NAME)
+            answer = response.content.get(_ROUTE_QUESTION_NAME)
             return _RoutingResult(
                 model_name=response.model,
                 selected_model=(
@@ -345,23 +348,23 @@ class ModelRouterMiddleware(MiddlewareBase):
     @staticmethod
     def _normalize_usage(
         usage: ClassifierUsage | ChatUsage | None,
-    ) -> RoutingUsage | None:
+    ) -> _RoutingUsage | None:
         """Normalize provider-independent classifier and chat usage."""
         if usage is None:
             return None
-        return RoutingUsage(
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            time=usage.time,
-            cache_input_tokens=(
+        return {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "time": usage.time,
+            "cache_input_tokens": (
                 usage.cache_input_tokens if isinstance(usage, ChatUsage) else 0
             ),
-            cache_creation_input_tokens=(
+            "cache_creation_input_tokens": (
                 usage.cache_creation_input_tokens
                 if isinstance(usage, ChatUsage)
                 else 0
             ),
-        )
+        }
 
     @staticmethod
     def _get_latest_user_state(

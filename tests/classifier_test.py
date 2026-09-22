@@ -38,7 +38,7 @@ class _MockClassifier(ClassifierModelBase):
         del state, questions, kwargs
         return ClassifierResponse(
             model=self.model,
-            answers={"safe": BinaryAnswer(probability=0.75)},
+            content={"safe": BinaryAnswer(probability=0.75)},
         )
 
     async def aclose(self) -> None:
@@ -131,7 +131,7 @@ class ClassifierModelBaseTest(IsolatedAsyncioTestCase):
             asdict(response),
             {
                 "model": "mock-classifier",
-                "answers": {
+                "content": {
                     "safe": {
                         "probability": 0.75,
                         "type": "binary_answer",
