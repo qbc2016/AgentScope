@@ -109,9 +109,7 @@ class ClassifierQuestionTest(TestCase):
         for content in invalid_content:
             with self.subTest(content=content):
                 with self.assertRaises(ValidationError):
-                    BinaryQuestion(  # type: ignore[arg-type]
-                        instructions=content,
-                    )
+                    BinaryQuestion(instructions=content)
 
 
 class ClassifierModelBaseTest(IsolatedAsyncioTestCase):
@@ -175,11 +173,9 @@ class ClassifierModelBaseTest(IsolatedAsyncioTestCase):
         for state in invalid_state:
             with self.subTest(state=state):
                 with self.assertRaises(ValidationError):
-                    await _MockClassifier()(  # type: ignore[arg-type]
+                    await _MockClassifier()(
                         state=state,
                         questions={
-                            "route": ChoiceQuestion(
-                                criteria={"a": None},
-                            ),
+                            "route": ChoiceQuestion(criteria={"a": None}),
                         },
                     )

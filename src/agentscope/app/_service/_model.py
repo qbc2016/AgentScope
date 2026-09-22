@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """Model service: builds a ChatModelBase from stored credential + config."""
-from fastapi import HTTPException, status
-
 from ._access import ResourceAccessService
 from ..storage import ChatModelConfig
 from ...credential import CredentialFactory
@@ -48,11 +46,6 @@ async def get_model(
 
     credential = CredentialFactory.from_dict(credential_record.data)
     model_cls = credential.get_chat_model_class()
-    if model_cls is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(f"Provider {config.type!r} does not support chat models."),
-        )
     parameters = (
         model_cls.Parameters(**config.parameters)
         if config.parameters

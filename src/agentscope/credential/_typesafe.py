@@ -7,7 +7,7 @@ from pydantic import ConfigDict, Field, SecretStr
 from ._base import CredentialBase
 
 if TYPE_CHECKING:
-    from ..classifier import ClassifierModelBase
+    from ..model import ChatModelBase
 
 
 class TypeSafeCredential(CredentialBase):
@@ -28,15 +28,8 @@ class TypeSafeCredential(CredentialBase):
     """An optional custom TypeSafe API base URL."""
 
     @classmethod
-    def get_chat_model_class(cls) -> None:
-        """Return ``None`` because TypeSafe is classifier-only."""
-        return None
-
-    @classmethod
-    def get_classifier_model_class(
-        cls,
-    ) -> Type["ClassifierModelBase"] | None:
-        """Return the Jev classifier model class."""
-        from ..classifier import JevClassifierModel
-
-        return JevClassifierModel
+    def get_chat_model_class(cls) -> Type["ChatModelBase"]:
+        """Reject chat-model lookup for this classifier-only credential."""
+        raise NotImplementedError(
+            f"{cls.__name__} does not support chat models.",
+        )

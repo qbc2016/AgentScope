@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Classifier-based chat model routing middleware."""
+"""Model-based chat model routing middleware."""
+import json
 from dataclasses import dataclass
-from typing import AsyncGenerator, Awaitable, Callable, Sequence, TYPE_CHECKING
+from typing import AsyncGenerator, Callable, Sequence, TYPE_CHECKING
 
 from ._base import MiddlewareBase
 from .._logging import logger
@@ -10,8 +11,9 @@ from ..classifier import (
     ChoiceQuestion,
     ClassifierModelBase,
 )
-from ..message import Msg
-from ..model import ChatModelBase, ChatResponse
+from ..event import ReplyStartEvent
+from ..message import Msg, SystemMsg, UserMsg
+from ..model import ChatModelBase
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -41,24 +43,24 @@ class ModelRouterMiddleware(MiddlewareBase):
     """Select a chat model by classifying the latest user input.
 
     A routing decision is made once per reply and reused by later reasoning
-    rounds in that reply. Classifier failures fail open to the current chat
-    model. Existing Agent fallback-model calls are passed through unchanged.
+    rounds in that reply. Routing-model failures fail open to the current chat
+    model. The selected model remains subject to the Agent's fallback model.
 
-    The middleware does not own the classifier or candidate model lifecycle.
-    Callers remain responsible for closing resources they create.
+    The middleware does not own the routing or candidate model lifecycle.
+    Callers remain responsible for closing the resources they create.
     """
 
     def __init__(
         self,
-        classifier_model: ClassifierModelBase,
+        classifier_model: ClassifierModelBase | ChatModelBase,
         candidates: Sequence[ChatModelCandidate],
         instructions: str = _DEFAULT_INSTRUCTIONS,
     ) -> None:
         """Initialize the model router.
 
         Args:
-            classifier_model (`ClassifierModelBase`):
-                The classifier used to select a candidate.
+            classifier_model (`ClassifierModelBase | ChatModelBase`):
+                The classifier or chat model used to select a candidate.
             candidates (`Sequence[ChatModelCandidate]`):
                 At least two uniquely named chat model candidates.
             instructions (`str`):
@@ -71,9 +73,13 @@ class ModelRouterMiddleware(MiddlewareBase):
                 If fewer than two candidates are provided, or candidate
                 names are empty, padded, or duplicated.
         """
-        if not isinstance(classifier_model, ClassifierModelBase):
+        if not isinstance(
+            classifier_model,
+            (ClassifierModelBase, ChatModelBase),
+        ):
             raise TypeError(
-                "classifier_model must be a ClassifierModelBase instance.",
+                "classifier_model must be a ClassifierModelBase or "
+                "ChatModelBase instance.",
             )
         if len(candidates) < 2:
             raise ValueError(
@@ -106,105 +112,149 @@ class ModelRouterMiddleware(MiddlewareBase):
             instructions=instructions,
             criteria=criteria,
         )
+        self._chat_model_prompt = (
+            f"{instructions}\n\n"
+            f"Select exactly one candidate using these criteria:\n"
+            f"{json.dumps(criteria, ensure_ascii=False, indent=2)}"
+        )
+        self._chat_model_schema = {
+            "type": "object",
+            "properties": {
+                "choice": {
+                    "type": "string",
+                    "enum": list(candidate_models),
+                },
+            },
+            "required": ["choice"],
+            "additionalProperties": False,
+        }
 
-    async def on_model_call(
+    async def on_reply(
         self,
         agent: "Agent",
         input_kwargs: dict,
-        next_handler: Callable[
-            ...,
-            Awaitable[ChatResponse | AsyncGenerator[ChatResponse, None]],
-        ],
-    ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
-        """Route a primary chat model call to the selected candidate."""
-        current_model = input_kwargs["current_model"]
+        next_handler: Callable[..., AsyncGenerator],
+    ) -> AsyncGenerator:
+        """Use one selected model for the complete reply lifecycle."""
+        middleware_key = await self.get_middleware_key()
+        original_model = agent.model
+        original_reply_id = agent.state.reply_id
+        input_messages = self._get_input_messages(input_kwargs.get("inputs"))
 
-        # Preserve the Agent's built-in fallback model behavior.
-        if current_model is not agent.model:
-            return await next_handler(**input_kwargs)
+        selected_name: str | None = None
+        cache_pending = input_messages is not None
+        if input_messages is not None:
+            selected_name = await self._select_name(agent, input_messages)
+            selected_model = (
+                self._candidate_models.get(selected_name)
+                if selected_name is not None
+                else None
+            )
+        else:
+            selected_model = self._get_cached_model(agent, middleware_key)
 
-        selected_model = await self._select_model(
-            agent,
-            input_kwargs["messages"],
-        )
-        if selected_model is None:
-            return await next_handler(**input_kwargs)
+        if selected_model is not None:
+            agent.model = selected_model
 
-        return await next_handler(
-            **{
-                **input_kwargs,
-                "current_model": selected_model,
-            },
-        )
+        try:
+            async for event in next_handler(**input_kwargs):
+                if cache_pending and isinstance(event, ReplyStartEvent):
+                    self._cache_decision(
+                        agent,
+                        middleware_key,
+                        event.reply_id,
+                        selected_name,
+                    )
+                    cache_pending = False
+                yield event
+        finally:
+            if cache_pending and agent.state.reply_id != original_reply_id:
+                self._cache_decision(
+                    agent,
+                    middleware_key,
+                    agent.state.reply_id,
+                    selected_name,
+                )
+            agent.model = original_model
 
-    async def _select_model(
+    async def _select_name(
         self,
         agent: "Agent",
         messages: list[Msg],
-    ) -> ChatModelBase | None:
-        """Return the cached or newly selected model for this reply."""
-        middleware_key = await self.get_middleware_key()
-        cached = agent.state.middle_context.get(middleware_key)
-        if isinstance(cached, dict) and cached.get("reply_id") == (
-            agent.state.reply_id
-        ):
-            selected_name = cached.get("selected_model")
-            if isinstance(selected_name, str):
-                return self._candidate_models.get(selected_name)
-            return None
-
+    ) -> str | None:
+        """Classify new reply messages and return a valid candidate name."""
         state = self._get_latest_user_state(messages)
         if state is None:
-            self._cache_decision(agent, middleware_key, None)
             return None
 
         try:
+            selected_name = await self._classify(state)
+        except Exception as error:
+            logger.warning(
+                "Chat model routing request failed for agent %s; "
+                "using the current model: %s",
+                agent.name,
+                error,
+            )
+            return None
+
+        if selected_name not in self._candidate_models:
+            logger.warning(
+                "Chat model routing selected unknown candidate %r "
+                "for agent %s; using the current model.",
+                selected_name,
+                agent.name,
+            )
+            return None
+
+        logger.debug(
+            "Routed agent %s to chat model candidate %s (%s)",
+            agent.name,
+            selected_name,
+            self._candidate_models[selected_name].model,
+        )
+        return selected_name
+
+    def _get_cached_model(
+        self,
+        agent: "Agent",
+        middleware_key: str,
+    ) -> ChatModelBase | None:
+        """Return the selected model cached for the current reply."""
+        cached = agent.state.middle_context.get(middleware_key)
+        if not isinstance(cached, dict) or cached.get("reply_id") != (
+            agent.state.reply_id
+        ):
+            return None
+        selected_name = cached.get("selected_model")
+        if not isinstance(selected_name, str):
+            return None
+        return self._candidate_models.get(selected_name)
+
+    async def _classify(self, state: str) -> str | None:
+        """Return the candidate selected by the configured routing model."""
+        if isinstance(self.classifier_model, ClassifierModelBase):
             response = await self.classifier_model(
                 state=state,
                 questions={
                     _ROUTE_QUESTION_NAME: self._routing_question,
                 },
             )
-        # pylint: disable-next=broad-exception-caught
-        except Exception as error:
-            logger.warning(
-                "Chat model classifier request failed for agent %s; "
-                "using the current model: %s",
-                agent.name,
-                error,
-            )
-            self._cache_decision(agent, middleware_key, None)
-            return None
+            answer = response.answers.get(_ROUTE_QUESTION_NAME)
+            return answer.choice if isinstance(answer, ChoiceAnswer) else None
 
-        answer = response.answers.get(_ROUTE_QUESTION_NAME)
-        if not isinstance(answer, ChoiceAnswer):
-            logger.warning(
-                "Chat model classifier returned no ChoiceAnswer named "
-                "%r for agent %s; using the current model.",
-                _ROUTE_QUESTION_NAME,
-                agent.name,
-            )
-            self._cache_decision(agent, middleware_key, None)
-            return None
-
-        if answer.choice not in self._candidate_models:
-            logger.warning(
-                "Chat model classifier selected unknown candidate %r "
-                "for agent %s; using the current model.",
-                answer.choice,
-                agent.name,
-            )
-            self._cache_decision(agent, middleware_key, None)
-            return None
-
-        self._cache_decision(agent, middleware_key, answer.choice)
-        logger.debug(
-            "Routed agent %s to chat model candidate %s (%s)",
-            agent.name,
-            answer.choice,
-            self._candidate_models[answer.choice].model,
+        response = await self.classifier_model.generate_structured_output(
+            messages=[
+                SystemMsg(
+                    name="system",
+                    content=self._chat_model_prompt,
+                ),
+                UserMsg(name="user", content=state),
+            ],
+            structured_model=self._chat_model_schema,
         )
-        return self._candidate_models[answer.choice]
+        choice = response.content.get("choice")
+        return choice if isinstance(choice, str) else None
 
     @staticmethod
     def _get_latest_user_state(
@@ -224,13 +274,25 @@ class ModelRouterMiddleware(MiddlewareBase):
         return None
 
     @staticmethod
+    def _get_input_messages(inputs: object) -> list[Msg] | None:
+        """Return new reply messages, or ``None`` for a continuation."""
+        if isinstance(inputs, Msg):
+            return [inputs]
+        if isinstance(inputs, list) and all(
+            isinstance(message, Msg) for message in inputs
+        ):
+            return inputs
+        return None
+
+    @staticmethod
     def _cache_decision(
         agent: "Agent",
         middleware_key: str,
+        reply_id: str,
         selected_model: str | None,
     ) -> None:
         """Store one JSON-compatible routing decision in Agent state."""
         agent.state.middle_context[middleware_key] = {
-            "reply_id": agent.state.reply_id,
+            "reply_id": reply_id,
             "selected_model": selected_model,
         }
