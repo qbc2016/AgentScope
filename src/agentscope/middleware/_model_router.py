@@ -2,7 +2,7 @@
 """Model-based chat model routing middleware."""
 import json
 from dataclasses import dataclass
-from typing import AsyncGenerator, Callable, Sequence, TYPE_CHECKING
+from typing import AsyncGenerator, Callable, Literal, Sequence, TYPE_CHECKING
 
 from ._base import MiddlewareBase
 from .._logging import logger
@@ -10,10 +10,16 @@ from ..classifier import (
     ChoiceAnswer,
     ChoiceQuestion,
     ClassifierModelBase,
+    ClassifierUsage,
 )
-from ..event import ReplyStartEvent
+from ..event import (
+    ReplyStartEvent,
+    RoutingCallEndEvent,
+    RoutingCallStartEvent,
+    RoutingUsage,
+)
 from ..message import Msg, SystemMsg, UserMsg
-from ..model import ChatModelBase
+from ..model import ChatModelBase, ChatUsage
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -39,12 +45,33 @@ class ChatModelCandidate:
     """When this candidate should be selected."""
 
 
+@dataclass
+class _RoutingResult:
+    """Normalized result returned by a routing model."""
+
+    model_name: str
+    selected_model: str | None
+    usage: RoutingUsage | None
+
+
+@dataclass
+class _RoutingDecision:
+    """Validated routing outcome used by the middleware."""
+
+    result: _RoutingResult
+    error: str | None = None
+
+
 class ModelRouterMiddleware(MiddlewareBase):
     """Select a chat model by classifying the latest user input.
 
     A routing decision is made once per reply and reused by later reasoning
     rounds in that reply. Routing-model failures fail open to the current chat
     model. The selected model remains subject to the Agent's fallback model.
+
+    New routing calls happen after ``ReplyStartEvent`` and before the Agent
+    performs token counting or context compression. Each call emits dedicated
+    routing start and end events, including normalized usage when available.
 
     The middleware does not own the routing or candidate model lifecycle.
     Callers remain responsible for closing the resources they create.
@@ -140,18 +167,18 @@ class ModelRouterMiddleware(MiddlewareBase):
         original_model = agent.model
         original_reply_id = agent.state.reply_id
         input_messages = self._get_input_messages(input_kwargs.get("inputs"))
-
-        selected_name: str | None = None
         cache_pending = input_messages is not None
-        if input_messages is not None:
-            selected_name = await self._select_name(agent, input_messages)
-            selected_model = (
-                self._candidate_models.get(selected_name)
-                if selected_name is not None
-                else None
-            )
-        else:
-            selected_model = self._get_cached_model(agent, middleware_key)
+        routing_state = (
+            self._get_latest_user_state(input_messages)
+            if input_messages is not None
+            else None
+        )
+        selected_name: str | None = None
+        selected_model = (
+            self._get_cached_model(agent, middleware_key)
+            if input_messages is None
+            else None
+        )
 
         if selected_model is not None:
             agent.model = selected_model
@@ -159,6 +186,27 @@ class ModelRouterMiddleware(MiddlewareBase):
         try:
             async for event in next_handler(**input_kwargs):
                 if cache_pending and isinstance(event, ReplyStartEvent):
+                    yield event
+                    if routing_state is not None:
+                        model_name, model_type = self._routing_model_info()
+                        yield RoutingCallStartEvent(
+                            reply_id=event.reply_id,
+                            model_name=model_name,
+                            model_type=model_type,
+                        )
+                        decision = await self._select_name(
+                            agent,
+                            routing_state,
+                        )
+                        selected_name = decision.result.selected_model
+                        selected_model = (
+                            self._candidate_models.get(selected_name)
+                            if selected_name is not None
+                            else None
+                        )
+                        if selected_model is not None:
+                            agent.model = selected_model
+
                     self._cache_decision(
                         agent,
                         middleware_key,
@@ -166,6 +214,17 @@ class ModelRouterMiddleware(MiddlewareBase):
                         selected_name,
                     )
                     cache_pending = False
+                    if routing_state is not None:
+                        yield RoutingCallEndEvent(
+                            reply_id=event.reply_id,
+                            model_name=decision.result.model_name,
+                            model_type=model_type,
+                            selected_model=selected_name,
+                            usage=decision.result.usage,
+                            success=decision.error is None,
+                            error=decision.error,
+                        )
+                    continue
                 yield event
         finally:
             if cache_pending and agent.state.reply_id != original_reply_id:
@@ -180,40 +239,46 @@ class ModelRouterMiddleware(MiddlewareBase):
     async def _select_name(
         self,
         agent: "Agent",
-        messages: list[Msg],
-    ) -> str | None:
-        """Classify new reply messages and return a valid candidate name."""
-        state = self._get_latest_user_state(messages)
-        if state is None:
-            return None
-
+        state: str,
+    ) -> _RoutingDecision:
+        """Classify routing state and validate the selected candidate."""
         try:
-            selected_name = await self._classify(state)
+            result = await self._classify(state)
         except Exception as error:
-            logger.warning(
-                "Chat model routing request failed for agent %s; "
-                "using the current model: %s",
-                agent.name,
-                error,
+            log_message = (
+                f"Chat model routing request failed for agent "
+                f"{agent.name}; using the current model: {error}"
             )
-            return None
-
-        if selected_name not in self._candidate_models:
-            logger.warning(
-                "Chat model routing selected unknown candidate %r "
-                "for agent %s; using the current model.",
-                selected_name,
-                agent.name,
+            logger.warning(log_message)
+            return _RoutingDecision(
+                result=_RoutingResult(
+                    model_name=self.classifier_model.model,
+                    selected_model=None,
+                    usage=None,
+                ),
+                error=f"{type(error).__name__}: {error}",
             )
-            return None
 
-        logger.debug(
-            "Routed agent %s to chat model candidate %s (%s)",
-            agent.name,
-            selected_name,
-            self._candidate_models[selected_name].model,
+        if result.selected_model not in self._candidate_models:
+            error_message = (
+                f"Routing model selected unknown candidate "
+                f"{result.selected_model!r}."
+            )
+            log_message = (
+                f"{error_message} Agent {agent.name} will use the current "
+                f"model."
+            )
+            logger.warning(log_message)
+            result.selected_model = None
+            return _RoutingDecision(result=result, error=error_message)
+
+        log_message = (
+            f"Routed agent {agent.name} to chat model candidate "
+            f"{result.selected_model} "
+            f"({self._candidate_models[result.selected_model].model})"
         )
-        return selected_name
+        logger.debug(log_message)
+        return _RoutingDecision(result=result)
 
     def _get_cached_model(
         self,
@@ -231,8 +296,8 @@ class ModelRouterMiddleware(MiddlewareBase):
             return None
         return self._candidate_models.get(selected_name)
 
-    async def _classify(self, state: str) -> str | None:
-        """Return the candidate selected by the configured routing model."""
+    async def _classify(self, state: str) -> _RoutingResult:
+        """Return the normalized response from the routing model."""
         if isinstance(self.classifier_model, ClassifierModelBase):
             response = await self.classifier_model(
                 state=state,
@@ -241,7 +306,13 @@ class ModelRouterMiddleware(MiddlewareBase):
                 },
             )
             answer = response.answers.get(_ROUTE_QUESTION_NAME)
-            return answer.choice if isinstance(answer, ChoiceAnswer) else None
+            return _RoutingResult(
+                model_name=response.model,
+                selected_model=(
+                    answer.choice if isinstance(answer, ChoiceAnswer) else None
+                ),
+                usage=self._normalize_usage(response.usage),
+            )
 
         response = await self.classifier_model.generate_structured_output(
             messages=[
@@ -254,7 +325,43 @@ class ModelRouterMiddleware(MiddlewareBase):
             structured_model=self._chat_model_schema,
         )
         choice = response.content.get("choice")
-        return choice if isinstance(choice, str) else None
+        return _RoutingResult(
+            model_name=self.classifier_model.model,
+            selected_model=choice if isinstance(choice, str) else None,
+            usage=self._normalize_usage(response.usage),
+        )
+
+    def _routing_model_info(
+        self,
+    ) -> tuple[str, Literal["classifier", "chat"]]:
+        """Return the configured routing model name and interface type."""
+        model_type: Literal["classifier", "chat"] = (
+            "classifier"
+            if isinstance(self.classifier_model, ClassifierModelBase)
+            else "chat"
+        )
+        return self.classifier_model.model, model_type
+
+    @staticmethod
+    def _normalize_usage(
+        usage: ClassifierUsage | ChatUsage | None,
+    ) -> RoutingUsage | None:
+        """Normalize provider-independent classifier and chat usage."""
+        if usage is None:
+            return None
+        return RoutingUsage(
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            time=usage.time,
+            cache_input_tokens=(
+                usage.cache_input_tokens if isinstance(usage, ChatUsage) else 0
+            ),
+            cache_creation_input_tokens=(
+                usage.cache_creation_input_tokens
+                if isinstance(usage, ChatUsage)
+                else 0
+            ),
+        )
 
     @staticmethod
     def _get_latest_user_state(

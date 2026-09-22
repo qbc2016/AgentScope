@@ -14,9 +14,15 @@ from agentscope.classifier import (
     ClassifierModelBase,
     ClassifierQuestion,
     ClassifierResponse,
+    ClassifierUsage,
 )
 from agentscope.credential import CredentialBase
-from agentscope.event import ModelCallStartEvent, ReplyStartEvent
+from agentscope.event import (
+    ModelCallStartEvent,
+    ReplyStartEvent,
+    RoutingCallEndEvent,
+    RoutingCallStartEvent,
+)
 from agentscope.message import (
     Base64Source,
     DataBlock,
@@ -26,7 +32,7 @@ from agentscope.message import (
     UserMsg,
 )
 from agentscope.middleware import ChatModelCandidate, ModelRouterMiddleware
-from agentscope.model import ChatResponse, StructuredResponse
+from agentscope.model import ChatResponse, ChatUsage, StructuredResponse
 
 
 class _MockClassifier(ClassifierModelBase):
@@ -71,6 +77,11 @@ class _MockClassifier(ClassifierModelBase):
                     probabilities=probabilities,
                 ),
             },
+            usage=ClassifierUsage(
+                time=0.2,
+                input_tokens=10,
+                output_tokens=1,
+            ),
         )
 
 
@@ -102,7 +113,16 @@ class _MockRoutingChatModel(MockModel):
         outcome = self.outcomes[len(self.calls) - 1]
         if isinstance(outcome, BaseException):
             raise outcome
-        return StructuredResponse(content={"choice": outcome})
+        return StructuredResponse(
+            content={"choice": outcome},
+            usage=ChatUsage(
+                input_tokens=20,
+                output_tokens=2,
+                time=0.3,
+                cache_input_tokens=4,
+                cache_creation_input_tokens=3,
+            ),
+        )
 
 
 class _CountingMockModel(MockModel):
@@ -209,7 +229,8 @@ class ModelRouterMiddlewareTest(IsolatedAsyncioTestCase):
                 )
             observed["active_model"] = self.agent.model
 
-        async for _ in middleware.on_reply(
+        events = []
+        async for event in middleware.on_reply(
             agent=self.agent,
             input_kwargs={
                 "inputs": inputs,
@@ -217,7 +238,8 @@ class ModelRouterMiddlewareTest(IsolatedAsyncioTestCase):
             },
             next_handler=next_handler,
         ):
-            pass
+            events.append(event)
+        observed["events"] = events
         observed["restored_model"] = self.agent.model
         return observed
 
@@ -354,8 +376,55 @@ class ModelRouterMiddlewareTest(IsolatedAsyncioTestCase):
         model_start_events = [
             event for event in events if isinstance(event, ModelCallStartEvent)
         ]
+        reply_start = next(
+            event for event in events if isinstance(event, ReplyStartEvent)
+        )
+        routing_start = next(
+            event
+            for event in events
+            if isinstance(event, RoutingCallStartEvent)
+        )
+        routing_end = next(
+            event for event in events if isinstance(event, RoutingCallEndEvent)
+        )
         self.assertEqual(primary.count_tokens_calls, 0)
         self.assertEqual(selected.count_tokens_calls, 1)
+        self.assertLess(events.index(reply_start), events.index(routing_start))
+        self.assertLess(events.index(routing_start), events.index(routing_end))
+        self.assertLess(
+            events.index(routing_end),
+            events.index(model_start_events[0]),
+        )
+        self.assertDictEqual(
+            routing_start.model_dump(exclude={"id", "created_at"}),
+            {
+                "metadata": {},
+                "type": "ROUTING_CALL_START",
+                "reply_id": reply_start.reply_id,
+                "model_name": "mock-classifier",
+                "model_type": "classifier",
+            },
+        )
+        self.assertDictEqual(
+            routing_end.model_dump(exclude={"id", "created_at"}),
+            {
+                "metadata": {},
+                "type": "ROUTING_CALL_END",
+                "reply_id": reply_start.reply_id,
+                "model_name": "mock-classifier",
+                "model_type": "classifier",
+                "selected_model": "selected",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 1,
+                    "time": 0.2,
+                    "cache_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                },
+                "success": True,
+                "error": None,
+            },
+        )
         self.assertListEqual(
             [event.model_name for event in model_start_events],
             ["selected-small-context"],
@@ -381,6 +450,31 @@ class ModelRouterMiddlewareTest(IsolatedAsyncioTestCase):
         self.assertIs(first["active_model"], self.reasoning)
         self.assertIs(cached["active_model"], self.reasoning)
         self.assertEqual(len(routing_model.calls), 1)
+        routing_end = next(
+            event
+            for event in first["events"]
+            if isinstance(event, RoutingCallEndEvent)
+        )
+        self.assertDictEqual(
+            routing_end.model_dump(exclude={"id", "created_at"}),
+            {
+                "metadata": {},
+                "type": "ROUTING_CALL_END",
+                "reply_id": "reply-chat-model",
+                "model_name": "routing-chat-model",
+                "model_type": "chat",
+                "selected_model": "reasoning",
+                "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 2,
+                    "time": 0.3,
+                    "cache_input_tokens": 4,
+                    "cache_creation_input_tokens": 3,
+                },
+                "success": True,
+                "error": None,
+            },
+        )
         messages, schema = routing_model.calls[0]
         self.assertListEqual(
             [
@@ -447,6 +541,26 @@ class ModelRouterMiddlewareTest(IsolatedAsyncioTestCase):
                 self.assertIs(forwarded["active_model"], self.primary)
                 self.assertIs(cached["active_model"], self.primary)
                 self.assertEqual(len(routing_model.calls), 1)
+                routing_end = next(
+                    event
+                    for event in forwarded["events"]
+                    if isinstance(event, RoutingCallEndEvent)
+                )
+                self.assertFalse(routing_end.success)
+                self.assertIsNone(routing_end.selected_model)
+                if isinstance(outcome, BaseException):
+                    self.assertEqual(
+                        routing_end.error,
+                        "RuntimeError: unavailable",
+                    )
+                    self.assertIsNone(routing_end.usage)
+                else:
+                    self.assertEqual(
+                        routing_end.error,
+                        "Routing model selected unknown candidate "
+                        "'unknown'.",
+                    )
+                    self.assertIsNotNone(routing_end.usage)
 
     async def test_routes_only_text_from_message_with_attachment(self) -> None:
         """Routing should ignore attachment content and metadata."""
@@ -524,6 +638,26 @@ class ModelRouterMiddlewareTest(IsolatedAsyncioTestCase):
                 self.assertIs(forwarded["active_model"], self.primary)
                 self.assertIs(cached["active_model"], self.primary)
                 self.assertEqual(len(classifier.calls), 1)
+                routing_end = next(
+                    event
+                    for event in forwarded["events"]
+                    if isinstance(event, RoutingCallEndEvent)
+                )
+                self.assertFalse(routing_end.success)
+                self.assertIsNone(routing_end.selected_model)
+                if isinstance(outcome, BaseException):
+                    self.assertEqual(
+                        routing_end.error,
+                        "RuntimeError: unavailable",
+                    )
+                    self.assertIsNone(routing_end.usage)
+                else:
+                    self.assertEqual(
+                        routing_end.error,
+                        "Routing model selected unknown candidate "
+                        "'unknown'.",
+                    )
+                    self.assertIsNotNone(routing_end.usage)
 
     async def test_fallback_model_is_not_overridden(self) -> None:
         """The selected model should retain the Agent fallback behavior."""
@@ -563,12 +697,13 @@ class ModelRouterMiddlewareTest(IsolatedAsyncioTestCase):
 
         async def failing_next_handler(**kwargs: Any) -> Any:
             del kwargs
-            self.assertIs(self.agent.model, self.reasoning)
+            self.assertIs(self.agent.model, self.primary)
             yield ReplyStartEvent(
                 session_id=self.agent.state.session_id,
                 reply_id="reply-error",
                 name=self.agent.name,
             )
+            self.assertIs(self.agent.model, self.reasoning)
             raise RuntimeError("reply failed")
 
         with self.assertRaisesRegex(RuntimeError, "reply failed"):

@@ -32,6 +32,9 @@ class EventType(StrEnum):
     MODEL_CALL_START = "MODEL_CALL_START"
     MODEL_CALL_END = "MODEL_CALL_END"
 
+    ROUTING_CALL_START = "ROUTING_CALL_START"
+    ROUTING_CALL_END = "ROUTING_CALL_END"
+
     TEXT_BLOCK_START = "TEXT_BLOCK_START"
     TEXT_BLOCK_DELTA = "TEXT_BLOCK_DELTA"
     TEXT_BLOCK_END = "TEXT_BLOCK_END"
@@ -155,6 +158,55 @@ class ModelCallEndEvent(EventBase):
         default=FinishedReason.COMPLETED,
     )
     """The finished reason of this model call."""
+
+
+class RoutingUsage(BaseModel):
+    """Normalized usage reported by a routing model call."""
+
+    input_tokens: int | None = None
+    """Number of input tokens, if reported by the provider."""
+    output_tokens: int | None = None
+    """Number of output tokens, if reported by the provider."""
+    time: float
+    """Wall-clock time used in seconds."""
+    cache_input_tokens: int = 0
+    """Number of input tokens read from the prompt cache."""
+    cache_creation_input_tokens: int = 0
+    """Number of input tokens used to create the prompt cache."""
+
+
+class RoutingCallStartEvent(EventBase):
+    """Routing model call start event."""
+
+    type: Literal[EventType.ROUTING_CALL_START] = EventType.ROUTING_CALL_START
+    """Event type."""
+    reply_id: str
+    """ID of the reply this routing call belongs to."""
+    model_name: str
+    """Name of the routing model being called."""
+    model_type: Literal["classifier", "chat"]
+    """The routing model interface used for the call."""
+
+
+class RoutingCallEndEvent(EventBase):
+    """Routing model call end event."""
+
+    type: Literal[EventType.ROUTING_CALL_END] = EventType.ROUTING_CALL_END
+    """Event type."""
+    reply_id: str
+    """ID of the reply this routing call belongs to."""
+    model_name: str
+    """Name of the routing model that was called."""
+    model_type: Literal["classifier", "chat"]
+    """The routing model interface used for the call."""
+    selected_model: str | None = None
+    """Selected candidate name, or ``None`` when routing failed."""
+    usage: RoutingUsage | None = None
+    """Usage reported by the routing model, if available."""
+    success: bool
+    """Whether the call returned a valid configured candidate."""
+    error: str | None = None
+    """Failure description when routing did not succeed."""
 
 
 class TextBlockStartEvent(EventBase):
@@ -573,6 +625,8 @@ AgentEvent: TypeAlias = (
     | RequireExternalExecutionEvent
     | ModelCallStartEvent
     | ModelCallEndEvent
+    | RoutingCallStartEvent
+    | RoutingCallEndEvent
     | TextBlockStartEvent
     | TextBlockDeltaEvent
     | TextBlockEndEvent
