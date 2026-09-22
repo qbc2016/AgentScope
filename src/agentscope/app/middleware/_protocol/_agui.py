@@ -7,7 +7,6 @@ from starlette.types import ASGIApp
 from ._base import ProtocolMiddlewareBase
 from ....event import (
     AgentEvent,
-    CustomEvent,
     DataBlockDeltaEvent,
     DataBlockEndEvent,
     DataBlockStartEvent,
@@ -129,12 +128,6 @@ class AGUIProtocolMiddleware(ProtocolMiddlewareBase):
         if isinstance(event, ModelCallEndEvent):
             return AGUIStepFinishedEvent(
                 step_name=self._last_model_name,
-            )
-
-        if isinstance(event, CustomEvent):
-            return AGUICustomEvent(
-                name=event.name,
-                value=event.value,
             )
 
         if isinstance(event, TextBlockStartEvent):

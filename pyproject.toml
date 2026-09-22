@@ -54,7 +54,7 @@ dependencies = [
 model-gemini = ["google-genai"]
 model-ollama = ["ollama>=0.5.4"]
 model-xai = ["xai-sdk"]
-classifier-jev = ["typesafe-sdk>=0.7,<0.8"]
+classifier-jev = ["typesafe-sdk>=0.7"]
 models = [
     "agentscope[model-gemini]",
     "agentscope[model-ollama]",

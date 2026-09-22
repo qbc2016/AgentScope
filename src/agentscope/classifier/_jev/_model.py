@@ -75,7 +75,7 @@ class JevClassifierModel(ClassifierModelBase):
         except ImportError as error:
             raise ImportError(
                 "JevClassifierModel requires a compatible optional "
-                "'typesafe-sdk>=0.7,<0.8' dependency. Install it with "
+                "'typesafe-sdk' dependency. Install it with "
                 "`pip install 'agentscope[classifier-jev]'`.",
             ) from error
 

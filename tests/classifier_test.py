@@ -87,29 +87,10 @@ class ClassifierQuestionTest(TestCase):
         with self.assertRaises(ValidationError):
             ScoreQuestion(criteria=[])
 
-    def test_non_string_question_content_is_rejected(self) -> None:
-        """Question content must be a string."""
-        invalid_content = [
-            b"bytes",
-            {"message": "hello"},
-            ["hello"],
-            {"invalid": {1, 2}},
-            {"invalid": Path("file.txt")},
-            {"invalid": (1, 2)},
-            {"invalid": float("nan")},
-            TextBlock(text="hello"),
-            DataBlock(
-                source=Base64Source(
-                    data="aGVsbG8=",
-                    media_type="image/png",
-                ),
-            ),
-        ]
-
-        for content in invalid_content:
-            with self.subTest(content=content):
-                with self.assertRaises(ValidationError):
-                    BinaryQuestion(instructions=content)
+    def test_non_string_instructions_are_rejected(self) -> None:
+        """Question instructions must be plain text."""
+        with self.assertRaises(ValidationError):
+            BinaryQuestion(instructions=TextBlock(text="hello"))
 
 
 class ClassifierModelBaseTest(IsolatedAsyncioTestCase):

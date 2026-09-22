@@ -21,6 +21,7 @@ from agentscope.credential import TypeSafeCredential
 typesafe_sdk = pytest.importorskip("typesafe_sdk")
 SDKChoiceAnswer = typesafe_sdk.ChoiceAnswer
 NoulAnswer = typesafe_sdk.NoulAnswer
+RetryPolicy = typesafe_sdk.RetryPolicy
 SDKScoreAnswer = typesafe_sdk.ScoreAnswer
 Usage = typesafe_sdk.Usage
 
@@ -92,45 +93,51 @@ class JevClassifierModelTest(IsolatedAsyncioTestCase):
             extra_headers={"x-request": "request"},
         )
 
-        client_kwargs = client_cls.call_args.kwargs
-        self.assertEqual(client_kwargs["api_key"], "secret")
-        self.assertEqual(client_kwargs["model"], "jev-latest")
-        self.assertEqual(
-            client_kwargs["base_url"],
-            "https://typesafe.example",
+        self.assertDictEqual(
+            client_cls.call_args.kwargs,
+            {
+                "api_key": "secret",
+                "model": "jev-latest",
+                "retry": RetryPolicy(
+                    max_retries=4,
+                    backoff_initial=0.25,
+                ),
+                "timeout": 30.0,
+                "base_url": "https://typesafe.example",
+            },
         )
-        self.assertEqual(client_kwargs["retry"].max_retries, 4)
-        self.assertEqual(client_kwargs["retry"].backoff_initial, 0.25)
 
         call_kwargs = client.system_one.await_args.kwargs
-        self.assertEqual(call_kwargs["state"], "I was charged twice.")
-        self.assertEqual(call_kwargs["model"], "jev-latest")
-        self.assertDictEqual(
-            call_kwargs["extra_headers"],
-            {"x-request": "request"},
-        )
-        self.assertDictEqual(call_kwargs["extra_body"], {"trace": True})
         self.assertDictEqual(
             {
-                name: question.model_dump()
-                for name, question in call_kwargs["questions"].items()
+                **call_kwargs,
+                "questions": {
+                    name: question.model_dump()
+                    for name, question in call_kwargs["questions"].items()
+                },
             },
             {
-                "urgent": {
-                    "type": "noul",
-                    "instructions": "Is this urgent?",
-                    "criteria": {"true": "Urgent."},
+                "state": "I was charged twice.",
+                "questions": {
+                    "urgent": {
+                        "type": "noul",
+                        "instructions": "Is this urgent?",
+                        "criteria": {"true": "Urgent."},
+                    },
+                    "route": {
+                        "type": "choice",
+                        "instructions": "Select a route.",
+                        "criteria": {"billing": None, "support": None},
+                    },
+                    "priority": {
+                        "type": "score",
+                        "instructions": "Rate priority.",
+                        "criteria": ["low", "medium", "high"],
+                    },
                 },
-                "route": {
-                    "type": "choice",
-                    "instructions": "Select a route.",
-                    "criteria": {"billing": None, "support": None},
-                },
-                "priority": {
-                    "type": "score",
-                    "instructions": "Rate priority.",
-                    "criteria": ["low", "medium", "high"],
-                },
+                "model": "jev-latest",
+                "extra_headers": {"x-request": "request"},
+                "extra_body": {"trace": True},
             },
         )
         self.assertDictEqual(
