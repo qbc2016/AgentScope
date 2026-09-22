@@ -8,11 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class BinaryCriteria(BaseModel):
     """Optional descriptions for the two outcomes of a binary question."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True,
-        allow_inf_nan=False,
-    )
+    model_config = ConfigDict(extra="forbid")
 
     true: str | None = None
     """What counts as a positive outcome."""
@@ -22,17 +18,9 @@ class BinaryCriteria(BaseModel):
 
 
 class BinaryQuestion(BaseModel):
-    """A question whose answer is a probability between zero and one.
+    """A question whose answer is a probability between zero and one."""
 
-    Providers may use a different native name for this primitive. The Jev
-    adapter maps it to TypeSafe's semantically equivalent Noul primitive.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True,
-        allow_inf_nan=False,
-    )
+    model_config = ConfigDict(extra="forbid")
 
     type: Literal["binary"] = "binary"
     """The question type discriminator."""
@@ -47,11 +35,7 @@ class BinaryQuestion(BaseModel):
 class ChoiceQuestion(BaseModel):
     """A question that selects one named alternative."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True,
-        allow_inf_nan=False,
-    )
+    model_config = ConfigDict(extra="forbid")
 
     type: Literal["choice"] = "choice"
     """The question type discriminator."""
@@ -66,11 +50,7 @@ class ChoiceQuestion(BaseModel):
 class ScoreQuestion(BaseModel):
     """A question that assigns an expected score using an ordered rubric."""
 
-    model_config = ConfigDict(
-        extra="forbid",
-        strict=True,
-        allow_inf_nan=False,
-    )
+    model_config = ConfigDict(extra="forbid")
 
     type: Literal["score"] = "score"
     """The question type discriminator."""

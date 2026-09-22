@@ -29,7 +29,5 @@ class TypeSafeCredential(CredentialBase):
 
     @classmethod
     def get_chat_model_class(cls) -> Type["ChatModelBase"]:
-        """Reject chat-model lookup for this classifier-only credential."""
-        raise NotImplementedError(
-            f"{cls.__name__} does not support chat models.",
-        )
+        """TypeSafe credentials serve classifier models only."""
+        raise NotImplementedError(f"{cls.__name__} has no chat model.")

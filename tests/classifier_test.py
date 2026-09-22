@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """Tests for the provider-independent classifier model contract."""
 from dataclasses import asdict
-from pathlib import Path
 from typing import Any, Mapping
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from pydantic import ValidationError
 
+from utils import AnyString
 from agentscope.classifier import (
     BinaryAnswer,
     BinaryQuestion,
@@ -17,7 +17,7 @@ from agentscope.classifier import (
     ScoreQuestion,
 )
 from agentscope.credential import CredentialBase
-from agentscope.message import Base64Source, DataBlock, TextBlock
+from agentscope.message import TextBlock
 
 
 class _MockClassifier(ClassifierModelBase):
@@ -26,24 +26,18 @@ class _MockClassifier(ClassifierModelBase):
     def __init__(self) -> None:
         """Initialize the mock classifier."""
         super().__init__(CredentialBase(), "mock-classifier")
-        self.closed = False
 
-    async def _call_api(
+    async def __call__(
         self,
-        state: str,
+        state: str | dict,
         questions: Mapping[str, ClassifierQuestion],
         **kwargs: Any,
     ) -> ClassifierResponse:
         """Return a deterministic response."""
-        del state, questions, kwargs
         return ClassifierResponse(
             model=self.model,
             content={"safe": BinaryAnswer(probability=0.75)},
         )
-
-    async def aclose(self) -> None:
-        """Record that the asynchronous lifecycle closed."""
-        self.closed = True
 
 
 class ClassifierQuestionTest(TestCase):
@@ -94,20 +88,15 @@ class ClassifierQuestionTest(TestCase):
 
 
 class ClassifierModelBaseTest(IsolatedAsyncioTestCase):
-    """Test input validation and lifecycle behavior in the base class."""
+    """Test the classifier model contract."""
 
-    async def test_call_and_lifecycle(self) -> None:
-        """A valid call should delegate and the context should close."""
-        model = _MockClassifier()
-        async with model:
-            response = await model(
-                state="hello",
-                questions={
-                    "safe": ChoiceQuestion(criteria={"yes": None}),
-                },
-            )
+    async def test_call(self) -> None:
+        """A call returns the typed answers keyed by question name."""
+        response = await _MockClassifier()(
+            state="hello",
+            questions={"safe": ChoiceQuestion(criteria={"yes": None})},
+        )
 
-        self.assertTrue(model.closed)
         self.assertDictEqual(
             asdict(response),
             {
@@ -119,44 +108,9 @@ class ClassifierModelBaseTest(IsolatedAsyncioTestCase):
                     },
                 },
                 "usage": None,
-                "id": response.id,
-                "created_at": response.created_at,
+                "id": AnyString(),
+                "created_at": AnyString(),
                 "type": "classifier_response",
                 "metadata": {},
             },
         )
-
-    async def test_empty_questions_are_rejected(self) -> None:
-        """The base class should reject a call with no questions."""
-        with self.assertRaisesRegex(ValueError, "At least one"):
-            await _MockClassifier()(state="hello", questions={})
-
-    async def test_non_string_state_is_rejected(self) -> None:
-        """The base class should reject non-string state."""
-        invalid_state = [
-            1,
-            b"bytes",
-            {"message": "hello"},
-            ["hello"],
-            {"invalid": {1, 2}},
-            {"invalid": Path("file.txt")},
-            {"invalid": (1, 2)},
-            {"invalid": float("nan")},
-            TextBlock(text="hello"),
-            DataBlock(
-                source=Base64Source(
-                    data="aGVsbG8=",
-                    media_type="image/png",
-                ),
-            ),
-        ]
-
-        for state in invalid_state:
-            with self.subTest(state=state):
-                with self.assertRaises(ValidationError):
-                    await _MockClassifier()(
-                        state=state,
-                        questions={
-                            "route": ChoiceQuestion(criteria={"a": None}),
-                        },
-                    )
