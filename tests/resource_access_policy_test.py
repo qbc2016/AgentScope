@@ -369,6 +369,14 @@ class ResourceAccessServiceTest(IsolatedAsyncioTestCase):
             },
         )
 
+    async def test_try_resolve_agent_returns_none_when_not_visible(
+        self,
+    ) -> None:
+        """Non-raising resolution should represent hidden agents as None."""
+        agent = await self.service.try_resolve_agent("other", "agent-1")
+
+        self.assertIsNone(agent)
+
     async def test_list_agents_skips_shared_team_agents(self) -> None:
         """Cross-owner team agents should not appear in shared lists."""
         views = await self.service.list_resource(
@@ -422,6 +430,17 @@ class ResourceAccessServiceTest(IsolatedAsyncioTestCase):
                 "created_at": AnyValue(),
                 "updated_at": AnyValue(),
                 "editable": True,
+                "document_count": 0,
+                "chunk_count": 0,
+                "credential_name": None,
+                "status_counts": {
+                    "pending": 0,
+                    "parsing": 0,
+                    "chunking": 0,
+                    "indexing": 0,
+                    "ready": 0,
+                    "error": 0,
+                },
             },
         )
 
@@ -450,6 +469,17 @@ class ResourceAccessServiceTest(IsolatedAsyncioTestCase):
                     "created_at": AnyValue(),
                     "updated_at": AnyValue(),
                     "editable": True,
+                    "document_count": 0,
+                    "chunk_count": 0,
+                    "credential_name": None,
+                    "status_counts": {
+                        "pending": 0,
+                        "parsing": 0,
+                        "chunking": 0,
+                        "indexing": 0,
+                        "ready": 0,
+                        "error": 0,
+                    },
                 },
             ],
         )
