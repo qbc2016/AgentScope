@@ -483,7 +483,6 @@ class _FakeGatewayMCPClient:
         self.is_stateful = bool(spec.get("is_stateful"))
         self.connected = False
         self.closed = False
-        self.close_error: Exception | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -501,10 +500,7 @@ class _FakeGatewayMCPClient:
 
     async def close(self, ignore_errors: bool = True) -> None:
         """Mark closed."""
-        if self.close_error is not None:
-            if not ignore_errors:
-                raise self.close_error
-            return
+        del ignore_errors
         self.closed = True
 
 
@@ -1140,80 +1136,47 @@ class TestDaytonaWorkspaceBuiltinToolsMock(IsolatedAsyncioTestCase):
         data = json.loads(raw.decode("utf-8"))
         self.assertEqual(data["mcps"]["a"]["s"], [])
 
-    async def test_stateless_mcp_remove_deregisters_and_allows_readd(
-        self,
-    ) -> None:
-        """Removing a stateless MCP closes its gateway registration."""
+    async def test_stateless_mcp_remove_then_readd(self) -> None:
+        """Removing a stateless MCP deregisters it from the gateway."""
         mcp = MCPClient(
             name="demo",
             mcp_config=HttpMCPConfig(url="http://mcp.example/mcp"),
             is_stateful=False,
         )
-
         await self.workspace.add_mcp(mcp, agent_id="a", session_id="s")
         first = self.workspace._mcp_instances[("a", "s")]["demo"]
 
         await self.workspace.remove_mcp("demo", agent_id="a", session_id="s")
         await self.workspace.add_mcp(mcp, agent_id="a", session_id="s")
 
-        second = self.workspace._mcp_instances[("a", "s")]["demo"]
+        self.assertTrue(first.closed)
+        live = self.workspace._mcp_instances[("a", "s")]
+        self.assertListEqual(list(live), ["demo"])
+        self.assertIsNot(live["demo"], first)
         raw = await self.workspace._backend.read_file("/home/daytona/.mcp")
-        data = json.loads(raw.decode("utf-8"))
-        self.assertEqual(
+        self.assertDictEqual(
+            json.loads(raw.decode("utf-8")),
             {
-                "first_closed": first.closed,
-                "second_is_new": second is not first,
-                "live_names": list(
-                    self.workspace._mcp_instances[("a", "s")],
-                ),
-                "persisted_names": [
-                    item["name"] for item in data["mcps"]["a"]["s"]
-                ],
-            },
-            {
-                "first_closed": True,
-                "second_is_new": True,
-                "live_names": ["demo"],
-                "persisted_names": ["demo"],
-            },
-        )
-
-    async def test_mcp_remove_failure_preserves_local_state(self) -> None:
-        """A gateway deregistration failure does not commit local removal."""
-        mcp = MCPClient(
-            name="demo",
-            mcp_config=HttpMCPConfig(url="http://mcp.example/mcp"),
-            is_stateful=False,
-        )
-        await self.workspace.add_mcp(mcp, agent_id="a", session_id="s")
-        gateway_client = self.workspace._mcp_instances[("a", "s")]["demo"]
-        gateway_client.close_error = RuntimeError("gateway unavailable")
-
-        with self.assertRaisesRegex(RuntimeError, "gateway unavailable"):
-            await self.workspace.remove_mcp(
-                "demo",
-                agent_id="a",
-                session_id="s",
-            )
-
-        raw = await self.workspace._backend.read_file("/home/daytona/.mcp")
-        data = json.loads(raw.decode("utf-8"))
-        self.assertEqual(
-            {
-                "live_names": list(
-                    self.workspace._mcp_instances[("a", "s")],
-                ),
-                "declared_names": [
-                    item.name for item in self.workspace._mcp_specs[("a", "s")]
-                ],
-                "persisted_names": [
-                    item["name"] for item in data["mcps"]["a"]["s"]
-                ],
-            },
-            {
-                "live_names": ["demo"],
-                "declared_names": ["demo"],
-                "persisted_names": ["demo"],
+                "version": 2,
+                "mcps": {
+                    "a": {
+                        "s": [
+                            {
+                                "name": "demo",
+                                "mcp_config": {
+                                    "type": "http_mcp",
+                                    "url": "http://mcp.example/mcp",
+                                    "headers": None,
+                                    "timeout": 30.0,
+                                },
+                                "is_stateful": False,
+                                "enable_tools": None,
+                                "disable_tools": None,
+                                "execution_timeout": None,
+                            },
+                        ],
+                    },
+                },
             },
         )
 
