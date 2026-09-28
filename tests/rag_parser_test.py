@@ -878,6 +878,67 @@ class PPTParserTest(IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_picture_placeholder_emits_data_block(self) -> None:
+        """Pictures inserted into layout placeholders keep their content."""
+        from pptx import Presentation
+
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[8])
+        slide.shapes.title.text = "Before picture"
+        slide.placeholders[1].insert_picture(io.BytesIO(_PNG_PIXEL))
+        slide.placeholders[2].text = "After picture"
+        # An unfilled picture placeholder must not be treated as an image.
+        presentation.slides.add_slide(presentation.slide_layouts[8])
+        buffer = io.BytesIO()
+        presentation.save(buffer)
+
+        parser = PPTParser(slide_prefix=None, slide_suffix=None)
+        sections = await parser.parse(buffer.getvalue(), "placeholder.pptx")
+
+        self.assertEqual(
+            [s.model_dump() for s in sections],
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "Before picture",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    "source": "placeholder.pptx",
+                    "metadata": {"slide": 1},
+                },
+                {
+                    "content": {
+                        "type": "data",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                        "source": {
+                            "type": "base64",
+                            "data": _PNG_PIXEL_B64,
+                            "media_type": "image/png",
+                        },
+                        "name": "placeholder.pptx",
+                    },
+                    "source": "placeholder.pptx",
+                    "metadata": {"slide": 1, "media_type": "image/png"},
+                },
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "After picture",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    "source": "placeholder.pptx",
+                    "metadata": {"slide": 1},
+                },
+            ],
+        )
+
     async def test_table_json_format(self) -> None:
         """``table_format="json"`` emits the JSON marker payload."""
         pptx_bytes = _make_pptx_rich()
