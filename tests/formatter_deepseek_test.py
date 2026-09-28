@@ -216,9 +216,10 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
         # Empty
         self.assertListEqual([], await fmt.format([]))
 
-    async def test_chat_formatter_preserves_supported_images(self) -> None:
-        """Supported user images are preserved with DeepSeek boundaries."""
-        fmt = DeepSeekChatFormatter()
+    async def test_chat_formatter_preserves_user_images(self) -> None:
+        """User images are preserved, while images in other roles are
+        dropped since DeepSeek only accepts them in user messages."""
+        fmt = DeepSeekChatFormatter(input_types=["text/plain", "image/*"])
         image = DataBlock(
             source=Base64Source(
                 data="ZmFrZQ==",
@@ -228,12 +229,9 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
         msgs = [
             UserMsg(
                 name="user",
-                content=[
-                    TextBlock(text="Inspect this image."),
-                    image,
-                ],
+                content=[TextBlock(text="Inspect this image."), image],
             ),
-            UserMsg(name="user", content=[image]),
+            AssistantMsg(name="assistant", content=[image]),
         ]
 
         self.assertListEqual(
@@ -250,51 +248,8 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
                         },
                     ],
                 },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": "data:image/png;base64,ZmFrZQ==",
-                            },
-                        },
-                    ],
-                },
             ],
             await fmt.format(msgs),
-        )
-        with self.assertLogs("as", level="WARNING") as log_context:
-            self.assertListEqual(
-                [],
-                await fmt.format(
-                    [AssistantMsg(name="assistant", content=[image])],
-                ),
-            )
-        self.assertListEqual(
-            [
-                "WARNING:as:DataBlock in assistant role is not supported "
-                "by DeepSeek API, skipped.",
-            ],
-            log_context.output,
-        )
-        self.assertListEqual(
-            [],
-            await fmt.format(
-                [
-                    UserMsg(
-                        name="user",
-                        content=[
-                            DataBlock(
-                                source=Base64Source(
-                                    data="ZmFrZQ==",
-                                    media_type="image/svg+xml",
-                                ),
-                            ),
-                        ],
-                    ),
-                ],
-            ),
         )
 
     async def test_chat_formatter_reasoning_content_always_present(
@@ -729,7 +684,8 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
         )
 
     async def test_chat_formatter_hint_block_multimodal(self) -> None:
-        """A supported image in a hint is sent in a user message."""
+        """DeepSeek is text-only — DataBlock degrades to a placeholder
+        string."""
         fmt = DeepSeekChatFormatter()
         msgs = [
             AssistantMsg(
@@ -749,26 +705,16 @@ class TestDeepSeekFormatter(IsolatedAsyncioTestCase):
                 ],
             ),
         ]
+        res = await fmt.format(msgs)
         self.assertListEqual(
             [
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Inspect this screenshot:",
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": (
-                                    "data:image/png;base64,"
-                                    "ZmFrZSBpbWFnZSBkYXRh"
-                                ),
-                            },
-                        },
-                    ],
+                    "content": (
+                        "Inspect this screenshot:\n"
+                        "[image/png attached, not supported by this provider]"
+                    ),
                 },
             ],
-            await fmt.format(msgs),
+            res,
         )

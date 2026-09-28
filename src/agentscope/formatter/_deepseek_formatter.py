@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """The DeepSeek formatter module."""
-from fnmatch import fnmatch
 from typing import Any
 
 from pydantic import Field
@@ -18,14 +17,6 @@ from ..message import (
 )
 
 
-_DEEPSEEK_IMAGE_TYPES = (
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-)
-
-
 class DeepSeekChatFormatter(_OpenAIFormatterBase):
     """The DeepSeek formatter class for chatbot scenario, where only a user
     and an agent are involved. We use the `role` field to identify different
@@ -33,47 +24,22 @@ class DeepSeekChatFormatter(_OpenAIFormatterBase):
     """
 
     input_types: list[str] = Field(
-        default_factory=lambda: ["text/plain", "image/*"],
+        default_factory=lambda: ["text/plain"],
         description=(
-            "The supported input types. Defaults to "
-            '``["text/plain", "image/*"]``.'
+            'The supported input types. Defaults to ``["text/plain"]``; '
+            "image input is only supported by ``deepseek-flash``."
         ),
     )
-
-    @property
-    def supported_input_media_types(self) -> list[str]:
-        """Return configured media types that DeepSeek can encode."""
-        configured = super().supported_input_media_types
-        return [
-            media_type
-            for media_type in _DEEPSEEK_IMAGE_TYPES
-            if any(fnmatch(media_type, pattern) for pattern in configured)
-        ]
 
     @staticmethod
     def _content_from_blocks(
         blocks: list[dict[str, Any]],
     ) -> str | list[dict[str, Any]]:
-        """Keep text-only content as a string and multimodal content as a
-        list of content blocks."""
-        if any(block["type"] == "image_url" for block in blocks):
+        """Keep text-only content as a string for text-only DeepSeek models,
+        and multimodal content as a list of content blocks."""
+        if any(block["type"] != "text" for block in blocks):
             return blocks
-        return "\n".join(block.get("text", "") for block in blocks)
-
-    def _format_deepseek_data_block(
-        self,
-        block: DataBlock,
-    ) -> dict[str, Any] | None:
-        """Format a supported DeepSeek image data block."""
-        if block.source.media_type not in self.supported_input_media_types:
-            logger.warning(
-                "Unsupported media type %s for DeepSeek API. "
-                "Supported image types: %s. This block will be skipped.",
-                block.source.media_type,
-                ", ".join(self.supported_input_media_types) or "none",
-            )
-            return None
-        return self._format_openai_data_block(block)
+        return "\n".join(block["text"] for block in blocks)
 
     # pylint: disable=too-many-branches
     async def format(
@@ -107,17 +73,11 @@ class DeepSeekChatFormatter(_OpenAIFormatterBase):
                 if isinstance(block, TextBlock):
                     content_blocks.append({"type": "text", "text": block.text})
 
+                # DeepSeek only accepts images in user messages
                 elif isinstance(block, DataBlock) and msg.role == "user":
-                    formatted = self._format_deepseek_data_block(block)
+                    formatted = self._format_openai_data_block(block)
                     if formatted is not None:
                         content_blocks.append(formatted)
-
-                elif isinstance(block, DataBlock):
-                    # pylint: disable-next=logging-fstring-interpolation
-                    logger.warning(
-                        f"DataBlock in {msg.role} role is not supported by "
-                        "DeepSeek API, skipped.",
-                    )
 
                 elif isinstance(block, ThinkingBlock):
                     reasoning_content_blocks.append(block.thinking)
@@ -158,22 +118,15 @@ class DeepSeekChatFormatter(_OpenAIFormatterBase):
                                     {"type": "text", "text": sub.text},
                                 )
                             elif isinstance(sub, DataBlock):
-                                formatted = self._format_deepseek_data_block(
-                                    sub,
+                                hint_parts.append(
+                                    self._format_openai_data_block(sub)
+                                    or {
+                                        "type": "text",
+                                        "text": f"[{sub.source.media_type} "
+                                        "attached, not supported by this "
+                                        "provider]",
+                                    },
                                 )
-                                if formatted is not None:
-                                    hint_parts.append(formatted)
-                                else:
-                                    hint_parts.append(
-                                        {
-                                            "type": "text",
-                                            "text": (
-                                                f"[{sub.source.media_type} "
-                                                "attached, not supported by "
-                                                "this provider]"
-                                            ),
-                                        },
-                                    )
                         if hint_parts:
                             messages.append(
                                 {
@@ -241,7 +194,7 @@ class DeepSeekChatFormatter(_OpenAIFormatterBase):
                                     {"type": "text", "text": item.text},
                                 )
                             elif isinstance(item, DataBlock):
-                                formatted = self._format_deepseek_data_block(
+                                formatted = self._format_openai_data_block(
                                     item,
                                 )
                                 if formatted is not None:
@@ -294,7 +247,7 @@ class DeepSeekChatFormatter(_OpenAIFormatterBase):
         return messages
 
 
-class DeepSeekMultiAgentFormatter(DeepSeekChatFormatter):
+class DeepSeekMultiAgentFormatter(_OpenAIFormatterBase):
     """
     DeepSeek formatter for multi-agent conversations, where more than
     a user and an agent are involved.
@@ -310,10 +263,10 @@ class DeepSeekMultiAgentFormatter(DeepSeekChatFormatter):
     )
 
     input_types: list[str] = Field(
-        default_factory=lambda: ["text/plain", "image/*"],
+        default_factory=lambda: ["text/plain"],
         description=(
-            "The supported input types. Defaults to "
-            '``["text/plain", "image/*"]``.'
+            'The supported input types. Defaults to ``["text/plain"]``; '
+            "image input is only supported by ``deepseek-flash``."
         ),
     )
 
@@ -387,7 +340,7 @@ class DeepSeekMultiAgentFormatter(DeepSeekChatFormatter):
                     content_blocks[-1]["text"] += f"{msg.name}: {block.text}\n"
                     has_history = True
                 elif isinstance(block, DataBlock):
-                    formatted = self._format_deepseek_data_block(block)
+                    formatted = self._format_openai_data_block(block)
                     if formatted is not None:
                         content_blocks[-1]["text"] += f"{msg.name}: "
                         content_blocks.extend(
