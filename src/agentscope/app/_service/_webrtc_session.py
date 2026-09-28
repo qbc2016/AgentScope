@@ -27,7 +27,6 @@ class WebRTCSession:
     def __init__(
         self,
         *,
-        connection_id: str,
         peer_connection: RTCPeerConnection,
         transport: WebRTCAudioTransport,
         agent_factory: Callable[[], Awaitable[RealtimeAgent]],
@@ -38,7 +37,6 @@ class WebRTCSession:
         session_id: str,
         on_closed: Callable[["WebRTCSession"], None],
     ) -> None:
-        self.connection_id = connection_id
         self.peer_connection = peer_connection
         self.transport = transport
         self._agent_factory = agent_factory

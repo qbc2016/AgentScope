@@ -701,7 +701,6 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
             )
 
         session = WebRTCSession(
-            connection_id="connection-1",
             peer_connection=peer_connection,  # type: ignore[arg-type]
             transport=transport,  # type: ignore[arg-type]
             agent_factory=_create_agent,  # type: ignore[arg-type]
@@ -767,7 +766,6 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
             closed.set()
 
         session = WebRTCSession(
-            connection_id="connection-1",
             peer_connection=peer_connection,  # type: ignore[arg-type]
             transport=transport,  # type: ignore[arg-type]
             agent_factory=_create_agent,  # type: ignore[arg-type]
@@ -869,7 +867,6 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
         )
         storage = _FakeStorage()
         session = WebRTCSession(
-            connection_id="connection-1",
             peer_connection=_FakePeerConnection(),  # type: ignore[arg-type]
             transport=_FakeTransport(),  # type: ignore[arg-type]
             agent_factory=AsyncMock(),  # type: ignore[arg-type]
@@ -947,7 +944,6 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
             return agent
 
         session = WebRTCSession(
-            connection_id="connection-1",
             peer_connection=peer_connection,  # type: ignore[arg-type]
             transport=transport,  # type: ignore[arg-type]
             agent_factory=_create_agent,  # type: ignore[arg-type]
@@ -992,7 +988,6 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
             raise AssertionError("The agent must not load without the lock.")
 
         session = WebRTCSession(
-            connection_id="connection-1",
             peer_connection=peer_connection,  # type: ignore[arg-type]
             transport=transport,  # type: ignore[arg-type]
             agent_factory=_create_agent,  # type: ignore[arg-type]
@@ -1067,7 +1062,6 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
             return agent
 
         session = WebRTCSession(
-            connection_id="connection-1",
             peer_connection=peer_connection,  # type: ignore[arg-type]
             transport=transport,  # type: ignore[arg-type]
             agent_factory=_create_agent,  # type: ignore[arg-type]

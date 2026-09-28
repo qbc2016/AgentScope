@@ -2,7 +2,6 @@
 """Realtime voice model discovery and WebRTC negotiation endpoints."""
 
 import asyncio
-import uuid
 from typing import Any
 from weakref import WeakValueDictionary
 
@@ -248,14 +247,11 @@ async def _create_realtime_offer(
                 model=model,
             )
 
-        connection_id = uuid.uuid4().hex
-
         def _remove_closed(closed: WebRTCSession) -> None:
             if connections.get(connection_key) is closed:
                 connections.pop(connection_key, None)
 
         runner = WebRTCSession(
-            connection_id=connection_id,
             peer_connection=peer_connection,
             transport=transport,
             agent_factory=_create_agent,
@@ -278,7 +274,6 @@ async def _create_realtime_offer(
                 detail=f"Session {session_id!r} is already running.",
             )
         return RealtimeOfferResponse(
-            connection_id=connection_id,
             sdp=local_description.sdp,
             type="answer",
         )

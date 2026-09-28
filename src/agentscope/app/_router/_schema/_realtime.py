@@ -44,8 +44,5 @@ class RealtimeOfferRequest(BaseModel):
 class RealtimeOfferResponse(BaseModel):
     """The server WebRTC answer."""
 
-    connection_id: str = Field(
-        description="The server-side realtime connection identifier.",
-    )
     sdp: str = Field(description="The server's SDP answer.")
     type: Literal["answer"] = "answer"
