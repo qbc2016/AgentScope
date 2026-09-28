@@ -327,6 +327,65 @@ class BlockingClearTransport(GatedTransport):
         return self.playout()
 
 
+async def _run_terminal_event_during_barge_in(
+    agent: RealtimeAgent,
+    model: QueueSessionModel,
+    terminal_event: me.ModelEvent,
+    tool_call: ToolCallBlock | None = None,
+) -> tuple[list[Any], dict[str, Any]]:
+    """Deliver a terminal event while browser playout clearing is blocked."""
+    transport = BlockingClearTransport()
+    events = []
+
+    async def _collect() -> None:
+        async for event in agent.reply_stream(transport):
+            events.append(event)
+
+    async with agent, transport:
+        await model.iterator_started[0].wait()
+        stream_task = asyncio.create_task(_collect())
+        queue = model.event_queues[0]
+        queue.put_nowait(me.ResponseCreatedEvent(item_id="r1"))
+        queue.put_nowait(me.TranscriptDeltaEvent(item_id="r1", delta="没听到"))
+        queue.put_nowait(
+            me.AudioDeltaEvent(
+                item_id="r1",
+                pcm=PCM_100MS,
+                sample_rate=24000,
+            ),
+        )
+        if tool_call is not None:
+            queue.put_nowait(
+                me.ToolCallEvent(item_id="r1", tool_call=tool_call),
+            )
+        await transport.audio_sent.wait()
+        while (
+            tool_call is not None and tool_call.id not in agent._pending_tools
+        ):
+            await asyncio.sleep(0)
+
+        interrupt_task = asyncio.create_task(agent.interrupt())
+        await transport.clear_started.wait()
+        queue.put_nowait(terminal_event)
+        queue.put_nowait(None)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        state_while_clearing = {
+            "reply_open": agent._reply is not None,
+            "reply_id": agent._reply_id,
+            "input_tokens": agent._metrics.input_tokens,
+            "pending_tools": sorted(agent._pending_tools),
+        }
+
+        transport.clear_release.set()
+        await interrupt_task
+        await asyncio.wait_for(model.iterator_finished[0].wait(), timeout=1)
+        transport.gate.set()
+        await stream_task
+
+    return events, state_while_clearing
+
+
 class EndOnSecondFrameVAD(VADBase):
     """Reports the user starting on the first chunk and stopping on the
     second."""
@@ -630,68 +689,23 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
             model,
             toolkit=Toolkit(tools=[StreamTool()]),
         )
-        transport = BlockingClearTransport()
-        events = []
-
-        async def _collect() -> None:
-            async for event in agent.reply_stream(transport):
-                events.append(event)
-
-        async with agent, transport:
-            await model.iterator_started[0].wait()
-            stream_task = asyncio.create_task(_collect())
-            queue = model.event_queues[0]
-            queue.put_nowait(me.ResponseCreatedEvent(item_id="r1"))
-            queue.put_nowait(
-                me.TranscriptDeltaEvent(item_id="r1", delta="没听到"),
-            )
-            queue.put_nowait(
-                me.AudioDeltaEvent(
-                    item_id="r1",
-                    pcm=PCM_100MS,
-                    sample_rate=24000,
-                ),
-            )
-            queue.put_nowait(
-                me.ToolCallEvent(
-                    item_id="r1",
-                    tool_call=ToolCallBlock(
-                        id="c1",
-                        name="stream_tool",
-                        input='{"q": "x"}',
-                    ),
-                ),
-            )
-            await transport.audio_sent.wait()
-            while "c1" not in agent._pending_tools:
-                await asyncio.sleep(0)
-
-            interrupt_task = asyncio.create_task(agent.interrupt())
-            await transport.clear_started.wait()
-            queue.put_nowait(
-                me.ResponseDoneEvent(
-                    item_id="r1",
-                    input_tokens=7,
-                    output_tokens=2,
-                ),
-            )
-            queue.put_nowait(None)
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            state_while_clearing = {
-                "reply_open": agent._reply is not None,
-                "input_tokens": agent._metrics.input_tokens,
-                "pending_tools": sorted(agent._pending_tools),
-            }
-
-            transport.clear_release.set()
-            await interrupt_task
-            await asyncio.wait_for(
-                model.iterator_finished[0].wait(),
-                timeout=1,
-            )
-            transport.gate.set()
-            await stream_task
+        (
+            events,
+            state_while_clearing,
+        ) = await _run_terminal_event_during_barge_in(
+            agent,
+            model,
+            me.ResponseDoneEvent(
+                item_id="r1",
+                input_tokens=7,
+                output_tokens=2,
+            ),
+            ToolCallBlock(
+                id="c1",
+                name="stream_tool",
+                input='{"q": "x"}',
+            ),
+        )
 
         correction_events = [
             event.model_dump(
@@ -701,13 +715,23 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
             for event in events
             if isinstance(event, (TextBlockEndEvent, ReplyEndEvent))
         ]
-        self.maxDiff = None
         self.assertEqual(
             {
                 "state_while_clearing": state_while_clearing,
                 "correction_events": correction_events,
                 "context": [
-                    message.model_dump() for message in agent.state.context
+                    {
+                        "id": message.id,
+                        "finished_reason": message.finished_reason,
+                        "content": [
+                            block.model_dump(
+                                mode="json",
+                                exclude={"created_at", "finished_at"},
+                            )
+                            for block in message.content
+                        ],
+                    }
+                    for message in agent.state.context
                 ],
                 "input_tokens": agent._metrics.input_tokens,
                 "pending_tools": sorted(agent._pending_tools),
@@ -718,6 +742,7 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
             {
                 "state_while_clearing": {
                     "reply_open": True,
+                    "reply_id": "r1",
                     "input_tokens": 0,
                     "pending_tools": ["c1"],
                 },
@@ -740,7 +765,8 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
                 ],
                 "context": [
                     {
-                        "name": "Friday",
+                        "id": "r1",
+                        "finished_reason": "interrupted",
                         "content": [
                             {
                                 "type": "tool_call",
@@ -749,19 +775,8 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
                                 "input": '{"q": "x"}',
                                 "state": "pending",
                                 "suggested_rules": [],
-                                "created_at": AnyString(),
-                                "finished_at": None,
                             },
                         ],
-                        "role": "assistant",
-                        "id": "r1",
-                        "metadata": {},
-                        "created_at": AnyString(),
-                        "usage": None,
-                        "finished_at": AnyString(),
-                        "finished_reason": "interrupted",
-                        "structured_output": None,
-                        "error": None,
                     },
                 ],
                 "input_tokens": 0,
@@ -1391,67 +1406,29 @@ class RealtimeAgentPlayoutRetentionTest(IsolatedAsyncioTestCase):
         """An error queued behind barge-in cannot hide its correction."""
         model = QueueSessionModel()
         agent = RealtimeAgent("Friday", "be brief", model)
-        transport = BlockingClearTransport()
-        events = []
+        (
+            events,
+            state_while_clearing,
+        ) = await _run_terminal_event_during_barge_in(
+            agent,
+            model,
+            me.ModelErrorEvent(code="provider_error", message="failed"),
+        )
 
-        async def _collect() -> None:
-            async for event in agent.reply_stream(transport):
-                events.append(event)
-
-        async with agent, transport:
-            await model.iterator_started[0].wait()
-            stream_task = asyncio.create_task(_collect())
-            queue = model.event_queues[0]
-            queue.put_nowait(me.ResponseCreatedEvent(item_id="r1"))
-            queue.put_nowait(
-                me.TranscriptDeltaEvent(item_id="r1", delta="没听到"),
-            )
-            queue.put_nowait(
-                me.AudioDeltaEvent(
-                    item_id="r1",
-                    pcm=PCM_100MS,
-                    sample_rate=24000,
-                ),
-            )
-            await transport.audio_sent.wait()
-
-            interrupt_task = asyncio.create_task(agent.interrupt())
-            await transport.clear_started.wait()
-            queue.put_nowait(
-                me.ModelErrorEvent(code="provider_error", message="failed"),
-            )
-            queue.put_nowait(None)
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            state_while_clearing = {
-                "reply_open": agent._reply is not None,
-                "reply_id": agent._reply_id,
-            }
-
-            transport.clear_release.set()
-            await interrupt_task
-            await asyncio.wait_for(
-                model.iterator_finished[0].wait(),
-                timeout=1,
-            )
-            transport.gate.set()
-            await stream_task
-
-        correction_events = [
-            event.model_dump(
-                mode="json",
-                exclude={"id", "created_at"},
-            )
-            for event in events
-            if isinstance(event, (TextBlockEndEvent, ReplyEndEvent))
-        ]
         self.assertEqual(
             {
                 "state_while_clearing": state_while_clearing,
-                "correction_events": correction_events,
-                "context": [
-                    message.model_dump() for message in agent.state.context
+                "corrections": [
+                    (
+                        event.type,
+                        event.text
+                        if isinstance(event, TextBlockEndEvent)
+                        else event.finished_reason,
+                    )
+                    for event in events
+                    if isinstance(event, (TextBlockEndEvent, ReplyEndEvent))
                 ],
+                "context": agent.state.context,
                 "model_calls": [
                     call for call in model.calls if call != "push_audio"
                 ],
@@ -1460,23 +1437,12 @@ class RealtimeAgentPlayoutRetentionTest(IsolatedAsyncioTestCase):
                 "state_while_clearing": {
                     "reply_open": True,
                     "reply_id": "r1",
+                    "input_tokens": 0,
+                    "pending_tools": [],
                 },
-                "correction_events": [
-                    {
-                        "type": "TEXT_BLOCK_END",
-                        "metadata": {},
-                        "reply_id": "r1",
-                        "block_id": AnyString(),
-                        "text": "",
-                    },
-                    {
-                        "type": "REPLY_END",
-                        "metadata": {},
-                        "session_id": AnyString(),
-                        "reply_id": "r1",
-                        "finished_reason": "interrupted",
-                        "error": None,
-                    },
+                "corrections": [
+                    ("TEXT_BLOCK_END", ""),
+                    ("REPLY_END", ReplyFinishedReason.INTERRUPTED),
                 ],
                 "context": [],
                 "model_calls": [
