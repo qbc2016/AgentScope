@@ -15,6 +15,7 @@ from agentscope.agent import (
 )
 from agentscope.credential import DashScopeCredential
 from agentscope.event import (
+    DataBlockDeltaEvent,
     ReplyEndEvent,
     ReplyStartEvent,
     TextBlockDeltaEvent,
@@ -1234,6 +1235,19 @@ class StreamTool(ToolBase):
         yield ToolResponse(content=[TextBlock(text=f"{q}-final")])
 
 
+class BlockingTool(StreamTool):
+    """Wait until the test releases a tool already in progress."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = asyncio.Event()
+
+    async def __call__(self, q: str, **kwargs: Any) -> Any:
+        """Hold the tool result until a barge-in has completed."""
+        await self.release.wait()
+        yield ToolResponse(content=[TextBlock(text=f"{q}-final")])
+
+
 class AskTool(StreamTool):
     """Requires user confirmation before running. Not read-only, or the
     permission engine's read-only fast path would allow it unasked."""
@@ -1896,6 +1910,230 @@ class RealtimeAgentFullStreamTest(IsolatedAsyncioTestCase):
                 "tool_result(c1,'x-final')",
                 "request_response",
                 "close",
+            ],
+        )
+
+    async def test_barge_in_after_tool_preserves_first_response(self) -> None:
+        """Interrupting the second response truncates only its text."""
+        model = ScriptedModel(
+            [
+                [
+                    me.SpeechEndedEvent(item_id="u1"),
+                    me.InputTranscriptionEvent(
+                        item_id="u1",
+                        text="查天气",
+                    ),
+                    me.ResponseCreatedEvent(item_id="r1"),
+                    me.TranscriptDeltaEvent(
+                        item_id="r1",
+                        delta="我查一下",
+                    ),
+                    me.AudioDeltaEvent(
+                        item_id="r1",
+                        pcm=PCM_100MS,
+                        sample_rate=24000,
+                    ),
+                    me.ToolCallEvent(
+                        item_id="r1",
+                        tool_call=ToolCallBlock(
+                            id="c1",
+                            name="stream_tool",
+                            input='{"q": "x"}',
+                        ),
+                    ),
+                    me.ResponseDoneEvent(item_id="r1"),
+                    "WAIT",
+                    me.ResponseCreatedEvent(item_id="r2"),
+                    me.TranscriptDeltaEvent(
+                        item_id="r2",
+                        delta="今天晴",
+                    ),
+                    me.AudioDeltaEvent(
+                        item_id="r2",
+                        pcm=PCM_100MS,
+                        sample_rate=24000,
+                    ),
+                ],
+            ],
+        )
+        agent = RealtimeAgent(
+            "Friday",
+            "be brief",
+            model,
+            toolkit=Toolkit(tools=[StreamTool()]),
+        )
+        audio_deltas = 0
+        async with agent:
+            transport = FakeTransport(frames=10, played_ms=50)
+            async with transport:
+                async for event in agent.reply_stream(transport):
+                    if isinstance(event, DataBlockDeltaEvent):
+                        audio_deltas += 1
+                        if audio_deltas == 2:
+                            await agent.interrupt()
+
+        assistant = [
+            message
+            for message in agent.state.context
+            if message.role == "assistant"
+        ][-1]
+        self.maxDiff = None
+        self.assertEqual(
+            assistant.model_dump(),
+            {
+                "name": "Friday",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "我查一下",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    {
+                        "type": "tool_call",
+                        "id": "c1",
+                        "name": "stream_tool",
+                        "input": '{"q": "x"}',
+                        "state": "pending",
+                        "suggested_rules": [],
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    {
+                        "type": "tool_result",
+                        "id": "c1",
+                        "name": "stream_tool",
+                        "output": "x-final",
+                        "state": "success",
+                        "metadata": {},
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    {
+                        "type": "text",
+                        "text": "今天晴",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "role": "assistant",
+                "id": "r1",
+                "metadata": {},
+                "created_at": AnyString(),
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                },
+                "finished_at": AnyString(),
+                "finished_reason": ReplyFinishedReason.INTERRUPTED,
+                "structured_output": None,
+                "error": None,
+            },
+        )
+        self.assertIn("truncate(r2,50ms,'今天晴')", model.calls)
+
+    async def test_barge_in_while_tool_runs_clears_first_audio(self) -> None:
+        """A reply waiting on a tool still clears its queued audio."""
+        tool = BlockingTool()
+        model = ScriptedModel(
+            [
+                [
+                    me.ResponseCreatedEvent(item_id="r1"),
+                    me.TranscriptDeltaEvent(
+                        item_id="r1",
+                        delta="我查一下",
+                    ),
+                    me.AudioDeltaEvent(
+                        item_id="r1",
+                        pcm=PCM_100MS,
+                        sample_rate=24000,
+                    ),
+                    me.ToolCallEvent(
+                        item_id="r1",
+                        tool_call=ToolCallBlock(
+                            id="c1",
+                            name="stream_tool",
+                            input='{"q": "x"}',
+                        ),
+                    ),
+                    me.ResponseDoneEvent(item_id="r1"),
+                ],
+            ],
+        )
+        agent = RealtimeAgent(
+            "Friday",
+            "be brief",
+            model,
+            toolkit=Toolkit(tools=[tool]),
+        )
+        transport = FakeTransport(frames=10, played_ms=50)
+
+        async with agent, transport:
+            async for event in agent.reply_stream(transport):
+                if isinstance(event, ToolResultStartEvent):
+                    await agent.interrupt()
+                    tool.release.set()
+
+        self.assertEqual(transport.cleared, 1)
+        self.assertIn("truncate(r1,50ms,'我查一下')", model.calls)
+        self.maxDiff = None
+        self.assertEqual(
+            [
+                message.model_dump()
+                for message in agent.state.context
+                if message.role == "assistant"
+            ],
+            [
+                {
+                    "name": "Friday",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "我查一下",
+                            "id": AnyString(),
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                        {
+                            "type": "tool_call",
+                            "id": "c1",
+                            "name": "stream_tool",
+                            "input": '{"q": "x"}',
+                            "state": "pending",
+                            "suggested_rules": [],
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                        {
+                            "type": "tool_result",
+                            "id": "c1",
+                            "name": "stream_tool",
+                            "output": "x-final",
+                            "state": "success",
+                            "metadata": {},
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                    ],
+                    "role": "assistant",
+                    "id": "r1",
+                    "metadata": {},
+                    "created_at": AnyString(),
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                    },
+                    "finished_at": AnyString(),
+                    "finished_reason": ReplyFinishedReason.INTERRUPTED,
+                    "structured_output": None,
+                    "error": None,
+                },
             ],
         )
 

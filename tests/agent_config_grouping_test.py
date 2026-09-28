@@ -90,6 +90,27 @@ class AgentConfigGroupingTest(IsolatedAsyncioTestCase):
                 },
             ).model_dump(),
         )
+        with self.assertWarns(DeprecationWarning):
+            context_config = data.context_config
+        with self.assertWarns(DeprecationWarning):
+            react_config = data.react_config
+        with self.assertWarns(DeprecationWarning):
+            invite_config = data.invite_config
+        self.assertEqual(
+            {
+                "context_config": context_config,
+                "react_config": react_config,
+                "invite_config": invite_config,
+            },
+            {
+                "context_config": data.chat_config.context_config,
+                "react_config": data.chat_config.react_config,
+                "invite_config": data.chat_config.invite_config,
+            },
+        )
+        self.assertNotIn("context_config", data.model_dump())
+        self.assertNotIn("react_config", data.model_dump())
+        self.assertNotIn("invite_config", data.model_dump())
 
     def test_create_accepts_both_shapes(self) -> None:
         """POST bodies in either shape store the same grouped record."""
@@ -125,6 +146,24 @@ class AgentConfigGroupingTest(IsolatedAsyncioTestCase):
                     },
                 },
             ).chat_config.model_dump(mode="json"),
+        )
+        expected_chat_config = by_name["legacy"]["chat_config"]
+        self.assertEqual(
+            {
+                key: by_name["legacy"][key]
+                for key in (
+                    "chat_config",
+                    "context_config",
+                    "react_config",
+                    "invite_config",
+                )
+            },
+            {
+                "chat_config": expected_chat_config,
+                "context_config": expected_chat_config["context_config"],
+                "react_config": expected_chat_config["react_config"],
+                "invite_config": expected_chat_config["invite_config"],
+            },
         )
 
     def test_update_keeps_untouched_sub_configs(self) -> None:

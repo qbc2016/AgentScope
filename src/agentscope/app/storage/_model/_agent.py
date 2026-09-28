@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """The agent storage class."""
+import warnings
 from typing import Any, Literal, Self
 
 from pydantic import Field, BaseModel, model_validator
@@ -125,6 +126,39 @@ class AgentData(BaseModel):
         description="The settings for the agent's text conversations.",
         title="Chat Config",
     )
+
+    @property
+    def context_config(self) -> ContextConfig:
+        """Return the deprecated flat context configuration."""
+        warnings.warn(
+            "AgentData.context_config is deprecated; use "
+            "AgentData.chat_config.context_config instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.chat_config.context_config
+
+    @property
+    def react_config(self) -> ReActConfig:
+        """Return the deprecated flat ReAct configuration."""
+        warnings.warn(
+            "AgentData.react_config is deprecated; use "
+            "AgentData.chat_config.react_config instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.chat_config.react_config
+
+    @property
+    def invite_config(self) -> InviteConfig:
+        """Return the deprecated flat invite configuration."""
+        warnings.warn(
+            "AgentData.invite_config is deprecated; use "
+            "AgentData.chat_config.invite_config instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.chat_config.invite_config
 
     @model_validator(mode="before")
     @classmethod

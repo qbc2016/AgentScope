@@ -30,14 +30,17 @@ class CreateAgentRequest(BaseModel):
     context_config: ContextConfig | None = Field(
         default=None,
         description="**Deprecated.** Use ``chat_config.context_config``.",
+        deprecated=True,
     )
     react_config: ReActConfig | None = Field(
         default=None,
         description="**Deprecated.** Use ``chat_config.react_config``.",
+        deprecated=True,
     )
     invite_config: InviteConfig | None = Field(
         default=None,
         description="**Deprecated.** Use ``chat_config.invite_config``.",
+        deprecated=True,
     )
 
 
@@ -71,14 +74,17 @@ class UpdateAgentRequest(BaseModel):
             "**Deprecated.** Use ``chat_config``. Still honoured, and "
             "narrower: it replaces only this sub-config."
         ),
+        deprecated=True,
     )
     react_config: ReActConfig | None = Field(
         default=None,
         description="**Deprecated.** Use ``chat_config``.",
+        deprecated=True,
     )
     invite_config: InviteConfig | None = Field(
         default=None,
         description="**Deprecated.** Use ``chat_config``.",
+        deprecated=True,
     )
 
 

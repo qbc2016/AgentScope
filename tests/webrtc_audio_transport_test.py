@@ -25,6 +25,7 @@ from agentscope.app._service._webrtc_session import WebRTCSession
 from agentscope.app.message_bus import MessageBusKeys
 from agentscope.app.storage import CredentialRecord, RealtimeModelConfig
 from agentscope.event import (
+    DataBlockDeltaEvent,
     ReplyEndEvent,
     RequireUserConfirmEvent,
     ToolResultEndEvent,
@@ -787,6 +788,62 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
                 "transport_errors": [],
                 "closed_sessions": [session],
             },
+        )
+
+    async def test_pcm_delta_is_live_only(self) -> None:
+        """PCM reaches live subscribers without entering replay storage."""
+        message = {"id": "message-1", "role": "assistant"}
+        event = DataBlockDeltaEvent(
+            id="event-1",
+            created_at="2026-01-01T00:00:00",
+            reply_id="message-1",
+            block_id="audio-1",
+            data="AQA=",
+            media_type="audio/pcm;rate=24000",
+        )
+        agent = _FakeAgent(message, event)
+        transport = _FakeTransport()
+        peer_connection = _FakePeerConnection()
+        storage = _FakeStorage()
+        message_bus = _FakeMessageBus()
+        closed = asyncio.Event()
+
+        async def _create_agent() -> _FakeAgent:
+            message_bus.calls.append({"method": "agent_factory"})
+            return agent
+
+        session = WebRTCSession(
+            connection_id="connection-1",
+            peer_connection=peer_connection,  # type: ignore[arg-type]
+            transport=transport,  # type: ignore[arg-type]
+            agent_factory=_create_agent,  # type: ignore[arg-type]
+            storage=storage,  # type: ignore[arg-type]
+            message_bus=message_bus,  # type: ignore[arg-type]
+            user_id="alice",
+            agent_id="agent-1",
+            session_id="session-1",
+            on_closed=lambda _: closed.set(),
+        )
+        session.start()
+        await asyncio.wait_for(closed.wait(), timeout=1)
+
+        events_key = MessageBusKeys.session_events("session-1")
+        self.assertEqual(
+            message_bus.calls,
+            [
+                {
+                    "method": "acquire_lock",
+                    "key": MessageBusKeys.session_lock("session-1"),
+                    "ttl_secs": MessageBusKeys.SESSION_RUN_TTL_SECS,
+                },
+                {"method": "agent_factory"},
+                {
+                    "method": "publish",
+                    "key": events_key,
+                    "event": event.model_dump(mode="json"),
+                },
+                {"method": "log_trim", "key": events_key},
+            ],
         )
 
     async def test_close_cancels_a_runner_waiting_for_the_lock(self) -> None:

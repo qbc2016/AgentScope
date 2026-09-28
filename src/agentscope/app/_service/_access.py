@@ -6,7 +6,13 @@ from datetime import datetime
 from typing import Any, Literal, TypeVar, overload
 
 from fastapi import HTTPException, status
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    Field,
+    model_serializer,
+    model_validator,
+)
 
 from ..access import (
     ResourceAccessPolicyBase,
@@ -42,6 +48,20 @@ class AgentView(AgentRecord):
             "Whether the current viewer may PATCH/DELETE this agent."
         ),
     )
+
+    @model_serializer(mode="wrap")
+    def _serialize_legacy_agent_config(self, handler: Any) -> dict:
+        """Keep deprecated flat agent configs in HTTP-facing views."""
+        payload = handler(self)
+        data = payload["data"]
+        chat_config = data["chat_config"]
+        for key in (
+            "context_config",
+            "react_config",
+            "invite_config",
+        ):
+            data[key] = chat_config[key]
+        return payload
 
 
 class CredentialView(CredentialRecord):
@@ -221,7 +241,7 @@ class ResourceAccessService:
     async def list_resource(
         self,
         viewer_id: str,
-        kind: Literal[ResourceKind.CREDENTIAL],
+        kind: Literal["credential"],
     ) -> list[CredentialView]:
         ...
 
@@ -229,7 +249,7 @@ class ResourceAccessService:
     async def list_resource(
         self,
         viewer_id: str,
-        kind: Literal[ResourceKind.AGENT],
+        kind: Literal["agent"],
     ) -> list[AgentView]:
         ...
 
@@ -237,7 +257,7 @@ class ResourceAccessService:
     async def list_resource(
         self,
         viewer_id: str,
-        kind: Literal[ResourceKind.KNOWLEDGE_BASE],
+        kind: Literal["knowledge_base"],
     ) -> list[KnowledgeBaseView]:
         ...
 
@@ -304,7 +324,7 @@ class ResourceAccessService:
     async def get_resource(
         self,
         viewer_id: str,
-        kind: Literal[ResourceKind.CREDENTIAL],
+        kind: Literal["credential"],
         resource_id: str,
     ) -> CredentialView:
         ...
@@ -313,7 +333,7 @@ class ResourceAccessService:
     async def get_resource(
         self,
         viewer_id: str,
-        kind: Literal[ResourceKind.AGENT],
+        kind: Literal["agent"],
         resource_id: str,
     ) -> AgentView:
         ...
@@ -322,7 +342,7 @@ class ResourceAccessService:
     async def get_resource(
         self,
         viewer_id: str,
-        kind: Literal[ResourceKind.KNOWLEDGE_BASE],
+        kind: Literal["knowledge_base"],
         resource_id: str,
     ) -> KnowledgeBaseView:
         ...

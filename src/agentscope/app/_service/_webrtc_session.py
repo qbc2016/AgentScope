@@ -9,6 +9,7 @@ from aiortc import RTCPeerConnection
 from ..._logging import logger
 from ...agent import RealtimeAgent
 from ...event import (
+    DataBlockDeltaEvent,
     ReplyEndEvent,
     RequireUserConfirmEvent,
     TextBlockEndEvent,
@@ -127,11 +128,21 @@ class WebRTCSession:
                         async for event in self.agent.reply_stream(
                             self.transport,
                         ):
-                            await publish_session_event(
-                                self.message_bus,
-                                self.session_id,
-                                event.model_dump(mode="json"),
-                            )
+                            payload = event.model_dump(mode="json")
+                            if isinstance(
+                                event,
+                                DataBlockDeltaEvent,
+                            ) and event.media_type.startswith("audio/pcm"):
+                                await self.message_bus.publish(
+                                    events_key,
+                                    payload,
+                                )
+                            else:
+                                await publish_session_event(
+                                    self.message_bus,
+                                    self.session_id,
+                                    payload,
+                                )
                             if isinstance(
                                 event,
                                 (
