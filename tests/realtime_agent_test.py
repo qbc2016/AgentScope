@@ -304,6 +304,29 @@ class GatedTransport(FakeTransport):
             yield frame
 
 
+class BlockingClearTransport(GatedTransport):
+    """Hold ``clear_audio`` open while a response completion arrives."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.played_ms = 0
+        self.audio_sent = asyncio.Event()
+        self.clear_started = asyncio.Event()
+        self.clear_release = asyncio.Event()
+
+    async def send_audio(self, pcm: bytes, item_id: str) -> None:
+        """Record the item and signal that interruption can begin."""
+        await super().send_audio(pcm, item_id)
+        self.audio_sent.set()
+
+    async def clear_audio(self) -> PlayoutPosition:
+        """Wait until the test permits the browser acknowledgment."""
+        self.cleared += 1
+        self.clear_started.set()
+        await self.clear_release.wait()
+        return self.playout()
+
+
 class EndOnSecondFrameVAD(VADBase):
     """Reports the user starting on the first chunk and stopping on the
     second."""
@@ -512,7 +535,7 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
                     correction_events.append(event)
 
         self.assertListEqual(correction_events, [])
-        self.assertEqual(transport.cleared, 1)
+        self.assertEqual(transport.cleared, 0)
         self.assertListEqual(
             [call for call in model.calls if call != "push_audio"],
             [
@@ -594,6 +617,113 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
                 for message in agent.state.context
             ],
             [("user", "讲个故事")],
+        )
+
+    async def test_response_done_waits_for_barge_in_reconciliation(
+        self,
+    ) -> None:
+        """Completion during clear still emits the empty correction."""
+        model = QueueSessionModel()
+        agent = RealtimeAgent("Friday", "be brief", model)
+        transport = BlockingClearTransport()
+        events = []
+
+        async def _collect() -> None:
+            async for event in agent.reply_stream(transport):
+                events.append(event)
+
+        async def _wait_until_response_done() -> None:
+            while agent._metrics.input_tokens != 7:
+                await asyncio.sleep(0)
+
+        async with agent, transport:
+            await model.iterator_started[0].wait()
+            stream_task = asyncio.create_task(_collect())
+            queue = model.event_queues[0]
+            queue.put_nowait(me.ResponseCreatedEvent(item_id="r1"))
+            queue.put_nowait(
+                me.TranscriptDeltaEvent(item_id="r1", delta="没听到"),
+            )
+            queue.put_nowait(
+                me.AudioDeltaEvent(
+                    item_id="r1",
+                    pcm=PCM_100MS,
+                    sample_rate=24000,
+                ),
+            )
+            await transport.audio_sent.wait()
+
+            interrupt_task = asyncio.create_task(agent.interrupt())
+            await transport.clear_started.wait()
+            queue.put_nowait(
+                me.ResponseDoneEvent(
+                    item_id="r1",
+                    input_tokens=7,
+                    output_tokens=2,
+                ),
+            )
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            state_while_clearing = {
+                "reply_open": agent._reply is not None,
+                "input_tokens": agent._metrics.input_tokens,
+            }
+
+            transport.clear_release.set()
+            await interrupt_task
+            await asyncio.wait_for(_wait_until_response_done(), timeout=1)
+            transport.gate.set()
+            await stream_task
+
+        correction_events = [
+            event.model_dump(
+                mode="json",
+                exclude={"id", "created_at"},
+            )
+            for event in events
+            if isinstance(event, (TextBlockEndEvent, ReplyEndEvent))
+        ]
+        self.assertEqual(
+            {
+                "state_while_clearing": state_while_clearing,
+                "correction_events": correction_events,
+                "context": [
+                    message.model_dump() for message in agent.state.context
+                ],
+                "model_calls": [
+                    call for call in model.calls if call != "push_audio"
+                ],
+            },
+            {
+                "state_while_clearing": {
+                    "reply_open": True,
+                    "input_tokens": 0,
+                },
+                "correction_events": [
+                    {
+                        "type": "TEXT_BLOCK_END",
+                        "metadata": {},
+                        "reply_id": "r1",
+                        "block_id": AnyString(),
+                        "text": "",
+                    },
+                    {
+                        "type": "REPLY_END",
+                        "metadata": {},
+                        "session_id": AnyString(),
+                        "reply_id": "r1",
+                        "finished_reason": "interrupted",
+                        "error": None,
+                    },
+                ],
+                "context": [],
+                "model_calls": [
+                    "connect(session=1,td_off=False)",
+                    "cancel",
+                    "truncate(r1,0ms,'')",
+                    "close",
+                ],
+            },
         )
 
     async def test_mismatched_playout_still_cancels_active_reply(self) -> None:
@@ -1203,6 +1333,96 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
 
         self.assertListEqual(summary, [])
         self.assertListEqual(agent.state.context, [])
+
+
+class RealtimeAgentPlayoutRetentionTest(IsolatedAsyncioTestCase):
+    """Verify completed playback does not retain response alignment."""
+
+    async def test_completed_playout_replies_are_pruned(self) -> None:
+        """Fully played responses do not accumulate alignment state."""
+        model = ScriptedModel([[]])
+        agent = RealtimeAgent("Friday", "be brief", model)
+        transport = FakeTransport(frames=0, played_ms=100)
+        agent._transport = transport
+
+        for index in range(101):
+            item_id = f"r{index}"
+            await agent._on_model_event(
+                me.ResponseCreatedEvent(item_id=item_id),
+            )
+            await agent._on_model_event(
+                me.TranscriptDeltaEvent(item_id=item_id, delta="完成"),
+            )
+            await agent._on_model_event(
+                me.AudioDeltaEvent(
+                    item_id=item_id,
+                    pcm=PCM_100MS,
+                    sample_rate=24000,
+                ),
+            )
+            await agent._on_model_event(
+                me.ResponseDoneEvent(item_id=item_id),
+            )
+
+        self.assertEqual(
+            {
+                "retained_playout_replies": list(
+                    agent._playout_replies,
+                ),
+                "context_size": len(agent.state.context),
+                "completed_replies": sum(
+                    message.finished_reason is ReplyFinishedReason.COMPLETED
+                    for message in agent.state.context
+                ),
+            },
+            {
+                "retained_playout_replies": [],
+                "context_size": 101,
+                "completed_replies": 101,
+            },
+        )
+
+    async def test_zero_progress_keeps_queued_playout_replies(self) -> None:
+        """Starting a later media item is not an audible acknowledgment."""
+        model = ScriptedModel([[]])
+        agent = RealtimeAgent("Friday", "be brief", model)
+        transport = FakeTransport(frames=0, played_ms=0)
+        agent._transport = transport
+
+        for item_id in ("r1", "r2"):
+            await agent._on_model_event(
+                me.ResponseCreatedEvent(item_id=item_id),
+            )
+            await agent._on_model_event(
+                me.TranscriptDeltaEvent(item_id=item_id, delta="排队"),
+            )
+            await agent._on_model_event(
+                me.AudioDeltaEvent(
+                    item_id=item_id,
+                    pcm=PCM_100MS,
+                    sample_rate=24000,
+                ),
+            )
+            await agent._on_model_event(
+                me.ResponseDoneEvent(item_id=item_id),
+            )
+
+        self.assertEqual(
+            {
+                "retained_playout_replies": list(
+                    agent._playout_replies,
+                ),
+                "reported_position": transport.playout().model_dump(),
+            },
+            {
+                "retained_playout_replies": ["r1", "r2"],
+                "reported_position": {
+                    "item_id": "r2",
+                    "played_ms": 0,
+                    "first_played_at": 1.0,
+                },
+            },
+        )
 
 
 class StreamTool(ToolBase):

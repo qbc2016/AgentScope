@@ -1710,6 +1710,26 @@ class AsyncSQLAlchemyStorage(StorageBase):
             )
             await sess.commit()
 
+    async def delete_message(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> bool:
+        """Delete one message by ``(session_id, message_id)``."""
+        _ = user_id
+        from sqlalchemy import delete
+
+        async with self._session() as sess:
+            result = await sess.execute(
+                delete(MessageRow).where(
+                    MessageRow.session_id == session_id,
+                    MessageRow.msg_id == message_id,
+                ),
+            )
+            await sess.commit()
+        return bool(result.rowcount)
+
     async def get_message(
         self,
         user_id: str,

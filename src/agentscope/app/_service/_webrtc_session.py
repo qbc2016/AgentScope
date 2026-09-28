@@ -54,6 +54,7 @@ class WebRTCSession:
         self._close_lock = asyncio.Lock()
         self._closing = False
         self._lock_acquired = asyncio.Event()
+        self._persisted_message_ids: set[str] = set()
 
     def start(self) -> None:
         """Start the agent pump after WebRTC negotiation succeeds."""
@@ -123,6 +124,9 @@ class WebRTCSession:
             ):
                 self._lock_acquired.set()
                 self.agent = await self._agent_factory()
+                self._persisted_message_ids.update(
+                    message.id for message in self.agent.state.context
+                )
                 async with self.transport:
                     async with self.agent:
                         async for event in self.agent.reply_stream(
@@ -189,12 +193,22 @@ class WebRTCSession:
         """Persist the latest complete messages and agent state."""
         if self.agent is None:
             return
+        current_ids = {message.id for message in self.agent.state.context}
         for message in self.agent.state.context:
             await self.storage.upsert_message(
                 self.user_id,
                 self.session_id,
                 message,
             )
+            self._persisted_message_ids.add(message.id)
+        removed_ids = self._persisted_message_ids - current_ids
+        for message_id in sorted(removed_ids):
+            await self.storage.delete_message(
+                self.user_id,
+                self.session_id,
+                message_id,
+            )
+            self._persisted_message_ids.remove(message_id)
         await self.storage.update_session_state(
             user_id=self.user_id,
             agent_id=self.agent_id,

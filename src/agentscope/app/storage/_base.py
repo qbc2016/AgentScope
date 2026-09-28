@@ -754,6 +754,24 @@ class StorageBase(ABC):
         """
 
     @abstractmethod
+    async def delete_message(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> bool:
+        """Delete one message from a session.
+
+        Args:
+            user_id (`str`): The owner user id.
+            session_id (`str`): The session id.
+            message_id (`str`): The message id to delete.
+
+        Returns:
+            `bool`: Whether a matching message was deleted.
+        """
+
+    @abstractmethod
     async def get_message(
         self,
         user_id: str,

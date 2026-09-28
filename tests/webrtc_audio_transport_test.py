@@ -92,11 +92,23 @@ class _OneFrameAudioTrack(MediaStreamTrack):
         return frame
 
 
+class _FakeMessage(dict):
+    """Dictionary fixture exposing the ``Msg.id`` attribute contract."""
+
+    @property
+    def id(self) -> str:
+        """Return the fixture's message id."""
+        return self["id"]
+
+
 class _FakeAgent:
     """Finite-event realtime agent double."""
 
     def __init__(self, message: object, event: Any | list[Any]) -> None:
-        self.state = SimpleNamespace(context=[message])
+        context_message = (
+            _FakeMessage(message) if isinstance(message, dict) else message
+        )
+        self.state = SimpleNamespace(context=[context_message])
         self.events = event if isinstance(event, list) else [event]
 
     async def __aenter__(self) -> "_FakeAgent":
@@ -153,6 +165,7 @@ class _FakeStorage:
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.messages: dict[str, object] = {}
 
     async def upsert_message(
         self,
@@ -161,6 +174,12 @@ class _FakeStorage:
         message: object,
     ) -> None:
         """Record one message write."""
+        message_id = (
+            message["id"]
+            if isinstance(message, dict)
+            else getattr(message, "id")
+        )
+        self.messages[message_id] = message
         self.calls.append(
             {
                 "method": "upsert_message",
@@ -169,6 +188,24 @@ class _FakeStorage:
                 "message": message,
             },
         )
+
+    async def delete_message(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> bool:
+        """Delete and record one persisted message."""
+        deleted = self.messages.pop(message_id, None) is not None
+        self.calls.append(
+            {
+                "method": "delete_message",
+                "user_id": user_id,
+                "session_id": session_id,
+                "message_id": message_id,
+            },
+        )
+        return deleted
 
     async def update_session_state(self, **kwargs: object) -> None:
         """Record the state snapshot write."""
@@ -787,6 +824,75 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
                 "peer_connection_closed": True,
                 "transport_errors": [],
                 "closed_sessions": [session],
+            },
+        )
+
+    async def test_checkpoint_deletes_message_removed_from_context(
+        self,
+    ) -> None:
+        """A later checkpoint removes an unheard persisted reply."""
+        message = {"id": "reply-1", "role": "assistant"}
+        agent = _FakeAgent(
+            message,
+            ReplyEndEvent(
+                session_id="session-1",
+                reply_id="reply-1",
+            ),
+        )
+        storage = _FakeStorage()
+        session = WebRTCSession(
+            connection_id="connection-1",
+            peer_connection=_FakePeerConnection(),  # type: ignore[arg-type]
+            transport=_FakeTransport(),  # type: ignore[arg-type]
+            agent_factory=AsyncMock(),  # type: ignore[arg-type]
+            storage=storage,  # type: ignore[arg-type]
+            message_bus=_FakeMessageBus(),  # type: ignore[arg-type]
+            user_id="alice",
+            agent_id="agent-1",
+            session_id="session-1",
+            on_closed=lambda _: None,
+        )
+        session.agent = agent  # type: ignore[assignment]
+
+        await session._persist_state()
+        agent.state.context.clear()
+        await session._persist_state()
+
+        self.assertEqual(
+            {
+                "reloaded_messages": list(storage.messages.values()),
+                "storage_calls": storage.calls,
+            },
+            {
+                "reloaded_messages": [],
+                "storage_calls": [
+                    {
+                        "method": "upsert_message",
+                        "user_id": "alice",
+                        "session_id": "session-1",
+                        "message": message,
+                    },
+                    {
+                        "method": "update_session_state",
+                        "user_id": "alice",
+                        "agent_id": "agent-1",
+                        "session_id": "session-1",
+                        "state": agent.state,
+                    },
+                    {
+                        "method": "delete_message",
+                        "user_id": "alice",
+                        "session_id": "session-1",
+                        "message_id": "reply-1",
+                    },
+                    {
+                        "method": "update_session_state",
+                        "user_id": "alice",
+                        "agent_id": "agent-1",
+                        "session_id": "session-1",
+                        "state": agent.state,
+                    },
+                ],
             },
         )
 

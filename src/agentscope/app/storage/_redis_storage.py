@@ -1459,6 +1459,29 @@ class RedisStorage(StorageBase):
         await self._client.rpush(key, msg.model_dump_json())
         await self._refresh_key_ttl(key)
 
+    async def delete_message(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> bool:
+        """Delete every stored version matching ``message_id``."""
+        key = self._message_key(user_id, session_id)
+        deleted = False
+        while (
+            index := await self._find_message_index(key, message_id)
+        ) is not None:
+            raw = await self._client.lindex(key, index)
+            if raw is None:
+                break
+            removed = await self._client.lrem(key, 0, raw)
+            if not removed:
+                break
+            deleted = True
+        if deleted:
+            await self._refresh_key_ttl(key)
+        return deleted
+
     async def get_message(
         self,
         user_id: str,

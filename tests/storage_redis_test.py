@@ -461,6 +461,61 @@ class TestMessage(IsolatedAsyncioTestCase):
         )
         self.assertIsNone(result)
 
+    async def test_delete_message(self) -> None:
+        """Deleting by id removes every stored version of that message."""
+        first = UserMsg(name="alice", content="first")
+        second = AssistantMsg(name="bot", content="second")
+        updated_first = UserMsg(
+            id=first.id,
+            name="alice",
+            content="updated first",
+        )
+        await self.storage.upsert_message(
+            self.user_id,
+            self.session_id,
+            first,
+        )
+        await self.storage.upsert_message(
+            self.user_id,
+            self.session_id,
+            second,
+        )
+        await self.storage.upsert_message(
+            self.user_id,
+            self.session_id,
+            updated_first,
+        )
+
+        deleted = await self.storage.delete_message(
+            self.user_id,
+            self.session_id,
+            first.id,
+        )
+        deleted_again = await self.storage.delete_message(
+            self.user_id,
+            self.session_id,
+            first.id,
+        )
+        messages, has_more = await self.storage.list_messages(
+            self.user_id,
+            self.session_id,
+        )
+
+        self.assertEqual(
+            {
+                "deleted": deleted,
+                "deleted_again": deleted_again,
+                "messages": [message.model_dump() for message in messages],
+                "has_more": has_more,
+            },
+            {
+                "deleted": True,
+                "deleted_again": False,
+                "messages": [second.model_dump()],
+                "has_more": False,
+            },
+        )
+
     async def test_list_messages_empty_session(self) -> None:
         """list_messages returns an empty list for a session with no
         messages."""

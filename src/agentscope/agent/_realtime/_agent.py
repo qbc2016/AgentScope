@@ -10,6 +10,7 @@ from typing import Any, AsyncIterator
 from ...realtime import _events as me
 from ._aggregator import TurnAggregator
 from ...realtime._base import ModelDisconnectedError, RealtimeModelBase
+from ...realtime._playout import PlayoutPosition
 from ._metrics import TurnMetrics
 from ...realtime._transport._base import (
     AudioFrame,
@@ -884,24 +885,27 @@ class RealtimeAgent:
                     self.state.append_context(self.name, [event.tool_call])
 
             case me.ResponseDoneEvent():
-                self._metrics.input_tokens = event.input_tokens
-                self._metrics.output_tokens = event.output_tokens
-                tail = self.state.context[-1] if self.state.context else None
-                if tail is not None and tail.id == self._reply_id:
-                    tail.append_usage(
-                        Usage(
-                            input_tokens=event.input_tokens,
-                            output_tokens=event.output_tokens,
-                        ),
+                async with self._barge_lock:
+                    self._metrics.input_tokens = event.input_tokens
+                    self._metrics.output_tokens = event.output_tokens
+                    tail = (
+                        self.state.context[-1] if self.state.context else None
                     )
-                if self._pending_tools and self.toolkit is not None:
-                    # The reply goes on: tools run, then the next response
-                    # answers with their results.
-                    self._finish_response()
-                    self._continuing = True
-                    self._schedule_tools()
-                else:
-                    self._finish_reply(ReplyFinishedReason.COMPLETED)
+                    if tail is not None and tail.id == self._reply_id:
+                        tail.append_usage(
+                            Usage(
+                                input_tokens=event.input_tokens,
+                                output_tokens=event.output_tokens,
+                            ),
+                        )
+                    if self._pending_tools and self.toolkit is not None:
+                        # The reply goes on: tools run, then the next
+                        # response answers with their results.
+                        self._finish_response()
+                        self._continuing = True
+                        self._schedule_tools()
+                    else:
+                        self._finish_reply(ReplyFinishedReason.COMPLETED)
 
             case me.ModelErrorEvent():
                 logger.error(
@@ -1044,6 +1048,7 @@ class RealtimeAgent:
         reply = self._reply
         if reply is None:
             return
+        position = None
         if self._transport is not None:
             position = self._transport.playout()
             if position.item_id == reply.item_id:
@@ -1072,8 +1077,27 @@ class RealtimeAgent:
         )
         if reply.audio_started:
             self._playout_replies[reply.item_id] = reply
+            if position is not None:
+                self._prune_playout_replies(position)
         self._finished_item = reply.item_id
         self._reply = None
+
+    def _prune_playout_replies(self, position: PlayoutPosition) -> None:
+        """Forget responses confirmed to precede the playback cursor."""
+        if position.played_ms <= 0:
+            return
+        item_ids = list(self._playout_replies)
+        try:
+            current_index = item_ids.index(position.item_id)
+        except ValueError:
+            return
+        for item_id in item_ids[:current_index]:
+            self._playout_replies.pop(item_id, None)
+        current = self._playout_replies.get(position.item_id)
+        if current is not None and position.played_ms >= round(
+            current.audio_ms,
+        ):
+            self._playout_replies.pop(position.item_id, None)
 
     def _finish_reply(self, reason: ReplyFinishedReason) -> None:
         """Close the open reply, if any, response included."""
