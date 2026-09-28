@@ -223,8 +223,6 @@ class BashParserReadOnlyTest(IsolatedAsyncioTestCase):
             "git log",
             "git diff",
             "git show",
-            "git branch",
-            "git remote -v",
             "git log --oneline",
         ]
         for cmd in read_only_commands:
@@ -296,6 +294,32 @@ class BashParserReadOnlyTest(IsolatedAsyncioTestCase):
                 self.assertFalse(
                     self.parser.is_read_only_command(cmd),
                     f"Expected '{cmd}' to be non-read-only",
+                )
+
+    async def test_mutating_git_commands_are_not_read_only(self) -> None:
+        """Git subcommands that mutate by argument skip the fast path."""
+        expected = {
+            "git branch -D main": False,
+            "git branch -vD x": False,
+            "git tag -d v1": False,
+            "git remote add o u": False,
+            "git reflog expire --all": False,
+            "git grep -Otouch foo": False,
+            "git grep -iO touch foo": False,
+            "git grep '-Otouch' foo": False,
+            "git grep --open-files-in-pager=touch foo": False,
+            "git diff --output=/tmp/x": False,
+            "git log --output ~/.bashrc": False,
+            "git status": True,
+            "git log": True,
+            "git log --oneline -n 5": True,
+            "git grep -n foo": True,
+        }
+        for cmd, read_only in expected.items():
+            with self.subTest(cmd=cmd):
+                self.assertEqual(
+                    self.parser.is_read_only_command(cmd),
+                    read_only,
                 )
 
     async def test_single_read_only_docker_commands(self) -> None:
