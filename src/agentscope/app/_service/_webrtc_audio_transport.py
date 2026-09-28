@@ -341,8 +341,12 @@ class WebRTCAudioTransport(TransportBase):
 
         frame_type = payload.get("type")
         if frame_type == "control":
+            control_value = payload.get("control")
+            if not isinstance(control_value, str):
+                self.send_error("Unknown realtime control frame.")
+                return
             try:
-                control = ControlFrameType(payload.get("control"))
+                control = ControlFrameType(control_value)
             except ValueError:
                 self.send_error("Unknown realtime control frame.")
                 return
