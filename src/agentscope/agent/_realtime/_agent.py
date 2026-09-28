@@ -675,22 +675,50 @@ class RealtimeAgent:
             position = await self._transport.clear_audio()
             played_ms = position.played_ms
 
+        completed_replies = list(self._playout_replies.values())
         reply = active_reply
-        if position is not None and position.item_id:
-            if (
-                active_reply is None
-                or position.item_id != active_reply.item_id
-            ):
-                reply = self._playout_replies.get(position.item_id)
-                if reply is None and active_reply is not None:
-                    logger.warning(
-                        "RealtimeAgent: playout reports %s but %s is open; "
-                        "treating the current item as unheard.",
-                        position.item_id,
-                        active_reply.item_id,
+        later_replies: list[_Reply] = []
+        if position is not None:
+            if position.item_id:
+                if (
+                    active_reply is None
+                    or position.item_id != active_reply.item_id
+                ):
+                    reply_index = next(
+                        (
+                            index
+                            for index, candidate in enumerate(
+                                completed_replies,
+                            )
+                            if candidate.item_id == position.item_id
+                        ),
+                        None,
                     )
-                    reply = active_reply
-                    played_ms = 0
+                    if reply_index is not None:
+                        reply = completed_replies[reply_index]
+                        later_replies = completed_replies[reply_index + 1 :]
+                        if active_reply is not None:
+                            later_replies.append(active_reply)
+                    elif active_reply is not None:
+                        logger.warning(
+                            "RealtimeAgent: playout reports %s but %s is "
+                            "open; treating the current item as unheard.",
+                            position.item_id,
+                            active_reply.item_id,
+                        )
+                        reply = active_reply
+                        played_ms = 0
+                    else:
+                        reply = None
+            else:
+                # Audio is queued, but the browser has not pulled its first
+                # frame yet. The oldest queued response is wholly unheard.
+                played_ms = 0
+                if completed_replies:
+                    reply = completed_replies[0]
+                    later_replies = completed_replies[1:]
+                    if active_reply is not None:
+                        later_replies.append(active_reply)
 
         if reply is not None:
             fully_played = reply is not active_reply and played_ms >= round(
@@ -700,7 +728,7 @@ class RealtimeAgent:
                 spoken = reply.spoken_prefix(played_ms)
                 self._truncate_response(reply, spoken)
                 reply.final_text = spoken
-                if self._connected:
+                if self._connected and reply is not active_reply:
                     await self.model.truncate(
                         reply.item_id,
                         played_ms,
@@ -715,14 +743,37 @@ class RealtimeAgent:
                         ),
                     )
 
-        # The active response may be generating behind an older response
-        # that is still playing. It has not reached the listener yet.
-        if active_reply is not None and active_reply is not reply:
-            self._truncate_response(active_reply, "")
-            active_reply.final_text = ""
+        # Every response behind the playing one is wholly unheard. Correct
+        # completed responses immediately; the active response is cancelled
+        # before its provider-side truncation below.
+        active_unheard = False
+        for unheard_reply in later_replies:
+            self._truncate_response(unheard_reply, "")
+            unheard_reply.final_text = ""
+            if unheard_reply is active_reply:
+                active_unheard = True
+                continue
+            if self._connected:
+                await self.model.truncate(unheard_reply.item_id, 0, "")
+            if unheard_reply.text_started:
+                self._emit(
+                    TextBlockEndEvent(
+                        reply_id=unheard_reply.reply_id,
+                        block_id=unheard_reply.text_block_id,
+                        text="",
+                    ),
+                )
 
         if active_reply is not None and self._connected:
             await self.model.cancel_response()
+            if active_unheard:
+                await self.model.truncate(active_reply.item_id, 0, "")
+            elif reply is active_reply:
+                await self.model.truncate(
+                    active_reply.item_id,
+                    played_ms,
+                    spoken,
+                )
 
         self._playout_replies.clear()
         if self._reply_id:

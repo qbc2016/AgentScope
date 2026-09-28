@@ -401,8 +401,8 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
             [c for c in model.calls if c != "push_audio"],
             [
                 "connect(session=1,td_off=False)",
-                "truncate(r1,320ms,'从前有座山山里有座庙')",
                 "cancel",
+                "truncate(r1,320ms,'从前有座山山里有座庙')",
                 "close",
             ],
         )
@@ -551,7 +551,11 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
         ]
         model = ScriptedModel([script])
         agent = RealtimeAgent("Friday", "be brief", model)
-        transport = FakeTransport(frames=3, played_ms=0)
+        transport = FakeTransport(
+            frames=3,
+            played_ms=0,
+            reported_item="",
+        )
         corrections = []
 
         async with agent, transport:
@@ -619,8 +623,8 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
             [call for call in model.calls if call != "push_audio"],
             [
                 "connect(session=1,td_off=False)",
-                "truncate(r1,0ms,'')",
                 "cancel",
+                "truncate(r1,0ms,'')",
                 "close",
             ],
         )
@@ -683,8 +687,8 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
             model.calls,
             [
                 "connect(session=1,td_off=False)",
-                "truncate(r1,320ms,'从前有座山山里有座庙')",
                 "cancel",
+                "truncate(r1,320ms,'从前有座山山里有座庙')",
                 "close",
             ],
         )
@@ -1913,8 +1917,10 @@ class RealtimeAgentFullStreamTest(IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_barge_in_after_tool_preserves_first_response(self) -> None:
-        """Interrupting the second response truncates only its text."""
+    async def test_barge_in_while_old_response_plays_discards_active(
+        self,
+    ) -> None:
+        """An unheard active response is removed on both sides."""
         model = ScriptedModel(
             [
                 [
@@ -1964,7 +1970,11 @@ class RealtimeAgentFullStreamTest(IsolatedAsyncioTestCase):
         )
         audio_deltas = 0
         async with agent:
-            transport = FakeTransport(frames=10, played_ms=50)
+            transport = FakeTransport(
+                frames=10,
+                played_ms=50,
+                reported_item="r1",
+            )
             async with transport:
                 async for event in agent.reply_stream(transport):
                     if isinstance(event, DataBlockDeltaEvent):
@@ -2010,13 +2020,6 @@ class RealtimeAgentFullStreamTest(IsolatedAsyncioTestCase):
                         "created_at": AnyString(),
                         "finished_at": None,
                     },
-                    {
-                        "type": "text",
-                        "text": "今天晴",
-                        "id": AnyString(),
-                        "created_at": AnyString(),
-                        "finished_at": None,
-                    },
                 ],
                 "role": "assistant",
                 "id": "r1",
@@ -2034,7 +2037,139 @@ class RealtimeAgentFullStreamTest(IsolatedAsyncioTestCase):
                 "error": None,
             },
         )
-        self.assertIn("truncate(r2,50ms,'今天晴')", model.calls)
+        self.assertListEqual(
+            [call for call in model.calls if call != "push_audio"],
+            [
+                "connect(session=1,td_off=False)",
+                "tool_result(c1,'x-final')",
+                "request_response",
+                "truncate(r1,50ms,'我查一下')",
+                "cancel",
+                "truncate(r2,0ms,'')",
+                "close",
+            ],
+        )
+
+    async def test_barge_in_discards_completed_response_behind_playout(
+        self,
+    ) -> None:
+        """A completed response queued behind playout is wholly unheard."""
+        model = ScriptedModel(
+            [
+                [
+                    me.ResponseCreatedEvent(item_id="r1"),
+                    me.TranscriptDeltaEvent(
+                        item_id="r1",
+                        delta="我查一下",
+                    ),
+                    me.AudioDeltaEvent(
+                        item_id="r1",
+                        pcm=PCM_100MS,
+                        sample_rate=24000,
+                    ),
+                    me.ToolCallEvent(
+                        item_id="r1",
+                        tool_call=ToolCallBlock(
+                            id="c1",
+                            name="stream_tool",
+                            input='{"q": "x"}',
+                        ),
+                    ),
+                    me.ResponseDoneEvent(item_id="r1"),
+                    "WAIT",
+                    me.ResponseCreatedEvent(item_id="r2"),
+                    me.TranscriptDeltaEvent(
+                        item_id="r2",
+                        delta="今天晴",
+                    ),
+                    me.AudioDeltaEvent(
+                        item_id="r2",
+                        pcm=PCM_100MS,
+                        sample_rate=24000,
+                    ),
+                    me.ResponseDoneEvent(item_id="r2"),
+                    me.SpeechStartedEvent(item_id="u2"),
+                ],
+            ],
+        )
+        agent = RealtimeAgent(
+            "Friday",
+            "be brief",
+            model,
+            toolkit=Toolkit(tools=[StreamTool()]),
+        )
+        transport = FakeTransport(
+            frames=10,
+            played_ms=50,
+            reported_item="r1",
+        )
+
+        async with agent, transport:
+            async for _ in agent.reply_stream(transport):
+                pass
+
+        self.assertEqual(
+            [message.model_dump() for message in agent.state.context],
+            [
+                {
+                    "name": "Friday",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "我查一下",
+                            "id": AnyString(),
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                        {
+                            "type": "tool_call",
+                            "id": "c1",
+                            "name": "stream_tool",
+                            "input": '{"q": "x"}',
+                            "state": "pending",
+                            "suggested_rules": [],
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                        {
+                            "type": "tool_result",
+                            "id": "c1",
+                            "name": "stream_tool",
+                            "output": "x-final",
+                            "state": "success",
+                            "metadata": {},
+                            "created_at": AnyString(),
+                            "finished_at": None,
+                        },
+                    ],
+                    "role": "assistant",
+                    "id": "r1",
+                    "metadata": {},
+                    "created_at": AnyString(),
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cache_input_tokens": 0,
+                        "cache_creation_input_tokens": 0,
+                    },
+                    "finished_at": AnyString(),
+                    "finished_reason": ReplyFinishedReason.COMPLETED,
+                    "structured_output": None,
+                    "error": None,
+                },
+            ],
+        )
+        self.assertListEqual(
+            [call for call in model.calls if call != "push_audio"],
+            [
+                "connect(session=1,td_off=False)",
+                "tool_result(c1,'x-final')",
+                "request_response",
+                "truncate(r1,50ms,'我查一下')",
+                "truncate(r2,0ms,'')",
+                "close",
+            ],
+        )
 
     async def test_barge_in_while_tool_runs_clears_first_audio(self) -> None:
         """A reply waiting on a tool still clears its queued audio."""
