@@ -684,8 +684,9 @@ class WorkspaceBase:
 
         Returns:
             `MCPClient`:
-                The live client stored and used by the workspace. This may
+                The live client stored and used by the workspace, which may
                 differ from ``mcp_client`` for sandboxed implementations.
+                It can be evicted later, use :meth:`list_mcps` then.
 
         Raises:
             `ValueError`:

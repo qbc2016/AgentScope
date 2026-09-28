@@ -1632,21 +1632,16 @@ class TestLocalWorkspaceMCPScoping(IsolatedAsyncioTestCase):
             session_id="sess-1",
         )
 
+        self.assertIs(registered, extra)
         self.assertEqual(
-            {
-                "returned_is_input": registered is extra,
-                "names": [
-                    m.name
-                    for m in await ws.list_mcps(
-                        agent_id="agent-A",
-                        session_id="sess-1",
-                    )
-                ],
-            },
-            {
-                "returned_is_input": True,
-                "names": ["seed", "extra"],
-            },
+            [
+                m.name
+                for m in await ws.list_mcps(
+                    agent_id="agent-A",
+                    session_id="sess-1",
+                )
+            ],
+            ["seed", "extra"],
         )
         self.assertEqual(
             [

@@ -1126,20 +1126,11 @@ class TestDaytonaWorkspaceBuiltinToolsMock(IsolatedAsyncioTestCase):
         )
 
         live = self.workspace._mcp_instances[("a", "s")]
+        self.assertIs(registered, live["demo"])
+        self.assertIsNot(registered, mcp)
         raw = await self.workspace._backend.read_file("/home/daytona/.mcp")
         data = json.loads(raw.decode("utf-8"))
-        self.assertEqual(
-            {
-                "returned_is_proxy": registered is live["demo"],
-                "returned_is_input": registered is mcp,
-                "persisted_name": data["mcps"]["a"]["s"][0]["name"],
-            },
-            {
-                "returned_is_proxy": True,
-                "returned_is_input": False,
-                "persisted_name": "demo",
-            },
-        )
+        self.assertEqual(data["mcps"]["a"]["s"][0]["name"], "demo")
 
         gw_client = live["demo"]
         await self.workspace.remove_mcp("demo", agent_id="a", session_id="s")
