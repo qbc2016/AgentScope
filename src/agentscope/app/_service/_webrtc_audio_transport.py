@@ -394,7 +394,7 @@ class WebRTCAudioTransport(TransportBase):
             return
         if played_ms < 0:
             return
-        if not item_id and self._position.item_id:
+        if not item_id and played_ms > 0 and self._position.item_id:
             item_id = self._position.item_id
         first_played_at = self._position.first_played_at
         if item_id != self._position.item_id:

@@ -1678,14 +1678,7 @@ class AsyncSQLAlchemyStorage(StorageBase):
         session_id: str,
         msg: Msg,
     ) -> None:
-        """Insert-or-update by ``(session_id, msg_id)``.
-
-        Semantics mirror :meth:`RedisStorage.upsert_message` closely
-        enough for every caller in the codebase — the Redis version
-        only replaces when the *tail* message matches; ours replaces
-        on any matching id.  The looser rule is safe because callers
-        never reuse a message id across turns.
-        """
+        """Insert-or-update by ``(session_id, msg_id)``."""
         _ = user_id  # scoping enforced by caller
         now = _utcnow()
         payload = msg.model_dump(mode="json")

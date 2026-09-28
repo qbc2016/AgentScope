@@ -1449,13 +1449,11 @@ class RedisStorage(StorageBase):
     ) -> None:
         """Persist a message to the session's message list."""
         key = self._message_key(user_id, session_id)
-        last_raw = await self._client.lindex(key, -1)
-        if last_raw:
-            last_msg = Msg.model_validate_json(last_raw)
-            if last_msg.id == msg.id:
-                await self._client.lset(key, -1, msg.model_dump_json())
-                await self._refresh_key_ttl(key)
-                return
+        index = await self._find_message_index(key, msg.id)
+        if index is not None:
+            await self._client.lset(key, index, msg.model_dump_json())
+            await self._refresh_key_ttl(key)
+            return
         await self._client.rpush(key, msg.model_dump_json())
         await self._refresh_key_ttl(key)
 

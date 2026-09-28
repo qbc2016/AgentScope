@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """The DashScope Qwen-Audio realtime model."""
-import asyncio
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
@@ -12,8 +11,6 @@ from .._base import RealtimeModelBase
 from .._model_card import RealtimeModelCard
 from ..._logging import logger
 from ...message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
-
-_SESSION_READY_TIMEOUT_S = 15.0
 
 
 class DashScopeAudioRealtimeModel(DashScopeRealtimeModel):
@@ -74,12 +71,6 @@ class DashScopeAudioRealtimeModel(DashScopeRealtimeModel):
 
     async def replay_history(self, messages: Sequence[Msg]) -> None:
         """Insert completed history without asking the model to respond."""
-        await asyncio.wait_for(
-            self._session_ready.wait(),
-            timeout=_SESSION_READY_TIMEOUT_S,
-        )
-        if self._session_setup_error is not None:
-            raise self._session_setup_error
         for payload in self._history_payloads(messages):
             await self._send(payload)
 

@@ -420,13 +420,20 @@ class TestMessage(IsolatedAsyncioTestCase):
         )
         self.assertGreater(ttl, 0)
 
-    async def test_upsert_appends_when_id_differs_from_last(self) -> None:
-        """Upserting a message with a different id than the last always
-        appends, even if an earlier message shares the same id."""
+    async def test_upsert_replaces_earlier_message_with_same_id(self) -> None:
+        """Upserting by id replaces a non-tail message without duplication."""
         msg1 = UserMsg(name="alice", content="first")
         msg2 = UserMsg(name="alice", content="second")
         await self.storage.upsert_message(self.user_id, self.session_id, msg1)
         await self.storage.upsert_message(self.user_id, self.session_id, msg2)
+        updated = msg1.model_copy(
+            update={"content": [TextBlock(text="updated first")]},
+        )
+        await self.storage.upsert_message(
+            self.user_id,
+            self.session_id,
+            updated,
+        )
         messages, has_more = await self.storage.list_messages(
             self.user_id,
             self.session_id,
@@ -434,7 +441,7 @@ class TestMessage(IsolatedAsyncioTestCase):
         self.assertFalse(has_more)
         self.assertListEqual(
             [m.model_dump() for m in messages],
-            [msg1.model_dump(), msg2.model_dump()],
+            [updated.model_dump(), msg2.model_dump()],
         )
 
     async def test_get_message_returns_correct_message(self) -> None:
@@ -462,7 +469,7 @@ class TestMessage(IsolatedAsyncioTestCase):
         self.assertIsNone(result)
 
     async def test_delete_message(self) -> None:
-        """Deleting by id removes every stored version of that message."""
+        """Deleting by id removes the matching message."""
         first = UserMsg(name="alice", content="first")
         second = AssistantMsg(name="bot", content="second")
         updated_first = UserMsg(

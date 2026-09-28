@@ -603,6 +603,34 @@ class WebRTCAudioTransportTest(unittest.IsolatedAsyncioTestCase):
             },
         )
 
+    async def test_clear_before_playout_reports_no_item(self) -> None:
+        """Keep an empty browser position when audio is still unheard."""
+        pcm = np.full((2_400,), 2_000, dtype="<i2").tobytes()
+        await self.transport.send_audio(pcm, "item-1")
+        await self.transport.output_track.recv()
+
+        clear_task = asyncio.create_task(self.transport.clear_audio())
+        while self.channel.sent[-1].get("type") != "clear_audio":
+            await asyncio.sleep(0)
+        clear_request = self.channel.sent[-1]
+        self.channel.emit_message(
+            {
+                "type": "playout_cleared",
+                "request_id": clear_request["request_id"],
+                "item_id": "",
+                "played_ms": 0,
+            },
+        )
+
+        self.assertEqual(
+            (await clear_task).model_dump(),
+            {
+                "item_id": "",
+                "played_ms": 0,
+                "first_played_at": None,
+            },
+        )
+
     async def test_realtime_config_resolves_the_matching_adapter(self) -> None:
         """The persisted adapter type selects the intended model class."""
         access = AsyncMock()

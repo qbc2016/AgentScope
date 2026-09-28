@@ -827,10 +827,11 @@ class RealtimeAgent:
             generation = self._connection_generation
             async for event in self.model.events():
                 await self._on_model_event(event)
-            if generation != self._connection_generation:
-                continue
-            self._mark_disconnected()
-            self._finish_reply(ReplyFinishedReason.ERROR)
+            async with self._barge_lock:
+                if generation != self._connection_generation:
+                    continue
+                self._mark_disconnected()
+                self._finish_reply(ReplyFinishedReason.ERROR)
             logger.info(
                 "RealtimeAgent: model session ended; keep talking and it "
                 "reconnects on the next audio.",
@@ -886,6 +887,9 @@ class RealtimeAgent:
 
             case me.ResponseDoneEvent():
                 async with self._barge_lock:
+                    reply = self._reply
+                    if reply is None or reply.item_id != event.item_id:
+                        return
                     self._metrics.input_tokens = event.input_tokens
                     self._metrics.output_tokens = event.output_tokens
                     tail = (
@@ -901,9 +905,10 @@ class RealtimeAgent:
                     if self._pending_tools and self.toolkit is not None:
                         # The reply goes on: tools run, then the next
                         # response answers with their results.
+                        reply_id = reply.reply_id
                         self._finish_response()
                         self._continuing = True
-                        self._schedule_tools()
+                        self._schedule_tools(reply_id)
                     else:
                         self._finish_reply(ReplyFinishedReason.COMPLETED)
 
@@ -913,7 +918,8 @@ class RealtimeAgent:
                     event.code,
                     event.message,
                 )
-                self._finish_reply(ReplyFinishedReason.ERROR)
+                async with self._barge_lock:
+                    self._finish_reply(ReplyFinishedReason.ERROR)
 
             case me.SessionEndedEvent():
                 # The events() iterator ends right after this.
@@ -1102,6 +1108,7 @@ class RealtimeAgent:
     def _finish_reply(self, reason: ReplyFinishedReason) -> None:
         """Close the open reply, if any, response included."""
         self._finish_response()
+        self._pending_tools.clear()
         if reason != ReplyFinishedReason.COMPLETED:
             self._playout_replies.clear()
         if not self._reply_id:
@@ -1185,29 +1192,40 @@ class RealtimeAgent:
     # Tools
     # ------------------------------------------------------------------
 
-    def _schedule_tools(self) -> None:
+    def _schedule_tools(self, reply_id: str) -> None:
         """Run the tool calls of the finished reply, then ask for more."""
-        if not self._pending_tools or self.toolkit is None:
+        if not reply_id or not self._pending_tools or self.toolkit is None:
             return
         calls = list(self._pending_tools.values())
         self._pending_tools.clear()
-        task = asyncio.create_task(self._run_tools(calls), name="rt-tools")
+        task = asyncio.create_task(
+            self._run_tools(reply_id, calls),
+            name="rt-tools",
+        )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _run_tools(self, calls: list[ToolCallBlock]) -> None:
+    async def _run_tools(
+        self,
+        reply_id: str,
+        calls: list[ToolCallBlock],
+    ) -> None:
         """Execute *calls* in order, then trigger the follow-up response."""
-        reply_id = self._reply_id
         try:
             for call in calls:
+                async with self._barge_lock:
+                    if self._reply_id != reply_id:
+                        return
                 await self._run_tool(reply_id, call)
             # Unless the user cut the reply short while the tools ran.
-            if self._reply_id == reply_id:
-                await self.model.request_response()
+            async with self._barge_lock:
+                if self._reply_id == reply_id:
+                    await self.model.request_response()
         except Exception:  # noqa: BLE001
             logger.exception("RealtimeAgent: tool execution failed")
-            if self._reply_id == reply_id:
-                self._finish_reply(ReplyFinishedReason.ERROR)
+            async with self._barge_lock:
+                if self._reply_id == reply_id:
+                    self._finish_reply(ReplyFinishedReason.ERROR)
 
     async def _run_tool(self, reply_id: str, call: ToolCallBlock) -> None:
         """Check permission for one call, run it, and report the result."""
