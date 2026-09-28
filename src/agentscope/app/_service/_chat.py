@@ -81,7 +81,7 @@ from ...event import (
 )
 from ._errors import _classify_error, _classify_setup_error
 from ..._utils._common import _generate_id
-from ...message import AssistantMsg, HintBlock, Msg, ToolCallState, UserMsg
+from ...message import AssistantMsg, HintBlock, Msg, UserMsg
 from ...permission import AdditionalWorkingDirectory
 
 if TYPE_CHECKING:
@@ -751,18 +751,10 @@ class ChatService:
             `bool`:
                 ``True`` when the run should be skipped.
         """
-        if input_msg is not None or not agent.state.context:
+        if input_msg is not None:
             return False
 
-        last_msg = agent.state.context[-1]
-        if last_msg.role != "assistant" or last_msg.name != agent.name:
-            return False
-
-        awaiting = [
-            tc
-            for tc in last_msg.get_content_blocks("tool_call")
-            if tc.state in (ToolCallState.ASKING, ToolCallState.SUBMITTED)
-        ]
+        awaiting = agent.state.get_awaiting_tool_calls(agent.name)
         if not awaiting:
             return False
 
@@ -1421,6 +1413,11 @@ class ChatService:
                         session_id,
                     ):
                         released = True
+                        break
+
+                    # A parked agent can't take a ``None`` turn; the queued
+                    # payloads are drained once it resumes.
+                    if agent.state.has_awaiting_tool_calls(agent.name):
                         break
                     input_msg = None
 
