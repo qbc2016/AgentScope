@@ -216,7 +216,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/agentscope"
-Documentation = "https://doc.agentscope.io/"
+Documentation = "https://docs.agentscope.io/"
 Repository = "https://github.com/agentscope-ai/agentscope"
 
 [tool.setuptools]
