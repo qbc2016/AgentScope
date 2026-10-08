@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pydantic import BaseModel
 
-from utils import AnyString
+from utils import AnyString, AnyValue
 
 from agentscope.message import (
     AssistantMsg,
@@ -124,6 +124,73 @@ def _mock_completion(
     return resp
 
 
+def _mock_message_completion(
+    parts: list[tuple[str, str]],
+) -> MagicMock:
+    """Build a response containing ordered text or refusal parts."""
+    message = MagicMock()
+    message.type = "message"
+    message.content = []
+    for part_type, value in parts:
+        part = MagicMock()
+        part.type = part_type
+        setattr(
+            part,
+            "text" if part_type == "output_text" else "refusal",
+            value,
+        )
+        message.content.append(part)
+
+    response = _mock_completion()
+    response.output = [message]
+    return response
+
+
+def _dump_response(response: Any) -> dict[str, Any]:
+    """Serialize a complete chat response for structural assertions."""
+    result = dict(response)
+    result["content"] = [block.model_dump() for block in response.content]
+    result["usage"] = dict(response.usage) if response.usage else None
+    return result
+
+
+def _expected_text_response(
+    values: list[str],
+    is_last: bool,
+    response_id: str = A,
+) -> dict[str, Any]:
+    """Build a complete expected response with dynamic fields."""
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": value,
+                "id": AnyString(),
+                "created_at": AnyString(),
+                "finished_at": None,
+            }
+            for value in values
+        ],
+        "is_last": is_last,
+        "id": response_id,
+        "created_at": AnyString(),
+        "type": "chat_response",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "time": AnyValue(),
+            "cache_creation_input_tokens": 0,
+            "cache_input_tokens": 0,
+            "type": "chat",
+            "metadata": None,
+        }
+        if is_last
+        else None,
+        "finished_reason": "completed",
+        "metadata": {},
+    }
+
+
 def _make_event(event_type: str, **kwargs: Any) -> MagicMock:
     """Build a mock Responses API streaming event."""
     event = MagicMock()
@@ -191,6 +258,33 @@ class TestOpenAIResponseNonStream(IsolatedAsyncioTestCase):
             ),
         )
         self.assertEqual(result.id, "resp-openai-1")
+
+    async def test_refusal_response(self) -> None:
+        """Non-stream refusal content remains visible and ordered."""
+        self.mock_client.responses.create = AsyncMock(
+            return_value=_mock_message_completion(
+                [
+                    ("output_text", "Before. "),
+                    ("refusal", "I cannot help with that request."),
+                    ("output_text", " After."),
+                ],
+            ),
+        )
+
+        result = await self.model([])
+
+        self.assertEqual(
+            _dump_response(result),
+            _expected_text_response(
+                [
+                    "Before. ",
+                    "I cannot help with that request.",
+                    " After.",
+                ],
+                is_last=True,
+                response_id="resp-openai-1",
+            ),
+        )
 
     async def test_tool_call_response(
         self,
@@ -540,11 +634,15 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
             _make_event(
                 "response.output_text.delta",
                 delta="Hello",
+                item_id="msg-1",
+                content_index=0,
                 response=MagicMock(id="resp-1"),
             ),
             _make_event(
                 "response.output_text.delta",
                 delta=" world",
+                item_id="msg-1",
+                content_index=0,
             ),
             _make_event("response.completed", response=completed_resp),
         ]
@@ -593,6 +691,95 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_stream_refusal_preserves_content_parts(self) -> None:
+        """Streaming keeps mixed text and refusal part boundaries."""
+        completed_resp = _mock_message_completion(
+            [
+                ("output_text", "Before. "),
+                ("refusal", "I cannot help with that request."),
+                ("output_text", " After."),
+            ],
+        )
+        events = [
+            _make_event(
+                "response.output_text.delta",
+                item_id="msg-1",
+                content_index=0,
+                delta="Before. ",
+            ),
+            _make_event(
+                "response.refusal.delta",
+                item_id="msg-1",
+                content_index=1,
+                delta="I cannot ",
+            ),
+            _make_event(
+                "response.refusal.delta",
+                item_id="msg-1",
+                content_index=1,
+                delta="help with that request.",
+            ),
+            _make_event(
+                "response.output_text.delta",
+                item_id="msg-1",
+                content_index=2,
+                delta=" After.",
+            ),
+            _make_event(
+                "response.completed",
+                response=completed_resp,
+            ),
+        ]
+        self.mock_client.responses.create = AsyncMock(
+            return_value=_MockAsyncEventStream(events),
+        )
+
+        responses = [response async for response in await self.model([])]
+
+        non_stream_model = _make_model(stream=False)
+        non_stream_model.client = MagicMock()
+        non_stream_model.client.responses.create = AsyncMock(
+            return_value=completed_resp,
+        )
+        non_stream_response = await non_stream_model([])
+        self.assertEqual(
+            [_dump_response(response) for response in responses],
+            [
+                _expected_text_response(["Before. "], is_last=False),
+                _expected_text_response(["I cannot "], is_last=False),
+                _expected_text_response(
+                    ["help with that request."],
+                    is_last=False,
+                ),
+                _expected_text_response([" After."], is_last=False),
+                _expected_text_response(
+                    [
+                        "Before. ",
+                        "I cannot help with that request.",
+                        " After.",
+                    ],
+                    is_last=True,
+                ),
+            ],
+        )
+        self.assertEqual(
+            _dump_response(non_stream_response),
+            _expected_text_response(
+                [
+                    "Before. ",
+                    "I cannot help with that request.",
+                    " After.",
+                ],
+                is_last=True,
+                response_id="resp-openai-1",
+            ),
+        )
+        self.assertEqual(
+            responses[1].content[0].id,
+            responses[2].content[0].id,
+        )
+        self.assertEqual(len({response.id for response in responses}), 1)
+
     async def test_stream_reasoning_and_text(
         self,
     ) -> None:
@@ -625,6 +812,8 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
             _make_event(
                 "response.output_text.delta",
                 delta="Answer",
+                item_id="msg-2",
+                content_index=0,
             ),
             _make_event("response.completed", response=completed_resp),
         ]
@@ -802,6 +991,8 @@ class TestOpenAIResponseStream(IsolatedAsyncioTestCase):
             _make_event(
                 "response.output_text.delta",
                 delta="Answer",
+                item_id="msg-empty",
+                content_index=0,
                 response=MagicMock(id="resp-empty"),
             ),
             _make_event("response.completed", response=completed_resp),

@@ -286,7 +286,7 @@ class OpenAIResponseModel(ChatModelBase):
         """
         usage: ChatUsage | None = None
         response_id: str = _generate_id()
-        text_id: str = _generate_id()
+        text_block_ids: dict[tuple[str, int], str] = {}
         reasoning_block_ids: dict[str, str] = {}
         # Mapping from Responses API item id (fc_xxx) to (call_id, name)
         # so subsequent argument deltas can be routed to the right tool
@@ -319,7 +319,14 @@ class OpenAIResponseModel(ChatModelBase):
                     "response.output_text.delta",
                     "response.refusal.delta",
                 ):
-                    delta_res.append_text(event.delta, block_id=text_id)
+                    block_key = (event.item_id, event.content_index)
+                    delta_res.append_text(
+                        event.delta,
+                        block_id=text_block_ids.setdefault(
+                            block_key,
+                            _generate_id(),
+                        ),
+                    )
 
                 elif event_type == "response.output_item.added":
                     item = event.item
