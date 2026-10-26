@@ -115,7 +115,7 @@ class DashScopeCardsTest(unittest.TestCase):
                     "dashscope_omni_realtime",
                     True,
                     100,
-                    None,
+                    "2026-09-21",
                 ),
             ],
         )
