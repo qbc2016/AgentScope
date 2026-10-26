@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """Model service: builds a ChatModelBase from stored credential + config."""
-from typing import Type
-
 from ._access import ResourceAccessService
 from ..storage import ChatModelConfig, RealtimeModelConfig
 from ...credential import CredentialFactory
@@ -41,6 +39,8 @@ async def get_model(
         `HTTPException`:
             404 when the credential is neither owned by ``user_id`` nor
             shared to them.
+        `ValueError`:
+            If the credential does not support the explicit model class.
     """
     credential_record = await access.resolve_credential(
         user_id,
@@ -48,8 +48,18 @@ async def get_model(
     )
 
     credential = CredentialFactory.from_dict(credential_record.data)
-    classes = credential.get_chat_model_classes()
-    model_cls = _resolve_chat_class(classes, config.model, config.model_class)
+    if config.model_class:
+        for model_cls in credential.get_chat_model_classes():
+            if getattr(model_cls, "type", "") == config.model_class:
+                break
+        else:
+            raise ValueError(
+                f"Chat model class {config.model_class!r} is not available "
+                f"for credential {config.credential_id!r}.",
+            )
+    else:
+        model_cls = credential.get_chat_model_class()
+
     parameters = (
         model_cls.Parameters(**config.parameters)
         if config.parameters
@@ -77,30 +87,6 @@ async def get_model(
         )
 
     return model
-
-
-def _resolve_chat_class(
-    classes: list[Type[ChatModelBase]],
-    model: str,
-    model_class: str = "",
-) -> Type[ChatModelBase]:
-    """Pick the chat model class that should handle this request.
-
-    Resolution order:
-    1. If ``model_class`` is provided, match by the class ``type`` attribute.
-    2. Otherwise, find the class whose model cards list the given model name.
-    3. Fall back to the first class in the list.
-    """
-    if model_class:
-        for cls in classes:
-            if getattr(cls, "type", "") == model_class:
-                return cls
-
-    for cls in classes:
-        if any(card.name == model for card in cls.list_models()):
-            return cls
-
-    return classes[0]
 
 
 async def get_realtime_model(

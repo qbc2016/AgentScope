@@ -60,7 +60,11 @@ class OpenAICredentialModelTest(IsolatedAsyncioTestCase):
             CredentialFactory,
             "from_dict",
             return_value=credential,
-        ):
+        ), patch.object(
+            _CustomOpenAICredential,
+            "get_chat_model_classes",
+            return_value=[OpenAIResponseModel, _CustomOpenAIChatModel],
+        ) as get_classes:
             model = await get_model(
                 "user-1",
                 ChatModelConfig(
@@ -72,12 +76,78 @@ class OpenAICredentialModelTest(IsolatedAsyncioTestCase):
                 access,
             )
         try:
+            get_classes.assert_not_called()
             self.assertEqual(
                 (type(model), model.model, model.parameters.max_tokens),
                 (_CustomOpenAIChatModel, "custom-model", 123),
             )
         finally:
             await model.client.close()
+
+    async def test_explicit_model_class(self) -> None:
+        """Explicit classes select the API for built-in and custom names."""
+        access = MagicMock(
+            resolve_credential=AsyncMock(
+                return_value=SimpleNamespace(
+                    data={"type": "openai_credential", "api_key": "test"},
+                ),
+            ),
+        )
+        for model_cls in (OpenAIChatModel, OpenAIResponseModel):
+            for name in ("gpt-4o", "custom-deployment"):
+                with self.subTest(model_class=model_cls.type, model=name):
+                    model = await get_model(
+                        "user-1",
+                        ChatModelConfig(
+                            type="openai_credential",
+                            credential_id="cred-1",
+                            model=name,
+                            model_class=model_cls.type,
+                            parameters={"max_tokens": 123},
+                        ),
+                        access,
+                    )
+                    try:
+                        self.assertEqual(
+                            (
+                                type(model),
+                                model.model,
+                                model.parameters.max_tokens,
+                            ),
+                            (model_cls, name, 123),
+                        )
+                    finally:
+                        await model.client.close()
+
+    async def test_unsupported_model_class_raises(self) -> None:
+        """Invalid or foreign adapter types cannot silently fall back."""
+        access = MagicMock(
+            resolve_credential=AsyncMock(
+                return_value=SimpleNamespace(
+                    data={"type": "openai_credential", "api_key": "test"},
+                ),
+            ),
+        )
+        for model_class in ("unknown", "deepseek_chat"):
+            with self.subTest(model_class=model_class):
+                with self.assertRaises(ValueError) as raised:
+                    model = await get_model(
+                        "user-1",
+                        ChatModelConfig(
+                            type="openai_credential",
+                            credential_id="cred-1",
+                            model="gpt-4o",
+                            model_class=model_class,
+                            parameters={},
+                        ),
+                        access,
+                    )
+                    await model.client.close()
+                self.assertEqual(
+                    str(raised.exception),
+                    f"Chat model class {model_class!r} is not available "
+                    "for credential 'cred-1'.",
+                )
 
 
 class GetModelContextSizeTest(IsolatedAsyncioTestCase):
