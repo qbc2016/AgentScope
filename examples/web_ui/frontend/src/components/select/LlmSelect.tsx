@@ -1,6 +1,6 @@
 import { ChevronDown, PlusCircle, Ban } from 'lucide-react';
 
-import type { ChatModelConfig, ModelCard } from '@/api';
+import type { ChatModelConfig } from '@/api';
 import { Button } from '@/components/ui/button';
 import {
 	DropdownMenu,
@@ -19,7 +19,6 @@ import { useAvailableModels } from '@/hooks/useAvailableModels';
 import { useTranslation } from '@/i18n/useI18n.ts';
 import { cn } from '@/lib/utils';
 import { credentialLabel } from '@/utils/common';
-import { extractParameterDefaults } from '@/utils/modelParameters';
 
 interface Props extends Omit<React.ComponentPropsWithoutRef<typeof Button>, 'onChange' | 'value'> {
 	value?: ChatModelConfig | null;
@@ -59,13 +58,8 @@ export function LlmSelect({
 		.filter(([, usable]) => usable.length > 0);
 	const hasOptions = groupEntries.length > 0;
 
-	const handleSelect = (type: string, credentialId: string, model: ModelCard) => {
-		onChange?.({
-			type,
-			credential_id: credentialId,
-			model: model.name,
-			parameters: extractParameterDefaults(model.parameter_schema),
-		});
+	const handleSelect = (type: string, credentialId: string, model: string) => {
+		onChange?.({ type, credential_id: credentialId, model, parameters: {} });
 	};
 
 	const displayLabel = value?.model
@@ -110,7 +104,7 @@ export function LlmSelect({
 													handleSelect(
 														type,
 														usable[0].credential.id,
-														m,
+														m.name,
 													)
 												}
 											>
@@ -131,7 +125,7 @@ export function LlmSelect({
 																	handleSelect(
 																		type,
 																		credential.id,
-																		m,
+																		m.name,
 																	)
 																}
 															>
