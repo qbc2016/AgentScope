@@ -8,7 +8,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Callable, Any, AsyncGenerator, Generator
 
 import mcp
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel, ValidationError
 
 from ._types import Function
 from ._base import ToolBase, ToolMiddlewareBase
@@ -25,11 +25,12 @@ from ._utils import (
     _remove_title_field,
 )
 from .._logging import logger
-from ..mcp._content import _convert_mcp_result
 from ..message import (
+    Base64Source,
     TextBlock,
     DataBlock,
     ToolResultState,
+    URLSource,
 )
 
 
@@ -422,8 +423,21 @@ class MCPTool(ToolBase):
                 yield progress_queue.get_nowait()
             result = await call_task
 
+            content = self._convert_mcp_content_to_blocks(result.content)
+            if result.structured_content is not None and not any(
+                isinstance(block, TextBlock) for block in content
+            ):
+                content.append(
+                    TextBlock(
+                        text=json.dumps(
+                            result.structured_content,
+                            ensure_ascii=False,
+                        ),
+                    ),
+                )
+
             yield ToolChunk(
-                content=self._convert_mcp_result_to_blocks(result),
+                content=content,
                 state=(
                     ToolResultState.ERROR
                     if result.is_error
@@ -447,13 +461,68 @@ class MCPTool(ToolBase):
                     pass
 
     @staticmethod
-    def _convert_mcp_result_to_blocks(
-        result: mcp.types.CallToolResult,
+    def _convert_mcp_content_to_blocks(
+        mcp_content_blocks: list,
     ) -> list[TextBlock | DataBlock]:
-        """Convert MCP content through the shared lightweight converter."""
-        return [
-            TextBlock.model_validate(block)
-            if block["type"] == "text"
-            else DataBlock.model_validate(block)
-            for block in _convert_mcp_result(result)
-        ]
+        """Convert MCP content directly to AgentScope message blocks."""
+        blocks: list[TextBlock | DataBlock] = []
+        for content in mcp_content_blocks:
+            if isinstance(content, mcp.types.TextContent):
+                blocks.append(TextBlock(text=content.text))
+            elif isinstance(
+                content,
+                (mcp.types.ImageContent, mcp.types.AudioContent),
+            ):
+                blocks.append(
+                    DataBlock(
+                        source=Base64Source(
+                            media_type=content.mime_type,
+                            data=content.data,
+                        ),
+                    ),
+                )
+            elif isinstance(content, mcp.types.EmbeddedResource):
+                if isinstance(
+                    content.resource,
+                    mcp.types.TextResourceContents,
+                ):
+                    blocks.append(
+                        TextBlock(
+                            text=content.resource.model_dump_json(
+                                by_alias=True,
+                                indent=2,
+                            ),
+                        ),
+                    )
+                else:
+                    logger.error(
+                        "Unsupported EmbeddedResource content type: %s.",
+                        type(content.resource),
+                    )
+            elif isinstance(
+                content,
+                (mcp.types.ResourceLink, mcp.types.ResourceContents),
+            ):
+                media_type = content.mime_type
+                if isinstance(content, mcp.types.ResourceLink):
+                    media_type = media_type or "application/octet-stream"
+                try:
+                    url = AnyUrl(str(content.uri))
+                except ValidationError:
+                    message = (
+                        f"<unconvertible MCP resource URI: {content.uri}>"
+                    )
+                    logger.warning(message)
+                    blocks.append(TextBlock(text=message))
+                    continue
+                blocks.append(
+                    DataBlock(
+                        source=URLSource(media_type=media_type, url=url),
+                    ),
+                )
+            else:
+                logger.warning(
+                    "Unsupported content type: %s. Skipping this content.",
+                    type(content),
+                )
+        return blocks

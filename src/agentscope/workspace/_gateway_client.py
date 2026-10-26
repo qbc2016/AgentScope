@@ -136,7 +136,7 @@ class GatewayMCPTool(ToolBase):
             message="MCP tools must be explicitly allowed by the user.",
         )
 
-    async def call(self, **kwargs: Any) -> ToolChunk:
+    async def __call__(self, **kwargs: Any) -> ToolChunk:
         """Relay ``POST /mcps/{mcp}/tools/{tool}`` to the gateway.
 
         4xx / 5xx responses come back as ``ToolChunk(state=ERROR)`` so

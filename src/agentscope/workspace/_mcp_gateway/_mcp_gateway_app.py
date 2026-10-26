@@ -199,7 +199,7 @@ def _build_app(
     ) -> list[dict[str, Any]]:
         client = _lookup(agent_id, session_id, name)
         raw = await client.list_raw_tools()
-        return [t.model_dump(mode="json", by_alias=True) for t in raw]
+        return [t.model_dump(mode="json") for t in raw]
 
     @app.post("/mcps/{name}/tools/{tool}")
     async def _call_tool(

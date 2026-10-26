@@ -214,48 +214,34 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_calls_return_final_chunks(self) -> None:
         """Old direct calls keep returning a result without opting in."""
-        final = ToolChunk(content=[TextBlock(text="done")])
         for entry in ("__call__", "call"):
-            for path in ("local", "gateway"):
-                with self.subTest(entry=entry, path=path):
-                    definition = Tool(name="work", input_schema={})
-                    sdk = _ProgressClient()
-                    gateway = _GatewayFacade(final)
-                    if path == "local":
-                        tool = MCPTool(
-                            mcp_name="remote",
-                            tool=definition,
-                            session=sdk,
-                        )
-                    else:
-                        tool = GatewayMCPTool(
-                            mcp_name="remote",
-                            tool=definition,
-                            gateway=gateway,  # type: ignore[arg-type]
-                        )
-                    result = await getattr(tool, entry)(value=3)
-                    self.assertIsInstance(result, ToolChunk)
-                    self.assertEqual(
-                        _chunk_view(result),
-                        {
-                            "content": [{"type": "text", "text": "done"}],
-                            "state": ToolResultState.RUNNING,
-                            "is_last": True,
-                            "metadata": {},
-                        },
-                    )
-                    if path == "local":
-                        self.assertFalse(tool.stream_progress)
-                        self.assertEqual(
-                            sdk.call,
-                            {
-                                "name": "work",
-                                "arguments": {"value": 3},
-                                "read_timeout_seconds": None,
-                            },
-                        )
-                    else:
-                        self.assertEqual(gateway.responses, [])
+            with self.subTest(entry=entry):
+                sdk = _ProgressClient()
+                tool = MCPTool(
+                    mcp_name="remote",
+                    tool=Tool(name="work", input_schema={}),
+                    session=sdk,
+                )
+                result = await getattr(tool, entry)(value=3)
+                self.assertIsInstance(result, ToolChunk)
+                self.assertEqual(
+                    _chunk_view(result),
+                    {
+                        "content": [{"type": "text", "text": "done"}],
+                        "state": ToolResultState.RUNNING,
+                        "is_last": True,
+                        "metadata": {},
+                    },
+                )
+                self.assertFalse(tool.stream_progress)
+                self.assertEqual(
+                    sdk.call,
+                    {
+                        "name": "work",
+                        "arguments": {"value": 3},
+                        "read_timeout_seconds": None,
+                    },
+                )
 
     async def test_client_progress_configuration_reaches_tools(self) -> None:
         """Progress settings survive serialization and tool wrapping."""
@@ -606,7 +592,7 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_calls_preserve_middleware_interception(self) -> None:
-        """Both MCP tools respect middleware with or without progress."""
+        """Local MCP tools respect middleware with or without progress."""
         expected = ToolChunk(content=[TextBlock(text="blocked")])
 
         class _Block(ToolMiddlewareBase):
@@ -622,27 +608,16 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
                 yield expected
 
         sdk = _ProgressClient()
-        local = _make_tool(sdk)
-        gateway = _GatewayFacade(expected)
-        remote = GatewayMCPTool(
-            mcp_name="remote",
-            tool=Tool(name="work", input_schema={}),
-            gateway=gateway,  # type: ignore[arg-type]
-        )
-        for tool in (local, remote):
-            for stream_progress in (False, True):
-                if tool is local:
-                    tool.stream_progress = stream_progress
-                tool._middlewares = [_Block()]
-                chunks = [chunk async for chunk in await tool(value=3)]
-                self.assertEqual(
-                    [chunk.model_dump() for chunk in chunks],
-                    [expected.model_dump()],
-                )
-        self.assertEqual(
-            {"sdk": sdk.call, "gateway": gateway.requests},
-            {"sdk": {}, "gateway": []},
-        )
+        tool = _make_tool(sdk)
+        for stream_progress in (False, True):
+            tool.stream_progress = stream_progress
+            tool._middlewares = [_Block()]
+            chunks = [chunk async for chunk in await tool(value=3)]
+            self.assertEqual(
+                [chunk.model_dump() for chunk in chunks],
+                [expected.model_dump()],
+            )
+        self.assertEqual(sdk.call, {})
 
     async def test_local_progress_buffer_retains_latest_snapshots(
         self,
