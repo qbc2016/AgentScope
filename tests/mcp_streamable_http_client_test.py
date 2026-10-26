@@ -139,8 +139,8 @@ class StreamableHttpMCPClientTest(IsolatedAsyncioTestCase):
             res.content[0].text,
             """{
   "uri": "file://tmp.txt",
-  "mimeType": "text/plain",
-  "_meta": null,
+  "mime_type": "text/plain",
+  "meta": null,
   "text": "test content"
 }""",
         )

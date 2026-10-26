@@ -4,8 +4,10 @@
 import asyncio
 import json
 import unittest
+import warnings
+from itertools import product
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import anyio
 from fastapi.testclient import TestClient
@@ -239,6 +241,91 @@ def _make_tool(client: Any, *, stream_progress: bool = True) -> MCPTool:
 
 class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
     """MCP progress must remain transient and ordered."""
+
+    async def test_client_gen_compatibility(self) -> None:
+        """Accept connected clients and legacy two/three-item transports."""
+        for streaming, transport_size in product((False, True), (0, 2, 3)):
+            with self.subTest(streaming=streaming, size=transport_size):
+                sdk = _ProgressClient()
+                session = AsyncMock()
+                session.__aenter__.return_value = session
+                session.call_tool.side_effect = sdk.call_tool
+                streams = tuple(object() for _ in range(transport_size))
+                transport = AsyncMock()
+                transport.__aenter__.return_value = streams or session
+                factory = Mock(return_value=transport)
+                tool = MCPTool(
+                    mcp_name="remote",
+                    tool=Tool(name="work", input_schema={}),
+                    client_gen=factory,
+                    stream_progress=streaming,
+                )
+                with (
+                    patch(
+                        "agentscope.tool._adapters.mcp.ClientSession",
+                        return_value=session,
+                    ) as session_class,
+                    warnings.catch_warnings(record=True) as caught,
+                ):
+                    warnings.simplefilter("always", DeprecationWarning)
+                    result = await tool(value=3)
+                    chunks = (
+                        [chunk async for chunk in result]
+                        if streaming
+                        else [result]
+                    )
+
+                self.assertEqual(
+                    [_chunk_view(chunk) for chunk in chunks],
+                    (
+                        [
+                            {
+                                "content": [],
+                                "state": ToolResultState.RUNNING,
+                                "is_last": False,
+                                "metadata": {
+                                    "mcp_progress": {
+                                        "progress": progress,
+                                        "total": 2.0,
+                                        "message": message,
+                                    },
+                                },
+                            }
+                            for progress, message in (
+                                (1.0, "first"),
+                                (2.0, "second"),
+                            )
+                        ]
+                        if streaming
+                        else []
+                    )
+                    + [
+                        {
+                            "content": [{"type": "text", "text": "done"}],
+                            "state": ToolResultState.RUNNING,
+                            "is_last": True,
+                            "metadata": {},
+                        },
+                    ],
+                )
+                self.assertEqual(
+                    [warning.category for warning in caught],
+                    [DeprecationWarning] if transport_size else [],
+                )
+                if transport_size:
+                    self.assertIn(
+                        "connected mcp.Client",
+                        str(caught[0].message),
+                    )
+                    session_class.assert_called_once_with(*streams[:2])
+                    session.initialize.assert_awaited_once_with()
+                    session.__aexit__.assert_awaited_once()
+                else:
+                    session_class.assert_not_called()
+                    session.initialize.assert_not_awaited()
+                factory.assert_called_once_with()
+                transport.__aenter__.assert_awaited_once()
+                transport.__aexit__.assert_awaited_once()
 
     async def test_default_calls_return_final_chunks(self) -> None:
         """Old direct calls keep returning a result without opting in."""
@@ -842,10 +929,36 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_anyio_cancellation_preserves_sdk_cleanup(self) -> None:
         """Finish SDK cleanup before propagating an AnyIO cancellation."""
-        for stream_progress in (False, True):
-            with self.subTest(stream_progress=stream_progress):
+        for stream_progress, connection in product(
+            (False, True),
+            ("session", "client", "transport"),
+        ):
+            with (
+                self.subTest(
+                    stream_progress=stream_progress,
+                    connection=connection,
+                ),
+                patch(
+                    "agentscope.tool._adapters.mcp.ClientSession",
+                ) as session_class,
+                warnings.catch_warnings(record=True) as caught,
+            ):
+                warnings.simplefilter("always", DeprecationWarning)
                 client = _CleanupProgressClient()
                 tool = _make_tool(client, stream_progress=stream_progress)
+                session = AsyncMock()
+                session.__aenter__.return_value = session
+                session.call_tool.side_effect = client.call_tool
+                session_class.return_value = session
+                transport = AsyncMock()
+                transport.__aenter__.return_value = (
+                    (object(), object())
+                    if connection == "transport"
+                    else session
+                )
+                if connection != "session":
+                    tool._session = None
+                    tool._client_gen = Mock(return_value=transport)
                 async with anyio.create_task_group() as tasks:
                     with anyio.CancelScope() as scope:
 
@@ -877,6 +990,14 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
                         "cancel_propagated": True,
                     },
                 )
+                self.assertEqual(
+                    [warning.category for warning in caught],
+                    [DeprecationWarning] if connection == "transport" else [],
+                )
+                if connection != "session":
+                    transport.__aexit__.assert_awaited_once()
+                if connection == "transport":
+                    session.__aexit__.assert_awaited_once()
 
     async def test_closing_local_stream_cancels_mcp_call(self) -> None:
         """Closing a progress stream cancels its in-flight MCP request."""

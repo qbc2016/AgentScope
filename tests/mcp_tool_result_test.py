@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for keeping the MCP tool result content that carries the payload."""
 import base64
+import json
 from typing import Any
 from unittest.async_case import IsolatedAsyncioTestCase
 
@@ -61,6 +62,43 @@ def _tool(
 class MCPStructuredResultTest(IsolatedAsyncioTestCase):
     """The model must not lose a result that only lives in
     ``structuredContent``."""
+
+    async def test_embedded_resource_preserves_json_field_names(self) -> None:
+        """Embedded resource text retains snake-case fields and metadata."""
+        resource = {
+            "uri": "https://example.com/report.txt",
+            "mime_type": "text/plain",
+            "meta": {"source": "report"},
+            "text": "Report content",
+        }
+        chunk = await _tool(
+            mcp.types.CallToolResult(
+                content=[
+                    mcp.types.EmbeddedResource(
+                        type="resource",
+                        resource=mcp.types.TextResourceContents(**resource),
+                    ),
+                ],
+            ),
+        )()
+        self.assertEqual(
+            chunk.model_dump(),
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(resource, indent=2),
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                ],
+                "state": "running",
+                "is_last": True,
+                "metadata": {},
+                "id": AnyString(),
+            },
+        )
 
     async def test_structured_result_is_kept_when_content_is_empty(
         self,

@@ -4,7 +4,8 @@ import asyncio
 import inspect
 import json
 import re
-from contextlib import AbstractAsyncContextManager
+import warnings
+from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from typing import Callable, Any, AsyncGenerator, Generator
 
 import anyio
@@ -227,6 +228,9 @@ class MCPTool(ToolBase):
             client_gen (`Callable[..., AbstractAsyncContextManager[Any]] \
             | None`, optional):
                 The MCP client generator function for stateless clients.
+                Its context manager should yield a connected ``mcp.Client``.
+                Legacy transport tuples are accepted with a deprecation
+                warning; only their read and write streams are used.
                 Either this or ``session`` must be provided.
             session (`mcp.Client | None`, optional):
                 The MCP high-level client for stateful clients.
@@ -384,20 +388,30 @@ class MCPTool(ToolBase):
                 )
 
         async def _invoke() -> mcp.types.CallToolResult:
-            if self._client_gen:
-                async with self._client_gen() as client:
-                    return await client.call_tool(
-                        self._tool.name,
-                        arguments=kwargs,
-                        read_timeout_seconds=self._timeout,
-                        progress_callback=_on_progress,
+            async with AsyncExitStack() as stack:
+                client = self._session
+                if self._client_gen:
+                    client = await stack.enter_async_context(
+                        self._client_gen(),
                     )
-            return await self._session.call_tool(
-                self._tool.name,
-                arguments=kwargs,
-                read_timeout_seconds=self._timeout,
-                progress_callback=_on_progress,
-            )
+                    if isinstance(client, tuple):
+                        warnings.warn(
+                            "MCPTool client_gen yielding transport tuples "
+                            "is deprecated; yield a connected mcp.Client "
+                            "instead.",
+                            DeprecationWarning,
+                            stacklevel=2,
+                        )
+                        client = await stack.enter_async_context(
+                            mcp.ClientSession(client[0], client[1]),
+                        )
+                        await client.initialize()
+                return await client.call_tool(
+                    self._tool.name,
+                    arguments=kwargs,
+                    read_timeout_seconds=self._timeout,
+                    progress_callback=_on_progress,
+                )
 
         call_task = asyncio.create_task(_invoke())
         progress_task: asyncio.Task[ToolChunk] | None = None
@@ -493,7 +507,6 @@ class MCPTool(ToolBase):
                     blocks.append(
                         TextBlock(
                             text=content.resource.model_dump_json(
-                                by_alias=True,
                                 indent=2,
                             ),
                         ),
