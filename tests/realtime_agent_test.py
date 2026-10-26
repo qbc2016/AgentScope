@@ -3,8 +3,11 @@
 transport — no network, no sound card."""
 # pylint: disable=protected-access, unused-argument
 import asyncio
+from itertools import count
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Sequence
 from unittest.async_case import IsolatedAsyncioTestCase
+from unittest.mock import patch
 from utils import AnyString, MockModel
 
 from agentscope.agent import (
@@ -802,6 +805,12 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
     async def test_provider_timeout_reconnects_on_next_audio(self) -> None:
         """When the provider closes the session, nothing reconnects until
         the next user audio, which reconnects with the current context."""
+        self.enterContext(
+            patch(
+                "agentscope.agent._realtime._aggregator.time",
+                SimpleNamespace(monotonic=count(step=1.0).__next__),
+            ),
+        )
         model = ScriptedModel(
             [
                 REPLY_R1 + [me.SessionEndedEvent(reason="idle")],
@@ -812,7 +821,6 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
             "Friday",
             "be brief",
             model,
-            aggregator=TurnAggregator(merge_window_ms=0),
         )
 
         async with agent:
@@ -1306,14 +1314,19 @@ class RealtimeAgentTranscriptionTest(IsolatedAsyncioTestCase):
                 events.append(("text", event.reply_id, event.delta))
         return events
 
-    @staticmethod
-    def _make_agent() -> RealtimeAgent:
+    def _make_agent(self) -> RealtimeAgent:
         """Build an agent with independent, provider-transcribed user turns."""
+        # Space transcripts beyond the merge window without changing asyncio.
+        self.enterContext(
+            patch(
+                "agentscope.agent._realtime._aggregator.time",
+                SimpleNamespace(monotonic=count(step=1.0).__next__),
+            ),
+        )
         return RealtimeAgent(
             "Friday",
             "be brief",
             ScriptedModel([[]], input_audio_transcription=True),
-            aggregator=TurnAggregator(merge_window_ms=0),
         )
 
     async def test_text_and_usage_after_transcript_update_existing_reply(

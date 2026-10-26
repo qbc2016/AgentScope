@@ -8,6 +8,7 @@ import unittest
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from fractions import Fraction
+from itertools import count
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,7 +19,7 @@ from aiortc.mediastreams import MediaStreamError
 from av import AudioFrame as AVAudioFrame
 from fastapi import HTTPException
 
-from agentscope.agent import RealtimeAgent, TurnAggregator
+from agentscope.agent import RealtimeAgent
 from agentscope.app._router._realtime import _create_realtime_offer
 from agentscope.app._router._schema import (
     RealtimeOfferRequest,
@@ -1315,7 +1316,6 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
                 output_sample_rate=24000,
                 input_transcription_enabled=True,
             ),
-            aggregator=TurnAggregator(merge_window_ms=0),
         )
         storage = _FakeStorage()
         message_bus = _FakeMessageBus(sequence_entries=True)
@@ -1379,6 +1379,10 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
             on_closed=lambda _: closed.set(),
         )
         with (
+            patch(
+                "agentscope.agent._realtime._aggregator.time",
+                SimpleNamespace(monotonic=count(step=1.0).__next__),
+            ),
             patch.object(agent, "connect", new=AsyncMock()),
             patch.object(agent, "reply_stream", new=stream),
         ):
