@@ -25,6 +25,3 @@ voices:
   - loongmary
   - loongeva_v3.6
   - loongjohn
-
-# Streaming text input is selected through the adapter's realtime parameter.
-parameter_overrides: {}

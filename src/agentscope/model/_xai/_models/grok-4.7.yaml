@@ -16,7 +16,3 @@ context_size: 500000
 # Local conservative cap, consistent with existing Grok cards.
 # The official model page does not publish a maximum output limit.
 output_size: 32000
-
-parameter_overrides:
-  max_tokens:
-    maximum: 32000

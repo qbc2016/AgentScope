@@ -15,6 +15,3 @@ output_types:
 voices:
   - longanlingxin
   - longanlufeng
-
-# Streaming text input is selected through the adapter's realtime parameter.
-parameter_overrides: {}

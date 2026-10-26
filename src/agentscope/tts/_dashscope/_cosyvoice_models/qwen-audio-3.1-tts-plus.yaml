@@ -17,6 +17,3 @@ voices:
   - longanlingxin_v3.1
   - longanfengyue_v3.1
   - xunanchuan_v3.1
-
-# Streaming text input is selected through the adapter's realtime parameter.
-parameter_overrides: {}

@@ -36,6 +36,7 @@ import { useAvailableTTSModels } from '@/hooks/useAvailableTTSModels';
 import { useTranslation } from '@/i18n/useI18n';
 import { cn } from '@/lib/utils';
 import { credentialLabel } from '@/utils/common';
+import { extractParameterDefaults } from '@/utils/modelParameters';
 
 interface ParameterProperty {
 	type?: string;
@@ -78,17 +79,6 @@ function resolveType(prop: ParameterProperty): ResolvedType {
 		}
 	}
 	return { type: 'string', enumValues: null };
-}
-
-/** Extract default values from a model card's parameter schema. */
-function extractDefaults(schema: ParameterSchema | undefined): Record<string, unknown> {
-	const defaults: Record<string, unknown> = {};
-	if (schema?.properties) {
-		for (const [k, p] of Object.entries(schema.properties)) {
-			if (p.default !== undefined) defaults[k] = p.default;
-		}
-	}
-	return defaults;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,7 +167,7 @@ function NumberField({ id, label, required, prop, value, onChange }: FieldProps)
 			<Input
 				id={id}
 				type="number"
-				value={value !== undefined ? String(value) : ''}
+				value={value != null ? String(value) : ''}
 				placeholder={prop.default != null ? String(prop.default) : undefined}
 				min={prop.minimum}
 				max={prop.maximum}
@@ -216,7 +206,7 @@ function StringField({ id, label, required, prop, value, onChange }: FieldProps)
 			<Input
 				id={id}
 				type="text"
-				value={value !== undefined ? String(value) : ''}
+				value={value != null ? String(value) : ''}
 				placeholder={prop.default != null ? String(prop.default) : undefined}
 				onChange={(e) => onChange(e.target.value)}
 			/>
@@ -310,12 +300,12 @@ export function ModelParametersPopover({
 		[values, onChange],
 	);
 
-	const handleSelectFallback = (type: string, credentialId: string, model: string) => {
+	const handleSelectFallback = (type: string, credentialId: string, model: ModelCard) => {
 		onFallbackChange?.({
 			type,
 			credential_id: credentialId,
-			model,
-			parameters: {},
+			model: model.name,
+			parameters: extractParameterDefaults(model.parameter_schema),
 		});
 	};
 
@@ -383,7 +373,7 @@ export function ModelParametersPopover({
 															handleSelectFallback(
 																type,
 																credential.id,
-																m.name,
+																m,
 															);
 														} else {
 															onFallbackChange(null);
@@ -565,10 +555,8 @@ export function ModelParametersPopover({
 															type,
 															credential_id: credential.id,
 															model: m.name,
-															parameters: extractDefaults(
-																m.parameter_schema as
-																	| ParameterSchema
-																	| undefined,
+															parameters: extractParameterDefaults(
+																m.parameter_schema,
 															),
 														});
 													}}

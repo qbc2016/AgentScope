@@ -1,4 +1,5 @@
 # Source: https://developers.openai.com/api/docs/models/gpt-6.1-sol
+# Use Responses for agent tool calls; Chat has reasoning restrictions.
 name: gpt-6.1-sol
 label: GPT-6.1 Sol
 status: active
@@ -18,18 +19,11 @@ context_size: 1050000
 output_size: 128000
 
 parameter_overrides:
-  max_tokens:
-    maximum: 128000
-  thinking_enable:
-    hidden: true
-  # The adapter gates effort on thinking_enable, which this card hides.
+  # The adapter gates effort on thinking_enable, which is auto-hidden.
   # Keep the provider's default reasoning until that gate is updated.
   reasoning_effort:
     hidden: true
   temperature:
     hidden: true
   top_p:
-    hidden: true
-  # Use Responses for agent tool calls; Chat has reasoning restrictions.
-  voice:
     hidden: true
