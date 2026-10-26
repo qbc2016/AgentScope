@@ -119,8 +119,8 @@ class GeminiEmbeddingModel(EmbeddingModelBase[str | TextBlock | DataBlock]):
                 persisted ``dimensions`` inside ``parameters``.
             parameters (`GeminiEmbeddingModel.Parameters | None`, \
             defaults to ``None``):
-                Provider-specific non-dimensional parameters.  Currently
-                empty for Gemini.
+                Provider-specific non-dimensional text embedding options,
+                such as ``task_type``. Per-call options take precedence.
             embedding_cache (`EmbeddingCacheBase | None`, defaults to \
             ``None``):
                 Optional embedding cache.
@@ -327,16 +327,17 @@ class GeminiEmbeddingModel(EmbeddingModelBase[str | TextBlock | DataBlock]):
                 )
             texts.append(item)
 
-        config = types.EmbedContentConfig(
-            output_dimensionality=self.dimensions,
+        config_kwargs = {
+            "output_dimensionality": self.dimensions,
+            **self.parameters.model_dump(exclude_none=True),
             **kwargs,
-        )
+        }
+        config = types.EmbedContentConfig(**config_kwargs)
 
         cache_key = {
             "model": self.model,
             "contents": texts,
-            "output_dimensionality": self.dimensions,
-            **kwargs,
+            **config_kwargs,
         }
 
         if self.embedding_cache:
@@ -351,7 +352,7 @@ class GeminiEmbeddingModel(EmbeddingModelBase[str | TextBlock | DataBlock]):
                 )
 
         start_time = datetime.now()
-        response = self.client.models.embed_content(
+        response = await self.client.aio.models.embed_content(
             model=self.model,
             contents=texts,
             config=config,
@@ -417,13 +418,14 @@ class GeminiEmbeddingModel(EmbeddingModelBase[str | TextBlock | DataBlock]):
                     f"Invalid input: {item!r}. Expected str or DataBlock.",
                 )
 
-        config = types.EmbedContentConfig(
-            output_dimensionality=self.dimensions,
+        config_kwargs = {
+            "output_dimensionality": self.dimensions,
             **kwargs,
-        )
+        }
+        config = types.EmbedContentConfig(**config_kwargs)
 
         start_time = datetime.now()
-        response = self.client.models.embed_content(
+        response = await self.client.aio.models.embed_content(
             model=self.model,
             contents=contents,
             config=config,

@@ -2,6 +2,7 @@
 """Schema models for the agent service."""
 
 from ._channel import (
+    StartCredentialBindingRequest,
     ChannelActionResponse,
     ChannelChatId,
     ChannelChatIdsResponse,
@@ -31,6 +32,13 @@ from ._embedding_model import (
     ListEmbeddingModelsRequest,
 )
 from ._model import ListModelsResponse, ListModelsRequest
+from ._realtime import (
+    ListRealtimeModelsRequest,
+    ListRealtimeModelsResponse,
+    RealtimeConfigResponse,
+    RealtimeOfferRequest,
+    RealtimeOfferResponse,
+)
 from ._tts_model import ListTTSModelsResponse, ListTTSModelsRequest
 from ._schedule import (
     CreateScheduleRequest,
@@ -38,6 +46,16 @@ from ._schedule import (
     ListSchedulesResponse,
     ScheduleSessionsResponse,
     UpdateScheduleRequest,
+)
+from ._sop import (
+    CreateSOPRequest,
+    CreateSOPResponse,
+    ListSOPRunsResponse,
+    ListSOPsResponse,
+    SOPSchemaResponse,
+    StartSOPRunRequest,
+    SubmitVerdictRequest,
+    UpdateSOPRequest,
 )
 from ._agent import (
     AgentSchemaResponse,
@@ -64,6 +82,8 @@ from ._knowledge_base import (
     ListChunkersResponse,
     ListKbEmbeddingModelsResponse,
     ListKnowledgeBasesResponse,
+    ListDocumentChunksResponse,
+    DocumentDownloadTokenResponse,
     ListKnowledgeDocumentsResponse,
     ListKnowledgeDocumentStatusResponse,
     ListSupportedContentTypesResponse,
@@ -107,6 +127,14 @@ __all__ = [
     "MCPClientStatus",
     "ToolInfo",
     # Agent
+    "CreateSOPRequest",
+    "CreateSOPResponse",
+    "ListSOPRunsResponse",
+    "ListSOPsResponse",
+    "SOPSchemaResponse",
+    "StartSOPRunRequest",
+    "SubmitVerdictRequest",
+    "UpdateSOPRequest",
     "AgentSchemaResponse",
     "AgentSchemaV2Response",
     "ListAgentsResponse",
@@ -121,6 +149,7 @@ __all__ = [
     "ChannelResponse",
     "ChannelSessionsResponse",
     "CreateChannelRequest",
+    "StartCredentialBindingRequest",
     "UpdateChannelRequest",
     # Chat
     "ChatRequest",
@@ -141,6 +170,8 @@ __all__ = [
     "ListChunkersResponse",
     "ListKbEmbeddingModelsResponse",
     "ListKnowledgeBasesResponse",
+    "ListDocumentChunksResponse",
+    "DocumentDownloadTokenResponse",
     "ListKnowledgeDocumentsResponse",
     "ListKnowledgeDocumentStatusResponse",
     "ListSupportedContentTypesResponse",
@@ -153,6 +184,11 @@ __all__ = [
     "ListEmbeddingModelsResponse",
     "ListModelsRequest",
     "ListModelsResponse",
+    "ListRealtimeModelsRequest",
+    "ListRealtimeModelsResponse",
+    "RealtimeConfigResponse",
+    "RealtimeOfferRequest",
+    "RealtimeOfferResponse",
     # TTS Model
     "ListTTSModelsRequest",
     "ListTTSModelsResponse",
