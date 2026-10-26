@@ -21,7 +21,7 @@ from agentscope.event import (
     TextBlockDeltaEvent,
     TextBlockEndEvent,
 )
-from agentscope.message import AssistantMsg, Msg, UserMsg
+from agentscope.message import AssistantMsg, Msg, Usage, UserMsg
 from agentscope.model import ChatResponse
 from agentscope.realtime import (
     AudioFrame,
@@ -1083,7 +1083,9 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
                 "connection_generation": agent._connection_generation,
                 "sessions": model.sessions,
                 "reply_open": agent._reply is not None,
-                "user_turn_open": agent._user_turn_open,
+                "user_turn_open": (
+                    agent._user_turn is not None and agent._user_turn.open
+                ),
                 "iterator_started": [
                     event.is_set() for event in model.iterator_started
                 ],
@@ -1289,6 +1291,215 @@ class RealtimeAgentTest(IsolatedAsyncioTestCase):
 
 class RealtimeAgentTranscriptionTest(IsolatedAsyncioTestCase):
     """Verify user reply boundaries around delayed transcription."""
+
+    @staticmethod
+    def _drain(agent: RealtimeAgent) -> list[tuple]:
+        """Read all queued user lifecycle and text events."""
+        events: list[tuple] = []
+        while not agent._out.empty():
+            event = agent._out.get_nowait().event
+            if isinstance(event, ReplyStartEvent):
+                events.append(("start", event.reply_id))
+            elif isinstance(event, ReplyEndEvent):
+                events.append(("end", event.reply_id))
+            elif isinstance(event, TextBlockDeltaEvent):
+                events.append(("text", event.reply_id, event.delta))
+        return events
+
+    @staticmethod
+    def _make_agent() -> RealtimeAgent:
+        """Build an agent with independent, provider-transcribed user turns."""
+        return RealtimeAgent(
+            "Friday",
+            "be brief",
+            ScriptedModel([[]], input_audio_transcription=True),
+            aggregator=TurnAggregator(merge_window_ms=0),
+        )
+
+    async def test_text_and_usage_after_transcript_update_existing_reply(
+        self,
+    ) -> None:
+        """Even deltas within one response can follow user transcription."""
+        agent = self._make_agent()
+        for event in [
+            me.ResponseCreatedEvent(item_id="r1"),
+            me.TranscriptDeltaEvent(item_id="r1", delta="Hello"),
+            me.InputTranscriptionEvent(item_id="u1", text="Hi"),
+            me.TranscriptDeltaEvent(item_id="r1", delta=" there"),
+            me.ResponseDoneEvent(
+                item_id="r1",
+                input_tokens=7,
+                output_tokens=3,
+            ),
+        ]:
+            await agent._on_model_event(event)
+        self.assertEqual(
+            [(msg.id, msg.get_text_content()) for msg in agent.state.context],
+            [("r1", "Hello there"), ("u1", "Hi")],
+        )
+        self.assertEqual(
+            agent.state.context[0].usage,
+            Usage(input_tokens=7, output_tokens=3),
+        )
+
+    async def test_old_transcript_after_resume_does_not_end_new_turn(
+        self,
+    ) -> None:
+        """Exercise success, failure and dropped text after a disconnect."""
+        for old_event, old_text in [
+            (me.InputTranscriptionEvent(item_id="u1", text="first"), "first"),
+            (me.InputTranscriptionFailedEvent(item_id="u1"), None),
+            (me.InputTranscriptionEvent(item_id="u1", text=""), None),
+        ]:
+            with self.subTest(event=old_event):
+                agent = self._make_agent()
+                await agent._on_model_event(
+                    me.SpeechStartedEvent(item_id="u1"),
+                )
+                await agent._on_model_event(
+                    me.SpeechEndedEvent(item_id="u1"),
+                )
+                _ = [
+                    event
+                    async for event in agent.reply_stream(FakeTransport(0))
+                ]
+                await agent._on_model_event(
+                    me.SpeechStartedEvent(item_id="u2"),
+                )
+                self._drain(agent)
+                await agent._on_model_event(old_event)
+                old_events = self._drain(agent)
+                await agent._on_model_event(
+                    me.InputTranscriptionEvent(item_id="u2", text="second"),
+                )
+                self.assertEqual(
+                    {
+                        "old_events": old_events,
+                        "new_events": self._drain(agent),
+                        "context": [
+                            (msg.id, msg.get_text_content())
+                            for msg in agent.state.context
+                        ],
+                    },
+                    {
+                        "old_events": (
+                            [("text", "u1", "first")] if old_text else []
+                        ),
+                        "new_events": [
+                            ("text", "u2", "second"),
+                            ("end", "u2"),
+                        ],
+                        "context": ([("u1", "first")] if old_text else [])
+                        + [("u2", "second")],
+                    },
+                )
+
+    async def test_transcripts_can_arrive_in_reverse_order(self) -> None:
+        """Provider IDs disambiguate two pending turns without reconnect."""
+        agent = self._make_agent()
+        for item_id in ["u1", "u2"]:
+            await agent._on_model_event(
+                me.SpeechStartedEvent(item_id=item_id),
+            )
+            await agent._on_model_event(
+                me.SpeechEndedEvent(item_id=item_id),
+            )
+        self._drain(agent)
+        for item_id in ["u2", "u1"]:
+            await agent._on_model_event(
+                me.InputTranscriptionEvent(item_id=item_id, text=item_id),
+            )
+        self.assertEqual(
+            self._drain(agent),
+            [("text", "u2", "u2"), ("end", "u2"), ("text", "u1", "u1")],
+        )
+        self.assertEqual(
+            [(msg.id, msg.get_text_content()) for msg in agent.state.context],
+            [("u2", "u2"), ("u1", "u1")],
+        )
+
+    async def test_local_vad_turns_keep_their_generated_reply_ids(
+        self,
+    ) -> None:
+        """Unbound local turns match settled transcripts in commit order."""
+        agent = self._make_agent()
+        agent._connected = True
+        ids = []
+        for _ in range(2):
+            await agent._forward_audio(b"", SpeechTransition.STARTED)
+            ids.append(
+                next(
+                    event[1]
+                    for event in self._drain(agent)
+                    if event[0] == "start"
+                ),
+            )
+            await agent._forward_audio(b"", SpeechTransition.ENDED)
+        self._drain(agent)
+        for item_id, text in [("u1", "first"), ("u2", "second")]:
+            await agent._on_model_event(
+                me.InputTranscriptionEvent(item_id=item_id, text=text),
+            )
+        self.assertEqual(
+            [(msg.id, msg.get_text_content()) for msg in agent.state.context],
+            [(ids[0], "first"), (ids[1], "second")],
+        )
+
+    async def test_provider_id_binds_to_local_turn(self) -> None:
+        """Provider speech events preserve the reply opened by local VAD."""
+        agent = self._make_agent()
+        agent._connected = True
+        await agent._forward_audio(b"", SpeechTransition.STARTED)
+        reply_id = self._drain(agent)[0][1]
+        for event in [
+            me.SpeechStartedEvent(item_id="u1"),
+            me.SpeechStartedEvent(item_id="u1"),
+            me.SpeechEndedEvent(item_id="u1"),
+            me.InputTranscriptionEvent(item_id="u1", text="hello"),
+        ]:
+            await agent._on_model_event(event)
+        self.assertEqual(
+            self._drain(agent),
+            [("text", reply_id, "hello"), ("end", reply_id)],
+        )
+
+    async def test_unmatched_transcript_does_not_end_active_turn(self) -> None:
+        """A transcript without a speech event gets an independent reply."""
+        agent = self._make_agent()
+        await agent._on_model_event(me.SpeechStartedEvent(item_id="u2"))
+        self._drain(agent)
+        for item_id in ["u1", "u2"]:
+            await agent._on_model_event(
+                me.InputTranscriptionEvent(item_id=item_id, text=item_id),
+            )
+        self.assertEqual(
+            self._drain(agent),
+            [
+                ("start", "u1"),
+                ("text", "u1", "u1"),
+                ("end", "u1"),
+                ("text", "u2", "u2"),
+                ("end", "u2"),
+            ],
+        )
+
+    async def test_model_error_clears_pending_local_turns(self) -> None:
+        """A model error retires the old unbound transcript identities."""
+        agent = self._make_agent()
+        async with agent:
+            await agent._forward_audio(b"", SpeechTransition.STARTED)
+            old_id = self._drain(agent)[0][1]
+            await agent._on_model_event(
+                me.ModelErrorEvent(code="failed", message="failed"),
+            )
+            self.assertEqual(self._drain(agent), [("end", old_id)])
+            await agent._on_model_event(
+                me.InputTranscriptionEvent(item_id="u2", text="new"),
+            )
+        self.assertEqual(
+            [(msg.id, msg.get_text_content()) for msg in agent.state.context],
+            [("u2", "new")],
+        )
 
     async def test_transcription_after_transport_end_keeps_turn(self) -> None:
         """A late transcript stays in the user reply already closed."""

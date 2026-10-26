@@ -18,6 +18,7 @@ from aiortc.mediastreams import MediaStreamError
 from av import AudioFrame as AVAudioFrame
 from fastapi import HTTPException
 
+from agentscope.agent import RealtimeAgent
 from agentscope.app._router._realtime import _create_realtime_offer
 from agentscope.app._router._schema import (
     RealtimeOfferRequest,
@@ -43,7 +44,13 @@ from agentscope.event import (
     ToolResultEndEvent,
 )
 from agentscope.message import ToolCallBlock, ToolResultState
-from agentscope.realtime import AudioFrame, DashScopeAudioRealtimeModel
+from agentscope.realtime import (
+    AudioFrame,
+    DashScopeAudioRealtimeModel,
+    RealtimeModelBase,
+)
+from agentscope.realtime import _events as me
+from agentscope.tool import FunctionTool, Toolkit
 
 
 class _FakeDataChannel:
@@ -957,6 +964,91 @@ class RealtimeOfferTest(unittest.IsolatedAsyncioTestCase):
 
 class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
     """Verify that a WebRTC run keeps the normal session contract."""
+
+    async def test_transcript_between_responses_preserves_full_reply(
+        self,
+    ) -> None:
+        """Persist opening text, tools and the final answer under one ID."""
+
+        def stream_tool(q: str) -> str:
+            """Return a deterministic tool result for persistence."""
+            return f"{q}-final"
+
+        model = MagicMock(
+            spec=RealtimeModelBase,
+            model="scripted",
+            output_sample_rate=24000,
+            input_transcription_enabled=True,
+        )
+        agent = RealtimeAgent(
+            "Friday",
+            "be brief",
+            model,
+            toolkit=Toolkit(
+                tools=[FunctionTool(stream_tool, is_read_only=True)],
+            ),
+        )
+        storage = _FakeStorage()
+        session = _make_session(
+            agent_factory=AsyncMock(),
+            storage=storage,
+            message_bus=_FakeMessageBus(),
+            on_closed=lambda _: None,
+        )
+        session.agent = agent
+        for event in [
+            me.SpeechStartedEvent(item_id="u1"),
+            me.SpeechEndedEvent(item_id="u1"),
+            me.ResponseCreatedEvent(item_id="r1"),
+            me.TranscriptDeltaEvent(item_id="r1", delta="Let me check."),
+            me.InputTranscriptionEvent(item_id="u1", text="Weather?"),
+            me.ResponseCreatedEvent(item_id="r2"),
+            me.ToolCallEvent(
+                item_id="r2",
+                tool_call=ToolCallBlock(
+                    id="c1",
+                    name="stream_tool",
+                    input='{"q": "x"}',
+                ),
+            ),
+            me.ResponseDoneEvent(item_id="r2"),
+        ]:
+            await agent._on_model_event(event)
+        await asyncio.gather(*agent._tasks)
+        for event in [
+            me.ResponseCreatedEvent(item_id="r3"),
+            me.TranscriptDeltaEvent(item_id="r3", delta="It is sunny."),
+            me.ResponseDoneEvent(item_id="r3"),
+        ]:
+            await agent._on_model_event(event)
+
+        while not agent._out.empty():
+            queued = agent._out.get_nowait()
+            if queued.checkpoint is not None:
+                await session._persist_state(queued.checkpoint)
+        await session._persist_state()
+        self.assertEqual(
+            {
+                "context_ids": [msg.id for msg in agent.state.context],
+                "saved": {
+                    key: value.model_dump(mode="json")
+                    for key, value in storage.messages.items()
+                },
+                "blocks": [
+                    block.type for block in agent.state.context[0].content
+                ],
+                "text": agent.state.context[0].get_text_content(),
+            },
+            {
+                "context_ids": ["r1", "u1"],
+                "saved": {
+                    msg.id: msg.model_dump(mode="json")
+                    for msg in agent.state.context
+                },
+                "blocks": ["text", "tool_call", "tool_result", "text"],
+                "text": "Let me check.\nIt is sunny.",
+            },
+        )
 
     async def test_request_close_owns_and_deduplicates_the_task(self) -> None:
         """Synchronous callbacks share one retained asynchronous close."""
