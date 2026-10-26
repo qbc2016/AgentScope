@@ -7,6 +7,7 @@ import unittest
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import anyio
 from fastapi.testclient import TestClient
 from mcp.types import (
     CallToolResult,
@@ -110,6 +111,33 @@ class _BlockingProgressClient(_ProgressClient):
             await asyncio.Event().wait()
         except asyncio.CancelledError:
             self.cancelled.set()
+            raise
+
+
+class _CleanupProgressClient(_ProgressClient):
+    """Model the SDK's shielded asynchronous cancellation notification."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.cleanup_completed = False
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        read_timeout_seconds: float | None,
+        progress_callback: Any,
+    ) -> CallToolResult:
+        """Block until cancelled, then simulate a delayed cancel write."""
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            with anyio.CancelScope(shield=True):
+                await anyio.sleep(0.02)
+                self.cleanup_completed = True
             raise
 
 
@@ -810,6 +838,44 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
                             },
                         ),
                     ],
+                )
+
+    async def test_anyio_cancellation_preserves_sdk_cleanup(self) -> None:
+        """Finish SDK cleanup before propagating an AnyIO cancellation."""
+        for stream_progress in (False, True):
+            with self.subTest(stream_progress=stream_progress):
+                client = _CleanupProgressClient()
+                tool = _make_tool(client, stream_progress=stream_progress)
+                async with anyio.create_task_group() as tasks:
+                    with anyio.CancelScope() as scope:
+
+                        async def cancel_call(
+                            started: asyncio.Event,
+                            cancel_scope: anyio.CancelScope,
+                        ) -> None:
+                            """Cancel only after the SDK call has started."""
+                            await started.wait()
+                            cancel_scope.cancel()
+
+                        tasks.start_soon(cancel_call, client.started, scope)
+                        if stream_progress:
+                            stream = await tool(value=3)
+                            async for _ in stream:
+                                pass
+                        else:
+                            await tool(value=3)
+
+                self.assertEqual(
+                    {
+                        "call_cancelled": client.cancelled.is_set(),
+                        "cleanup_completed": client.cleanup_completed,
+                        "cancel_propagated": scope.cancelled_caught,
+                    },
+                    {
+                        "call_cancelled": True,
+                        "cleanup_completed": True,
+                        "cancel_propagated": True,
+                    },
                 )
 
     async def test_closing_local_stream_cancels_mcp_call(self) -> None:

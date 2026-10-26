@@ -7,6 +7,7 @@ import re
 from contextlib import AbstractAsyncContextManager
 from typing import Callable, Any, AsyncGenerator, Generator
 
+import anyio
 import mcp
 from pydantic import AnyUrl, BaseModel, ValidationError
 
@@ -447,18 +448,21 @@ class MCPTool(ToolBase):
             )
         finally:
             accepting_progress = False
-            if progress_task is not None and not progress_task.done():
-                progress_task.cancel()
-                try:
-                    await progress_task
-                except asyncio.CancelledError:
-                    pass
-            if not call_task.done():
-                call_task.cancel()
-                try:
-                    await call_task
-                except asyncio.CancelledError:
-                    pass
+            # Repeated AnyIO cancellation must not interrupt the SDK's
+            # cancellation notification while we wait for its cleanup.
+            with anyio.CancelScope(shield=True):
+                if progress_task is not None and not progress_task.done():
+                    progress_task.cancel()
+                    try:
+                        await progress_task
+                    except asyncio.CancelledError:
+                        pass
+                if not call_task.done():
+                    call_task.cancel()
+                    try:
+                        await call_task
+                    except asyncio.CancelledError:
+                        pass
 
     @staticmethod
     def _convert_mcp_content_to_blocks(
