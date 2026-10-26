@@ -315,11 +315,17 @@ export function ModelParametersPopover({
 		[values, onChange],
 	);
 
-	const handleSelectFallback = (type: string, credentialId: string, model: string) => {
+	const handleSelectFallback = (
+		type: string,
+		credentialId: string,
+		model: string,
+		modelClass: string,
+	) => {
 		onFallbackChange?.({
 			type,
 			credential_id: credentialId,
 			model,
+			model_class: modelClass,
 			parameters: {},
 		});
 	};
@@ -395,6 +401,17 @@ export function ModelParametersPopover({
 			)}
 		</>
 	);
+	// Legacy configs use the first matching implementation, as the backend does.
+	const selectedFallbackCard = selectedFallbackModel
+		? groups[selectedFallbackModel.type]
+				?.find(({ credential }) => credential.id === selectedFallbackModel.credential_id)
+				?.models.find(
+					(m) =>
+						m.name === selectedFallbackModel.model &&
+						(!selectedFallbackModel.model_class ||
+							m.model_class === selectedFallbackModel.model_class),
+				)
+		: undefined;
 
 	return (
 		<DropdownMenu>
@@ -424,7 +441,9 @@ export function ModelParametersPopover({
 							<span className="truncate">
 								{selectedFallbackModel
 									? t('model-parameters.fallbackLabelWithModel', {
-											model: selectedFallbackModel.model,
+											model:
+												selectedFallbackCard?.label ??
+												selectedFallbackModel.model,
 										})
 									: t('model-parameters.fallbackLabel')}
 							</span>
@@ -445,11 +464,10 @@ export function ModelParametersPopover({
 										models.map((m) => {
 											const isSelected =
 												selectedFallbackModel?.credential_id ===
-													credential.id &&
-												selectedFallbackModel?.model === m.name;
+													credential.id && m === selectedFallbackCard;
 											return (
 												<DropdownMenuCheckboxItem
-													key={`${credential.id}-${m.name}`}
+													key={`${credential.id}-${m.model_class}:${m.name}`}
 													checked={isSelected}
 													onCheckedChange={(checked) => {
 														if (checked) {
@@ -457,6 +475,7 @@ export function ModelParametersPopover({
 																type,
 																credential.id,
 																m.name,
+																m.model_class,
 															);
 														} else {
 															onFallbackChange(null);
@@ -480,13 +499,12 @@ export function ModelParametersPopover({
 														usable[0].models,
 													)
 												: usable.map(({ credential, models }) => {
-														const hasSelected = models.some(
-															(m) =>
-																selectedFallbackModel?.credential_id ===
-																	credential.id &&
-																selectedFallbackModel?.model ===
-																	m.name,
-														);
+														const hasSelected =
+															selectedFallbackModel?.credential_id ===
+																credential.id &&
+															models.some(
+																(m) => m === selectedFallbackCard,
+															);
 														return (
 															<DropdownMenuSub key={credential.id}>
 																<DropdownMenuSubTrigger>
