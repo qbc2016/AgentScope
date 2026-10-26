@@ -23,7 +23,6 @@ from agentscope.event import (
     ToolResultStartEvent,
     UserInterruptEvent,
 )
-from agentscope.formatter import OpenAIResponseFormatter
 from agentscope.message import (
     TextBlock,
     ToolCallBlock,
@@ -944,77 +943,6 @@ class AgentInterruptEventTest(IsolatedAsyncioTestCase):
 
         self.assertListEqual(events, [])
         self.assertListEqual(agent.state.context, [])
-
-    async def test_interrupt_preserves_response_call_id(self) -> None:
-        """Interrupted HITL calls remain replayable with separate IDs."""
-        for tool in (
-            _UserConfirmConcurrentTool(),
-            _ExternalConcurrentTool(),
-        ):
-            with self.subTest(tool=tool.name):
-                agent, model = self._make_agent([tool])
-                await self._park_with(
-                    agent,
-                    model,
-                    [
-                        ToolCallBlock(
-                            id="fc_abc",
-                            call_id="call_abc",
-                            name=tool.name,
-                            input="{}",
-                        ),
-                    ],
-                )
-                events = [
-                    event
-                    async for event in agent.reply_stream(
-                        UserInterruptEvent(reply_id=agent.state.reply_id),
-                    )
-                ]
-                _assert_interrupted_end(
-                    self,
-                    events,
-                    agent.state.reply_id,
-                    agent.state.session_id,
-                )
-                message = agent.state.context[-1]
-                self.assertDictEqual(
-                    message.content[-1].model_dump(mode="json"),
-                    {
-                        **_interrupted_tool_result_dict(
-                            "fc_abc",
-                            tool.name,
-                            output_is_blocks=False,
-                        ),
-                        "call_id": "call_abc",
-                    },
-                )
-                self.assertListEqual(
-                    await OpenAIResponseFormatter().format([message]),
-                    [
-                        {
-                            "role": "assistant",
-                            "content": [
-                                {
-                                    "type": "output_text",
-                                    "text": "Need HITL.",
-                                },
-                            ],
-                        },
-                        {
-                            "type": "function_call",
-                            "id": "fc_abc",
-                            "call_id": "call_abc",
-                            "name": tool.name,
-                            "arguments": "{}",
-                        },
-                        {
-                            "type": "function_call_output",
-                            "call_id": "call_abc",
-                            "output": _INTERRUPT_MSG,
-                        },
-                    ],
-                )
 
     async def test_interrupt_event_after_user_confirm(self) -> None:
         """Parked in ASKING state: ``UserInterruptEvent`` patches the

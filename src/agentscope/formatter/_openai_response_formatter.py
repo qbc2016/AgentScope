@@ -199,10 +199,6 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
             function_calls: list[dict] = []
             reasoning_item_ids: set[str] = set()
 
-            text_type = (
-                "output_text" if msg.role == "assistant" else "input_text"
-            )
-
             for block in msg.get_content_blocks():
                 if isinstance(block, TextBlock):
                     text_type = (
@@ -339,18 +335,14 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                             )
 
                 elif isinstance(block, ToolCallBlock):
-                    call_id = getattr(block, "call_id", None)
-                    function_call = {
-                        "type": "function_call",
-                        "call_id": call_id or block.id,
-                        "name": block.name,
-                        "arguments": block.input,
-                    }
-                    # Responses items can carry separate item and call IDs.
-                    # Replay the item ID only for that two-ID form.
-                    if call_id:
-                        function_call["id"] = block.id
-                    function_calls.append(function_call)
+                    function_calls.append(
+                        {
+                            "type": "function_call",
+                            "call_id": block.id,
+                            "name": block.name,
+                            "arguments": block.input,
+                        },
+                    )
 
                 elif isinstance(block, ToolResultBlock):
                     if function_calls:
@@ -376,8 +368,7 @@ class OpenAIResponseFormatter(_OpenAIResponseFormatterBase):
                     items.append(
                         {
                             "type": "function_call_output",
-                            "call_id": getattr(block, "call_id", None)
-                            or block.id,
+                            "call_id": block.id,
                             "output": self._format_tool_result_output(
                                 block.output,
                             ),

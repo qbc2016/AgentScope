@@ -1029,12 +1029,6 @@ class Agent:
                     name=last_msg.content[index].name,
                     output=interruption_message,
                     state=ToolResultState.INTERRUPTED,
-                    **(
-                        {"call_id": _cid}
-                        if (_cid := getattr(call_block, "call_id", None))
-                        is not None
-                        else {}
-                    ),
                 ),
             )
 
@@ -2632,12 +2626,6 @@ class Agent:
                         else chunk.content,
                         state=chunk.state,
                         metadata=chunk.metadata,
-                        **(
-                            {"call_id": _cid}
-                            if (_cid := getattr(tool_call, "call_id", None))
-                            is not None
-                            else {}
-                        ),
                     )
 
                     # ========================================================
@@ -2857,12 +2845,6 @@ class Agent:
                     name=tool_call.name,
                     output=message,
                     state=state,
-                    **(
-                        {"call_id": _cid}
-                        if (_cid := getattr(tool_call, "call_id", None))
-                        is not None
-                        else {}
-                    ),
                 ),
             ],
         )
@@ -3210,11 +3192,6 @@ class Agent:
             metadata=deepcopy(tool_result.metadata),
             created_at=tool_result.created_at,
             finished_at=tool_result.finished_at,
-            **(
-                {"call_id": _cid}
-                if (_cid := getattr(tool_result, "call_id", None)) is not None
-                else {}
-            ),
         )
         offload_tool_result = ToolResultBlock(
             id=tool_result.id,
@@ -3224,11 +3201,6 @@ class Agent:
             metadata=deepcopy(tool_result.metadata),
             created_at=tool_result.created_at,
             finished_at=tool_result.finished_at,
-            **(
-                {"call_id": _cid}
-                if (_cid := getattr(tool_result, "call_id", None)) is not None
-                else {}
-            ),
         )
 
         return reserved_tool_result, offload_tool_result
