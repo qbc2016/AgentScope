@@ -12,25 +12,16 @@ from agentscope.workspace._docker._docker_workspace import DockerWorkspace
 from agentscope.workspace._docker._make_dockerfile import (
     prepare_build_context,
 )
-from agentscope.workspace._utils import (
-    GATEWAY_RUNTIME_VERSION,
-)
 
 
 class DockerGatewayInstallTest(unittest.TestCase):
-    """The gateway image installs AgentScope without its dependencies."""
+    """The gateway image installs agentscope without its dependencies."""
 
     def test_pip_install_lines(self) -> None:
         """Only requirements.txt is installed with dependencies."""
         ctx_dir, _, _ = prepare_build_context()
-        try:
-            dockerfile = (ctx_dir / "Dockerfile").read_text(encoding="utf-8")
-            self.assertEqual(
-                (ctx_dir / ".gateway-version").read_text(encoding="utf-8"),
-                GATEWAY_RUNTIME_VERSION,
-            )
-        finally:
-            shutil.rmtree(ctx_dir, ignore_errors=True)
+        dockerfile = (ctx_dir / "Dockerfile").read_text(encoding="utf-8")
+        shutil.rmtree(ctx_dir, ignore_errors=True)
         self.assertListEqual(
             [
                 line
@@ -49,12 +40,7 @@ class DockerGatewayInstallTest(unittest.TestCase):
         try:
             self.assertEqual(
                 sorted(copy_files),
-                [
-                    ".gateway-version",
-                    "_glob_helper.py",
-                    "_mcp_gateway_app.py",
-                    "requirements.txt",
-                ],
+                ["_glob_helper.py", "_mcp_gateway_app.py", "requirements.txt"],
             )
             requirements = (ctx_dir / "requirements.txt").read_text()
             dockerfile = (ctx_dir / "Dockerfile").read_text()

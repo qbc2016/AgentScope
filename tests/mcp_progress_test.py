@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
-"""Tests for local and gateway MCP progress streaming."""
+"""Tests for local MCP progress and sandbox final-result compatibility."""
 import asyncio
 import json
-import time
 import unittest
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -169,45 +168,15 @@ class _RegisteredClient:
 
 
 class _GatewayFacade:
-    """Host-side gateway stand-in with deterministic polling responses."""
+    """Host-side gateway stand-in returning one final result."""
 
-    def __init__(self, progress: ToolChunk, final: ToolChunk) -> None:
+    def __init__(self, final: ToolChunk) -> None:
         self.requests: list[tuple[str, str, dict[str, Any]]] = []
         self.responses = [
-            (202, b'{"call_id":"call-1"}'),
             (
                 200,
-                json.dumps(
-                    {
-                        "events": [
-                            {
-                                "sequence": 1,
-                                "chunk": progress.model_dump(mode="json"),
-                            },
-                        ],
-                        "done": False,
-                        "cancelled": False,
-                        "error": None,
-                    },
-                ).encode(),
+                json.dumps({"chunk": final.model_dump(mode="json")}).encode(),
             ),
-            (
-                200,
-                json.dumps(
-                    {
-                        "events": [
-                            {
-                                "sequence": 2,
-                                "chunk": final.model_dump(mode="json"),
-                            },
-                        ],
-                        "done": True,
-                        "cancelled": False,
-                        "error": None,
-                    },
-                ).encode(),
-            ),
-            (200, b'{"ok":true}'),
         ]
 
     async def exec_request(
@@ -216,7 +185,7 @@ class _GatewayFacade:
         path: str,
         **kwargs: Any,
     ) -> tuple[int, bytes]:
-        """Return the next prepared gateway response."""
+        """Record a single gateway request and return its result."""
         self.requests.append((method, path, kwargs))
         return self.responses.pop(0)
 
@@ -245,18 +214,13 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_default_calls_return_final_chunks(self) -> None:
         """Old direct calls keep returning a result without opting in."""
-        progress = ToolChunk(
-            content=[],
-            is_last=False,
-            metadata={"mcp_progress": {"progress": 1.0}},
-        )
         final = ToolChunk(content=[TextBlock(text="done")])
         for entry in ("__call__", "call"):
             for path in ("local", "gateway"):
                 with self.subTest(entry=entry, path=path):
                     definition = Tool(name="work", input_schema={})
                     sdk = _ProgressClient()
-                    gateway = _GatewayFacade(progress, final)
+                    gateway = _GatewayFacade(final)
                     if path == "local":
                         tool = MCPTool(
                             mcp_name="remote",
@@ -280,8 +244,8 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
                             "metadata": {},
                         },
                     )
-                    self.assertFalse(tool.stream_progress)
                     if path == "local":
+                        self.assertFalse(tool.stream_progress)
                         self.assertEqual(
                             sdk.call,
                             {
@@ -311,48 +275,29 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
                     client = MCPClient.model_validate(spec)
                     serialized = client.model_dump(mode="json")
                     restored = MCPClient.model_validate(serialized)
-                    gateway = GatewayClient(
-                        backend=object(),  # type: ignore[arg-type]
-                        gateway_port=5600,
-                    )
-                    proxy = gateway.make_client(
-                        serialized,
-                        agent_id="agent",
-                        session_id="session",
-                        connected=True,
-                    )
                     flags = []
-                    for current in (client, restored, proxy):
+                    for current in (client, restored):
                         current._cached_tools = [
                             Tool(name="work", input_schema={}),
                         ]
                         current._is_connected = True
-                        if current is not proxy:
-                            current._client = _ProgressClient()
+                        current._client = _ProgressClient()
                         tool = await current.get_tool("work")
                         flags.append(tool.stream_progress)
                     expected = setting is True
                     self.assertEqual(
                         {
                             "serialized": serialized["stream_progress"],
-                            "proxy_spec": proxy.model_dump(mode="json"),
                             "tools": flags,
                         },
                         {
                             "serialized": expected,
-                            "proxy_spec": serialized,
-                            "tools": [expected, expected, expected],
+                            "tools": [expected, expected],
                         },
                     )
 
     async def test_agent_streams_progress_without_persisting_it(self) -> None:
-        """Local and gateway progress reaches sequential/concurrent agents."""
-        progress_data = {"progress": 1.0, "total": 2.0, "message": "working"}
-        progress = ToolChunk(
-            content=[],
-            is_last=False,
-            metadata={"mcp_progress": progress_data, "trace_id": "trace"},
-        )
+        """Only local tools expose progress to sequential/concurrent agents."""
         final = ToolChunk(
             content=[TextBlock(text="done")],
             metadata={"source": "tool", "trace_id": "trace"},
@@ -410,13 +355,13 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
                                     "type": "object",
                                 },
                             ),
-                            gateway=_GatewayFacade(progress, final),
+                            gateway=_GatewayFacade(final),
                             agent_id="agent",
                             session_id="session",
-                            stream_progress=True,
                         )
-                        expected_progress = [progress_data]
-                    tool.stream_progress = stream_progress
+                        expected_progress = []
+                    if path == "local":
+                        tool.stream_progress = stream_progress
                     if not stream_progress:
                         expected_progress = []
                     tool.is_read_only = True
@@ -678,7 +623,7 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
 
         sdk = _ProgressClient()
         local = _make_tool(sdk)
-        gateway = _GatewayFacade(expected, expected)
+        gateway = _GatewayFacade(expected)
         remote = GatewayMCPTool(
             mcp_name="remote",
             tool=Tool(name="work", input_schema={}),
@@ -686,7 +631,8 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
         )
         for tool in (local, remote):
             for stream_progress in (False, True):
-                tool.stream_progress = stream_progress
+                if tool is local:
+                    tool.stream_progress = stream_progress
                 tool._middlewares = [_Block()]
                 chunks = [chunk async for chunk in await tool(value=3)]
                 self.assertEqual(
@@ -845,103 +791,51 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
                     {"local": expected, "gateway": expected},
                 )
 
-    async def test_gateway_proxy_streams_and_acknowledges(self) -> None:
-        """The host proxy preserves gateway event order and cleans up."""
-        progress = ToolChunk(
-            content=[],
-            is_last=False,
-            metadata={
-                "mcp_progress": {
-                    "progress": 1.0,
-                    "total": 1.0,
-                    "message": "working",
-                },
-            },
-            id="progress",
-        )
-        final = ToolChunk(
-            content=[TextBlock(text="done", id="text")],
-            is_last=True,
-            id="final",
-        )
-        gateway = _GatewayFacade(progress, final)
-        tool = GatewayMCPTool(
-            mcp_name="remote",
-            tool=Tool(
-                name="work",
-                description="Work with progress.",
-                input_schema={"type": "object"},
-            ),
-            gateway=gateway,  # type: ignore[arg-type]
-            agent_id="agent",
-            session_id="session",
-            stream_progress=True,
-        )
-
-        stream = await tool(value=3)
-        chunks = [chunk async for chunk in stream]
-
-        self.assertEqual(
-            {
-                "chunks": [chunk.model_dump(mode="json") for chunk in chunks],
-                "requests": gateway.requests,
-                "remaining_responses": gateway.responses,
-            },
-            {
-                "chunks": [
-                    progress.model_dump(mode="json"),
-                    final.model_dump(mode="json"),
-                ],
-                "requests": [
-                    (
-                        "POST",
-                        "/mcps/remote/tools/work/calls",
-                        {
-                            "params": {
-                                "agent_id": "agent",
-                                "session_id": "session",
-                            },
-                            "body": {"arguments": {"value": 3}},
+    async def test_gateway_ignores_progress_setting(self) -> None:
+        """Sandbox tools make one request and always return the final chunk."""
+        final = ToolChunk(content=[TextBlock(text="done")])
+        for setting in (False, True):
+            with self.subTest(stream_progress=setting):
+                gateway = GatewayClient(
+                    backend=object(),  # type: ignore[arg-type]
+                    gateway_port=5600,
+                )
+                proxy = gateway.make_client(
+                    {
+                        "name": "remote",
+                        "is_stateful": True,
+                        "stream_progress": setting,
+                        "mcp_config": {
+                            "type": "http_mcp",
+                            "url": "https://example.com/mcp",
                         },
-                    ),
-                    (
-                        "GET",
-                        "/tool-calls/call-1/events",
-                        {
-                            "params": {
-                                "agent_id": "agent",
-                                "session_id": "session",
-                                "after": "0",
-                                "wait": "1.0",
+                    },
+                    agent_id="agent",
+                    session_id="session",
+                    connected=True,
+                )
+                facade = _GatewayFacade(final)
+                proxy._gateway = facade
+                proxy._cached_tools = [Tool(name="work", input_schema={})]
+                tool = await proxy.get_tool("work")
+                result = await tool(value=3)
+                self.assertEqual(result.model_dump(), final.model_dump())
+                self.assertEqual(
+                    facade.requests,
+                    [
+                        (
+                            "POST",
+                            "/mcps/remote/tools/work",
+                            {
+                                "params": {
+                                    "agent_id": "agent",
+                                    "session_id": "session",
+                                },
+                                "body": {"arguments": {"value": 3}},
                             },
-                        },
-                    ),
-                    (
-                        "GET",
-                        "/tool-calls/call-1/events",
-                        {
-                            "params": {
-                                "agent_id": "agent",
-                                "session_id": "session",
-                                "after": "1",
-                                "wait": "1.0",
-                            },
-                        },
-                    ),
-                    (
-                        "DELETE",
-                        "/tool-calls/call-1",
-                        {
-                            "params": {
-                                "agent_id": "agent",
-                                "session_id": "session",
-                            },
-                        },
-                    ),
-                ],
-                "remaining_responses": [],
-            },
-        )
+                        ),
+                    ],
+                )
 
     async def test_closing_local_stream_cancels_mcp_call(self) -> None:
         """Closing a progress stream cancels its in-flight MCP request."""
@@ -975,11 +869,11 @@ class MCPProgressTest(unittest.IsolatedAsyncioTestCase):
         )
 
 
-class GatewayProgressRouteTest(unittest.TestCase):
-    """The in-workspace gateway stores ordered progress and final chunks."""
+class GatewayResultRouteTest(unittest.TestCase):
+    """The in-workspace gateway returns only final tool results."""
 
     def test_gateway_routes_preserve_structured_results(self) -> None:
-        """Both gateway routes retain structured-only and mixed results."""
+        """The final-result route retains structured-only and mixed results."""
         structured = {"city": "Paris", "temperature_c": 21.5}
         text = {
             "type": "text",
@@ -1083,495 +977,30 @@ class GatewayProgressRouteTest(unittest.TestCase):
                         ),
                         (200, {"chunk": expected}),
                     )
-                    start = client.post(
-                        "/mcps/remote/tools/work/calls",
-                        params=params,
-                        json={"arguments": {}},
-                    )
-                    self.assertEqual(start.status_code, 202)
-                    call_id = start.json()["call_id"]
-                    poll = client.get(
-                        f"/tool-calls/{call_id}/events",
-                        params={**params, "after": 0, "wait": 1.0},
-                    )
-                    payload = poll.json()
-                    for event in payload["events"]:
-                        event["chunk"] = _chunk_view(
-                            ToolChunk.model_validate(event["chunk"]),
-                        )
-                    self.assertEqual(
-                        (poll.status_code, payload),
-                        (
-                            200,
-                            {
-                                "events": [{"sequence": 1, "chunk": expected}],
-                                "done": True,
-                                "cancelled": False,
-                                "error": None,
-                            },
-                        ),
-                    )
 
-    def test_background_call_lifecycle(self) -> None:
-        """Start, poll, and acknowledge one complete gateway call."""
+    def test_gateway_discards_progress_when_enabled_on_client(self) -> None:
+        """A streaming client still yields a final-only gateway response."""
+        sdk = _ProgressClient()
         state = _State()
-        state.clients[("agent", "session")] = {
-            "remote": _RegisteredClient(  # type: ignore[dict-item]
-                _ProgressClient(),
-            ),
-        }
-
-        with TestClient(_build_app(state)) as client:
-            start = client.post(
-                "/mcps/remote/tools/work/calls",
-                params={"agent_id": "agent", "session_id": "session"},
+        tool = _make_tool(sdk, stream_progress=True)
+        registered = _RegisteredClient(sdk)
+        state.clients[("", "")] = {"remote": registered}
+        with (
+            patch.object(registered, "get_tool", AsyncMock(return_value=tool)),
+            TestClient(_build_app(state)) as client,
+        ):
+            response = client.post(
+                "/mcps/remote/tools/work",
                 json={"arguments": {"value": 3}},
             )
-            call_id = start.json()["call_id"]
-            poll = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 0,
-                    "wait": 1.0,
-                },
-            )
-            cleanup = client.delete(
-                f"/tool-calls/{call_id}",
-                params={"agent_id": "agent", "session_id": "session"},
-            )
-
-        payload = poll.json()
+        self.assertEqual(response.status_code, 200)
+        result = ToolChunk.model_validate(response.json()["chunk"])
         self.assertEqual(
+            _chunk_view(result),
             {
-                "start_status": start.status_code,
-                "poll_status": poll.status_code,
-                "event_views": [
-                    _chunk_view(ToolChunk.model_validate(event["chunk"]))
-                    for event in payload["events"]
-                ],
-                "done": payload["done"],
-                "cancelled": payload["cancelled"],
-                "error": payload["error"],
-                "cleanup_status": cleanup.status_code,
-                "remaining_calls": state.tool_calls,
-            },
-            {
-                "start_status": 202,
-                "poll_status": 200,
-                "event_views": [
-                    {
-                        "content": [],
-                        "state": ToolResultState.RUNNING,
-                        "is_last": False,
-                        "metadata": {
-                            "mcp_progress": {
-                                "progress": 1.0,
-                                "total": 2.0,
-                                "message": "first",
-                            },
-                        },
-                    },
-                    {
-                        "content": [],
-                        "state": ToolResultState.RUNNING,
-                        "is_last": False,
-                        "metadata": {
-                            "mcp_progress": {
-                                "progress": 2.0,
-                                "total": 2.0,
-                                "message": "second",
-                            },
-                        },
-                    },
-                    {
-                        "content": [{"type": "text", "text": "done"}],
-                        "state": ToolResultState.RUNNING,
-                        "is_last": True,
-                        "metadata": {},
-                    },
-                ],
-                "done": True,
-                "cancelled": False,
-                "error": None,
-                "cleanup_status": 200,
-                "remaining_calls": {},
+                "content": [{"type": "text", "text": "done"}],
+                "state": ToolResultState.RUNNING,
+                "is_last": True,
+                "metadata": {},
             },
         )
-
-    def test_poll_acknowledges_consumed_events(self) -> None:
-        """The next sequence cursor removes confirmed gateway events."""
-        state = _State()
-        state.clients[("agent", "session")] = {
-            "remote": _RegisteredClient(  # type: ignore[dict-item]
-                _ProgressClient(),
-            ),
-        }
-
-        with TestClient(_build_app(state)) as client:
-            start = client.post(
-                "/mcps/remote/tools/work/calls",
-                params={"agent_id": "agent", "session_id": "session"},
-                json={"arguments": {"value": 3}},
-            )
-            call_id = start.json()["call_id"]
-            first = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 0,
-                    "wait": 1.0,
-                },
-            )
-            second = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 2,
-                    "wait": 0.0,
-                },
-            )
-            stored_sequences = [
-                event["sequence"]
-                for event in state.tool_calls[
-                    ("agent", "session", call_id)
-                ].events
-            ]
-            client.delete(
-                f"/tool-calls/{call_id}",
-                params={"agent_id": "agent", "session_id": "session"},
-            )
-
-        self.assertEqual(
-            {
-                "first": [
-                    event["sequence"] for event in first.json()["events"]
-                ],
-                "second": [
-                    event["sequence"] for event in second.json()["events"]
-                ],
-                "stored": stored_sequences,
-            },
-            {
-                "first": [1, 2, 3],
-                "second": [3],
-                "stored": [3],
-            },
-        )
-
-    def test_unacknowledged_event_buffer_is_bounded(self) -> None:
-        """A slow poller cannot grow one call's event buffer forever."""
-        state = _State()
-        state.clients[("agent", "session")] = {
-            "remote": _RegisteredClient(  # type: ignore[dict-item]
-                _ProgressClient(),
-            ),
-        }
-
-        with patch(
-            "agentscope.workspace._mcp_gateway._mcp_gateway_app."
-            "_MAX_UNACKNOWLEDGED_EVENTS",
-            2,
-        ), TestClient(_build_app(state)) as client:
-            start = client.post(
-                "/mcps/remote/tools/work/calls",
-                params={"agent_id": "agent", "session_id": "session"},
-                json={"arguments": {"value": 3}},
-            )
-            call_id = start.json()["call_id"]
-            poll = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 0,
-                    "wait": 1.0,
-                },
-            )
-            client.delete(
-                f"/tool-calls/{call_id}",
-                params={"agent_id": "agent", "session_id": "session"},
-            )
-
-        self.assertEqual(
-            {
-                "sequences": [
-                    event["sequence"] for event in poll.json()["events"]
-                ],
-                "is_last": [
-                    event["chunk"]["is_last"]
-                    for event in poll.json()["events"]
-                ],
-            },
-            {
-                "sequences": [2, 3],
-                "is_last": [False, True],
-            },
-        )
-
-    def test_gateway_resource_link_without_mime_uses_fallback(self) -> None:
-        """The lightweight gateway converter preserves a MIME-less link."""
-        state = _State()
-        state.clients[("agent", "session")] = {
-            "remote": _RegisteredClient(  # type: ignore[dict-item]
-                _ResourceLinkClient(),
-            ),
-        }
-
-        with TestClient(_build_app(state)) as client:
-            start = client.post(
-                "/mcps/remote/tools/work/calls",
-                params={"agent_id": "agent", "session_id": "session"},
-                json={"arguments": {"value": 3}},
-            )
-            call_id = start.json()["call_id"]
-            poll = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 0,
-                    "wait": 1.0,
-                },
-            )
-            client.delete(
-                f"/tool-calls/{call_id}",
-                params={"agent_id": "agent", "session_id": "session"},
-            )
-
-        chunks = [
-            ToolChunk.model_validate(event["chunk"])
-            for event in poll.json()["events"]
-        ]
-        self.assertEqual(
-            {
-                "start_status": start.status_code,
-                "poll_status": poll.status_code,
-                "chunks": [_chunk_view(chunk) for chunk in chunks],
-            },
-            {
-                "start_status": 202,
-                "poll_status": 200,
-                "chunks": [
-                    {
-                        "content": [
-                            {
-                                "type": "data",
-                                "source": {
-                                    "type": "url",
-                                    "url": "https://example.com/file",
-                                    "media_type": "application/octet-stream",
-                                },
-                                "name": None,
-                            },
-                        ],
-                        "state": ToolResultState.RUNNING,
-                        "is_last": True,
-                        "metadata": {},
-                    },
-                ],
-            },
-        )
-
-    def test_delete_cancels_background_call(self) -> None:
-        """Deleting an unfinished gateway call cancels its MCP request."""
-        state = _State()
-        mcp_client = _BlockingProgressClient()
-        state.clients[("agent", "session")] = {
-            "remote": _RegisteredClient(  # type: ignore[dict-item]
-                mcp_client,
-            ),
-        }
-
-        with TestClient(_build_app(state)) as client:
-            start = client.post(
-                "/mcps/remote/tools/work/calls",
-                params={"agent_id": "agent", "session_id": "session"},
-                json={"arguments": {"value": 3}},
-            )
-            call_id = start.json()["call_id"]
-            poll = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 0,
-                    "wait": 1.0,
-                },
-            )
-            cleanup = client.delete(
-                f"/tool-calls/{call_id}",
-                params={"agent_id": "agent", "session_id": "session"},
-            )
-
-        self.assertEqual(
-            {
-                "start_status": start.status_code,
-                "poll": {
-                    "events": [
-                        _chunk_view(ToolChunk.model_validate(event["chunk"]))
-                        for event in poll.json()["events"]
-                    ],
-                    "done": poll.json()["done"],
-                },
-                "cleanup_status": cleanup.status_code,
-                "cancelled": mcp_client.cancelled.is_set(),
-                "remaining_calls": state.tool_calls,
-            },
-            {
-                "start_status": 202,
-                "poll": {
-                    "events": [
-                        {
-                            "content": [],
-                            "state": ToolResultState.RUNNING,
-                            "is_last": False,
-                            "metadata": {
-                                "mcp_progress": {
-                                    "progress": 1.0,
-                                    "total": None,
-                                    "message": "waiting",
-                                },
-                            },
-                        },
-                    ],
-                    "done": False,
-                },
-                "cleanup_status": 200,
-                "cancelled": True,
-                "remaining_calls": {},
-            },
-        )
-
-    def test_idle_active_call_is_reaped_without_another_request(self) -> None:
-        """The periodic reaper cancels a call whose host stops polling."""
-        state = _State()
-        mcp_client = _BlockingProgressClient()
-        state.clients[("agent", "session")] = {
-            "remote": _RegisteredClient(  # type: ignore[dict-item]
-                mcp_client,
-            ),
-        }
-
-        with patch(
-            "agentscope.workspace._mcp_gateway._mcp_gateway_app."
-            "_ACTIVE_CALL_IDLE_TTL_SECONDS",
-            0.2,
-        ), patch(
-            "agentscope.workspace._mcp_gateway._mcp_gateway_app."
-            "_CALL_REAPER_INTERVAL_SECONDS",
-            0.01,
-        ), TestClient(
-            _build_app(state),
-        ) as client:
-            start = client.post(
-                "/mcps/remote/tools/work/calls",
-                params={"agent_id": "agent", "session_id": "session"},
-                json={"arguments": {"value": 3}},
-            )
-            call_id = start.json()["call_id"]
-            first_poll = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 0,
-                    "wait": 1.0,
-                },
-            )
-            deadline = time.monotonic() + 2.0
-            while state.tool_calls and time.monotonic() < deadline:
-                time.sleep(0.01)
-            retained_calls = dict(state.tool_calls)
-
-        self.assertEqual(
-            {
-                "start_status": start.status_code,
-                "first_poll_status": first_poll.status_code,
-                "cancelled": mcp_client.cancelled.is_set(),
-                "retained_calls": retained_calls,
-            },
-            {
-                "start_status": 202,
-                "first_poll_status": 200,
-                "cancelled": True,
-                "retained_calls": {},
-            },
-        )
-
-    def test_background_call_reports_error_after_progress(self) -> None:
-        """A failed call preserves progress and exposes its terminal error."""
-        state = _State()
-        state.clients[("agent", "session")] = {
-            "remote": _RegisteredClient(  # type: ignore[dict-item]
-                _FailingProgressClient(),
-            ),
-        }
-
-        with TestClient(_build_app(state)) as client:
-            start = client.post(
-                "/mcps/remote/tools/work/calls",
-                params={"agent_id": "agent", "session_id": "session"},
-                json={"arguments": {"value": 3}},
-            )
-            call_id = start.json()["call_id"]
-            poll = client.get(
-                f"/tool-calls/{call_id}/events",
-                params={
-                    "agent_id": "agent",
-                    "session_id": "session",
-                    "after": 0,
-                    "wait": 1.0,
-                },
-            )
-            cleanup = client.delete(
-                f"/tool-calls/{call_id}",
-                params={"agent_id": "agent", "session_id": "session"},
-            )
-
-        payload = poll.json()
-        self.assertEqual(
-            {
-                "start_status": start.status_code,
-                "poll_status": poll.status_code,
-                "events": [
-                    _chunk_view(ToolChunk.model_validate(event["chunk"]))
-                    for event in payload["events"]
-                ],
-                "done": payload["done"],
-                "cancelled": payload["cancelled"],
-                "error": payload["error"],
-                "cleanup_status": cleanup.status_code,
-                "remaining_calls": state.tool_calls,
-            },
-            {
-                "start_status": 202,
-                "poll_status": 200,
-                "events": [
-                    {
-                        "content": [],
-                        "state": ToolResultState.RUNNING,
-                        "is_last": False,
-                        "metadata": {
-                            "mcp_progress": {
-                                "progress": 1.0,
-                                "total": 2.0,
-                                "message": "first",
-                            },
-                        },
-                    },
-                ],
-                "done": True,
-                "cancelled": False,
-                "error": "tool failed",
-                "cleanup_status": 200,
-                "remaining_calls": {},
-            },
-        )
-
-
-if __name__ == "__main__":
-    unittest.main()

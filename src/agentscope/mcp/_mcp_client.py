@@ -124,8 +124,9 @@ class MCPClient(BaseModel):
     stream_progress: bool = Field(
         default=False,
         description=(
-            "Whether tools return a progress/result stream instead of the "
-            "final ToolChunk. Enable to expose MCP progress to the agent."
+            "Whether local tools return a progress/result stream instead of "
+            "the final ToolChunk. Sandbox gateway tools return final results "
+            "only."
         ),
     )
 
