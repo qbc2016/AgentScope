@@ -1,6 +1,6 @@
 # Source: https://developers.openai.com/api/docs/models/gpt-6-luna
 name: gpt-6-luna
-label: GPT-6 Luna
+label: GPT-6 Luna (Responses API)
 status: active
 
 input_types:
