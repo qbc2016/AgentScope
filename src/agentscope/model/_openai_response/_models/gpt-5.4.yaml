@@ -1,5 +1,5 @@
 name: gpt-5.4
-label: GPT-5.4
+label: GPT-5.4 (Responses API)
 status: active
 
 input_types:

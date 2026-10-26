@@ -56,11 +56,6 @@ class ChatModelBase:
     retry_delay: float
     """Seconds to sleep between retry attempts."""
 
-    label_suffix: str = ""
-    """Optional suffix appended to model card labels automatically by
-    :meth:`list_models`.  Subclasses can set this to disambiguate models that
-    share the same ``name`` across different implementations."""
-
     context_size: int
     """The model context size that will be used in the context compression."""
 
@@ -174,8 +169,6 @@ class ChatModelBase:
                     parameter_class=cls.Parameters,
                 )
                 card.model_class = model_class_type
-                if cls.label_suffix:
-                    card.label = f"{card.label} ({cls.label_suffix})"
                 model_cards.append(card)
             except Exception as e:
                 # Log error but continue with other files

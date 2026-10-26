@@ -1,6 +1,6 @@
 # Source: https://developers.openai.com/api/docs/models/gpt-6-sol
 name: gpt-6-sol
-label: GPT-6 Sol
+label: GPT-6 Sol (Responses API)
 status: active
 
 input_types:
