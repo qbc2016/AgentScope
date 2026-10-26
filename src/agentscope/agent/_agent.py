@@ -1029,6 +1029,12 @@ class Agent:
                     name=last_msg.content[index].name,
                     output=interruption_message,
                     state=ToolResultState.INTERRUPTED,
+                    **(
+                        {"call_id": _cid}
+                        if (_cid := getattr(call_block, "call_id", None))
+                        is not None
+                        else {}
+                    ),
                 ),
             )
 

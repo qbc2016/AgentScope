@@ -53,9 +53,12 @@ class OpenAICredential(CredentialBase):
 
     @classmethod
     def get_chat_model_classes(cls) -> list[Type["ChatModelBase"]]:
-        """Return both OpenAI chat model classes."""
+        """Return both APIs unless the legacy getter selects a custom model."""
         from ..model import OpenAIChatModel, OpenAIResponseModel
 
+        model_cls = cls.get_chat_model_class()
+        if model_cls is not OpenAIChatModel:
+            return [model_cls]
         return [OpenAIChatModel, OpenAIResponseModel]
 
     @classmethod
