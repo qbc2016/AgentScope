@@ -460,6 +460,8 @@ class RealtimeAgent:
             # events that produced (the interrupted ReplyEnd) before the
             # stream ends rather than leaking them into the next run.
             await self._barge_in()
+            for turn in list(self._pending_user_turns.values()):
+                self._end_user_turn(turn)
             self._end_user_turn()
             while not self._out.empty():
                 queued = self._out.get_nowait()
@@ -804,7 +806,9 @@ class RealtimeAgent:
         ):
             current.item_id = current.item_id or item_id
             return
-        self._end_user_turn()
+        # Keep the start replayable until its transcript is settled.
+        if not self.model.input_transcription_enabled:
+            self._end_user_turn()
         self._user_turn = self._new_user_turn(item_id)
 
     def _new_user_turn(self, item_id: str) -> _UserTurn:

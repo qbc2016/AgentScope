@@ -1411,12 +1411,63 @@ class RealtimeAgentTranscriptionTest(IsolatedAsyncioTestCase):
             )
         self.assertEqual(
             self._drain(agent),
-            [("text", "u2", "u2"), ("end", "u2"), ("text", "u1", "u1")],
+            [
+                ("text", "u2", "u2"),
+                ("end", "u2"),
+                ("text", "u1", "u1"),
+                ("end", "u1"),
+            ],
         )
         self.assertEqual(
             [(msg.id, msg.get_text_content()) for msg in agent.state.context],
             [("u2", "u2"), ("u1", "u1")],
         )
+
+    async def test_overlapping_turns_close_on_transport_end_or_reset(
+        self,
+    ) -> None:
+        """Close all pending replies while keeping only reusable IDs."""
+        for reset in [False, True]:
+            with self.subTest(reset=reset):
+                agent = self._make_agent()
+                for item_id in ["u1", "u2"]:
+                    await agent._on_model_event(
+                        me.SpeechStartedEvent(item_id=item_id),
+                    )
+                    await agent._on_model_event(
+                        me.SpeechEndedEvent(item_id=item_id),
+                    )
+                self.assertEqual(
+                    self._drain(agent),
+                    [("start", "u1"), ("start", "u2")],
+                )
+                if reset:
+                    agent._reset_user_turns()
+                    ended = self._drain(agent)
+                else:
+                    ended = [
+                        ("end", event.reply_id)
+                        async for event in agent.reply_stream(
+                            FakeTransport(0),
+                        )
+                        if isinstance(event, ReplyEndEvent)
+                    ]
+                self.assertEqual(
+                    {
+                        "ended": ended,
+                        "pending": list(agent._pending_user_turns),
+                        "open": [
+                            turn.reply_id
+                            for turn in agent._pending_user_turns.values()
+                            if turn.open
+                        ],
+                    },
+                    {
+                        "ended": [("end", "u1"), ("end", "u2")],
+                        "pending": [] if reset else ["u1", "u2"],
+                        "open": [],
+                    },
+                )
 
     async def test_local_vad_turns_keep_their_generated_reply_ids(
         self,

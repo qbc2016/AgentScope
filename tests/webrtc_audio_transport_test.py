@@ -18,7 +18,7 @@ from aiortc.mediastreams import MediaStreamError
 from av import AudioFrame as AVAudioFrame
 from fastapi import HTTPException
 
-from agentscope.agent import RealtimeAgent
+from agentscope.agent import RealtimeAgent, TurnAggregator
 from agentscope.app._router._realtime import _create_realtime_offer
 from agentscope.app._router._schema import (
     RealtimeOfferRequest,
@@ -43,7 +43,7 @@ from agentscope.event import (
     TextBlockStartEvent,
     ToolResultEndEvent,
 )
-from agentscope.message import ToolCallBlock, ToolResultState
+from agentscope.message import ToolCallBlock, ToolResultState, UserMsg
 from agentscope.realtime import (
     AudioFrame,
     DashScopeAudioRealtimeModel,
@@ -1289,6 +1289,152 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
                 if call["method"] == "registry_set"
             ],
             ["6-0"],
+        )
+
+    async def test_overlapping_transcripts_remain_replayable(self) -> None:
+        """A new page can replay an older turn after a newer one settles."""
+        for old_event, old_text in [
+            (me.InputTranscriptionEvent(item_id="u1", text="first"), "first"),
+            (me.InputTranscriptionFailedEvent(item_id="u1"), None),
+            (me.InputTranscriptionEvent(item_id="u1", text=""), None),
+        ]:
+            with self.subTest(event=old_event):
+                await self._check_transcript_replay(old_event, old_text)
+
+    async def _check_transcript_replay(
+        self,
+        old_event: me.ModelEvent,
+        old_text: str | None,
+    ) -> None:
+        """Check replay and persistence for one delayed transcript result."""
+        agent = RealtimeAgent(
+            "Friday",
+            "be brief",
+            MagicMock(
+                spec=RealtimeModelBase,
+                output_sample_rate=24000,
+                input_transcription_enabled=True,
+            ),
+            aggregator=TurnAggregator(merge_window_ms=0),
+        )
+        storage = _FakeStorage()
+        message_bus = _FakeMessageBus(sequence_entries=True)
+        closed = asyncio.Event()
+        emitted = {}
+        reload_messages = {}
+        reload_cursor = 0
+        boundaries = []
+
+        async def stream(transport: object) -> AsyncIterator[Any]:
+            """Drive real agent events through the session runner."""
+            nonlocal reload_cursor
+            del transport
+            events = [
+                me.SpeechStartedEvent(item_id="u1"),
+                me.SpeechEndedEvent(item_id="u1"),
+                me.SpeechStartedEvent(item_id="u2"),
+                me.SpeechEndedEvent(item_id="u2"),
+                me.InputTranscriptionEvent(
+                    item_id="u2",
+                    text="second",
+                ),
+                old_event,
+            ]
+            for index, model_event in enumerate(events):
+                if index in (3, 5):
+                    cursors = [
+                        call["value"]
+                        for call in message_bus.calls
+                        if call["method"] == "registry_set"
+                    ]
+                    boundaries.append(
+                        {
+                            "cursors": cursors,
+                            "messages": list(storage.messages),
+                        },
+                    )
+                    reload_cursor = (
+                        int(cursors[-1].split("-")[0]) if cursors else 0
+                    )
+                    reload_messages.update(storage.messages)
+                await agent._on_model_event(model_event)
+                while not agent._out.empty():
+                    queued = agent._out.get_nowait()
+                    event = queued.event
+                    emitted[event.id] = event
+                    agent._yielded_checkpoint = (
+                        (event.id, queued.checkpoint)
+                        if queued.checkpoint is not None
+                        else None
+                    )
+                    try:
+                        yield event
+                    finally:
+                        agent._yielded_checkpoint = None
+
+        session = _make_session(
+            agent_factory=AsyncMock(return_value=agent),
+            storage=storage,
+            message_bus=message_bus,
+            on_closed=lambda _: closed.set(),
+        )
+        with (
+            patch.object(agent, "connect", new=AsyncMock()),
+            patch.object(agent, "reply_stream", new=stream),
+        ):
+            session.start()
+            await asyncio.wait_for(closed.wait(), timeout=1)
+
+        # Replay at page load, then apply live events by reply ID.
+        for call in message_bus.calls:
+            if call["method"] != "publish":
+                continue
+            payload = call["event"]
+            if int(payload["_entry_id"].split("-")[0]) <= (reload_cursor):
+                continue
+            event = emitted[payload["id"]]
+            if isinstance(event, ReplyStartEvent):
+                reload_messages.setdefault(
+                    event.reply_id,
+                    UserMsg(
+                        id=event.reply_id,
+                        name="user",
+                        content=[],
+                    ),
+                )
+            elif event.reply_id in reload_messages:
+                reload_messages[event.reply_id].append_event(event)
+
+        final_cursor = "10-0" if old_text else "7-0"
+        self.assertEqual(
+            {
+                "boundaries": boundaries,
+                "replayed": {
+                    key: msg.get_text_content()
+                    for key, msg in reload_messages.items()
+                },
+                "saved": {
+                    key: msg.get_text_content()
+                    for key, msg in storage.messages.items()
+                },
+                "cursors": [
+                    call["value"]
+                    for call in message_bus.calls
+                    if call["method"] == "registry_set"
+                ],
+                "pending": list(agent._pending_user_turns),
+            },
+            {
+                "boundaries": [
+                    {"cursors": [], "messages": []},
+                    {"cursors": [], "messages": []},
+                ],
+                "replayed": {"u1": old_text, "u2": "second"},
+                "saved": {"u2": "second"}
+                | ({"u1": old_text} if old_text else {}),
+                "cursors": [final_cursor],
+                "pending": [],
+            },
         )
 
     async def test_checkpoint_deletes_message_removed_from_context(
