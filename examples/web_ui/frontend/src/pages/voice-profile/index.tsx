@@ -82,7 +82,7 @@ function VoiceProfileDialog({
 	const [voice, setVoice] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [availableEngines, setAvailableEngines] = useState<string[]>([]);
-	const [engineDetails, setEngineDetails] = useState<EngineInfo[]>([]);
+	const [engineDetails, setEngineDetails] = useState<EngineInfo[] | null>(null);
 	const [enginesLoading, setEnginesLoading] = useState(false);
 	const [cloning, setCloning] = useState(false);
 	const [cloneError, setCloneError] = useState('');
@@ -94,14 +94,28 @@ function VoiceProfileDialog({
 
 	useEffect(() => {
 		if (!open) return;
+		let active = true;
 		setEnginesLoading(true);
+		setEngineDetails(null);
 		voiceProfileApi
 			.availableEngines()
 			.then((res) => {
+				if (!active) return;
 				setAvailableEngines(res.engines);
 				setEngineDetails(res.engine_details || []);
 			})
-			.finally(() => setEnginesLoading(false));
+			.catch(() => {
+				// The API client already displays the error toast.
+				if (!active) return;
+				setAvailableEngines([]);
+				setEngineDetails([]);
+			})
+			.finally(() => {
+				if (active) setEnginesLoading(false);
+			});
+		return () => {
+			active = false;
+		};
 	}, [open]);
 
 	useEffect(() => {
@@ -121,12 +135,7 @@ function VoiceProfileDialog({
 	}, [profile, open]);
 
 	useEffect(() => {
-		if (!engine) {
-			setModelOptions([]);
-			setModel(undefined);
-			setCredentialId(null);
-			return;
-		}
+		if (!open || !engine || engineDetails === null) return;
 		// Auto-select credential for this engine
 		const engineInfo = engineDetails.find((d) => d.name === engine);
 		const creds = engineInfo?.credentials || [];
@@ -134,7 +143,14 @@ function VoiceProfileDialog({
 			if (prev && creds.some((c) => c.id === prev)) return prev;
 			return creds.length === 1 ? creds[0].id : null;
 		});
+	}, [open, engine, engineDetails]);
 
+	useEffect(() => {
+		if (!open || !engine) {
+			setModelOptions([]);
+			return;
+		}
+		let active = true;
 		const credType = credentialTypeForEngine(engine);
 		if (!credType) {
 			setModelOptions([]);
@@ -144,33 +160,35 @@ function VoiceProfileDialog({
 		ttsModelApi
 			.list(credType)
 			.then((res) => {
+				if (!active) return;
 				const filtered = res.models.filter((m) => isModelForEngine(m.name, engine!));
 				setModelOptions(filtered);
 				setModel((prev) => {
 					const inList = filtered.some((m) => m.name === prev);
 					if (inList) return prev;
-					const engineInfo = engineDetails.find((d) => d.name === engine);
-					if (engineInfo?.voice_cloning) {
-						const cloneModel = filtered.find((m) => m.voice_cloning);
-						if (cloneModel) return cloneModel.name;
-					}
+					const cloneModel = filtered.find((m) => m.voice_cloning);
+					if (cloneModel) return cloneModel.name;
 					return filtered.length > 0 ? filtered[0].name : undefined;
 				});
 			})
-			.catch(() => setModelOptions([]))
-			.finally(() => setModelsLoading(false));
-	}, [engine]);
+			.catch(() => {
+				if (active) setModelOptions([]);
+			})
+			.finally(() => {
+				if (active) setModelsLoading(false);
+			});
+		return () => {
+			active = false;
+		};
+	}, [open, engine]);
 
 	const canClone = engine
-		? (engineDetails.find((d) => d.name === engine)?.voice_cloning ?? false)
+		? (engineDetails?.find((d) => d.name === engine)?.voice_cloning ?? false)
 		: false;
 
-	const selectedModelSupportsClone =
-		engine === 'openai_tts'
-			? true
-			: model
-				? (modelOptions.find((m) => m.name === model)?.voice_cloning ?? false)
-				: false;
+	const selectedModelSupportsClone = model
+		? (modelOptions.find((m) => m.name === model)?.voice_cloning ?? false)
+		: false;
 
 	const cloneSupportsUpload = engine === 'dashscope_tts' || engine === 'openai_tts';
 
@@ -292,7 +310,7 @@ function VoiceProfileDialog({
 				model: model || null,
 				credential_id: credentialId,
 				source: engine
-					? engineDetails.find((d) => d.name === engine)?.source || null
+					? engineDetails?.find((d) => d.name === engine)?.source || null
 					: null,
 				voice: voice.trim() || null,
 			};
@@ -303,6 +321,8 @@ function VoiceProfileDialog({
 			}
 			onSaved();
 			onOpenChange(false);
+		} catch {
+			// Keep the form open; the API client already displays the error.
 		} finally {
 			setSaving(false);
 		}
@@ -356,7 +376,7 @@ function VoiceProfileDialog({
 					</div>
 					{engine &&
 						(() => {
-							const engineInfo = engineDetails.find((d) => d.name === engine);
+							const engineInfo = engineDetails?.find((d) => d.name === engine);
 							const creds = engineInfo?.credentials || [];
 							if (creds.length === 0) return null;
 							if (creds.length === 1) {
@@ -563,6 +583,8 @@ function VoiceProfileDialog({
 						onClick={handleSave}
 						disabled={
 							saving ||
+							enginesLoading ||
+							modelsLoading ||
 							!name.trim() ||
 							!engine ||
 							!credentialId ||
@@ -718,12 +740,14 @@ export function VoiceProfilePage() {
 				</div>
 			)}
 
-			<VoiceProfileDialog
-				open={dialogOpen}
-				onOpenChange={setDialogOpen}
-				profile={editProfile}
-				onSaved={loadProfiles}
-			/>
+			{dialogOpen && (
+				<VoiceProfileDialog
+					open={dialogOpen}
+					onOpenChange={setDialogOpen}
+					profile={editProfile}
+					onSaved={loadProfiles}
+				/>
+			)}
 
 			<DeleteDialog
 				open={!!deleteProfile}

@@ -9,15 +9,24 @@ Covers:
 """
 import typing
 from unittest import IsolatedAsyncioTestCase, TestCase
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+import httpx
 from fastapi import HTTPException
 
 from agentscope.app._router._voice_profile import (
+    _decode_audio,
     _validate_voice_profile_data,
+    clone_voice,
+    upload_openai_consent,
+)
+from agentscope.app._router._schema import (
+    CloneVoiceRequest,
+    OpenAIConsentRequest,
 )
 from agentscope.app._service._tts_model import (
     _validate_voice_binding,
+    get_tts_model,
     validate_tts_model_config,
 )
 from agentscope.app.storage._model import (
@@ -425,6 +434,271 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
             "user-a",
             "profile-a",
         )
+
+
+class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
+    """Missing profiles skip speech without weakening write validation."""
+
+    def setUp(self) -> None:
+        """Provide an owned credential and profile without cloud calls."""
+        self.access = AsyncMock()
+        self.access.resolve_credential.return_value = CredentialRecord(
+            id="credential-a",
+            user_id="user-a",
+            data={"type": "openai_credential", "api_key": "test"},
+        )
+        self.storage = AsyncMock()
+        self.storage.get_voice_profile.return_value = _profile()
+
+    async def test_missing_profile_skips_tts_but_cannot_be_saved(self) -> None:
+        """A deleted or invisible profile never synthesizes stale audio."""
+        self.storage.get_voice_profile.return_value = None
+        config = _custom_config()
+        model = await get_tts_model(
+            "user-a",
+            config,
+            self.access,
+            self.storage,
+        )
+        self.assertIsNone(model)
+        with self.assertRaises(HTTPException) as ctx:
+            await validate_tts_model_config(
+                "user-a",
+                config,
+                self.access,
+                self.storage,
+            )
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    async def test_other_authorization_errors_still_fail(self) -> None:
+        """Missing credentials and mismatched voices are not downgraded."""
+        self.access.resolve_credential.side_effect = HTTPException(404)
+        with self.assertRaises(HTTPException) as ctx:
+            await get_tts_model(
+                "user-a",
+                _custom_config(),
+                self.access,
+                self.storage,
+            )
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.access.resolve_credential.side_effect = None
+        with self.assertRaises(HTTPException) as ctx:
+            await get_tts_model(
+                "user-a",
+                _custom_config(voice="wrong"),
+                self.access,
+                self.storage,
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_openai_voice_conversion_preserves_saved_config(
+        self,
+    ) -> None:
+        """Only custom voices become objects after their binding is checked."""
+        for voice, profile_id, expected in (
+            ("voice_123", "profile-a", {"id": "voice_123"}),
+            ("alloy", "profile-a", "alloy"),
+            ("alloy", None, "alloy"),
+        ):
+            with self.subTest(voice=voice, profile_id=profile_id):
+                config = _custom_config(voice=voice, profile_id=profile_id)
+                before = config.model_dump()
+                self.storage.get_voice_profile.return_value = _profile(
+                    voice=voice,
+                )
+                model = await get_tts_model(
+                    "user-a",
+                    config,
+                    self.access,
+                    self.storage,
+                )
+                self.assertEqual(
+                    model.parameters.model_dump(),
+                    {
+                        "voice": expected,
+                        "response_format": "mp3",
+                        "instructions": None,
+                    },
+                )
+                self.assertEqual(config.model_dump(), before)
+                await model.client.close()
+
+    async def test_unsupported_openai_custom_voice_model(self) -> None:
+        """Legacy models cannot be saved with a custom voice binding."""
+        config = _custom_config()
+        config.model = "tts-1"
+        self.storage.get_voice_profile.return_value.data.model = "tts-1"
+        with self.assertRaises(HTTPException) as ctx:
+            await validate_tts_model_config(
+                "user-a",
+                config,
+                self.access,
+                self.storage,
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_malformed_audio_is_rejected_before_http(self) -> None:
+        """Both upload routes reject invalid base64 without a provider call."""
+        with patch(
+            "agentscope.app._router._voice_profile.httpx.AsyncClient",
+        ) as client:
+            for audio in ("a", "!!!!", "中文", ""):
+                for operation in ("consent", "clone"):
+                    with self.subTest(audio=audio, operation=operation):
+                        with self.assertRaises(HTTPException) as ctx:
+                            if operation == "consent":
+                                await upload_openai_consent(
+                                    OpenAIConsentRequest(
+                                        credential_id="credential-a",
+                                        audio_base64=audio,
+                                    ),
+                                    "user-a",
+                                    self.access,
+                                )
+                            else:
+                                await clone_voice(
+                                    CloneVoiceRequest(
+                                        engine="openai_tts",
+                                        credential_id="credential-a",
+                                        audio_base64=audio,
+                                        consent="consent-1",
+                                    ),
+                                    "user-a",
+                                    self.access,
+                                )
+                        self.assertEqual(ctx.exception.status_code, 400)
+            client.assert_not_called()
+        self.assertEqual(_decode_audio("AAEC"), b"\x00\x01\x02")
+
+    async def test_clone_rejects_unsupported_synthesis_model(self) -> None:
+        """An explicit OpenAI model must support custom speech."""
+        with self.assertRaises(HTTPException) as ctx:
+            await clone_voice(
+                CloneVoiceRequest(
+                    engine="openai_tts",
+                    model="tts-1",
+                    credential_id="credential-a",
+                    audio_base64="AAEC",
+                    consent="consent-1",
+                ),
+                "user-a",
+                self.access,
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.access.resolve_credential.assert_not_called()
+
+
+class TestVoiceProfileUpstreamResponse(IsolatedAsyncioTestCase):
+    """Success status codes still require a valid upstream JSON body."""
+
+    async def _request(
+        self,
+        operation: str,
+        response: httpx.Response,
+    ) -> dict:
+        """Call a voice endpoint with a mocked upstream response."""
+        access = AsyncMock()
+        access.resolve_credential.return_value = CredentialRecord(
+            id="credential-a",
+            user_id="user-a",
+            data={
+                "type": (
+                    "dashscope_credential"
+                    if operation == "dashscope"
+                    else "openai_credential"
+                ),
+                "api_key": "test",
+            },
+        )
+        with patch(
+            "agentscope.app._router._voice_profile.httpx.AsyncClient",
+        ) as client:
+            client.return_value.__aenter__.return_value.post = AsyncMock(
+                return_value=response,
+            )
+            if operation == "consent":
+                result = await upload_openai_consent(
+                    OpenAIConsentRequest(
+                        credential_id="credential-a",
+                        audio_base64="AAEC",
+                    ),
+                    "user-a",
+                    access,
+                )
+            else:
+                result = await clone_voice(
+                    CloneVoiceRequest(
+                        engine=(
+                            "cosyvoice"
+                            if operation == "dashscope"
+                            else "openai_tts"
+                        ),
+                        credential_id="credential-a",
+                        model="cosyvoice-v3-plus"
+                        if operation == "dashscope"
+                        else None,
+                        audio_url="https://example.com/sample.wav",
+                        audio_base64="AAEC",
+                        consent="consent-1",
+                    ),
+                    "user-a",
+                    access,
+                )
+        return result.model_dump()
+
+    async def test_non_json_success_returns_bad_gateway(self) -> None:
+        """HTML, empty, and malformed success bodies all become HTTP 502."""
+        for operation in ("consent", "openai", "dashscope"):
+            statuses = (200,) if operation == "dashscope" else (200, 201)
+            for code in statuses:
+                for body in (b"<html>proxy error</html>", b"", b"{"):
+                    with self.subTest(
+                        operation=operation,
+                        status=code,
+                        body=body,
+                    ):
+                        with self.assertRaises(HTTPException) as ctx:
+                            await self._request(
+                                operation,
+                                httpx.Response(code, content=body),
+                            )
+                        provider = (
+                            "DashScope"
+                            if operation == "dashscope"
+                            else "OpenAI"
+                        )
+                        self.assertEqual(
+                            (ctx.exception.status_code, ctx.exception.detail),
+                            (
+                                502,
+                                f"{provider} returned an invalid JSON "
+                                "response.",
+                            ),
+                        )
+
+    async def test_valid_success_preserves_response(self) -> None:
+        """Provider ids are still returned in the public response schema."""
+        for operation, payload, expected in (
+            ("consent", {"id": "consent-1"}, {"consent_id": "consent-1"}),
+            (
+                "openai",
+                {"id": "voice-1"},
+                {"voice_id": "voice-1", "credential_id": "credential-a"},
+            ),
+            (
+                "dashscope",
+                {"output": {"voice_id": "voice-1"}},
+                {"voice_id": "voice-1", "credential_id": "credential-a"},
+            ),
+        ):
+            with self.subTest(operation=operation):
+                self.assertEqual(
+                    await self._request(
+                        operation,
+                        httpx.Response(200, json=payload),
+                    ),
+                    expected,
+                )
 
 
 class TestEngineToCredentialMapping(TestCase):

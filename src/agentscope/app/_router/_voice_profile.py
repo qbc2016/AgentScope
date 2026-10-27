@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Voice profile router — CRUD endpoints."""
 import base64
+import binascii
 import mimetypes
 
 import httpx
@@ -382,6 +383,34 @@ _CLONE_URL = (
 )
 
 
+def _parse_upstream_json(resp: httpx.Response, provider: str) -> dict:
+    """Translate malformed provider JSON into a gateway error."""
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{provider} returned an invalid JSON response.",
+        ) from exc
+
+
+def _decode_audio(audio_base64: str) -> bytes:
+    """Decode a non-empty audio payload or reject malformed input."""
+    try:
+        audio = base64.b64decode(audio_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="audio_base64 must contain valid base64 audio.",
+        ) from exc
+    if not audio:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="audio_base64 must contain non-empty audio.",
+        )
+    return audio
+
+
 @voice_profile_router.post(
     "/openai-consent",
     response_model=OpenAIConsentResponse,
@@ -415,7 +444,7 @@ async def upload_openai_consent(
     )
     api_key = cred_data.get("api_key", "")
 
-    audio_bytes = base64.b64decode(body.audio_base64)
+    audio_bytes = _decode_audio(body.audio_base64)
     mime_type, _ = mimetypes.guess_type(body.audio_filename)
     if mime_type is None:
         mime_type = "audio/wav"
@@ -455,7 +484,7 @@ async def upload_openai_consent(
             ),
         )
 
-    result = resp.json()
+    result = _parse_upstream_json(resp, "OpenAI")
     consent_id = result.get("id", "")
     if not consent_id:
         raise HTTPException(
@@ -502,9 +531,9 @@ async def clone_voice(
             ),
         )
 
-    # Model-level voice_cloning validation (skip for OpenAI
-    # whose voice creation API is model-agnostic)
-    if body.engine != "openai_tts":
+    # OpenAI voice creation is model-agnostic, but an explicitly selected
+    # synthesis model must support the resulting custom voice.
+    if body.model:
         cred_type = ENGINE_TO_CREDENTIAL_TYPE.get(body.engine)
         if cred_type:
             cred_cls = CredentialFactory.get_credential_class(
@@ -628,7 +657,7 @@ async def _clone_dashscope(
             ),
         )
 
-    result = resp.json()
+    result = _parse_upstream_json(resp, "DashScope")
     output = result.get("output", {})
     voice_id = (
         output.get("voice")
@@ -687,7 +716,7 @@ async def _clone_openai(
     )
     api_key = cred_data.get("api_key", "")
 
-    audio_bytes = base64.b64decode(body.audio_base64)
+    audio_bytes = _decode_audio(body.audio_base64)
     mime_type, _ = mimetypes.guess_type(body.audio_filename)
     if mime_type is None:
         mime_type = "audio/wav"
@@ -726,7 +755,7 @@ async def _clone_openai(
             ),
         )
 
-    result = resp.json()
+    result = _parse_upstream_json(resp, "OpenAI")
     voice_id = result.get("id", "")
     if not voice_id:
         raise HTTPException(

@@ -1027,7 +1027,8 @@ class ChatService:
                         self._access,
                         self._storage,
                     )
-                    middlewares.append(TTSMiddleware(tts_model))
+                    if tts_model is not None:
+                        middlewares.append(TTSMiddleware(tts_model))
 
                 # -------------------------------------------------------------
                 # 2c. Knowledge-base middleware — inject when the session has

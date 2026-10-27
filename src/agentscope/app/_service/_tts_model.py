@@ -11,7 +11,12 @@ from ..storage._model import (
     get_missing_voice_profile_binding_fields,
 )
 from ...credential import CredentialBase, CredentialFactory
-from ...tts import TTSModelBase, TTSModelCard
+from ...tts import OpenAITTSModel, TTSModelBase, TTSModelCard
+from ..._logging import logger
+
+
+class _VoiceProfileNotFound(HTTPException):
+    """The session's voice profile is no longer visible to its owner."""
 
 
 async def get_tts_model(
@@ -19,7 +24,7 @@ async def get_tts_model(
     config: TTSModelConfig,
     access: ResourceAccessService,
     storage: StorageBase,
-) -> TTSModelBase:
+) -> TTSModelBase | None:
     """Build a TTS model instance from a stored credential and config.
 
     Args:
@@ -34,19 +39,30 @@ async def get_tts_model(
             Owner-scoped storage used to validate custom voice profiles.
 
     Returns:
-        `TTSModelBase`:
-            The TTS model instance.
+        `TTSModelBase | None`:
+            The TTS model instance, or ``None`` when its profile is missing.
     """
-    credential, tts_cls = await _validate_and_resolve_tts_config(
-        user_id,
-        config,
-        access,
-        storage,
-    )
+    try:
+        credential, tts_cls = await _validate_and_resolve_tts_config(
+            user_id,
+            config,
+            access,
+            storage,
+        )
+    except _VoiceProfileNotFound:
+        logger.warning(
+            "Skipping TTS: voice profile %r is unavailable for user %r.",
+            config.voice_profile_id,
+            user_id,
+        )
+        return None
 
-    parameters = (
-        tts_cls.Parameters(**config.parameters) if config.parameters else None
-    )
+    values = dict(config.parameters)
+    if issubclass(tts_cls, OpenAITTSModel) and config.voice_profile_id:
+        card = _find_model_card(tts_cls, config.model)
+        if values.get("voice") not in _get_preset_voices(card):
+            values["voice"] = {"id": values["voice"]}
+    parameters = tts_cls.Parameters(**values) if values else None
     return tts_cls(
         credential=credential,
         model=config.model,
@@ -109,6 +125,16 @@ async def _validate_and_resolve_tts_config(
         storage=storage,
         card=card,
     )
+    if (
+        issubclass(tts_cls, OpenAITTSModel)
+        and config.voice_profile_id
+        and config.parameters.get("voice") not in _get_preset_voices(card)
+        and (card is None or not card.voice_cloning)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Model {config.model!r} does not support custom voices.",
+        )
     return credential, tts_cls
 
 
@@ -154,7 +180,7 @@ async def _validate_voice_binding(
     if profile is None:
         # Owner-scoped lookup intentionally hides whether another tenant owns
         # the supplied profile id.
-        raise HTTPException(
+        raise _VoiceProfileNotFound(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Voice profile {config.voice_profile_id!r} not found.",
         )
