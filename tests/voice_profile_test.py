@@ -437,7 +437,7 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
 
 
 class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
-    """Missing profiles skip speech without weakening write validation."""
+    """Missing or changed profiles skip speech with strict write validation."""
 
     def setUp(self) -> None:
         """Provide an owned credential and profile without cloud calls."""
@@ -471,7 +471,7 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 404)
 
     async def test_other_authorization_errors_still_fail(self) -> None:
-        """Missing credentials and mismatched voices are not downgraded."""
+        """Credential errors are not treated as stale profile bindings."""
         self.access.resolve_credential.side_effect = HTTPException(404)
         with self.assertRaises(HTTPException) as ctx:
             await get_tts_model(
@@ -482,14 +482,83 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             )
         self.assertEqual(ctx.exception.status_code, 404)
         self.access.resolve_credential.side_effect = None
+        config = _custom_config()
+        config.type = "dashscope_credential"
         with self.assertRaises(HTTPException) as ctx:
             await get_tts_model(
                 "user-a",
-                _custom_config(voice="wrong"),
+                config,
                 self.access,
                 self.storage,
             )
         self.assertEqual(ctx.exception.status_code, 400)
+        self.access.resolve_credential.return_value.user_id = "user-b"
+        with self.assertRaises(HTTPException) as ctx:
+            await get_tts_model(
+                "user-a",
+                _custom_config(),
+                self.access,
+                self.storage,
+            )
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    async def test_edited_bindings_skip_tts_but_cannot_be_saved(self) -> None:
+        """Stale bindings skip speech but remain invalid for writes."""
+        for changes, mismatch in (
+            ({"voice": "voice-new"}, "voice"),
+            ({"model": "tts-1"}, "model"),
+            ({"credential_id": "credential-new"}, "credential_id"),
+            ({"engine": "cosyvoice"}, "provider type"),
+        ):
+            with self.subTest(changes=changes):
+                profile = _profile()
+                profile.data = profile.data.model_copy(update=changes)
+                self.storage.get_voice_profile.return_value = profile
+                config = _custom_config()
+                before = config.model_dump()
+
+                with self.assertRaises(HTTPException) as ctx:
+                    await validate_tts_model_config(
+                        "user-a",
+                        config,
+                        self.access,
+                        self.storage,
+                    )
+                self.assertEqual(
+                    (ctx.exception.status_code, ctx.exception.detail),
+                    (
+                        400,
+                        "TTS config does not match voice profile "
+                        f"'profile-a': {mismatch}.",
+                    ),
+                )
+                model = await get_tts_model(
+                    "user-a",
+                    config,
+                    self.access,
+                    self.storage,
+                )
+                self.assertIsNone(model)
+                self.assertEqual(config.model_dump(), before)
+
+    async def test_profile_rename_keeps_tts_available(self) -> None:
+        """Non-binding edits do not disable an otherwise valid voice."""
+        self.storage.get_voice_profile.return_value.data.name = "Renamed"
+        model = await get_tts_model(
+            "user-a",
+            _custom_config(),
+            self.access,
+            self.storage,
+        )
+        self.assertEqual(
+            model.parameters.model_dump(),
+            {
+                "voice": {"id": "voice-a"},
+                "response_format": "mp3",
+                "instructions": None,
+            },
+        )
+        await model.client.close()
 
     async def test_openai_voice_conversion_preserves_saved_config(
         self,

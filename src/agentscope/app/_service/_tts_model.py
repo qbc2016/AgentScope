@@ -19,6 +19,10 @@ class _VoiceProfileNotFound(HTTPException):
     """The session's voice profile is no longer visible to its owner."""
 
 
+class _VoiceProfileBindingMismatch(HTTPException):
+    """The session's binding differs from the current voice profile."""
+
+
 async def get_tts_model(
     user_id: str,
     config: TTSModelConfig,
@@ -40,7 +44,8 @@ async def get_tts_model(
 
     Returns:
         `TTSModelBase | None`:
-            The TTS model instance, or ``None`` when its profile is missing.
+            The TTS model instance, or ``None`` when its profile is missing
+            or its binding has changed.
     """
     try:
         credential, tts_cls = await _validate_and_resolve_tts_config(
@@ -49,11 +54,12 @@ async def get_tts_model(
             access,
             storage,
         )
-    except _VoiceProfileNotFound:
+    except (_VoiceProfileNotFound, _VoiceProfileBindingMismatch) as exc:
         logger.warning(
-            "Skipping TTS: voice profile %r is unavailable for user %r.",
+            "Skipping TTS: voice profile %r is unavailable for user %r: %s",
             config.voice_profile_id,
             user_id,
+            exc.detail,
         )
         return None
 
@@ -218,7 +224,7 @@ async def _validate_voice_binding(
         if actual != expected
     ]
     if mismatches:
-        raise HTTPException(
+        raise _VoiceProfileBindingMismatch(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"TTS config does not match voice profile {profile.id!r}: "
