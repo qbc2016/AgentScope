@@ -601,17 +601,28 @@ async def _clone_dashscope(
                 detail="audio_base64 is required for Qwen-TTS.",
             )
         audio_data_url = f"data:{mime_type};base64,{body.audio_base64}"
-        payload: dict = {
-            "model": "qwen-voice-enrollment",
-            "input": {
-                "action": "create",
-                "target_model": body.model,
-                "preferred_name": body.prefix,
-                "audio": {"data": audio_data_url},
-            },
-        }
-        if body.text:
-            payload["input"]["text"] = body.text
+        if body.model.startswith("qwen-audio-"):
+            payload: dict = {
+                "model": "voice-enrollment",
+                "input": {
+                    "action": "create_voice",
+                    "target_model": body.model,
+                    "prefix": body.prefix,
+                    "audio": audio_data_url,
+                },
+            }
+        else:
+            payload = {
+                "model": "qwen-voice-enrollment",
+                "input": {
+                    "action": "create",
+                    "target_model": body.model,
+                    "preferred_name": body.prefix,
+                    "audio": {"data": audio_data_url},
+                },
+            }
+            if body.text:
+                payload["input"]["text"] = body.text
     else:
         if not body.audio_url:
             raise HTTPException(

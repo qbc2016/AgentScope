@@ -5,7 +5,7 @@ from typing import Type
 from fastapi import HTTPException, status
 
 from ._access import ResourceAccessService
-from ..storage import StorageBase, TTSModelConfig
+from ..storage import StorageBase, TTSModelConfig, VoiceProfileData
 from ..storage._model import (
     ENGINE_TO_CREDENTIAL_TYPE,
     get_missing_voice_profile_binding_fields,
@@ -29,7 +29,7 @@ async def get_tts_model(
     access: ResourceAccessService,
     storage: StorageBase,
 ) -> TTSModelBase | None:
-    """Build a TTS model instance from a stored credential and config.
+    """Build a TTS model using the latest owned voice profile, if bound.
 
     Args:
         user_id (`str`):
@@ -45,9 +45,31 @@ async def get_tts_model(
     Returns:
         `TTSModelBase | None`:
             The TTS model instance, or ``None`` when its profile is missing
-            or its binding has changed.
+            or changes again during validation.
     """
     try:
+        if config.voice_profile_id is not None:
+            data = await _get_voice_profile_data(
+                user_id,
+                config.voice_profile_id,
+                storage,
+            )
+            assert data.engine is not None
+            provider_type = ENGINE_TO_CREDENTIAL_TYPE[data.engine]
+            values = (
+                dict(config.parameters)
+                if config.type == provider_type and config.model == data.model
+                else {}
+            )
+            values["voice"] = data.voice
+            config = config.model_copy(
+                update={
+                    "type": provider_type,
+                    "credential_id": data.credential_id,
+                    "model": data.model,
+                    "parameters": values,
+                },
+            )
         credential, tts_cls = await _validate_and_resolve_tts_config(
             user_id,
             config,
@@ -179,29 +201,11 @@ async def _validate_voice_binding(
             detail=("A non-preset voice requires an owned voice_profile_id."),
         )
 
-    profile = await storage.get_voice_profile(
+    data = await _get_voice_profile_data(
         user_id,
         config.voice_profile_id,
+        storage,
     )
-    if profile is None:
-        # Owner-scoped lookup intentionally hides whether another tenant owns
-        # the supplied profile id.
-        raise _VoiceProfileNotFound(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Voice profile {config.voice_profile_id!r} not found.",
-        )
-
-    data = profile.data
-    missing = get_missing_voice_profile_binding_fields(data)
-    if missing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Voice profile {profile.id!r} is incomplete: "
-                + ", ".join(missing)
-                + "."
-            ),
-        )
 
     assert data.engine is not None
     assert data.credential_id is not None
@@ -227,11 +231,36 @@ async def _validate_voice_binding(
         raise _VoiceProfileBindingMismatch(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"TTS config does not match voice profile {profile.id!r}: "
-                + ", ".join(mismatches)
+                "TTS config does not match voice profile "
+                f"{config.voice_profile_id!r}: " + ", ".join(mismatches) + "."
+            ),
+        )
+
+
+async def _get_voice_profile_data(
+    user_id: str,
+    profile_id: str,
+    storage: StorageBase,
+) -> VoiceProfileData:
+    """Load a complete profile using an owner-scoped lookup."""
+    profile = await storage.get_voice_profile(user_id, profile_id)
+    if profile is None:
+        # Do not reveal whether another tenant owns the supplied profile id.
+        raise _VoiceProfileNotFound(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Voice profile {profile_id!r} not found.",
+        )
+    missing = get_missing_voice_profile_binding_fields(profile.data)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Voice profile {profile.id!r} is incomplete: "
+                + ", ".join(missing)
                 + "."
             ),
         )
+    return profile.data
 
 
 def _find_model_card(

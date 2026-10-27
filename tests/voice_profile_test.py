@@ -42,7 +42,10 @@ from agentscope.app.storage._model._voice_profile import (
     ENGINE_GPU_REQUIREMENT,
     ENGINE_VOICE_CLONING,
 )
-from agentscope.tts import DashScopeTTSModel, TTSModelCard
+from agentscope.tts import (
+    DashScopeCosyVoiceTTSModel,
+    TTSModelCard,
+)
 
 
 class TestVoiceProfileModel(TestCase):
@@ -215,12 +218,14 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
         self.assertIn("requires a cloned voice profile", ctx.exception.detail)
         storage.get_voice_profile.assert_not_called()
 
-    async def test_qwen3_tts_vc_cannot_use_shared_class_default(self) -> None:
-        """Qwen3 TTS VC requires a cloned voice instead of ``Cherry``."""
+    async def test_clone_only_card_cannot_use_shared_class_default(
+        self,
+    ) -> None:
+        """Clone-only cards cannot fall back to the shared default voice."""
         card = next(
             card
-            for card in DashScopeTTSModel.list_models()
-            if card.name == "qwen3-tts-vc-2026-01-22"
+            for card in DashScopeCosyVoiceTTSModel.list_models()
+            if card.name == "cosyvoice-v3.5-plus"
         )
         config = TTSModelConfig(
             type="dashscope_credential",
@@ -437,7 +442,7 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
 
 
 class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
-    """Missing or changed profiles skip speech with strict write validation."""
+    """Runtime follows current profiles with strict authorization checks."""
 
     def setUp(self) -> None:
         """Provide an owned credential and profile without cloud calls."""
@@ -461,6 +466,7 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             self.storage,
         )
         self.assertIsNone(model)
+        self.access.resolve_credential.assert_not_called()
         with self.assertRaises(HTTPException) as ctx:
             await validate_tts_model_config(
                 "user-a",
@@ -482,16 +488,20 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             )
         self.assertEqual(ctx.exception.status_code, 404)
         self.access.resolve_credential.side_effect = None
-        config = _custom_config()
-        config.type = "dashscope_credential"
+        self.access.resolve_credential.return_value.data[
+            "type"
+        ] = "dashscope_credential"
         with self.assertRaises(HTTPException) as ctx:
             await get_tts_model(
                 "user-a",
-                config,
+                _custom_config(),
                 self.access,
                 self.storage,
             )
         self.assertEqual(ctx.exception.status_code, 400)
+        self.access.resolve_credential.return_value.data[
+            "type"
+        ] = "openai_credential"
         self.access.resolve_credential.return_value.user_id = "user-b"
         with self.assertRaises(HTTPException) as ctx:
             await get_tts_model(
@@ -502,8 +512,8 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             )
         self.assertEqual(ctx.exception.status_code, 403)
 
-    async def test_edited_bindings_skip_tts_but_cannot_be_saved(self) -> None:
-        """Stale bindings skip speech but remain invalid for writes."""
+    async def test_stale_bindings_cannot_be_saved(self) -> None:
+        """Runtime resolution does not weaken write-time binding checks."""
         for changes, mismatch in (
             ({"voice": "voice-new"}, "voice"),
             ({"model": "tts-1"}, "model"),
@@ -532,14 +542,104 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
                         f"'profile-a': {mismatch}.",
                     ),
                 )
+                self.assertEqual(config.model_dump(), before)
+
+    async def test_runtime_uses_latest_voice_and_credential(self) -> None:
+        """Recloning and credential edits override the session snapshot."""
+        for voice, credential_id in (
+            ("voice-new", "credential-a"),
+            ("voice-a", "credential-new"),
+            ("voice-new", "credential-new"),
+        ):
+            with self.subTest(voice=voice, credential_id=credential_id):
+                self.storage.get_voice_profile.return_value = _profile(
+                    voice=voice,
+                    credential_id=credential_id,
+                )
+                self.access.resolve_credential.reset_mock()
+                self.access.resolve_credential.return_value.id = credential_id
+                config = _custom_config()
+                config.parameters["response_format"] = "wav"
+                before = config.model_dump()
                 model = await get_tts_model(
                     "user-a",
                     config,
                     self.access,
                     self.storage,
                 )
-                self.assertIsNone(model)
+                self.assertIsNotNone(model)
+                self.access.resolve_credential.assert_awaited_once_with(
+                    "user-a",
+                    credential_id,
+                )
+                self.assertEqual(
+                    model.parameters.model_dump(),
+                    {
+                        "voice": {"id": voice},
+                        "response_format": "wav",
+                        "instructions": None,
+                    },
+                )
                 self.assertEqual(config.model_dump(), before)
+                await model.client.close()
+
+    async def test_runtime_uses_latest_model_and_provider(self) -> None:
+        """Model or provider edits select the current synthesis adapter."""
+        profile = _profile(voice="voice-new", credential_id="credential-new")
+        profile.data.engine = "dashscope_tts"
+        profile.data.model = "qwen-audio-3.1-tts-flash"
+        self.storage.get_voice_profile.return_value = profile
+        self.access.resolve_credential.return_value = CredentialRecord(
+            id="credential-new",
+            user_id="user-a",
+            data={"type": "dashscope_credential", "api_key": "test"},
+        )
+        for provider, old_model in (
+            ("dashscope_credential", "qwen3-tts-vc-2026-01-22"),
+            ("openai_credential", "gpt-4o-mini-tts"),
+        ):
+            with self.subTest(provider=provider):
+                config = _custom_config()
+                config.type = provider
+                config.model = old_model
+                config.parameters["realtime"] = True
+                before = config.model_dump()
+                self.access.resolve_credential.reset_mock()
+                model = await get_tts_model(
+                    "user-a",
+                    config,
+                    self.access,
+                    self.storage,
+                )
+                self.assertIsInstance(model, DashScopeCosyVoiceTTSModel)
+                self.assertEqual(
+                    (model.model, model.parameters.model_dump()),
+                    (
+                        "qwen-audio-3.1-tts-flash",
+                        {"voice": "voice-new", "realtime": False},
+                    ),
+                )
+                self.access.resolve_credential.assert_awaited_once_with(
+                    "user-a",
+                    "credential-new",
+                )
+                self.assertEqual(config.model_dump(), before)
+
+    async def test_incomplete_current_profile_is_rejected(self) -> None:
+        """An incomplete profile cannot fall back to stale session values."""
+        self.storage.get_voice_profile.return_value.data.voice = None
+        with self.assertRaises(HTTPException) as ctx:
+            await get_tts_model(
+                "user-a",
+                _custom_config(),
+                self.access,
+                self.storage,
+            )
+        self.assertEqual(
+            (ctx.exception.status_code, ctx.exception.detail),
+            (400, "Voice profile 'profile-a' is incomplete: voice."),
+        )
+        self.access.resolve_credential.assert_not_called()
 
     async def test_profile_rename_keeps_tts_available(self) -> None:
         """Non-binding edits do not disable an otherwise valid voice."""
@@ -655,6 +755,102 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
         self.access.resolve_credential.assert_not_called()
+
+
+class TestDashScopeVoiceCloneProtocol(IsolatedAsyncioTestCase):
+    """Cloning requests use the protocol required by the target model."""
+
+    async def test_clone_request_payloads(self) -> None:
+        """Qwen Audio uploads use voice-enrollment without changing peers."""
+        cases: list[tuple[str, str, str, dict[str, object]]] = [
+            (
+                "dashscope_tts",
+                f"qwen-audio-{version}-tts-{tier}",
+                "voice-enrollment",
+                {
+                    "action": "create_voice",
+                    "prefix": "testvoice",
+                    "audio": "data:audio/mpeg;base64,AAEC",
+                },
+            )
+            for version in ("3.0", "3.1")
+            for tier in ("flash", "plus")
+        ]
+        cases.extend(
+            [
+                (
+                    "dashscope_tts",
+                    "qwen3-tts-vc-2026-01-22",
+                    "qwen-voice-enrollment",
+                    {
+                        "action": "create",
+                        "preferred_name": "testvoice",
+                        "audio": {"data": "data:audio/mpeg;base64,AAEC"},
+                        "text": "Sample transcript",
+                    },
+                ),
+                (
+                    "cosyvoice",
+                    "cosyvoice-v3-plus",
+                    "voice-enrollment",
+                    {
+                        "action": "create_voice",
+                        "prefix": "testvoice",
+                        "url": "https://example.com/sample.mp3",
+                    },
+                ),
+            ],
+        )
+        access = AsyncMock()
+        access.resolve_credential.return_value = CredentialRecord(
+            id="credential-a",
+            user_id="user-a",
+            data={"type": "dashscope_credential", "api_key": "test"},
+        )
+        for engine, model, enrollment, expected_input in cases:
+            with self.subTest(model=model):
+                with patch(
+                    "agentscope.app._router._voice_profile.httpx.AsyncClient",
+                ) as client:
+                    post = AsyncMock(
+                        return_value=httpx.Response(
+                            200,
+                            json={"output": {"voice_id": "voice-1"}},
+                        ),
+                    )
+                    client.return_value.__aenter__.return_value.post = post
+                    result = await clone_voice(
+                        CloneVoiceRequest(
+                            engine=engine,
+                            model=model,
+                            credential_id="credential-a",
+                            audio_base64="AAEC",
+                            audio_filename="sample.mp3",
+                            audio_url="https://example.com/sample.mp3"
+                            if engine == "cosyvoice"
+                            else None,
+                            text="Sample transcript",
+                            prefix="testvoice",
+                        ),
+                        "user-a",
+                        access,
+                    )
+                post.assert_awaited_once_with(
+                    "https://dashscope.aliyuncs.com/api/v1/services"
+                    "/audio/tts/customization",
+                    json={
+                        "model": enrollment,
+                        "input": {**expected_input, "target_model": model},
+                    },
+                    headers={
+                        "Authorization": "Bearer test",
+                        "Content-Type": "application/json",
+                    },
+                )
+                self.assertEqual(
+                    result.model_dump(),
+                    {"voice_id": "voice-1", "credential_id": "credential-a"},
+                )
 
 
 class TestVoiceProfileUpstreamResponse(IsolatedAsyncioTestCase):

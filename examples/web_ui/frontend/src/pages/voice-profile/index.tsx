@@ -91,6 +91,11 @@ function VoiceProfileDialog({
 	const [credentialId, setCredentialId] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const consentFileRef = useRef<HTMLInputElement>(null);
+	const voiceSelectionRef = useRef({
+		engine: profile?.data.engine || undefined,
+		model: profile?.data.model || undefined,
+		pending: false,
+	});
 
 	useEffect(() => {
 		if (!open) return;
@@ -192,6 +197,15 @@ function VoiceProfileDialog({
 
 	const cloneSupportsUpload = engine === 'dashscope_tts' || engine === 'openai_tts';
 
+	const enrollmentModel = (() => {
+		if (!model) return null;
+		if (engine === 'cosyvoice') return 'voice-enrollment';
+		if (engine === 'dashscope_tts') {
+			return model.startsWith('qwen-audio-') ? 'voice-enrollment' : 'qwen-voice-enrollment';
+		}
+		return null;
+	})();
+
 	const voiceOptions: string[] = (() => {
 		if (!model) return [];
 		const card = modelOptions.find((m) => m.name === model);
@@ -202,6 +216,31 @@ function VoiceProfileDialog({
 		if (!props?.voice?.enum) return [];
 		return props.voice.enum as string[];
 	})();
+
+	useEffect(() => {
+		if (!open || !engine) return;
+		const previous = voiceSelectionRef.current;
+		if (previous.engine === engine && previous.model === model && !previous.pending) return;
+
+		const card = modelOptions.find((m) => m.name === model && isModelForEngine(m.name, engine));
+		voiceSelectionRef.current = { engine, model, pending: !card };
+		setCloneError('');
+		if (!card) {
+			setVoice('');
+			// Wait for the selected engine's model list before choosing a voice.
+			return;
+		}
+		const props = (card.parameter_schema as Record<string, unknown>)?.properties as
+			| Record<string, Record<string, unknown>>
+			| undefined;
+		const presets = (props?.voice?.enum as string[] | undefined) ?? [];
+		const defaultVoice = props?.voice?.default;
+		setVoice(
+			typeof defaultVoice === 'string' && presets.includes(defaultVoice)
+				? defaultVoice
+				: (presets[0] ?? ''),
+		);
+	}, [open, engine, model, modelOptions]);
 
 	const handleConsentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
@@ -357,7 +396,7 @@ function VoiceProfileDialog({
 							<Select
 								value={engine}
 								onValueChange={setEngine}
-								disabled={enginesLoading}
+								disabled={enginesLoading || cloning}
 							>
 								<SelectTrigger id="vp-engine">
 									<SelectValue
@@ -427,7 +466,7 @@ function VoiceProfileDialog({
 									{t('voiceProfile.loadingModels')}
 								</div>
 							) : modelOptions.length > 0 ? (
-								<Select value={model} onValueChange={setModel}>
+								<Select value={model} onValueChange={setModel} disabled={cloning}>
 									<SelectTrigger id="vp-model">
 										<SelectValue
 											placeholder={t('voiceProfile.modelPlaceholder')}
@@ -445,6 +484,7 @@ function VoiceProfileDialog({
 							) : (
 								<Input
 									id="vp-model"
+									disabled={cloning}
 									value={model || ''}
 									onChange={(e) => setModel(e.target.value || undefined)}
 									placeholder={t('voiceProfile.modelPlaceholder')}
@@ -487,6 +527,26 @@ function VoiceProfileDialog({
 					{canClone && selectedModelSupportsClone && (
 						<div className="flex flex-col gap-2">
 							<Label>{t('voiceProfile.cloneVoice')}</Label>
+							{enrollmentModel && (
+								<div className="flex flex-col gap-2">
+									<Label htmlFor="vp-enrollment-model">
+										{t('voiceProfile.enrollmentModel')}
+									</Label>
+									<Input
+										id="vp-enrollment-model"
+										value={enrollmentModel}
+										readOnly
+										aria-describedby="vp-enrollment-model-hint"
+										className="bg-muted/30 font-mono text-sm"
+									/>
+									<p
+										id="vp-enrollment-model-hint"
+										className="text-xs text-muted-foreground"
+									>
+										{t('voiceProfile.enrollmentModelHint')}
+									</p>
+								</div>
+							)}
 							{engine === 'openai_tts' && (
 								<div className="flex flex-col gap-2">
 									<p className="text-xs text-muted-foreground">
