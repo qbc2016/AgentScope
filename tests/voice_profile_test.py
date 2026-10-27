@@ -668,6 +668,10 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             ("voice_123", "profile-a", {"id": "voice_123"}),
             ("alloy", "profile-a", "alloy"),
             ("alloy", None, "alloy"),
+            ("marin", "profile-a", "marin"),
+            ("cedar", "profile-a", "cedar"),
+            ("marin", None, "marin"),
+            ("cedar", None, "cedar"),
         ):
             with self.subTest(voice=voice, profile_id=profile_id):
                 config = _custom_config(voice=voice, profile_id=profile_id)
@@ -755,6 +759,121 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             )
         self.assertEqual(ctx.exception.status_code, 400)
         self.access.resolve_credential.assert_not_called()
+
+
+class TestOpenAIVoiceRequestConfig(IsolatedAsyncioTestCase):
+    """Consent and voice creation share the synthesis connection settings."""
+
+    async def test_uploads_use_credential_settings(self) -> None:
+        """Default, custom and environment settings reach both endpoints."""
+        cases = (
+            ({}, {}, "https://api.openai.com/v1", {}),
+            (
+                {
+                    "base_url": "https://speech.example.test/proxy/v1/",
+                    "organization": "org-credential",
+                },
+                {
+                    "OPENAI_BASE_URL": "https://ignored.example.test/v1",
+                    "OPENAI_ORG_ID": "org-environment",
+                },
+                "https://speech.example.test/proxy/v1",
+                {"OpenAI-Organization": "org-credential"},
+            ),
+            (
+                {"base_url": None, "organization": None},
+                {
+                    "OPENAI_BASE_URL": "https://environment.example.test/v1",
+                    "OPENAI_ORG_ID": "org-environment",
+                    "OPENAI_PROJECT_ID": "proj-environment",
+                },
+                "https://environment.example.test/v1",
+                {
+                    "OpenAI-Organization": "org-environment",
+                    "OpenAI-Project": "proj-environment",
+                },
+            ),
+        )
+        for settings, environment, base_url, headers in cases:
+            for operation in ("consent", "clone"):
+                with self.subTest(settings=settings, operation=operation):
+                    access = AsyncMock()
+                    access.resolve_credential.return_value = CredentialRecord(
+                        id="credential-a",
+                        user_id="user-a",
+                        data={
+                            "type": "openai_credential",
+                            "api_key": "test",
+                            **settings,
+                        },
+                    )
+                    with (
+                        patch.dict("os.environ", environment, clear=True),
+                        patch(
+                            "agentscope.app._router._voice_profile.httpx."
+                            "AsyncClient",
+                        ) as client,
+                    ):
+                        post = AsyncMock(
+                            return_value=httpx.Response(
+                                201,
+                                json={"id": "created-id"},
+                            ),
+                        )
+                        client.return_value.__aenter__.return_value.post = post
+                        if operation == "consent":
+                            result = await upload_openai_consent(
+                                OpenAIConsentRequest(
+                                    credential_id="credential-a",
+                                    audio_base64="AAEC",
+                                    audio_filename="sample.mp3",
+                                    language="zh",
+                                    name="Test consent",
+                                ),
+                                "user-a",
+                                access,
+                            )
+                            endpoint = "voice_consents"
+                            data = {"name": "Test consent", "language": "zh"}
+                            file_field = "recording"
+                            expected = {"consent_id": "created-id"}
+                        else:
+                            result = await clone_voice(
+                                CloneVoiceRequest(
+                                    engine="openai_tts",
+                                    model="gpt-4o-mini-tts",
+                                    credential_id="credential-a",
+                                    audio_base64="AAEC",
+                                    audio_filename="sample.mp3",
+                                    consent="consent-1",
+                                    prefix="Test voice",
+                                ),
+                                "user-a",
+                                access,
+                            )
+                            endpoint = "voices"
+                            data = {
+                                "name": "Test voice",
+                                "consent": "consent-1",
+                            }
+                            file_field = "audio_sample"
+                            expected = {
+                                "voice_id": "created-id",
+                                "credential_id": "credential-a",
+                            }
+                    post.assert_awaited_once_with(
+                        f"{base_url}/audio/{endpoint}",
+                        headers={"Authorization": "Bearer test", **headers},
+                        data=data,
+                        files={
+                            file_field: (
+                                "sample.mp3",
+                                b"\x00\x01\x02",
+                                "audio/mpeg",
+                            ),
+                        },
+                    )
+                    self.assertEqual(result.model_dump(), expected)
 
 
 class TestDashScopeVoiceCloneProtocol(IsolatedAsyncioTestCase):

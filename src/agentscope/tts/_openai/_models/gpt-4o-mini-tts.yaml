@@ -27,5 +27,7 @@ voices:
   - sage
   - shimmer
   - verse
+  - marin
+  - cedar
 
 parameter_overrides: {}

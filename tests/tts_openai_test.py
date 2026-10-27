@@ -136,6 +136,45 @@ class TestOpenAITTSModel(IsolatedAsyncioTestCase):
             },
         )
 
+    def test_model_specific_preset_voices(self) -> None:
+        """Legacy models expose fewer presets than GPT-4o mini TTS."""
+        legacy_voices = [
+            "alloy",
+            "ash",
+            "coral",
+            "echo",
+            "fable",
+            "onyx",
+            "nova",
+            "sage",
+            "shimmer",
+        ]
+        self.assertEqual(
+            {
+                card.name: card.parameter_schema["properties"]["voice"]["enum"]
+                for card in OpenAITTSModel.list_models()
+            },
+            {
+                "tts-1": legacy_voices,
+                "tts-1-hd": legacy_voices,
+                "gpt-4o-mini-tts": [
+                    "alloy",
+                    "ash",
+                    "ballad",
+                    "coral",
+                    "echo",
+                    "fable",
+                    "onyx",
+                    "nova",
+                    "sage",
+                    "shimmer",
+                    "verse",
+                    "marin",
+                    "cedar",
+                ],
+            },
+        )
+
     async def test_empty_string_short_circuits(self) -> None:
         """``synthesize("")`` returns an empty response without touching
         the API."""

@@ -3,6 +3,7 @@
 import base64
 import binascii
 import mimetypes
+import os
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -411,6 +412,23 @@ def _decode_audio(audio_base64: str) -> bytes:
     return audio
 
 
+def _openai_request_config(credential: dict) -> tuple[str, dict[str, str]]:
+    """Match the OpenAI SDK's endpoint and organization/project defaults."""
+    base_url = (
+        credential.get("base_url")
+        or os.getenv("OPENAI_BASE_URL")
+        or "https://api.openai.com/v1"
+    )
+    headers = {"Authorization": f"Bearer {credential.get('api_key', '')}"}
+    organization = credential.get("organization") or os.getenv("OPENAI_ORG_ID")
+    if organization:
+        headers["OpenAI-Organization"] = organization
+    project = os.getenv("OPENAI_PROJECT_ID")
+    if project:
+        headers["OpenAI-Project"] = project
+    return base_url.rstrip("/"), headers
+
+
 @voice_profile_router.post(
     "/openai-consent",
     response_model=OpenAIConsentResponse,
@@ -442,7 +460,7 @@ async def upload_openai_consent(
         body.credential_id,
         "openai_credential",
     )
-    api_key = cred_data.get("api_key", "")
+    base_url, headers = _openai_request_config(cred_data)
 
     audio_bytes = _decode_audio(body.audio_base64)
     mime_type, _ = mimetypes.guess_type(body.audio_filename)
@@ -452,10 +470,8 @@ async def upload_openai_consent(
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
-                "https://api.openai.com/v1/audio/voice_consents",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                },
+                f"{base_url}/audio/voice_consents",
+                headers=headers,
                 data={
                     "name": body.name,
                     "language": body.language,
@@ -690,9 +706,6 @@ async def _clone_dashscope(
     )
 
 
-_OPENAI_VOICES_URL = "https://api.openai.com/v1/audio/voices"
-
-
 async def _clone_openai(
     body: CloneVoiceRequest,
     access: ResourceAccessService,
@@ -725,7 +738,7 @@ async def _clone_openai(
         body.credential_id,
         "openai_credential",
     )
-    api_key = cred_data.get("api_key", "")
+    base_url, headers = _openai_request_config(cred_data)
 
     audio_bytes = _decode_audio(body.audio_base64)
     mime_type, _ = mimetypes.guess_type(body.audio_filename)
@@ -735,10 +748,8 @@ async def _clone_openai(
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
-                _OPENAI_VOICES_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                },
+                f"{base_url}/audio/voices",
+                headers=headers,
                 data={
                     "name": body.prefix,
                     "consent": body.consent,

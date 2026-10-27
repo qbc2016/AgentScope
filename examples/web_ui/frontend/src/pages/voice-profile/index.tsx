@@ -62,6 +62,13 @@ function fileToBase64(file: File): Promise<string> {
 const MAX_AUDIO_SIZE_MB = 10;
 const MAX_AUDIO_SIZE_BYTES = MAX_AUDIO_SIZE_MB * 1024 * 1024;
 
+// These fixed declarations must match the selected recording language.
+// Source: https://developers.openai.com/api/docs/guides/custom-voices
+const OPENAI_CONSENT_PHRASES: Record<string, string> = {
+	en: 'I am the owner of this voice and I consent to OpenAI using this voice to create a synthetic voice model.',
+	zh: '我是此声音的拥有者并授权OpenAI使用此声音创建语音合成模型',
+};
+
 function VoiceProfileDialog({
 	open,
 	onOpenChange,
@@ -73,7 +80,7 @@ function VoiceProfileDialog({
 	profile?: VoiceProfileRecord | null;
 	onSaved: () => void;
 }) {
-	const { t } = useTranslation();
+	const { t, i18n } = useTranslation();
 	const [name, setName] = useState('');
 	const [engine, setEngine] = useState<string | undefined>(undefined);
 	const [model, setModel] = useState<string | undefined>(undefined);
@@ -88,12 +95,16 @@ function VoiceProfileDialog({
 	const [cloneError, setCloneError] = useState('');
 	const [cloneUrl, setCloneUrl] = useState('');
 	const [consentId, setConsentId] = useState('');
+	const [consentLanguage, setConsentLanguage] = useState(() =>
+		i18n.language.startsWith('zh') ? 'zh' : 'en',
+	);
 	const [credentialId, setCredentialId] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const consentFileRef = useRef<HTMLInputElement>(null);
 	const voiceSelectionRef = useRef({
 		engine: profile?.data.engine || undefined,
 		model: profile?.data.model || undefined,
+		credentialId: profile?.data.credential_id || null,
 		pending: false,
 	});
 
@@ -220,10 +231,13 @@ function VoiceProfileDialog({
 	useEffect(() => {
 		if (!open || !engine) return;
 		const previous = voiceSelectionRef.current;
-		if (previous.engine === engine && previous.model === model && !previous.pending) return;
+		const modelChanged = previous.engine !== engine || previous.model !== model;
+		const credentialChanged = previous.credentialId !== credentialId;
+		if (!modelChanged && !credentialChanged && !previous.pending) return;
+		if (credentialChanged || previous.engine !== engine) setConsentId('');
 
 		const card = modelOptions.find((m) => m.name === model && isModelForEngine(m.name, engine));
-		voiceSelectionRef.current = { engine, model, pending: !card };
+		voiceSelectionRef.current = { engine, model, credentialId, pending: !card };
 		setCloneError('');
 		if (!card) {
 			setVoice('');
@@ -235,12 +249,13 @@ function VoiceProfileDialog({
 			| undefined;
 		const presets = (props?.voice?.enum as string[] | undefined) ?? [];
 		const defaultVoice = props?.voice?.default;
-		setVoice(
-			typeof defaultVoice === 'string' && presets.includes(defaultVoice)
+		setVoice((current) => {
+			if (!modelChanged && presets.includes(current)) return current;
+			return typeof defaultVoice === 'string' && presets.includes(defaultVoice)
 				? defaultVoice
-				: (presets[0] ?? ''),
-		);
-	}, [open, engine, model, modelOptions]);
+				: (presets[0] ?? '');
+		});
+	}, [open, engine, model, modelOptions, credentialId]);
 
 	const handleConsentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
@@ -255,6 +270,7 @@ function VoiceProfileDialog({
 			const base64 = await fileToBase64(file);
 			const res = await voiceProfileApi.uploadOpenAIConsent({
 				credential_id: credentialId,
+				language: consentLanguage,
 				audio_base64: base64,
 				audio_filename: file.name,
 			});
@@ -369,7 +385,7 @@ function VoiceProfileDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle>
 						{profile ? t('voiceProfile.editTitle') : t('voiceProfile.createTitle')}
@@ -438,6 +454,7 @@ function VoiceProfileDialog({
 									<Select
 										value={credentialId || undefined}
 										onValueChange={(val) => setCredentialId(val)}
+										disabled={cloning}
 									>
 										<SelectTrigger id="vp-credential">
 											<SelectValue
@@ -552,9 +569,43 @@ function VoiceProfileDialog({
 									<p className="text-xs text-muted-foreground">
 										{t('voiceProfile.openaiCloneHint')}
 									</p>
+									<Label htmlFor="vp-consent-language">
+										{t('voiceProfile.consentLanguage')}
+									</Label>
+									<Select
+										value={consentLanguage}
+										onValueChange={(language) => {
+											setConsentLanguage(language);
+											setConsentId('');
+										}}
+										disabled={cloning}
+									>
+										<SelectTrigger id="vp-consent-language">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="zh">中文</SelectItem>
+											<SelectItem value="en">English</SelectItem>
+										</SelectContent>
+									</Select>
+									<p className="text-xs text-muted-foreground">
+										{t('voiceProfile.consentRecordingHint')}
+									</p>
+									<blockquote className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+										{OPENAI_CONSENT_PHRASES[consentLanguage]}
+									</blockquote>
+									<a
+										href="https://developers.openai.com/api/docs/guides/custom-voices"
+										target="_blank"
+										rel="noreferrer"
+										className="text-xs text-muted-foreground underline underline-offset-4"
+									>
+										{t('voiceProfile.consentRequirements')}
+									</a>
 									<div className="flex items-center gap-2">
 										<Input
 											value={consentId}
+											disabled={cloning}
 											onChange={(e) => setConsentId(e.target.value)}
 											placeholder={t('voiceProfile.consentPlaceholder')}
 											className="flex-1"
