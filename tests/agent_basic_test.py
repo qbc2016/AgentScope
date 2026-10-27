@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """The basic test of the agent class."""
+import base64
 from typing import Any
 from unittest.async_case import IsolatedAsyncioTestCase
 
 from utils import AnyString, MockModel
 
-from agentscope.agent import Agent, ContextConfig, InjectionConfig
-from agentscope.model import ChatResponse
+from agentscope.agent import Agent, ContextConfig, InjectionConfig, ReActConfig
+from agentscope.model import ChatResponse, ChatUsage, FinishedReason
 from agentscope.tool import (
     ToolBase,
     Toolkit,
@@ -18,6 +19,9 @@ from agentscope.permission import (
     PermissionContext,
 )
 from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    URLSource,
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
@@ -183,8 +187,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
         )
 
     async def test_inconsistent_ratios_are_rejected(self) -> None:
-        """The ratios across the context and injection configs must leave room
-        ahead of the compression threshold."""
+        """The ratios of the context config must leave room ahead of the
+        compression threshold."""
         with self.assertRaises(ValueError):
             Agent(
                 name="agent",
@@ -201,9 +205,26 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 name="agent",
                 system_prompt="You are an agent.",
                 model=MockModel(),
-                context_config=ContextConfig(trigger_ratio=0.5),
-                injection_config=InjectionConfig(context_buffer_ratio=0.5),
+                context_config=ContextConfig(
+                    trigger_ratio=0.5,
+                    context_buffer_ratio=0.5,
+                ),
             )
+
+    async def test_deprecated_context_buffer_ratio_is_migrated(self) -> None:
+        """The buffer ratio of the injection config still takes effect, and
+        overrides the one in the context config."""
+        context_config = ContextConfig(context_buffer_ratio=0.1)
+        with self.assertWarns(DeprecationWarning):
+            agent = Agent(
+                name="agent",
+                system_prompt="You are an agent.",
+                model=MockModel(),
+                context_config=context_config,
+                injection_config=InjectionConfig(context_buffer_ratio=0.3),
+            )
+
+        self.assertEqual(agent.context_config.context_buffer_ratio, 0.3)
 
     async def test_streaming_reasoning(self) -> None:
         """Test the streaming model inference without tool calls generated,
@@ -276,11 +297,14 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
             {
                 "type": "TEXT_BLOCK_END",
                 "block_id": AnyString(),
+                "text": None,
             },
             {
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -307,12 +331,13 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hi",
                     },
                 ],
                 "finished_at": AnyString(),
-                "finished_reason": None,
                 "structured_output": None,
                 "error": None,
             },
@@ -321,6 +346,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -329,6 +356,7 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
         ]
         context_dicts = [msg.model_dump() for msg in self.agent.state.context]
         self.assertListEqual(context_dicts, expected_context)
+        self.assertEqual(self.agent.state.cur_iter, 1)
 
         # Test reply interface
         self.model.cnt = 0  # Reset mock model response index
@@ -341,6 +369,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -365,6 +395,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hi",
                     },
@@ -382,6 +414,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -395,6 +429,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hi again",
                     },
@@ -412,6 +448,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -473,11 +511,14 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
             {
                 "type": "TEXT_BLOCK_END",
                 "block_id": AnyString(),
+                "text": None,
             },
             {
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -504,6 +545,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hi",
                     },
@@ -519,6 +562,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -549,6 +594,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -573,6 +620,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hi",
                     },
@@ -590,6 +639,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -603,6 +654,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hi again",
                     },
@@ -620,6 +673,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Hello world!",
                     },
@@ -629,6 +684,235 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
         ]
         context_dicts = [msg.model_dump() for msg in self.agent.state.context]
         self.assertListEqual(context_dicts, expected_context_after_reply)
+
+    async def test_usage_cache_tokens_are_not_dropped(self) -> None:
+        """Regression test for issue #2305.
+
+        Prompt cache tokens (``cache_input_tokens`` and
+        ``cache_creation_input_tokens``) parsed by the model adapter into
+        ``ChatUsage`` must survive the agent layer:
+
+        1. ``ModelCallEndEvent`` must carry them so middleware reading the
+           event can record cache hit rates.
+        2. ``_save_to_context`` must merge them into ``Msg.usage``.
+        """
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[TextBlock(text="Hello world!")],
+                    is_last=True,
+                    usage=ChatUsage(
+                        input_tokens=100,
+                        output_tokens=20,
+                        time=0.5,
+                        cache_input_tokens=60,
+                        cache_creation_input_tokens=40,
+                    ),
+                ),
+            ],
+        )
+
+        end_events = []
+        async for event in self.agent.reply_stream(
+            UserMsg(name="user", content="Hi"),
+        ):
+            if event.type == "MODEL_CALL_END":
+                end_events.append(event)
+
+        # 1) The end event must carry the cache tokens.
+        self.assertEqual(len(end_events), 1)
+        self.assertEqual(
+            end_events[0].model_dump(),
+            {
+                **self._get_event_base(self.agent.state.reply_id),
+                "type": "MODEL_CALL_END",
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "cache_input_tokens": 60,
+                "cache_creation_input_tokens": 40,
+                "finished_reason": "completed",
+            },
+        )
+
+        # 2) The saved assistant message must expose the cache tokens in its
+        #    usage.
+        assistant_msgs = [
+            msg for msg in self.agent.state.context if msg.role == "assistant"
+        ]
+        self.assertEqual(len(assistant_msgs), 1)
+        usage = assistant_msgs[0].usage
+        self.assertIsNotNone(usage)
+        assert usage is not None
+        self.assertEqual(
+            usage.model_dump(),
+            {
+                "input_tokens": 100,
+                "output_tokens": 20,
+                "cache_input_tokens": 60,
+                "cache_creation_input_tokens": 40,
+            },
+        )
+
+    async def test_usage_cache_tokens_none_normalized_to_zero(self) -> None:
+        """Regression test: None-valued cache fields must not raise Pydantic.
+
+        ChatUsage is a plain dataclass that does not enforce int annotations at
+        runtime. Adapters copy optional SDK fields with getattr(x, 0),
+        which can still return None when the attribute exists but is null.
+        None-valued cache fields must be normalized to zero before
+        entering any Pydantic model.
+        """
+        usage_with_none_cache = ChatUsage(
+            input_tokens=10,
+            output_tokens=5,
+            time=0.1,
+        )
+        # Manually assign None to the two cache fields (dataclass will not
+        # complain at runtime because there is no runtime type check).
+        usage_with_none_cache.cache_input_tokens = None
+        usage_with_none_cache.cache_creation_input_tokens = None
+
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[TextBlock(text="Hi")],
+                    is_last=True,
+                    usage=usage_with_none_cache,
+                ),
+            ],
+        )
+
+        end_events = []
+        # Must not raise Pydantic ValidationError; reply completes cleanly.
+        async for event in self.agent.reply_stream(
+            UserMsg(name="user", content="Hello"),
+        ):
+            if event.type == "MODEL_CALL_END":
+                end_events.append(event)
+
+        self.assertEqual(len(end_events), 1)
+        self.assertEqual(
+            end_events[0].model_dump(),
+            {
+                **self._get_event_base(self.agent.state.reply_id),
+                "type": "MODEL_CALL_END",
+                "input_tokens": 10,
+                "output_tokens": 5,
+                # None must be normalized to 0.
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "finished_reason": "completed",
+            },
+        )
+
+        assistant_msgs = [
+            msg for msg in self.agent.state.context if msg.role == "assistant"
+        ]
+        self.assertEqual(len(assistant_msgs), 1)
+        usage = assistant_msgs[0].usage
+        self.assertIsNotNone(usage)
+        assert usage is not None
+        # None from dataclass must also be normalized to 0 in Msg.usage.
+        self.assertEqual(
+            usage.model_dump(),
+            {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+            },
+        )
+
+    async def test_usage_cache_tokens_in_reply_return(self) -> None:
+        """Regression test: Agent.reply() result must keep the cache tokens.
+
+        ``final_usage`` is rebuilt from the saved context message when
+        returning the final ``AssistantMsg``. It must copy both cache
+        fields, otherwise the returned message silently reports zeros even
+        though the saved context carried the correct values.
+        """
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[TextBlock(text="Hello world!")],
+                    is_last=True,
+                    usage=ChatUsage(
+                        input_tokens=100,
+                        output_tokens=20,
+                        time=0.5,
+                        cache_input_tokens=60,
+                        cache_creation_input_tokens=40,
+                    ),
+                ),
+            ],
+        )
+
+        msg = await self.agent.reply(UserMsg(name="user", content="Hi"))
+
+        self.assertDictEqual(
+            msg.model_dump(),
+            {
+                **self._get_msg_base(),
+                "content": [
+                    {
+                        "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                        "id": AnyString(),
+                        "text": "Hello world!",
+                    },
+                ],
+                "finished_reason": ReplyFinishedReason.COMPLETED,
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "cache_input_tokens": 60,
+                    "cache_creation_input_tokens": 40,
+                },
+            },
+        )
+
+    async def test_max_iters_counts_reasoning_acting_round_once(self) -> None:
+        """A tool round consumes one iteration before final reasoning."""
+        self.agent.toolkit = Toolkit(tools=[MockSequentialTool()])
+        self.agent.react_config = ReActConfig(max_iters=2)
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[
+                        ToolCallBlock(
+                            id="tool_call_1",
+                            name="mock_sequential_tool",
+                            input='{"input": "x"}',
+                        ),
+                    ],
+                    is_last=True,
+                ),
+                ChatResponse(
+                    content=[TextBlock(text="done")],
+                    is_last=True,
+                ),
+            ],
+        )
+
+        msg = await self.agent.reply(UserMsg(name="user", content="Go"))
+
+        self.assertEqual(msg.finished_reason, ReplyFinishedReason.COMPLETED)
+        self.assertEqual(
+            [block.text for block in msg.get_content_blocks("text")],
+            ["done"],
+        )
+        self.assertEqual(self.model.cnt, 2)
+        self.assertEqual(self.agent.state.cur_iter, 2)
+
+        tool_results = self.agent.state.context[-1].get_content_blocks(
+            "tool_result",
+        )
+        self.assertEqual(len(tool_results), 1)
+        self.assertEqual(
+            tool_results[0].output[0].text,
+            "Sequential result: x",
+        )
 
     async def test_thinking_only_response_continues_reasoning(self) -> None:
         """A thinking-only response should not end with an empty reply."""
@@ -649,6 +933,7 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
 
         # The thinking-only turn must trigger a second reasoning round
         self.assertEqual(self.model.cnt, 2)
+        self.assertEqual(self.agent.state.cur_iter, 2)
 
         # The final reply message only carries the visible text answer
         self.assertDictEqual(
@@ -666,6 +951,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Final answer",
                     },
@@ -685,22 +972,29 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Think",
                     },
                 ],
                 "finished_at": AnyString(),
+                "finished_reason": None,
             },
             {
                 **msg_base,
                 "content": [
                     {
                         "type": "thinking",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "thinking": "Working on it",
                     },
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Final answer",
                     },
@@ -709,6 +1003,228 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
         ]
         context_dicts = [msg.model_dump() for msg in self.agent.state.context]
         self.assertListEqual(context_dicts, expected_context)
+
+    async def test_last_thinking_only_response_forces_final_text(self) -> None:
+        """A final thinking-only round gets one text-only model call."""
+        received_tool_choices: list = []
+
+        class TrackingModel(MockModel):
+            """A mock model that records tool choice arguments."""
+
+            async def _call_api(
+                self,
+                *args: Any,
+                **kwargs: Any,
+            ) -> ChatResponse:
+                """Record the tool choice and return the next response."""
+                received_tool_choices.append(kwargs.get("tool_choice"))
+                return await super()._call_api(*args, **kwargs)
+
+        model = TrackingModel()
+        model.set_responses(
+            [
+                ChatResponse(
+                    content=[ThinkingBlock(thinking="Working on it")],
+                    is_last=True,
+                ),
+                ChatResponse(
+                    content=[TextBlock(text="Final summary")],
+                    is_last=True,
+                ),
+            ],
+        )
+        agent = Agent(
+            name="Friday",
+            system_prompt="You are a helpful assistant.",
+            model=model,
+            toolkit=Toolkit(),
+            injection_config=InjectionConfig(inject_runtime_state=False),
+            react_config=ReActConfig(max_iters=1),
+        )
+
+        items = []
+        async for item in agent.reply_stream(
+            UserMsg(name="user", content="Think"),
+            yield_final_msg=True,
+        ):
+            items.append(item)
+        msg = items[-1]
+
+        self.assertEqual(model.cnt, 2)
+        self.assertEqual(agent.state.cur_iter, 2)
+        self.assertEqual(received_tool_choices[0], None)
+        self.assertEqual(received_tool_choices[1].mode, "none")
+        event_base = self._get_event_base(agent.state.reply_id)
+        self.assertListEqual(
+            [item.model_dump() for item in items[-3:-1]],
+            [
+                {
+                    **event_base,
+                    "type": "EXCEED_MAX_ITERS",
+                    "name": "Friday",
+                },
+                {
+                    **event_base,
+                    "type": "REPLY_END",
+                    "error": None,
+                    "session_id": agent.state.session_id,
+                    "finished_reason": (ReplyFinishedReason.EXCEED_MAX_ITERS),
+                },
+            ],
+        )
+        self.assertDictEqual(
+            msg.model_dump(),
+            {
+                **self._get_msg_base(),
+                "finished_reason": ReplyFinishedReason.EXCEED_MAX_ITERS,
+                "content": [
+                    {
+                        "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                        "id": AnyString(),
+                        "text": "Final summary",
+                    },
+                ],
+            },
+        )
+
+    async def test_forced_final_text_call_is_bounded(self) -> None:
+        """The forced final text call runs at most once."""
+        self.agent.react_config = ReActConfig(max_iters=1)
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[ThinkingBlock(thinking="First thought")],
+                    is_last=True,
+                    usage=ChatUsage(
+                        input_tokens=80,
+                        output_tokens=40,
+                        time=0.1,
+                        cache_input_tokens=5,
+                        cache_creation_input_tokens=2,
+                    ),
+                ),
+                ChatResponse(
+                    content=[ThinkingBlock(thinking="Second thought")],
+                    is_last=True,
+                    usage=ChatUsage(
+                        input_tokens=100,
+                        output_tokens=50,
+                        time=0.2,
+                        cache_input_tokens=7,
+                        cache_creation_input_tokens=3,
+                    ),
+                ),
+            ],
+        )
+
+        msg = await self.agent.reply(UserMsg(name="user", content="Think"))
+
+        self.assertEqual(self.model.cnt, 2)
+        self.assertEqual(self.agent.state.cur_iter, 2)
+        self.assertDictEqual(
+            msg.model_dump(),
+            {
+                **self._get_msg_base(),
+                "finished_reason": ReplyFinishedReason.EXCEED_MAX_ITERS,
+                "usage": {
+                    "input_tokens": 180,
+                    "output_tokens": 90,
+                    "cache_input_tokens": 12,
+                    "cache_creation_input_tokens": 5,
+                },
+                "content": [
+                    {
+                        "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                        "id": AnyString(),
+                        "text": "The maximum reasoning-acting iterations "
+                        "are exceeded.",
+                    },
+                ],
+            },
+        )
+
+    async def test_interrupted_reply_preserves_usage(self) -> None:
+        """An interrupted final message carries the model usage."""
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[TextBlock(text="Partial response")],
+                    is_last=True,
+                    usage=ChatUsage(
+                        input_tokens=80,
+                        output_tokens=40,
+                        time=0.1,
+                        cache_input_tokens=5,
+                        cache_creation_input_tokens=2,
+                    ),
+                    finished_reason=FinishedReason.INTERRUPTED,
+                ),
+            ],
+        )
+
+        msg = await self.agent.reply(
+            UserMsg(name="user", content="Continue"),
+        )
+
+        self.assertDictEqual(
+            msg.model_dump(),
+            {
+                **self._get_msg_base(),
+                "finished_reason": ReplyFinishedReason.INTERRUPTED,
+                "usage": {
+                    "input_tokens": 80,
+                    "output_tokens": 40,
+                    "cache_input_tokens": 5,
+                    "cache_creation_input_tokens": 2,
+                },
+                "content": [
+                    {
+                        "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                        "id": AnyString(),
+                        "text": (
+                            "I notice the interruption. How can I help you?"
+                        ),
+                    },
+                ],
+            },
+        )
+
+    async def test_reply_does_not_reuse_previous_usage(self) -> None:
+        """A reply with no new context does not reuse prior usage."""
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[TextBlock(text="First response")],
+                    is_last=True,
+                    usage=ChatUsage(
+                        input_tokens=80,
+                        output_tokens=40,
+                        time=0.1,
+                        cache_input_tokens=5,
+                        cache_creation_input_tokens=2,
+                    ),
+                ),
+                ChatResponse(content=[], is_last=True),
+            ],
+        )
+
+        await self.agent.reply(UserMsg(name="user", content="Start"))
+        msg = await self.agent.reply()
+
+        self.assertDictEqual(
+            msg.model_dump(),
+            {
+                **self._get_msg_base(),
+                "finished_reason": ReplyFinishedReason.COMPLETED,
+                "content": [],
+            },
+        )
 
     async def test_streaming_sequential_tool_calls(self) -> None:
         """Test the streaming model inference with tool calls generated.
@@ -821,7 +1337,7 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "tool_call_id": tool_call_id_1,
                 "delta": '{"input": ',
             },
-            {"type": "TEXT_BLOCK_END", "block_id": AnyString()},
+            {"type": "TEXT_BLOCK_END", "block_id": AnyString(), "text": None},
             {
                 "type": "TOOL_CALL_DELTA",
                 "tool_call_id": tool_call_id_1,
@@ -843,6 +1359,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -882,11 +1400,13 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "block_id": AnyString(),
                 "delta": "ended",
             },
-            {"type": "TEXT_BLOCK_END", "block_id": AnyString()},
+            {"type": "TEXT_BLOCK_END", "block_id": AnyString(), "text": None},
             {
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -912,6 +1432,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Test",
                     },
@@ -925,11 +1447,15 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "I'll call the tool",
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": tool_call_id_1,
                         "name": "mock_sequential_tool",
                         "input": '{"input": "test1"}',
@@ -938,6 +1464,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": tool_call_id_2,
                         "name": "mock_sequential_tool",
                         "input": '{"input": "test2"}',
@@ -946,10 +1474,14 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": "Sequential result: test1",
                             },
@@ -960,10 +1492,14 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": "Sequential result: test2",
                             },
@@ -974,6 +1510,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "ended",
                     },
@@ -984,6 +1522,7 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
         context_dicts = [msg.model_dump() for msg in self.agent.state.context]
         expected_context = [{**msg_base, **_} for _ in expected_context]
         self.assertListEqual(context_dicts, expected_context)
+        self.assertEqual(self.agent.state.cur_iter, 2)
 
     async def test_streaming_concurrent_tool_calls(self) -> None:
         """Test the streaming model inference with tool calls generated.
@@ -1070,6 +1609,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
         ]
@@ -1117,11 +1658,13 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "block_id": AnyString(),
                 "delta": "All done",
             },
-            {"type": "TEXT_BLOCK_END", "block_id": AnyString()},
+            {"type": "TEXT_BLOCK_END", "block_id": AnyString(), "text": None},
             {
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -1168,6 +1711,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Test",
                     },
@@ -1181,6 +1726,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": tool_call_id_1,
                         "name": "mock_concurrent_tool",
                         "input": '{"input": "test1"}',
@@ -1189,6 +1736,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": tool_call_id_2,
                         "name": "mock_concurrent_tool",
                         "input": '{"input": "test2"}',
@@ -1197,10 +1746,14 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": "Concurrent result: test1",
                             },
@@ -1211,10 +1764,14 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": "Concurrent result: test2",
                             },
@@ -1225,6 +1782,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "All done",
                     },
@@ -1326,6 +1885,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
         ]
@@ -1394,11 +1955,13 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "block_id": AnyString(),
                 "delta": "All done",
             },
-            {"type": "TEXT_BLOCK_END", "block_id": AnyString()},
+            {"type": "TEXT_BLOCK_END", "block_id": AnyString(), "text": None},
             {
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -1457,6 +2020,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "Test",
                     },
@@ -1470,6 +2035,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": tool_call_id_1,
                         "name": "mock_sequential_tool",
                         "input": '{"input": "seq1"}',
@@ -1478,6 +2045,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": tool_call_id_2,
                         "name": "mock_concurrent_tool",
                         "input": '{"input": "conc1"}',
@@ -1486,6 +2055,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": tool_call_id_3,
                         "name": "mock_concurrent_tool",
                         "input": '{"input": "conc2"}',
@@ -1494,12 +2065,16 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": "mock_sequential_tool",
                         "state": "success",
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": "Sequential result: seq1",
                             },
@@ -1508,12 +2083,16 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": "mock_concurrent_tool",
                         "state": "success",
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": "Concurrent result: conc1",
                             },
@@ -1522,12 +2101,16 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": "mock_concurrent_tool",
                         "state": "success",
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": "Concurrent result: conc2",
                             },
@@ -1536,6 +2119,8 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": "All done",
                     },
@@ -1545,6 +2130,48 @@ class AgentBasicTest(IsolatedAsyncioTestCase):
         context_dicts = [msg.model_dump() for msg in self.agent.state.context]
         expected_context = [{**msg_base, **_} for _ in expected_context]
         self.assertListEqual(context_dicts, expected_context)
+        self.assertEqual(self.agent.state.cur_iter, 2)
+
+    async def test_event_block_id_matches_data_block_id(self) -> None:
+        """Base64 and URL DataBlocks keep their id on the emitted event."""
+        agent = Agent(
+            name="test",
+            system_prompt="",
+            model=MockModel(),
+            toolkit=Toolkit(),
+            injection_config=InjectionConfig(inject_runtime_state=False),
+        )
+        chunks = [
+            DataBlock(
+                id="b64-block",
+                source=Base64Source(
+                    data=base64.b64encode(b"hello").decode("ascii"),
+                    media_type="audio/wav",
+                ),
+            ),
+            DataBlock(
+                id="url-block",
+                source=URLSource(
+                    url="https://example.com/a.wav",
+                    media_type="audio/wav",
+                ),
+            ),
+        ]
+        # pylint: disable=protected-access
+        events = [
+            event
+            async for event in agent._convert_tool_chunk_to_event(
+                "tc-1",
+                chunks,
+            )
+        ]
+        self.assertListEqual(
+            [(type(e).__name__, e.block_id) for e in events],
+            [
+                ("ToolResultDataDeltaEvent", "b64-block"),
+                ("ToolResultDataDeltaEvent", "url-block"),
+            ],
+        )
 
     async def asyncTearDown(self) -> None:
         """The async teardown method."""

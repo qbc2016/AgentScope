@@ -1,5 +1,15 @@
 import type { ContentBlock, TextBlock } from '@agentscope-ai/agentscope/message';
-import { Paperclip, Send, Loader2, Square, X, type LucideIcon } from 'lucide-react';
+import {
+	AudioLines,
+	Paperclip,
+	Loader2,
+	Square,
+	type LucideIcon,
+	XIcon,
+	FileText,
+	ArrowUp,
+} from 'lucide-react';
+import mime from 'mime';
 import React, {
 	useState,
 	useRef,
@@ -12,9 +22,20 @@ import React, {
 
 import { Button } from '../ui/button';
 import { Kbd } from '../ui/kbd';
+import {
+	Attachment,
+	AttachmentAction,
+	AttachmentActions,
+	AttachmentContent,
+	AttachmentDescription,
+	AttachmentGroup,
+	AttachmentMedia,
+	AttachmentTitle,
+} from '@/components/ui/attachment.tsx';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ReplyPhase } from '@/hooks/useMessages';
 import { useTranslation } from '@/i18n/useI18n.ts';
+import type { RealtimeConnectionState } from '@/lib/browserWebRTCTransport';
 import { cn } from '@/lib/utils';
 
 /**
@@ -58,13 +79,31 @@ interface TextInputProps {
 	fileProcessor: (file: File) => Promise<ContentBlock | null>;
 	/**
 	 * The current reply lifecycle phase from ``useMessages``. Drives the
-	 * send / stop button in one shot:
+	 * primary action button when realtime voice is inactive:
 	 *   - ``idle`` — Send (enabled when there is content to send)
 	 *   - ``streaming`` — Stop (click to interrupt)
 	 *   - ``interrupting`` — Stop (disabled while the interrupt is in flight)
 	 */
 	phase?: ReplyPhase;
 	onInterrupt?: () => void;
+	/** Current browser realtime voice connection state. */
+	voiceState?: RealtimeConnectionState;
+	/** Starts or stops the browser realtime voice connection. */
+	onVoiceToggle?: () => void;
+	/** Prevents voice start when no realtime model is configured. */
+	voiceDisabled?: boolean;
+	/**
+	 * Content rendered directly above the input pill, inside the outer
+	 * wrapper that {@link className} styles (e.g. the working directory
+	 * and git status).
+	 *
+	 * The pill keeps all four of its corners, so the two only read as one
+	 * surface if the caller gives that wrapper a background and a radius
+	 * concentric with the pill's — outer radius = 28px + the wrapper's
+	 * padding. Anything less and the pill's top corners cut into the
+	 * header's edges.
+	 */
+	headerSlot?: React.ReactNode;
 }
 
 export interface TextInputRef {
@@ -108,6 +147,10 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 			fileProcessor,
 			phase = 'idle',
 			onInterrupt,
+			voiceState = 'idle',
+			onVoiceToggle,
+			voiceDisabled = false,
+			headerSlot,
 		},
 		ref,
 	) => {
@@ -134,6 +177,13 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 
 		// Whether any file is still being processed (block send until all done)
 		const hasProcessing = files.some((f) => f.status === 'processing');
+
+		// A finished attachment is content on its own: the composer can send it
+		// without any text, and the file processor already built the DataBlock.
+		const hasReadyAttachment = files.some((f) => f.status === 'done' && f.block !== null);
+
+		// Something to send: either text or a processed attachment.
+		const hasContent = value.trim().length > 0 || hasReadyAttachment;
 
 		useImperativeHandle(ref, () => ({
 			focus: () => textareaRef.current?.focus(),
@@ -186,7 +236,9 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		};
 
 		const handleSend = () => {
-			if (!value.trim() || disabled || hasProcessing) return;
+			// ``phase`` is guarded here rather than only on the button, since Enter
+			// calls this directly and would otherwise send during a running reply.
+			if (phase !== 'idle' || !hasContent || disabled || hasProcessing) return;
 
 			const blocks: ContentBlock[] = [];
 
@@ -196,6 +248,8 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 					id: crypto.randomUUID(),
 					type: 'text',
 					text: value.trim(),
+					created_at: new Date().toISOString(),
+					finished_at: new Date().toISOString(),
 				};
 				blocks.push(textBlock);
 			}
@@ -213,20 +267,40 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		};
 
 		/**
-		 * Send / stop button configuration derived from the current reply
-		 * phase. One struct = one branch of rendering, so the JSX stays flat.
+		 * Primary action configuration derived from realtime voice, reply,
+		 * and text input state. One struct keeps the JSX branch-free.
 		 */
-		const sendButton: {
+		const actionButton: {
 			icon: LucideIcon;
 			tooltip: string;
 			disabled: boolean;
+			variant: 'default' | 'ghost';
 			onClick: (() => void) | undefined;
 		} = (() => {
+			if (voiceState === 'connecting') {
+				return {
+					icon: Loader2,
+					tooltip: t('realtime.stop'),
+					disabled: false,
+					variant: 'default',
+					onClick: onVoiceToggle,
+				};
+			}
+			if (voiceState === 'active') {
+				return {
+					icon: Square,
+					tooltip: t('realtime.stop'),
+					disabled: false,
+					variant: 'default',
+					onClick: onVoiceToggle,
+				};
+			}
 			if (phase === 'streaming') {
 				return {
 					icon: Square,
 					tooltip: t('textInput.stop'),
 					disabled: false,
+					variant: 'default',
 					onClick: onInterrupt,
 				};
 			}
@@ -235,14 +309,25 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 					icon: Square,
 					tooltip: t('textInput.stopping'),
 					disabled: true,
+					variant: 'default',
 					onClick: onInterrupt,
 				};
 			}
+			if (hasContent) {
+				return {
+					icon: ArrowUp,
+					tooltip: t('textInput.send'),
+					disabled: disabled || hasProcessing,
+					variant: 'default',
+					onClick: handleSend,
+				};
+			}
 			return {
-				icon: Send,
-				tooltip: t('textInput.send'),
-				disabled: disabled || !value.trim() || hasProcessing,
-				onClick: handleSend,
+				icon: AudioLines,
+				tooltip: voiceDisabled ? t('realtime.selectFirst') : t('realtime.start'),
+				disabled: voiceDisabled,
+				variant: 'ghost',
+				onClick: onVoiceToggle,
 			};
 		})();
 
@@ -290,35 +375,65 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		};
 
 		return (
-			<div className={cn('flex flex-col gap-1', className)}>
+			<div className={cn('flex flex-col', className)}>
+				{headerSlot}
 				<div
 					id="tour-chat-input"
-					className="flex w-full flex-col gap-2 rounded-[28px] border bg-background px-2"
+					className="flex w-full flex-col rounded-[28px] border bg-background px-2"
 					data-tour="chat-input"
 				>
-					{/* File list */}
 					{files.length > 0 && (
-						<div className="flex flex-wrap gap-2">
-							{files.map((file, index) => (
-								<div
-									key={index}
-									className="flex items-center gap-1 rounded bg-muted px-2 py-1 text-sm"
-								>
-									{file.status === 'processing' && (
-										<Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-									)}
-									<span className="max-w-[200px] truncate">{file.name}</span>
-									<button
-										onClick={() =>
-											setFiles(files.filter((_, i) => i !== index))
-										}
-										className="text-muted-foreground hover:text-foreground"
-									>
-										<X className="h-3 w-3" />
-									</button>
-								</div>
-							))}
-						</div>
+						<AttachmentGroup className={'w-full max-w-full px-1 mt-1'}>
+							{files.map((file, index) => {
+								const isImage =
+									file.block &&
+									file.block.type === 'data' &&
+									file.block.source.media_type.startsWith('image/');
+								let data: undefined | string;
+								if (file.block && file.block.type === 'data') {
+									const block = file.block;
+									data =
+										block.source.type === 'url'
+											? block.source.url
+											: `data:${block.source.media_type};base64,${block.source.data}`;
+								}
+
+								return (
+									<Attachment>
+										<AttachmentMedia variant={isImage ? 'image' : 'icon'}>
+											{file.status === 'processing' ? (
+												<Loader2 className="size-3 shrink-0 animate-spin" />
+											) : isImage ? (
+												<img src={data} alt={file.name} />
+											) : (
+												<FileText className="size-3" />
+											)}
+										</AttachmentMedia>
+										<AttachmentContent>
+											<AttachmentTitle>{file.name}</AttachmentTitle>
+											<AttachmentDescription>
+												{file.status === 'processing'
+													? t('common.uploading')
+													: (
+															mime.getExtension(
+																mime.getType(file.name) || 'bin',
+															) || 'bin'
+														).toUpperCase()}
+											</AttachmentDescription>
+										</AttachmentContent>
+										<AttachmentActions>
+											<AttachmentAction
+												onClick={() =>
+													setFiles(files.filter((_, i) => i !== index))
+												}
+											>
+												<XIcon />
+											</AttachmentAction>
+										</AttachmentActions>
+									</Attachment>
+								);
+							})}
+						</AttachmentGroup>
 					)}
 
 					{/* ``items-end`` in both layouts: the buttons are then already at the
@@ -436,20 +551,30 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 								</TooltipContent>
 							</Tooltip>
 
-							{/* Send / Stop button — driven by ``sendButton`` config */}
+							{/* Voice / Send / Stop — driven by ``actionButton`` config */}
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<Button
 										type="button"
-										onClick={sendButton.onClick}
-										disabled={sendButton.disabled}
+										variant={actionButton.variant}
+										onClick={actionButton.onClick}
+										disabled={actionButton.disabled}
 										size="icon-lg"
-										className="shrink-0 rounded-full"
+										className={cn(
+											'relative shrink-0 rounded-full transition-colors',
+											voiceState === 'active' &&
+												'before:absolute before:inset-[-4px] before:rounded-full before:border before:border-primary/30 before:animate-pulse',
+										)}
 									>
-										<sendButton.icon className="h-4 w-4" />
+										<actionButton.icon
+											className={cn(
+												'h-4 w-4',
+												voiceState === 'connecting' && 'animate-spin',
+											)}
+										/>
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent>{sendButton.tooltip}</TooltipContent>
+								<TooltipContent>{actionButton.tooltip}</TooltipContent>
 							</Tooltip>
 
 							{/* Hidden file input */}

@@ -78,6 +78,14 @@ class OllamaEmbeddingModel(EmbeddingModelBase[str | TextBlock]):
         self.host: str | None = getattr(credential, "host", None)
         self.embedding_cache: EmbeddingCacheBase | None = embedding_cache
 
+        import ollama
+
+        self.client: ollama.AsyncClient = ollama.AsyncClient(host=self.host)
+        self._cache_endpoint: str = str(
+            # Ollama resolves OLLAMA_HOST and its default URL here.
+            self.client._client.base_url,  # pylint: disable=protected-access
+        )
+
     async def _call_api(
         self,
         inputs: list[str],
@@ -101,9 +109,16 @@ class OllamaEmbeddingModel(EmbeddingModelBase[str | TextBlock]):
             **kwargs,
         }
 
+        # Two Ollama endpoints can serve different weights under the same
+        # model name, so the resolved endpoint is part of the cache key but
+        # not of the request payload.
+        cache_identifier: dict[str, Any] = {
+            "endpoint": self._cache_endpoint,
+            "api_kwargs": api_kwargs,
+        }
         if self.embedding_cache:
             cached = await self.embedding_cache.retrieve(
-                identifier=api_kwargs,
+                identifier=cache_identifier,
             )
             if cached:
                 return EmbeddingResponse(
@@ -112,21 +127,20 @@ class OllamaEmbeddingModel(EmbeddingModelBase[str | TextBlock]):
                     source="cache",
                 )
 
-        import ollama
-
-        client = ollama.AsyncClient(host=self.host)
-
         start_time = datetime.now()
-        response = await client.embed(**api_kwargs)
+        response = await self.client.embed(**api_kwargs)
         time = (datetime.now() - start_time).total_seconds()
 
         if self.embedding_cache:
             await self.embedding_cache.store(
-                identifier=api_kwargs,
+                identifier=cache_identifier,
                 embeddings=response.embeddings,
             )
 
         return EmbeddingResponse(
             embeddings=response.embeddings,
-            usage=EmbeddingUsage(time=time),
+            usage=EmbeddingUsage(
+                tokens=getattr(response, "prompt_eval_count", None),
+                time=time,
+            ),
         )

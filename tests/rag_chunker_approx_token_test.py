@@ -46,6 +46,8 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "Hello world!",
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                     },
                     "source": "a.txt",
                     "chunk_index": 0,
@@ -78,6 +80,8 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": text[start : start + 40],
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                     },
                     "source": "b.txt",
                     "chunk_index": index,
@@ -116,6 +120,8 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "x" * 40,
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                     },
                     "source": "c.pdf",
                     "chunk_index": 0,
@@ -127,6 +133,8 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "x" * 40,
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                     },
                     "source": "c.pdf",
                     "chunk_index": 1,
@@ -138,6 +146,8 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "x" * 36,
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                     },
                     "source": "c.pdf",
                     "chunk_index": 2,
@@ -148,6 +158,8 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                     "content": {
                         "type": "data",
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "source": {
                             "type": "base64",
                             "data": "aGk=",
@@ -183,6 +195,8 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "first",
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                     },
                     "source": "d.txt",
                     "chunk_index": 0,
@@ -194,8 +208,55 @@ class ApproxTokenChunkerTest(IsolatedAsyncioTestCase):
                         "type": "text",
                         "text": "second",
                         "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
                     },
                     "source": "d.txt",
+                    "chunk_index": 1,
+                    "total_chunks": 2,
+                    "metadata": {},
+                },
+            ],
+        )
+
+    async def test_blank_sections_are_dropped(self) -> None:
+        """Empty and whitespace-only sections produce no chunk and leave
+        no gap in the numbering."""
+        chunker = ApproxTokenChunker(chunk_size=512, overlap=50)
+        sections = [
+            Section(content=TextBlock(text=""), source="scan.pdf"),
+            Section(content=TextBlock(text="page two"), source="scan.pdf"),
+            Section(content=TextBlock(text="  \n "), source="scan.pdf"),
+            Section(content=TextBlock(text="page four"), source="scan.pdf"),
+        ]
+
+        chunks = await chunker.chunk(sections)
+
+        self.assertListEqual(
+            _dump_chunks(chunks),
+            [
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "page two",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    "source": "scan.pdf",
+                    "chunk_index": 0,
+                    "total_chunks": 2,
+                    "metadata": {},
+                },
+                {
+                    "content": {
+                        "type": "text",
+                        "text": "page four",
+                        "id": AnyString(),
+                        "created_at": AnyString(),
+                        "finished_at": None,
+                    },
+                    "source": "scan.pdf",
                     "chunk_index": 1,
                     "total_chunks": 2,
                     "metadata": {},

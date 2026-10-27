@@ -239,11 +239,14 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
             {
                 "type": "TEXT_BLOCK_END",
                 "block_id": AnyString(),
+                "text": None,
             },
             {
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
         ]
@@ -359,6 +362,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -367,6 +372,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "tool_calls": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_1,
@@ -399,6 +406,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -412,6 +421,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_1,
@@ -481,6 +492,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -494,6 +507,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_1,
@@ -509,11 +524,15 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": self.sequential_tool_name,
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": self.sequential_result_1,
                             },
@@ -523,6 +542,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.final_response_text,
                     },
@@ -630,6 +651,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -638,6 +661,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "tool_calls": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_1,
@@ -670,6 +695,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -683,6 +710,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_1,
@@ -698,6 +727,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_2,
@@ -743,6 +774,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "tool_calls": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_2,
@@ -812,6 +845,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -825,6 +860,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_1,
@@ -840,6 +877,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": self.sequential_tool_name,
                         "input": self.tool_input_2,
@@ -855,11 +894,15 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": self.sequential_tool_name,
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": self.sequential_result_1,
                             },
@@ -869,11 +912,15 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": self.sequential_tool_name,
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": self.sequential_result_2,
                             },
@@ -883,6 +930,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.final_response_text,
                     },
@@ -1004,6 +1053,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -1012,6 +1063,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "tool_calls": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.concurrent_tool_name,
                         "input": self.tool_input_1,
@@ -1038,6 +1091,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -1051,6 +1106,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.concurrent_tool_name,
                         "input": self.tool_input_1,
@@ -1059,6 +1116,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": self.concurrent_tool_name,
                         "input": self.tool_input_2,
@@ -1106,6 +1165,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "tool_calls": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": self.concurrent_tool_name,
                         "input": self.tool_input_2,
@@ -1166,6 +1227,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -1179,6 +1242,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": self.concurrent_tool_name,
                         "input": self.tool_input_1,
@@ -1187,6 +1252,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": self.concurrent_tool_name,
                         "input": self.tool_input_2,
@@ -1195,11 +1262,15 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": self.concurrent_tool_name,
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": self.concurrent_result_1,
                             },
@@ -1209,11 +1280,15 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_result",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "name": self.concurrent_tool_name,
                         "output": [
                             {
                                 "type": "text",
+                                "created_at": AnyString(),
+                                "finished_at": None,
                                 "id": AnyString(),
                                 "text": self.concurrent_result_2,
                             },
@@ -1223,6 +1298,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.final_response_text,
                     },
@@ -1460,6 +1537,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "type": "MODEL_CALL_END",
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "finished_reason": "completed",
             },
             {
@@ -1468,6 +1547,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "tool_calls": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": name_a,
                         "input": self.tool_input_1,
@@ -1482,6 +1563,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "tool_calls": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": name_b,
                         "input": self.tool_input_2,
@@ -1503,6 +1586,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -1516,6 +1601,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_1,
                         "name": name_a,
                         "input": self.tool_input_1,
@@ -1524,6 +1611,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                     },
                     {
                         "type": "tool_call",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": self.tool_call_id_2,
                         "name": name_b,
                         "input": self.tool_input_2,
@@ -1626,6 +1715,8 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
                 "content": [
                     {
                         "type": "text",
+                        "created_at": AnyString(),
+                        "finished_at": None,
                         "id": AnyString(),
                         "text": self.user_input_text,
                     },
@@ -1667,6 +1758,85 @@ class AgentUserConfirmationTest(IsolatedAsyncioTestCase):
             [_.text for _ in assistant_msg.get_content_blocks("text")],
             [self.final_response_text],
         )
+
+    async def test_partial_concurrent_confirmation_defers_iteration(
+        self,
+    ) -> None:
+        """A tool round is not counted while one confirmed call is pending."""
+        name_a = self.concurrent_tool_name
+        name_b = "mock_user_confirm_concurrent_tool_b"
+        self.agent.toolkit = Toolkit(
+            tools=[
+                MockUserConfirmConcurrentTool(),
+                MockUserConfirmConcurrentToolB(),
+            ],
+        )
+        self.model.set_responses(
+            [
+                ChatResponse(
+                    content=[
+                        ToolCallBlock(
+                            id=self.tool_call_id_1,
+                            name=name_a,
+                            input=self.tool_input_1,
+                        ),
+                        ToolCallBlock(
+                            id=self.tool_call_id_2,
+                            name=name_b,
+                            input=self.tool_input_2,
+                        ),
+                    ],
+                    is_last=True,
+                ),
+                self.final_mock_responses,
+            ],
+        )
+
+        parked = await self.agent.reply(
+            UserMsg(name="user", content=self.user_input_text),
+        )
+        self.assertIsNone(parked.finished_reason)
+        self.assertEqual(self.agent.state.cur_iter, 0)
+
+        partial = await self.agent.reply(
+            UserConfirmResultEvent(
+                reply_id=self.agent.state.reply_id,
+                confirm_results=[
+                    ConfirmResult(
+                        confirmed=True,
+                        tool_call=ToolCallBlock(
+                            id=self.tool_call_id_1,
+                            name=name_a,
+                            input=self.tool_input_1,
+                        ),
+                    ),
+                ],
+            ),
+        )
+        self.assertIsNone(partial.finished_reason)
+        # The first call has run, but the round isn't over while the second
+        # one is still awaiting confirmation
+        self.assertEqual(self.agent.state.cur_iter, 0)
+
+        completed = await self.agent.reply(
+            UserConfirmResultEvent(
+                reply_id=self.agent.state.reply_id,
+                confirm_results=[
+                    ConfirmResult(
+                        confirmed=True,
+                        tool_call=ToolCallBlock(
+                            id=self.tool_call_id_2,
+                            name=name_b,
+                            input=self.tool_input_2,
+                        ),
+                    ),
+                ],
+            ),
+        )
+        self.assertEqual(completed.finished_reason, "completed")
+        self.assertEqual(self.model.cnt, 2)
+        # One tool round plus the final reasoning
+        self.assertEqual(self.agent.state.cur_iter, 2)
 
     async def asyncTearDown(self) -> None:
         """The async teardown method."""

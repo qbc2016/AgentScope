@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """The OpenAI Chat Completions model implementation."""
-import warnings
 import base64
 from collections import OrderedDict
 from datetime import datetime
@@ -8,10 +7,13 @@ from typing import Literal, Any, AsyncGenerator, TYPE_CHECKING, List, Type
 
 from pydantic import BaseModel, Field
 
-from ..._utils._audio import _build_streaming_wav_header
+from ..._utils._audio import (
+    _build_streaming_wav_header,
+    _build_wav_header,
+)
 from ..._utils._common import _generate_id, _flatten_json_schema
 from .._base import ChatModelBase, _TOOL_CHOICE_LITERAL_MODES
-from .._model_response import ChatResponse, StructuredResponse
+from .._model_response import ChatResponse
 from .._model_usage import ChatUsage
 from ...credential import OpenAICredential
 from ...formatter import FormatterBase, OpenAIChatFormatter
@@ -165,6 +167,15 @@ class OpenAIChatModel(ChatModelBase):
         self.client_kwargs = client_kwargs or {}
         self.extra_body = dict(extra_body) if extra_body is not None else None
 
+        import openai
+
+        self.client: openai.AsyncClient = openai.AsyncClient(
+            api_key=self.credential.api_key.get_secret_value(),
+            organization=self.credential.organization,
+            base_url=self.credential.base_url,
+            **self.client_kwargs,
+        )
+
     @classmethod
     def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
         import openai
@@ -175,6 +186,14 @@ class OpenAIChatModel(ChatModelBase):
             openai.RateLimitError,
             openai.InternalServerError,
         )
+
+    @classmethod
+    def _get_structured_output_fallback_exceptions(
+        cls,
+    ) -> tuple[Type[Exception], ...]:
+        import openai
+
+        return (openai.BadRequestError,)
 
     async def _call_api(
         self,
@@ -204,17 +223,6 @@ class OpenAIChatModel(ChatModelBase):
                 generator of ``ChatResponse`` objects when streaming is
                 enabled.
         """
-        import openai
-
-        client = openai.AsyncClient(
-            **{
-                "api_key": self.credential.api_key.get_secret_value(),
-                "organization": self.credential.organization,
-                "base_url": self.credential.base_url,
-                **self.client_kwargs,
-            },
-        )
-
         formatted_messages = await self.formatter.format(messages)
 
         kwargs: dict[str, Any] = {
@@ -269,7 +277,7 @@ class OpenAIChatModel(ChatModelBase):
             kwargs["stream_options"] = {"include_usage": True}
 
         start_datetime = datetime.now()
-        response = await client.chat.completions.create(**kwargs)
+        response = await self.client.chat.completions.create(**kwargs)
 
         audio_cfg = kwargs.get("audio")
         audio_fmt = (
@@ -500,11 +508,22 @@ class OpenAIChatModel(ChatModelBase):
                 if not choice.message.content and audio_transcript:
                     content_blocks.append(TextBlock(text=audio_transcript))
                 if audio_data:
+                    payload = base64.b64decode(audio_data)
+                    media_type = f"audio/{audio_format}"
+                    if audio_format == "pcm16":
+                        # The request forces ``format: pcm16`` (see the
+                        # ``audio`` request block), which comes back as
+                        # headerless raw PCM. Wrap it so the block is a
+                        # playable WAV, matching the streaming path and the
+                        # documented intent.
+                        payload = _build_wav_header(len(payload)) + payload
+                        media_type = "audio/wav"
+                    encoded = base64.b64encode(payload).decode("ascii")
                     content_blocks.append(
                         DataBlock(
                             source=Base64Source(
-                                data=audio_data,
-                                media_type=f"audio/{audio_format}",
+                                data=encoded,
+                                media_type=media_type,
                             ),
                         ),
                     )
@@ -545,48 +564,6 @@ class OpenAIChatModel(ChatModelBase):
             resp_kwargs["id"] = response_id
 
         return ChatResponse(**resp_kwargs)
-
-    async def _call_api_with_structured_output(
-        self,
-        model_name: str,
-        messages: list[Msg],
-        structured_model: Type[BaseModel] | dict,
-        tool_choice: ToolChoice | None = None,
-        **kwargs: Any,
-    ) -> StructuredResponse:
-        """OpenAI-compatible override for structured output.
-
-        Some third-party providers that expose an OpenAI-compatible API (e.g.
-        DeepSeek via DashScope) reject forced ``tool_choice`` when thinking
-        mode is active.  When such a ``BadRequestError`` is encountered, this
-        method automatically retries with ``tool_choice="auto"``.
-        """
-        import openai
-
-        try:
-            return await super()._call_api_with_structured_output(
-                model_name=model_name,
-                messages=messages,
-                structured_model=structured_model,
-                tool_choice=tool_choice,
-                **kwargs,
-            )
-        except openai.BadRequestError as e:
-            if "tool_choice" not in str(e):
-                raise
-            # Thinking mode rejects forced tool_choice; fall back to auto
-            warnings.warn(
-                f"Forced tool_choice rejected by provider ({e}), "
-                "retrying with tool_choice='auto'.",
-                stacklevel=2,
-            )
-            return await super()._call_api_with_structured_output(
-                model_name=model_name,
-                messages=messages,
-                structured_model=structured_model,
-                tool_choice=ToolChoice(mode="auto"),
-                **kwargs,
-            )
 
     def _format_tools(
         self,

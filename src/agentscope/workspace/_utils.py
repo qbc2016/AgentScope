@@ -14,6 +14,9 @@ import importlib.resources as _res
 
 # ── shared constants ───────────────────────────────────────────────
 
+#: Pinned installer version shared by sandbox bootstraps and Docker.
+UV_VERSION = "0.13.4"
+
 #: Standard prompt injected to the system prompt
 DEFAULT_WORKSPACE_INSTRUCTIONS = """<workspace>You have access to a {backend} \
 workspace at {workdir} with the following structure:
@@ -21,7 +24,7 @@ workspace at {workdir} with the following structure:
 ```
 {workdir}
 ├── data/        # offloaded multimodal files (images, etc.) — system-managed
-├── skills/      # reusable skills, each in its own subdirectory
+├── skills/      # reusable skills, grouped by the agent that owns them
 └── sessions/    # offloaded session context and tool results — system-managed
 ```
 
@@ -74,6 +77,7 @@ personal environment, but treat credentials as if they could leak.
 project:
 ```shell
 uv venv && uv pip install ...
+```
 - Never install packages into a shared or global environment — each project \
 must manage its own dependencies to avoid conflicts.</workspace>"""
 
@@ -97,10 +101,20 @@ DEFAULT_GLOB_HELPER_SCRIPT = "_glob_helper.py"
 #: Minimum Python packages the gateway script needs at runtime.
 #: Both Docker (image build) and E2B (sandbox bootstrap) install this
 #: same tuple into the gateway venv before adding ``agentscope`` itself.
+#:
+#: ``agentscope`` goes in with ``--no-deps``, so anything it imports has
+#: to be named here. The current MCP client imports ``httpx2``, while
+#: released versions installed by DockerWorkspace can still import
+#: ``httpx``. Keep both explicit during the transition.
+#: The version on ``mcp`` mirrors ``pyproject.toml``, so the gateway
+#: speaks the same protocol version as the process driving it.
 _GATEWAY_BASE_REQUIREMENTS: tuple[str, ...] = (
-    "mcp",
+    "certifi>=2026.10.19",
+    "mcp>=2.0.0",
     "uvicorn",
     "fastapi",
+    "httpx",
+    "httpx2>=2.5.0",
 )
 
 

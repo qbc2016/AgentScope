@@ -109,6 +109,13 @@ class OllamaChatModel(ChatModelBase):
         self.formatter = formatter or OllamaChatFormatter()
         self.client_kwargs = client_kwargs or {}
 
+        import ollama
+
+        self.client: ollama.AsyncClient = ollama.AsyncClient(
+            host=self.credential.host,
+            **self.client_kwargs,
+        )
+
     @classmethod
     def _get_retryable_exceptions(cls) -> tuple[Type[Exception], ...]:
         import httpx
@@ -150,15 +157,6 @@ class OllamaChatModel(ChatModelBase):
                 generator of ``ChatResponse`` objects when streaming is
                 enabled.
         """
-        import ollama
-
-        client = ollama.AsyncClient(
-            **{
-                "host": self.credential.host,
-                **self.client_kwargs,
-            },
-        )
-
         formatted_messages = await self.formatter.format(messages)
 
         kwargs: dict[str, Any] = {
@@ -185,7 +183,7 @@ class OllamaChatModel(ChatModelBase):
             kwargs["tools"] = fmt_tools
 
         start_datetime = datetime.now()
-        response = await client.chat(**kwargs)
+        response = await self.client.chat(**kwargs)
 
         if self.stream:
             return self._parse_stream_response(start_datetime, response)
@@ -274,10 +272,11 @@ class OllamaChatModel(ChatModelBase):
                     text=msg.content,
                 )
 
-            # Tool call
-            for idx, tool_call in enumerate(msg.tool_calls or []):
+            # Tool call. The ollama client drops the server's call id, and
+            # one built from the position repeats in the next round
+            for tool_call in msg.tool_calls or []:
                 delta_res.append_tool_call(
-                    block_id=f"{idx}_{tool_call.function.name}",
+                    block_id=_generate_id(),
                     name=tool_call.function.name,
                     input=json.dumps(
                         tool_call.function.arguments,
@@ -320,10 +319,10 @@ class OllamaChatModel(ChatModelBase):
         if response.message.content:
             content_blocks.append(TextBlock(text=response.message.content))
 
-        for idx, tool_call in enumerate(response.message.tool_calls or []):
+        for tool_call in response.message.tool_calls or []:
             content_blocks.append(
                 ToolCallBlock(
-                    id=f"{idx}_{tool_call.function.name}",
+                    id=_generate_id(),
                     name=tool_call.function.name,
                     input=json.dumps(
                         tool_call.function.arguments,

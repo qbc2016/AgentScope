@@ -121,6 +121,14 @@ class OpenAITTSModel(TTSModelBase):
             stream=stream,
         )
 
+        import openai
+
+        self.client: openai.AsyncClient = openai.AsyncClient(
+            api_key=self.credential.api_key.get_secret_value(),
+            organization=self.credential.organization,
+            base_url=self.credential.base_url,
+        )
+
     async def synthesize(
         self,
         text: str | None = None,
@@ -142,33 +150,29 @@ class OpenAITTSModel(TTSModelBase):
         if not text:
             return TTSResponse(content=None)
 
-        import openai
-
-        client = openai.AsyncClient(
-            api_key=self.credential.api_key.get_secret_value(),
-            organization=self.credential.organization,
-            base_url=self.credential.base_url,
-        )
-
-        media_type = _MEDIA_TYPES.get(
-            self.parameters.response_format,
-            _MEDIA_TYPES[_DEFAULT_RESPONSE_FORMAT],
-        )
-
         request_kwargs: dict[str, Any] = {
             "model": self.model,
             "voice": self.parameters.voice,
             "input": text,
             "response_format": self.parameters.response_format,
-            **kwargs,
         }
         if self.parameters.instructions:
             request_kwargs["instructions"] = self.parameters.instructions
+        request_kwargs.update(kwargs)
+
+        media_type = _MEDIA_TYPES.get(
+            request_kwargs["response_format"],
+            _MEDIA_TYPES[_DEFAULT_RESPONSE_FORMAT],
+        )
 
         if self.stream:
-            return self._stream(client, media_type, **request_kwargs)
+            return self._stream(self.client, media_type, **request_kwargs)
 
-        return await self._aggregate(client, media_type, **request_kwargs)
+        return await self._aggregate(
+            self.client,
+            media_type,
+            **request_kwargs,
+        )
 
     @staticmethod
     async def _aggregate(

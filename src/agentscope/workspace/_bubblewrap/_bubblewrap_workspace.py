@@ -20,6 +20,7 @@ from ...mcp import MCPClient
 from .._gateway_client import GatewayClient
 from .._sandboxed_base import SandboxedWorkspaceBase
 from .._utils import (
+    UV_VERSION,
     _GATEWAY_BASE_REQUIREMENTS,
     _read_gateway_script_bytes,
     _read_glob_helper_bytes,
@@ -384,7 +385,6 @@ class BubblewrapWorkspace(SandboxedWorkspaceBase):
             launch_cmd = (
                 f"exec {shlex.quote(self._gateway_python)} -I -u "
                 f"{shlex.quote(self._gateway_script)} "
-                f"--config {shlex.quote(self._mcp_file)} "
                 f"--port {gateway_port} "
                 f"--auth-token {shlex.quote(self._gateway_token)} "
                 f"--instance-nonce {shlex.quote(self._gateway_nonce)} "
@@ -410,8 +410,6 @@ class BubblewrapWorkspace(SandboxedWorkspaceBase):
             await self._stop_gateway_process()
         else:  # pragma: no cover - loop always breaks or raises
             await self._raise_gateway_timeout(health_timeout)
-
-        self._mcps = list(await self._gateway.list_mcps())
 
     async def _bootstrap_is_ready(self) -> bool:
         """Check whether persisted user-space bootstrap artifacts work."""
@@ -559,7 +557,7 @@ class BubblewrapWorkspace(SandboxedWorkspaceBase):
             "curl -LsSf --retry 5 --retry-delay 2 --retry-all-errors "
             "--connect-timeout 15 --max-time 60 --retry-max-time 180 "
             '-o "$tmp_installer" '
-            "https://astral.sh/uv/install.sh; "
+            f"https://astral.sh/uv/{UV_VERSION}/install.sh; "
             f"env UV_INSTALL_DIR={quoted_bin_dir} "
             'INSTALLER_NO_MODIFY_PATH=1 sh "$tmp_installer"; '
             'rm -f "$tmp_installer"; '

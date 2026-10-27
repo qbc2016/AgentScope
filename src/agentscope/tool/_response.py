@@ -41,7 +41,8 @@ class ToolChunk(BaseModel):
 
     metadata: dict = Field(default_factory=dict)
     """The metadata to be accessed within the agent, so that we don't need to
-    parse the tool result block."""
+    parse the tool result block. The reserved ``mcp_progress`` key carries
+    transient progress and is not accumulated into ``ToolResponse``."""
 
     id: str = Field(default_factory=_generate_id)
     """The identity of the tool chunk."""
@@ -54,7 +55,8 @@ class ToolResponse(BaseModel):
     content: List[TextBlock | DataBlock] = Field(default_factory=list)
     """The completed tool result data blocks."""
 
-    state: Literal[
+    # Incremental mypy checks may skip the imported enum definition.
+    state: Literal[  # type: ignore[valid-type]
         ToolResultState.ERROR,
         ToolResultState.DENIED,
         ToolResultState.INTERRUPTED,
@@ -135,12 +137,24 @@ class ToolResponse(BaseModel):
         # worse.
         if chunk.state == ToolResultState.ERROR:
             self.state = ToolResultState.ERROR
-        elif chunk.state == "interrupted":
+        elif (
+            self.state != ToolResultState.ERROR
+            and chunk.state == ToolResultState.INTERRUPTED
+        ):
             self.state = ToolResultState.INTERRUPTED
-        elif chunk.state == ToolResultState.DENIED:
+        elif (
+            self.state != ToolResultState.ERROR
+            and chunk.state == ToolResultState.DENIED
+        ):
             self.state = ToolResultState.DENIED
 
-        self.metadata.update(chunk.metadata)
+        self.metadata.update(
+            {
+                key: value
+                for key, value in chunk.metadata.items()
+                if key != "mcp_progress"
+            },
+        )
 
         # Post-processing: merge consecutive TextBlocks
         # DataBlocks are kept separate and only merged by explicit id matching
