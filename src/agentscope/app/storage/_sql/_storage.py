@@ -19,6 +19,8 @@ need no dialect-specific timezone handling.
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Self
 
+import sqlalchemy as sa
+
 from .._base import StorageBase
 from .._model._session import _origin_kwargs
 from .._model import (
@@ -2231,32 +2233,56 @@ class AsyncSQLAlchemyStorage(StorageBase):
         user_id: str,
         record: VoiceProfileRecord,
     ) -> str:
-        """Create or update a voice profile record.
+        """Insert a voice profile or update it under an ownership predicate.
 
-        On update (the id already exists in the database), only
-        the owner may overwrite. If the existing row belongs to a
-        different user, a PermissionError is raised.
+        Primary-key collisions never transfer ownership. Concurrent writes
+        from the same owner may update the payload; a different owner gets
+        ``PermissionError``. Updates preserve the stored creation time.
         """
         record.user_id = user_id
-
-        if record.id:
-            from sqlalchemy import select
-
-            async with self._session() as sess:
-                existing = (
-                    await sess.execute(
-                        select(VoiceProfileRow).where(
+        record.created_at = _to_naive_utc(record.created_at)
+        record.updated_at = _utcnow()
+        row = _from_record(VoiceProfileRow, record)
+        async with self._session() as sess:
+            try:
+                await sess.execute(
+                    sa.insert(VoiceProfileRow).values(
+                        id=record.id,
+                        user_id=user_id,
+                        created_at=record.created_at,
+                        updated_at=record.updated_at,
+                        payload=row.payload,
+                    ),
+                )
+            except sa.exc.IntegrityError as exc:
+                await sess.rollback()
+                # Ownership is enforced by the write itself, not a precheck.
+                owned = (
+                    VoiceProfileRow.id == record.id,
+                    VoiceProfileRow.user_id == user_id,
+                )
+                result = await sess.execute(
+                    sa.update(VoiceProfileRow)
+                    .where(*owned)
+                    .values(payload=row.payload, updated_at=record.updated_at),
+                )
+                if result.rowcount == 0:
+                    owner = await sess.scalar(
+                        sa.select(VoiceProfileRow.user_id).where(
                             VoiceProfileRow.id == record.id,
                         ),
                     )
-                ).scalar_one_or_none()
-
-            if existing is not None and existing.user_id != user_id:
-                raise PermissionError(
-                    "Cannot overwrite another user's voice profile.",
-                )
-
-        await self._write_row(VoiceProfileRow, record)
+                    if owner is not None and owner != user_id:
+                        raise PermissionError(
+                            "Cannot overwrite another user's voice profile.",
+                        ) from exc
+                    raise
+                record.created_at = (
+                    await sess.execute(
+                        sa.select(VoiceProfileRow.created_at).where(*owned),
+                    )
+                ).scalar_one()
+            await sess.commit()
         return record.id
 
     async def get_voice_profile(
