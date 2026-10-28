@@ -16,6 +16,7 @@ Text payloads may be passed either as bare ``str`` or as
 from __future__ import annotations
 
 import asyncio
+import copy
 from datetime import datetime
 from dataclasses import dataclass
 from typing import Any
@@ -435,11 +436,10 @@ class DashScopeEmbeddingModel(EmbeddingModelBase[str | TextBlock | DataBlock]):
             **kwargs,
         }
 
-        # Exclude api_key from cache identifier to avoid persisting secrets
-        # and to keep cache valid across key rotations.
-        cache_identifier = {
-            k: v for k, v in api_kwargs.items() if k != "api_key"
-        }
+        # Exclude api_key and isolate the cache identifier from SDK mutations.
+        cache_identifier = copy.deepcopy(
+            {k: v for k, v in api_kwargs.items() if k != "api_key"},
+        )
 
         if self.embedding_cache:
             cached = await self.embedding_cache.retrieve(
