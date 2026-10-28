@@ -1,5 +1,5 @@
 import type { ContentBlock, Msg, TextBlock } from '@agentscope-ai/agentscope/message';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { chatApi } from '@/api';
 import type { ChatQueueItem } from '@/api/chat';
@@ -40,6 +40,17 @@ export function useChatQueue(
 	const itemsRef = useRef<ChatQueueItem[]>([]);
 	const conversationMessageIdsRef = useRef<Set<string>>(new Set());
 	const snapshotVersionRef = useRef(0);
+	const refreshSequenceRef = useRef(0);
+	// Object identity distinguishes A -> B -> A from the original A visit.
+	const session = useMemo(() => ({ agentId, sessionId }), [agentId, sessionId]);
+	const activeSessionRef = useRef<typeof session | null>(null);
+
+	useLayoutEffect(() => {
+		activeSessionRef.current = session;
+		return () => {
+			activeSessionRef.current = null;
+		};
+	}, [session]);
 
 	const updateItems = useCallback((next: ChatQueueItem[]) => {
 		snapshotVersionRef.current += 1;
@@ -77,31 +88,42 @@ export function useChatQueue(
 		[updateItems],
 	);
 
+	const refreshQueue = useCallback(async () => {
+		if (!agentId || !sessionId || activeSessionRef.current !== session) return;
+		const requestId = ++refreshSequenceRef.current;
+		const snapshotVersion = snapshotVersionRef.current;
+		try {
+			const response = await chatApi.queue(agentId, sessionId, true);
+			if (
+				activeSessionRef.current !== session ||
+				requestId !== refreshSequenceRef.current ||
+				snapshotVersion !== snapshotVersionRef.current
+			) {
+				return;
+			}
+			applyQueueSnapshot(response.items);
+		} catch {
+			// Focus, reconnect, or the next interval retries transient failures.
+		}
+	}, [agentId, sessionId, session, applyQueueSnapshot]);
+
+	const applyMutationSnapshot = useCallback(
+		(serverItems: ChatQueueItem[], snapshotVersion: number) => {
+			if (activeSessionRef.current !== session) return;
+			if (snapshotVersion !== snapshotVersionRef.current) {
+				// An SSE event or another response already changed the queue.
+				// Fetch current state instead of resurrecting an older snapshot.
+				void refreshQueue();
+				return;
+			}
+			applyQueueSnapshot(serverItems);
+		},
+		[session, applyQueueSnapshot, refreshQueue],
+	);
+
 	useEffect(() => {
 		reset();
 		if (!agentId || !sessionId) return;
-
-		let cancelled = false;
-		let requestSequence = 0;
-		const refreshQueue = async () => {
-			const requestId = ++requestSequence;
-			const snapshotVersion = snapshotVersionRef.current;
-			try {
-				const response = await chatApi.queue(agentId, sessionId, true);
-				if (
-					cancelled ||
-					requestId !== requestSequence ||
-					snapshotVersion !== snapshotVersionRef.current
-				) {
-					return;
-				}
-				applyQueueSnapshot(response.items);
-			} catch {
-				// This is a repair path. Focus, reconnect, or the next interval
-				// retries transient failures without showing duplicate toasts.
-			}
-		};
-
 		void refreshQueue();
 		const refreshTimer = window.setInterval(
 			() => void refreshQueue(),
@@ -112,12 +134,11 @@ export function useChatQueue(
 		window.addEventListener('online', refreshOnFocus);
 
 		return () => {
-			cancelled = true;
 			window.clearInterval(refreshTimer);
 			window.removeEventListener('focus', refreshOnFocus);
 			window.removeEventListener('online', refreshOnFocus);
 		};
-	}, [agentId, sessionId, applyQueueSnapshot, reset]);
+	}, [agentId, sessionId, refreshQueue, reset]);
 
 	const addOptimistic = useCallback(
 		(message: Msg, shownInConversation: boolean): string => {
@@ -205,7 +226,7 @@ export function useChatQueue(
 
 	const updateQueued = useCallback(
 		async (itemId: string, text: string) => {
-			if (!agentId || !sessionId) return;
+			if (!agentId || !sessionId || activeSessionRef.current !== session) return;
 			const item = itemsRef.current.find((candidate) => candidate.id === itemId);
 			if (!item || Array.isArray(item.input)) return;
 
@@ -231,38 +252,40 @@ export function useChatQueue(
 				content.unshift(textBlock);
 			}
 
+			const snapshotVersion = snapshotVersionRef.current;
 			try {
 				const response = await chatApi.updateQueued(itemId, {
 					agent_id: agentId,
 					session_id: sessionId,
 					input: { ...item.input, content },
 				});
-				applyQueueSnapshot(response.items);
+				applyMutationSnapshot(response.items, snapshotVersion);
 			} catch (error) {
-				onError(error as Error);
+				if (activeSessionRef.current === session) onError(error as Error);
 				throw error;
 			}
 		},
-		[agentId, sessionId, applyQueueSnapshot, onError],
+		[agentId, sessionId, session, applyMutationSnapshot, onError],
 	);
 
 	const deleteQueued = useCallback(
 		async (itemId: string) => {
-			if (!agentId || !sessionId) return;
+			if (!agentId || !sessionId || activeSessionRef.current !== session) return;
+			const snapshotVersion = snapshotVersionRef.current;
 			try {
 				const response = await chatApi.deleteQueued(itemId, agentId, sessionId);
-				applyQueueSnapshot(response.items);
+				applyMutationSnapshot(response.items, snapshotVersion);
 			} catch (error) {
-				onError(error as Error);
+				if (activeSessionRef.current === session) onError(error as Error);
 				throw error;
 			}
 		},
-		[agentId, sessionId, applyQueueSnapshot, onError],
+		[agentId, sessionId, session, applyMutationSnapshot, onError],
 	);
 
 	const reorderQueued = useCallback(
 		async (visibleItemIds: string[]) => {
-			if (!agentId || !sessionId) return;
+			if (!agentId || !sessionId || activeSessionRef.current !== session) return;
 			const current = itemsRef.current;
 			if (current.some((item) => item.id.startsWith(OPTIMISTIC_ITEM_PREFIX))) return;
 
@@ -287,24 +310,21 @@ export function useChatQueue(
 			const fullItemIds = current.map((item) =>
 				visibleIdSet.has(item.id) ? visibleItemIds[visibleIndex++] : item.id,
 			);
+			const snapshotVersion = snapshotVersionRef.current;
 			try {
 				const response = await chatApi.reorderQueued(agentId, sessionId, fullItemIds);
-				applyQueueSnapshot(response.items);
+				applyMutationSnapshot(response.items, snapshotVersion);
 			} catch (error) {
-				onError(error as Error);
-				if (error instanceof ApiError && error.status === 409) {
-					try {
-						const response = await chatApi.queue(agentId, sessionId, true);
-						applyQueueSnapshot(response.items);
-					} catch {
-						// Keep the original conflict as the mutation result. Periodic
-						// repair will retry a failed refresh.
+				if (activeSessionRef.current === session) {
+					onError(error as Error);
+					if (error instanceof ApiError && error.status === 409) {
+						await refreshQueue();
 					}
 				}
 				throw error;
 			}
 		},
-		[agentId, sessionId, applyQueueSnapshot, onError],
+		[agentId, sessionId, session, applyMutationSnapshot, onError, refreshQueue],
 	);
 
 	const moveQueued = useCallback(

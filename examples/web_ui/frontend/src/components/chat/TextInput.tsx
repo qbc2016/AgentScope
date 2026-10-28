@@ -594,7 +594,8 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 										<actionButton.icon
 											className={cn(
 												'h-4 w-4',
-											(voiceState === 'connecting' || submitting) && 'animate-spin',
+												(voiceState === 'connecting' || submitting) &&
+													'animate-spin',
 											)}
 										/>
 									</Button>

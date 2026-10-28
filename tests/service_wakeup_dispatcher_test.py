@@ -25,6 +25,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from agentscope.app import _bus_ops
 from agentscope.app._manager import ChatRunRegistry, WakeupDispatcher
 from agentscope.app._service import ChatService
 from agentscope.app._bus_ops import (
@@ -38,7 +39,11 @@ from agentscope.app._bus_ops import (
     reorder_chat_inputs,
     update_chat_input,
 )
-from agentscope.app.message_bus import MessageBus, MessageBusKeys
+from agentscope.app.message_bus import (
+    InMemoryMessageBus,
+    MessageBus,
+    MessageBusKeys,
+)
 from agentscope.app._router._chat import chat as chat_endpoint
 from agentscope.app._router._schema import (
     ChatRequest,
@@ -1600,39 +1605,185 @@ class TestChatEndpointQueue(IsolatedAsyncioTestCase):
 
     async def test_queue_lock_timeout_returns_http_503(self) -> None:
         """POST /chat turns stale-lock waits into retryable backpressure."""
+        for key in (
+            MessageBusKeys.chat_input_mutation_lock("s"),
+            MessageBusKeys.chat_input_user_quota_lock("u"),
+        ):
+            with self.subTest(key=key), patch.object(
+                MessageBusKeys,
+                "CHAT_INPUT_MUTATION_TIMEOUT_SECS",
+                0.01,
+            ):
+                async with InMemoryMessageBus() as bus:
+                    async with bus.acquire_lock(key):
+                        with self.assertRaises(HTTPException) as raised:
+                            await chat_endpoint(
+                                request=ChatRequest(
+                                    agent_id="a",
+                                    session_id="s",
+                                    input=UserMsg("user", "retry later"),
+                                ),
+                                user_id="u",
+                                storage=_FakeStorage(),
+                                chat_service=_FakeChatService(),
+                                chat_run_registry=ChatRunRegistry(),
+                                message_bus=bus,
+                            )
+                    self.assertEqual(raised.exception.status_code, 503)
+                    self.assertEqual(await list_chat_inputs(bus, "s"), [])
+                    self.assertEqual(
+                        await bus.registry_getall(
+                            MessageBusKeys.chat_input_pending_registry(),
+                        ),
+                        {},
+                    )
 
-        class _ContendedBus(_FakeBus):
-            @asynccontextmanager
-            async def acquire_lock(
-                self,
-                key: str,
-                *,
-                ttl_secs: int = 600,
-            ) -> AsyncGenerator[None, None]:
-                del ttl_secs
-                if key == MessageBusKeys.chat_input_mutation_lock("s"):
-                    await asyncio.Event().wait()
-                yield
+    async def test_slow_notification_keeps_http_acceptance(self) -> None:
+        """Neither lock's wait deadline cancels an accepted queue write."""
+        bus = _FakeBus()
+        publish = bus.publish
 
-        with patch.object(
+        async def slow_publish(key: str, payload: dict) -> None:
+            await asyncio.sleep(0.03)
+            await publish(key, payload)
+
+        message = UserMsg("user", "accepted")
+        with patch.object(bus, "publish", slow_publish), patch.object(
             MessageBusKeys,
             "CHAT_INPUT_MUTATION_TIMEOUT_SECS",
             0.01,
         ):
-            with self.assertRaises(HTTPException) as raised:
-                await chat_endpoint(
-                    request=ChatRequest(
-                        agent_id="a",
-                        session_id="s",
-                        input=UserMsg("user", "retry later"),
-                    ),
-                    user_id="u",
-                    storage=_FakeStorage(),
-                    chat_service=_FakeChatService(),
-                    chat_run_registry=ChatRunRegistry(),
-                    message_bus=_ContendedBus(),
+            response = await chat_endpoint(
+                request=ChatRequest(
+                    agent_id="a",
+                    session_id="s",
+                    input=message,
+                ),
+                user_id="u",
+                storage=_FakeStorage(),
+                chat_service=_FakeChatService(),
+                chat_run_registry=ChatRunRegistry(),
+                message_bus=bus,
+            )
+        items = await list_chat_inputs(bus, "s")
+        self.assertEqual(
+            response.model_dump(),
+            {
+                "status": "queued",
+                "session_id": "s",
+                "queue_item_id": items[0]["id"],
+            },
+        )
+        self.assertEqual(
+            items,
+            [
+                {
+                    "id": response.queue_item_id,
+                    "created_at": items[0]["created_at"],
+                    "input": message.model_dump(mode="json"),
+                },
+            ],
+        )
+
+    async def test_notification_failure_preserves_accepted_input(
+        self,
+    ) -> None:
+        """Broadcast and wakeup failures leave accepted input recoverable."""
+        for operation in (
+            "_publish_chat_queue_changed",
+            "enqueue_run_trigger",
+        ):
+            for error_type in (ConnectionError, TimeoutError):
+                with self.subTest(operation=operation, error=error_type):
+                    bus = _FakeBus()
+                    message = UserMsg("user", "recover me")
+                    with patch.object(
+                        _bus_ops,
+                        operation,
+                        side_effect=error_type("offline"),
+                    ):
+                        response = await chat_endpoint(
+                            request=ChatRequest(
+                                agent_id="a",
+                                session_id="s",
+                                input=message,
+                            ),
+                            user_id="u",
+                            storage=_FakeStorage(),
+                            chat_service=_FakeChatService(),
+                            chat_run_registry=ChatRunRegistry(),
+                            message_bus=bus,
+                        )
+                    items = await list_chat_inputs(bus, "s")
+                    self.assertEqual(
+                        response.model_dump(),
+                        {
+                            "status": "queued",
+                            "session_id": "s",
+                            "queue_item_id": items[0]["id"],
+                        },
+                    )
+                    self.assertEqual(
+                        items,
+                        [
+                            {
+                                "id": response.queue_item_id,
+                                "created_at": items[0]["created_at"],
+                                "input": message.model_dump(mode="json"),
+                            },
+                        ],
+                    )
+                    # Remove any immediate trigger to exercise recovery.
+                    await bus.queue_delete(MessageBusKeys.wakeup_queue())
+                    chat = _FakeChatService()
+                    async with WakeupDispatcher(
+                        message_bus=bus,
+                        storage=_FakeStorage(),
+                        chat_service=chat,
+                        chat_run_registry=ChatRunRegistry(),
+                    ):
+                        await asyncio.wait_for(chat.notify.wait(), timeout=2)
+                    self.assertEqual(
+                        [call["input_msg"] for call in chat.calls],
+                        [message],
+                    )
+
+    async def test_queue_write_failure_is_not_accepted(self) -> None:
+        """Only post-acceptance notification errors may be suppressed."""
+        bus = _FakeBus()
+        error = ConnectionError("queue unavailable")
+        with patch.object(bus, "queue_push", side_effect=error):
+            with self.assertRaises(ConnectionError) as raised:
+                await enqueue_chat_input(
+                    bus,
+                    "u",
+                    "s",
+                    "a",
+                    UserMsg("user", "not accepted"),
                 )
-        self.assertEqual(raised.exception.status_code, 503)
+        self.assertIs(raised.exception, error)
+        self.assertEqual(await list_chat_inputs(bus, "s"), [])
+
+    async def test_body_timeout_is_not_reported_as_lock_contention(
+        self,
+    ) -> None:
+        """Only lock acquisition timeouts become queue-busy errors."""
+        async with InMemoryMessageBus() as bus:
+            for lock, key in (
+                (
+                    _bus_ops.chat_input_mutation(bus, "s"),
+                    MessageBusKeys.chat_input_mutation_lock("s"),
+                ),
+                (
+                    _bus_ops._chat_input_user_quota(bus, "u"),
+                    MessageBusKeys.chat_input_user_quota_lock("u"),
+                ),
+            ):
+                with self.subTest(key=key):
+                    with self.assertRaisesRegex(TimeoutError, "body failed"):
+                        async with lock:
+                            raise TimeoutError("body failed")
+                    self.assertFalse(await bus.is_locked(key))
 
 
 class TestEditableChatQueue(IsolatedAsyncioTestCase):

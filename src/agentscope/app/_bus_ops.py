@@ -24,10 +24,11 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator, TYPE_CHECKING, Literal
 
+from .._logging import logger
 from ..event import CustomEvent
 from .message_bus._keys import MessageBusKeys
 
@@ -88,17 +89,20 @@ async def chat_input_mutation(
         if timeout_secs is None
         else timeout_secs
     )
-    try:
-        async with asyncio.timeout(timeout):
-            async with bus.acquire_lock(
-                MessageBusKeys.chat_input_mutation_lock(session_id),
-                ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
-            ):
-                yield
-    except TimeoutError as exc:
-        raise ChatQueueBusyError(
-            "The pending message queue is busy; retry shortly.",
-        ) from exc
+    async with AsyncExitStack() as stack:
+        try:
+            async with asyncio.timeout(timeout):
+                await stack.enter_async_context(
+                    bus.acquire_lock(
+                        MessageBusKeys.chat_input_mutation_lock(session_id),
+                        ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
+                    ),
+                )
+        except TimeoutError as exc:
+            raise ChatQueueBusyError(
+                "The pending message queue is busy; retry shortly.",
+            ) from exc
+        yield
 
 
 @asynccontextmanager
@@ -122,19 +126,22 @@ async def _chat_input_user_quota(
         `ChatQueueBusyError`:
             The quota lock could not be acquired before the timeout.
     """
-    try:
-        async with asyncio.timeout(
-            MessageBusKeys.CHAT_INPUT_MUTATION_TIMEOUT_SECS,
-        ):
-            async with bus.acquire_lock(
-                MessageBusKeys.chat_input_user_quota_lock(user_id),
-                ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
+    async with AsyncExitStack() as stack:
+        try:
+            async with asyncio.timeout(
+                MessageBusKeys.CHAT_INPUT_MUTATION_TIMEOUT_SECS,
             ):
-                yield
-    except TimeoutError as exc:
-        raise ChatQueueBusyError(
-            "The pending message quota is busy; retry shortly.",
-        ) from exc
+                await stack.enter_async_context(
+                    bus.acquire_lock(
+                        MessageBusKeys.chat_input_user_quota_lock(user_id),
+                        ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
+                    ),
+                )
+        except TimeoutError as exc:
+            raise ChatQueueBusyError(
+                "The pending message quota is busy; retry shortly.",
+            ) from exc
+        yield
 
 
 def _serialized_input(
@@ -299,6 +306,8 @@ async def enqueue_chat_input(
     per-session queue owns ordering, while the shared trigger queue only
     nudges an available dispatcher. Duplicate ``queued_message`` triggers
     are harmless because the per-session queue is consumed exactly once.
+    Once the input is stored, notification failures are logged rather than
+    reported as rejection; pending-input recovery retries dispatch.
 
     Args:
         bus:
@@ -376,14 +385,26 @@ async def enqueue_chat_input(
                 MessageBusKeys.chat_inputs(session_id),
                 item,
             )
-            await _publish_chat_queue_changed(bus, session_id)
-    await enqueue_run_trigger(
-        bus,
-        user_id=user_id,
-        session_id=session_id,
-        agent_id=agent_id,
-        kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
-    )
+            try:
+                await _publish_chat_queue_changed(bus, session_id)
+            except Exception:
+                logger.exception(
+                    "Chat input %s accepted, but queue notification failed.",
+                    item["id"],
+                )
+    try:
+        await enqueue_run_trigger(
+            bus,
+            user_id=user_id,
+            session_id=session_id,
+            agent_id=agent_id,
+            kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
+        )
+    except Exception:
+        logger.exception(
+            "Chat input %s accepted; wakeup failed, awaiting recovery.",
+            item["id"],
+        )
     return _public_chat_input(item)
 
 
