@@ -1,5 +1,14 @@
 import type { ContentBlock, TextBlock } from '@agentscope-ai/agentscope/message';
-import { ArrowUp, FileText, Loader2, Paperclip, Square, XIcon } from 'lucide-react';
+import {
+	AudioLines,
+	Paperclip,
+	Loader2,
+	Square,
+	type LucideIcon,
+	XIcon,
+	FileText,
+	ArrowUp,
+} from 'lucide-react';
 import mime from 'mime';
 import React, {
 	useState,
@@ -26,6 +35,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ReplyPhase } from '@/hooks/useMessages';
 import { useTranslation } from '@/i18n/useI18n.ts';
+import type { RealtimeConnectionState } from '@/lib/browserWebRTCTransport';
 import { cn } from '@/lib/utils';
 
 /**
@@ -76,6 +86,12 @@ interface TextInputProps {
 	/** Number of accepted user turns that have not started a reply yet. */
 	queuedCount?: number;
 	onInterrupt?: () => void;
+	/** Current browser realtime voice connection state. */
+	voiceState?: RealtimeConnectionState;
+	/** Starts or stops the browser realtime voice connection. */
+	onVoiceToggle?: () => void;
+	/** Prevents voice start when no realtime model is configured. */
+	voiceDisabled?: boolean;
 	/**
 	 * Content rendered directly above the input pill, inside the outer
 	 * wrapper that {@link className} styles (e.g. the working directory
@@ -134,6 +150,9 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 			phase = 'idle',
 			queuedCount = 0,
 			onInterrupt,
+			voiceState = 'idle',
+			onVoiceToggle,
+			voiceDisabled = false,
 			headerSlot,
 		},
 		ref,
@@ -162,6 +181,13 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 
 		// Whether any file is still being processed (block send until all done)
 		const hasProcessing = files.some((f) => f.status === 'processing');
+
+		// A finished attachment is content on its own: the composer can send it
+		// without any text, and the file processor already built the DataBlock.
+		const hasReadyAttachment = files.some((f) => f.status === 'done' && f.block !== null);
+
+		// Something to send: either text or a processed attachment.
+		const hasContent = value.trim().length > 0 || hasReadyAttachment;
 
 		useImperativeHandle(ref, () => ({
 			focus: () => textareaRef.current?.focus(),
@@ -214,7 +240,7 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		};
 
 		const handleSend = async () => {
-			if (!value.trim() || disabled || hasProcessing || submitting) return;
+			if (!hasContent || disabled || hasProcessing || submitting) return;
 
 			const blocks: ContentBlock[] = [];
 
@@ -257,7 +283,53 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		};
 
 		const replyActive = phase !== 'idle';
-		const sendDisabled = disabled || !value.trim() || hasProcessing || submitting;
+
+		/**
+		 * Primary action configuration derived from realtime voice, reply,
+		 * and text input state. One struct keeps the JSX branch-free.
+		 */
+		const actionButton: {
+			icon: LucideIcon;
+			tooltip: string;
+			disabled: boolean;
+			variant: 'default' | 'ghost';
+			onClick: (() => void) | undefined;
+		} = (() => {
+			if (voiceState === 'connecting') {
+				return {
+					icon: Loader2,
+					tooltip: t('realtime.stop'),
+					disabled: false,
+					variant: 'default',
+					onClick: onVoiceToggle,
+				};
+			}
+			if (voiceState === 'active') {
+				return {
+					icon: Square,
+					tooltip: t('realtime.stop'),
+					disabled: false,
+					variant: 'default',
+					onClick: onVoiceToggle,
+				};
+			}
+			if (hasContent || replyActive || submitting) {
+				return {
+					icon: submitting ? Loader2 : ArrowUp,
+					tooltip: replyActive ? t('textInput.queue') : t('textInput.send'),
+					disabled: disabled || !hasContent || hasProcessing || submitting,
+					variant: 'default',
+					onClick: handleSend,
+				};
+			}
+			return {
+				icon: AudioLines,
+				tooltip: voiceDisabled ? t('realtime.selectFirst') : t('realtime.start'),
+				disabled: voiceDisabled,
+				variant: 'ghost',
+				onClick: onVoiceToggle,
+			};
+		})();
 
 		const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
 			if (!e.target.files) return;
@@ -509,21 +581,25 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 								<TooltipTrigger asChild>
 									<Button
 										type="button"
-										onClick={() => void handleSend()}
-										disabled={sendDisabled}
+										variant={actionButton.variant}
+										onClick={actionButton.onClick}
+										disabled={actionButton.disabled}
 										size="icon-lg"
-										className="shrink-0 rounded-full"
-									>
-										{submitting ? (
-											<Loader2 className="h-4 w-4 animate-spin" />
-										) : (
-											<ArrowUp className="h-4 w-4" />
+										className={cn(
+											'relative shrink-0 rounded-full transition-colors',
+											voiceState === 'active' &&
+												'before:absolute before:inset-[-4px] before:rounded-full before:border before:border-primary/30 before:animate-pulse',
 										)}
+									>
+										<actionButton.icon
+											className={cn(
+												'h-4 w-4',
+											(voiceState === 'connecting' || submitting) && 'animate-spin',
+											)}
+										/>
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent>
-									{replyActive ? t('textInput.queue') : t('textInput.send')}
-								</TooltipContent>
+								<TooltipContent>{actionButton.tooltip}</TooltipContent>
 							</Tooltip>
 
 							{/* Hidden file input */}

@@ -207,9 +207,15 @@ class DeepSeekChatModel(ChatModelBase):
         thinking_type = (
             "enabled" if self.parameters.thinking_enable else "disabled"
         )
-        kwargs.setdefault("extra_body", {})
-        kwargs["extra_body"].setdefault("thinking", {})
-        kwargs["extra_body"]["thinking"].setdefault("type", thinking_type)
+        # Build a new dict so the caller's extra_body is never mutated
+        extra_body = kwargs.get("extra_body") or {}
+        kwargs["extra_body"] = {
+            **extra_body,
+            "thinking": {
+                "type": thinking_type,
+                **extra_body.get("thinking", {}),
+            },
+        }
 
         fmt_tools, fmt_tool_choice = self._format_tools(tools, tool_choice)
 
@@ -270,14 +276,15 @@ class DeepSeekChatModel(ChatModelBase):
                 if chunk.usage:
                     u = chunk.usage
                     usage = ChatUsage(
-                        input_tokens=u.prompt_tokens,
-                        output_tokens=u.completion_tokens,
+                        input_tokens=u.prompt_tokens or 0,
+                        output_tokens=u.completion_tokens or 0,
                         time=(datetime.now() - start_datetime).total_seconds(),
                         cache_input_tokens=getattr(
                             u,
                             "prompt_cache_hit_tokens",
                             0,
-                        ),
+                        )
+                        or 0,
                     )
 
                 if not chunk.choices:
@@ -376,14 +383,15 @@ class DeepSeekChatModel(ChatModelBase):
         if response.usage:
             u = response.usage
             usage = ChatUsage(
-                input_tokens=u.prompt_tokens,
-                output_tokens=u.completion_tokens,
+                input_tokens=u.prompt_tokens or 0,
+                output_tokens=u.completion_tokens or 0,
                 time=(datetime.now() - start_datetime).total_seconds(),
                 cache_input_tokens=getattr(
                     u,
                     "prompt_cache_hit_tokens",
                     0,
-                ),
+                )
+                or 0,
             )
 
         resp_kwargs: dict[str, Any] = {

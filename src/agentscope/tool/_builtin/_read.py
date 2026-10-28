@@ -166,7 +166,9 @@ Usage:
         super().__init__(middlewares=middlewares)
         self._max_line_characters = max_line_characters
         self.model_input_types = (
-            model_input_types or _DEFAULT_MODEL_INPUT_TYPES
+            _DEFAULT_MODEL_INPUT_TYPES.copy()
+            if model_input_types is None
+            else model_input_types
         )
         """The media types the model accepts as input, see ``__init__``."""
         self._backend = backend or LocalBackend()
@@ -311,7 +313,15 @@ Usage:
         ext = os.path.splitext(self._backend.basename(file_path))[1].lower()
 
         if ext == ".pdf":
-            return await self._read_pdf(file_path, pages)
+            # PDF decoding and page serialization can fail after opening.
+            try:
+                return await self._read_pdf(file_path, pages)
+            except Exception as e:
+                return ToolChunk(
+                    content=[TextBlock(text=f"Error reading PDF: {str(e)}")],
+                    state=ToolResultState.ERROR,
+                    is_last=True,
+                )
         if ext in _IMAGE_EXTENSIONS:
             return await self._read_image_file(file_path, ext)
 
@@ -500,7 +510,13 @@ Usage:
             # Read file content via backend
             lines = None
             if _agent_state is not None:
-                cache = await _agent_state.tool_context.get_cache(file_path)
+                # Take the mtime from the backend that reads the file, so
+                # the cache also works for sandbox-only paths.
+                mtime = await self._backend.stat_mtime(file_path)
+                cache = await _agent_state.tool_context.get_cache(
+                    file_path,
+                    mtime=mtime,
+                )
                 if cache is not None:
                     lines = cache.lines
 
@@ -518,6 +534,7 @@ Usage:
                     await _agent_state.tool_context.cache_file(
                         file_path=file_path,
                         lines=lines,
+                        mtime=mtime,
                     )
 
             # Apply offset and limit (offset is 1-based)

@@ -293,7 +293,7 @@ async def upload_skill(
         workspace_service.validate_manifest(parsed, len(files))
     except (ValidationError, SkillUploadError) as e:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             str(e),
         ) from e
 
@@ -314,7 +314,7 @@ async def upload_skill(
         )
     except (SkillUploadError, ValueError) as e:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             str(e),
         ) from e
 
@@ -395,7 +395,12 @@ async def remove_skill(
         agent_id,
         session_id,
     )
-    await workspace.remove_skill(skill_name, agent_id=agent_id)
+    try:
+        await workspace.remove_skill(skill_name, agent_id=agent_id)
+    except KeyError:
+        # ``LocalWorkspace`` already treats a missing skill as a no-op.
+        # Keep DELETE idempotent for the other workspace implementations.
+        return
 
 
 # ---------------------------------------------------------------------------

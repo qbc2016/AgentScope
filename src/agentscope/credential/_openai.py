@@ -7,8 +7,10 @@ from pydantic import ConfigDict, Field, SecretStr
 from ._base import CredentialBase
 
 if TYPE_CHECKING:
+    from ..asr import ASRModelBase
     from ..embedding import EmbeddingModelBase
     from ..model import ChatModelBase
+    from ..realtime import RealtimeModelBase
     from ..tts import TTSModelBase
 
 
@@ -50,6 +52,16 @@ class OpenAICredential(CredentialBase):
         return OpenAIChatModel
 
     @classmethod
+    def get_chat_model_classes(cls) -> list[Type["ChatModelBase"]]:
+        """Return both APIs unless the legacy getter selects a custom model."""
+        from ..model import OpenAIChatModel, OpenAIResponseModel
+
+        model_cls = cls.get_chat_model_class()
+        if model_cls is not OpenAIChatModel:
+            return [model_cls]
+        return [OpenAIChatModel, OpenAIResponseModel]
+
+    @classmethod
     def get_embedding_model_class(cls) -> Type["EmbeddingModelBase"]:
         """Return the OpenAIEmbeddingModel class."""
         from ..embedding import OpenAIEmbeddingModel
@@ -62,3 +74,17 @@ class OpenAICredential(CredentialBase):
         from ..tts import OpenAITTSModel
 
         return [OpenAITTSModel]
+
+    @classmethod
+    def get_asr_model_classes(cls) -> list[Type["ASRModelBase"]]:
+        """Return the OpenAI transcription implementation."""
+        from ..asr import OpenAIASRModel
+
+        return [OpenAIASRModel]
+
+    @classmethod
+    def get_realtime_model_classes(cls) -> list[Type["RealtimeModelBase"]]:
+        """Return the OpenAI realtime model classes."""
+        from ..realtime import OpenAIRealtimeModel
+
+        return [OpenAIRealtimeModel]
