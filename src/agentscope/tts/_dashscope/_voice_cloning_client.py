@@ -73,13 +73,13 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
         if (audio is None) == (audio_url is None):
             raise ValueError("Provide exactly one of audio or audio_url")
 
-        enrollment = "voice-enrollment"
         inputs: dict[str, Any] = {
             "action": "create_voice",
             "target_model": target_model,
             "prefix": options.prefix,
         }
         if target_model.startswith("cosyvoice-"):
+            enrollment = "voice-enrollment"
             if audio is not None:
                 raise ValueError(
                     "CosyVoice requires audio_url, not audio bytes",
@@ -96,6 +96,7 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
             encoded = base64.b64encode(audio).decode("ascii")
             data_uri = f"data:{mime_type};base64,{encoded}"
             if target_model.startswith("qwen-audio-"):
+                enrollment = "voice-enrollment"
                 inputs["audio"] = data_uri
             else:
                 enrollment = "qwen-voice-enrollment"
