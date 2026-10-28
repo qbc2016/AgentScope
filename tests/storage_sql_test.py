@@ -13,6 +13,7 @@ import asyncio
 from contextlib import AsyncExitStack
 from datetime import datetime, timedelta, timezone
 from importlib import import_module
+from os import environ
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -1944,7 +1945,7 @@ class VoiceProfileSQLTest(IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         """Use a file database shared by Alembic and concurrent sessions."""
-        directory = TemporaryDirectory(prefix="agentscope-voice-sql-")
+        directory = TemporaryDirectory(prefix="agentscope-voice-%sql-")
         self.addCleanup(directory.cleanup)
         self.url = URL.create(
             "sqlite+aiosqlite",
@@ -1953,7 +1954,35 @@ class VoiceProfileSQLTest(IsolatedAsyncioTestCase):
         alembic_dir = Path(sql_storage.__file__).parent / "_alembic"
         self.config = Config(str(alembic_dir / "alembic.ini"))
         self.config.set_main_option("script_location", str(alembic_dir))
-        self.config.set_main_option("sqlalchemy.url", self.url)
+        self.config.set_main_option(
+            "sqlalchemy.url",
+            self.url.replace("%", "%%"),
+        )
+
+    async def test_migrations_accept_url_from_environment(self) -> None:
+        """Environment URLs with percent signs reach the intended database."""
+        self.config.set_main_option("sqlalchemy.url", "")
+        with patch.dict(environ, {"AGENTSCOPE_SQL_URL": self.url}):
+            await asyncio.to_thread(command.upgrade, self.config, "head")
+        self.assertEqual(
+            self.config.get_main_option("sqlalchemy.url"),
+            self.url,
+        )
+        async with AsyncSQLAlchemyStorage(
+            self.url,
+            create_tables=False,
+        ) as storage:
+            record = VoiceProfileRecord(
+                user_id="owner",
+                data=VoiceProfileData(name="Environment URL voice"),
+            )
+            await storage.upsert_voice_profile("owner", record)
+            self.assertEqual(
+                (
+                    await storage.get_voice_profile("owner", record.id)
+                ).model_dump(),
+                record.model_dump(),
+            )
 
     async def test_migrations_alone_support_voice_profile_crud(self) -> None:
         """The migration supplies the entire table, indexes and CRUD path."""

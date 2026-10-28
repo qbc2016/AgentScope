@@ -240,7 +240,8 @@ class AsyncSQLAlchemyStorage(StorageBase):
         alembic_dir = Path(__file__).resolve().parent / "_alembic"
         cfg = Config(str(alembic_dir / "alembic.ini"))
         cfg.set_main_option("script_location", str(alembic_dir))
-        cfg.set_main_option("sqlalchemy.url", self._url)
+        # ConfigParser requires literal percent signs to be escaped.
+        cfg.set_main_option("sqlalchemy.url", self._url.replace("%", "%%"))
 
         await asyncio.to_thread(command.upgrade, cfg, "head")
 
