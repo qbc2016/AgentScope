@@ -2,10 +2,7 @@
 """Voice profile router — CRUD endpoints."""
 import base64
 import binascii
-import mimetypes
-import os
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..access import ResourceKind
@@ -23,7 +20,14 @@ from ..storage._model import (
     ENGINE_VOICE_CLONING,
     get_missing_voice_profile_binding_fields,
 )
-from ...credential import CredentialFactory
+from ...credential import (
+    CredentialFactory,
+    OpenAICredential,
+)
+from ...tts import (
+    OpenAIVoiceCloningClient,
+    VoiceCloningError,
+)
 from ._schema import (
     AvailableEnginesResponse,
     CloneVoiceRequest,
@@ -378,22 +382,6 @@ async def delete_voice_profile(
 # Voice Cloning
 # ------------------------------------------------------------------
 
-_CLONE_URL = (
-    "https://dashscope.aliyuncs.com/api"
-    + "/v1/services/audio/tts/customization"
-)
-
-
-def _parse_upstream_json(resp: httpx.Response, provider: str) -> dict:
-    """Translate malformed provider JSON into a gateway error."""
-    try:
-        return resp.json()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"{provider} returned an invalid JSON response.",
-        ) from exc
-
 
 def _decode_audio(audio_base64: str) -> bytes:
     """Decode a non-empty audio payload or reject malformed input."""
@@ -410,23 +398,6 @@ def _decode_audio(audio_base64: str) -> bytes:
             detail="audio_base64 must contain non-empty audio.",
         )
     return audio
-
-
-def _openai_request_config(credential: dict) -> tuple[str, dict[str, str]]:
-    """Match the OpenAI SDK's endpoint and organization/project defaults."""
-    base_url = (
-        credential.get("base_url")
-        or os.getenv("OPENAI_BASE_URL")
-        or "https://api.openai.com/v1"
-    )
-    headers = {"Authorization": f"Bearer {credential.get('api_key', '')}"}
-    organization = credential.get("organization") or os.getenv("OPENAI_ORG_ID")
-    if organization:
-        headers["OpenAI-Organization"] = organization
-    project = os.getenv("OPENAI_PROJECT_ID")
-    if project:
-        headers["OpenAI-Project"] = project
-    return base_url.rstrip("/"), headers
 
 
 @voice_profile_router.post(
@@ -460,56 +431,21 @@ async def upload_openai_consent(
         body.credential_id,
         "openai_credential",
     )
-    base_url, headers = _openai_request_config(cred_data)
-
-    audio_bytes = _decode_audio(body.audio_base64)
-    mime_type, _ = mimetypes.guess_type(body.audio_filename)
-    if mime_type is None:
-        mime_type = "audio/wav"
-
+    audio = _decode_audio(body.audio_base64)
+    client = OpenAIVoiceCloningClient(
+        OpenAICredential.model_validate(cred_data),
+    )
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{base_url}/audio/voice_consents",
-                headers=headers,
-                data={
-                    "name": body.name,
-                    "language": body.language,
-                },
-                files={
-                    "recording": (
-                        body.audio_filename,
-                        audio_bytes,
-                        mime_type,
-                    ),
-                },
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Network error calling OpenAI: {exc}",
-        ) from exc
-
-    if resp.status_code not in (200, 201):
-        detail = resp.text[:500]
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"OpenAI consent upload failed "
-                f"({resp.status_code}): {detail}"
-            ),
+        consent_id = await client.create_consent(
+            audio,
+            name=body.name,
+            language=body.language,
+            filename=body.audio_filename,
         )
-
-    result = _parse_upstream_json(resp, "OpenAI")
-    consent_id = result.get("id", "")
-    if not consent_id:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "OpenAI returned success but no consent "
-                f"id in response: {result}"
-            ),
-        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VoiceCloningError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return OpenAIConsentResponse(consent_id=consent_id)
 
@@ -526,10 +462,9 @@ async def clone_voice(
         get_resource_access_service,
     ),
 ) -> CloneVoiceResponse:
-    """Clone a voice by uploading audio to DashScope.
+    """Clone a voice using OpenAI or DashScope voice enrollment.
 
-    Supports both CosyVoice (url-based) and Qwen-TTS
-    (base64-based) voice enrollment APIs.
+    Supports OpenAI and Qwen-TTS uploads and CosyVoice audio URLs.
 
     Args:
         body: Clone request with engine, model, and audio.
@@ -539,254 +474,73 @@ async def clone_voice(
     Returns:
         CloneVoiceResponse with the generated voice_id.
     """
-    if not ENGINE_VOICE_CLONING.get(body.engine, False):
+    cred_type = ENGINE_TO_CREDENTIAL_TYPE.get(body.engine)
+    cred_cls = (
+        CredentialFactory.get_credential_class(cred_type)
+        if cred_type is not None
+        else None
+    )
+    client_cls = (
+        cred_cls.get_voice_cloning_client_class() if cred_cls else None
+    )
+    if client_cls is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Engine '{body.engine}' does not " f"support voice cloning."
-            ),
+            detail=f"Engine '{body.engine}' does not support voice cloning.",
         )
 
-    # OpenAI voice creation is model-agnostic, but an explicitly selected
-    # synthesis model must support the resulting custom voice.
-    if body.model:
-        cred_type = ENGINE_TO_CREDENTIAL_TYPE.get(body.engine)
-        if cred_type:
-            cred_cls = CredentialFactory.get_credential_class(
-                cred_type,
+    if body.model and cred_cls is not None:
+        card = next(
+            (c for c in cred_cls.list_tts_models() if c.name == body.model),
+            None,
+        )
+        if card is not None and not card.voice_cloning:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model '{body.model}' does not support voice cloning.",
             )
-            if cred_cls is not None:
-                cards = cred_cls.list_tts_models()
-                card = next(
-                    (c for c in cards if c.name == body.model),
-                    None,
-                )
-                if card is not None and not card.voice_cloning:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=(
-                            f"Model '{body.model}' does not "
-                            f"support voice cloning."
-                        ),
-                    )
 
-    # OpenAI cloning: multipart/form-data upload
-    if body.engine == "openai_tts":
-        return await _clone_openai(body, access, user_id)
-
-    # DashScope-based cloning (Qwen-TTS / CosyVoice)
-    return await _clone_dashscope(body, access, user_id)
-
-
-async def _clone_dashscope(
-    body: CloneVoiceRequest,
-    access: ResourceAccessService,
-    user_id: str,
-) -> CloneVoiceResponse:
-    """Clone a voice via DashScope (Qwen-TTS or CosyVoice).
-
-    Args:
-        body: Clone request data.
-        access: Resource access service.
-        user_id: Authenticated user id.
-
-    Returns:
-        CloneVoiceResponse with the generated voice_id.
-    """
-    if not body.model:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="model is required for DashScope cloning.",
-        )
+    assert cred_type is not None
     cred_data = await _resolve_owned_credential(
         access,
         user_id,
         body.credential_id,
-        "dashscope_credential",
+        cred_type,
     )
-    api_key = cred_data.get("api_key", "")
-
-    mime_type, _ = mimetypes.guess_type(body.audio_filename)
-    if mime_type is None:
-        mime_type = "audio/wav"
-
-    if body.engine in ("dashscope_tts",):
-        if not body.audio_base64:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="audio_base64 is required for Qwen-TTS.",
-            )
-        audio_data_url = f"data:{mime_type};base64,{body.audio_base64}"
-        if body.model.startswith("qwen-audio-"):
-            payload: dict = {
-                "model": "voice-enrollment",
-                "input": {
-                    "action": "create_voice",
-                    "target_model": body.model,
-                    "prefix": body.prefix,
-                    "audio": audio_data_url,
-                },
-            }
-        else:
-            payload = {
-                "model": "qwen-voice-enrollment",
-                "input": {
-                    "action": "create",
-                    "target_model": body.model,
-                    "preferred_name": body.prefix,
-                    "audio": {"data": audio_data_url},
-                },
-            }
-            if body.text:
-                payload["input"]["text"] = body.text
-    else:
-        if not body.audio_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "audio_url is required for CosyVoice "
-                    "(must be a publicly accessible URL)."
-                ),
-            )
-        payload = {
-            "model": "voice-enrollment",
-            "input": {
-                "action": "create_voice",
-                "target_model": body.model,
-                "prefix": body.prefix,
-                "url": body.audio_url,
+    # Adapt existing HTTP fields to provider options without SDK dependencies
+    # on App schemas. New provider-specific UI fields belong in this adapter.
+    values = {
+        "name": body.prefix,
+        "prefix": body.prefix,
+        "target_model": body.model,
+        "text": body.text,
+        "consent": body.consent,
+    }
+    audio = (
+        _decode_audio(body.audio_base64)
+        if body.audio_base64 is not None
+        else None
+    )
+    try:
+        credential = CredentialFactory.from_dict(cred_data)
+        client = client_cls(credential)
+        parameters = client.Parameters.model_validate(
+            {
+                name: value
+                for name, value in values.items()
+                if name in client.Parameters.model_fields
             },
-        }
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                _CLONE_URL,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Network error calling DashScope: {exc}",
-        ) from exc
-
-    if resp.status_code != 200:
-        detail = resp.text[:500]
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"DashScope voice clone failed "
-                f"({resp.status_code}): {detail}"
-            ),
         )
-
-    result = _parse_upstream_json(resp, "DashScope")
-    output = result.get("output", {})
-    voice_id = (
-        output.get("voice")
-        or output.get("voice_id")
-        or output.get("voice_name", "")
-    )
-    if not voice_id:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "DashScope returned success but no "
-                f"voice found in response: {result}"
-            ),
+        voice_id = await client.create_voice(
+            audio,
+            filename=body.audio_filename,
+            audio_url=body.audio_url,
+            parameters=parameters,
         )
-
-    return CloneVoiceResponse(
-        voice_id=voice_id,
-        credential_id=body.credential_id,
-    )
-
-
-async def _clone_openai(
-    body: CloneVoiceRequest,
-    access: ResourceAccessService,
-    user_id: str,
-) -> CloneVoiceResponse:
-    """Clone a voice via OpenAI's voice creation API.
-
-    Args:
-        body: Clone request data.
-        access: Resource access service.
-        user_id: Authenticated user id.
-
-    Returns:
-        CloneVoiceResponse with the generated voice id.
-    """
-    if not body.audio_base64:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="audio_base64 is required for OpenAI.",
-        )
-    if not body.consent:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=("consent token is required for OpenAI " "voice cloning."),
-        )
-
-    cred_data = await _resolve_owned_credential(
-        access,
-        user_id,
-        body.credential_id,
-        "openai_credential",
-    )
-    base_url, headers = _openai_request_config(cred_data)
-
-    audio_bytes = _decode_audio(body.audio_base64)
-    mime_type, _ = mimetypes.guess_type(body.audio_filename)
-    if mime_type is None:
-        mime_type = "audio/wav"
-
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{base_url}/audio/voices",
-                headers=headers,
-                data={
-                    "name": body.prefix,
-                    "consent": body.consent,
-                },
-                files={
-                    "audio_sample": (
-                        body.audio_filename,
-                        audio_bytes,
-                        mime_type,
-                    ),
-                },
-            )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Network error calling OpenAI: {exc}",
-        ) from exc
-
-    if resp.status_code not in (200, 201):
-        detail = resp.text[:500]
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"OpenAI voice clone failed " f"({resp.status_code}): {detail}"
-            ),
-        )
-
-    result = _parse_upstream_json(resp, "OpenAI")
-    voice_id = result.get("id", "")
-    if not voice_id:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "OpenAI returned success but no voice "
-                f"id in response: {result}"
-            ),
-        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except VoiceCloningError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return CloneVoiceResponse(
         voice_id=voice_id,

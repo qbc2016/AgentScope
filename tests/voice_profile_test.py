@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 from agentscope.app._router._voice_profile import (
     _decode_audio,
@@ -45,7 +46,160 @@ from agentscope.app.storage._model._voice_profile import (
 from agentscope.tts import (
     DashScopeCosyVoiceTTSModel,
     TTSModelCard,
+    VoiceCloningError,
+    VoiceCloningClientBase,
 )
+from agentscope.credential import CredentialBase, CredentialFactory
+
+
+class _DemoVoiceCloningClient(VoiceCloningClientBase):
+    """A third-party client used to verify provider-independent dispatch."""
+
+    class Parameters(VoiceCloningClientBase.Parameters):
+        """Creation options understood by the demo provider."""
+
+        name: str
+
+    async def create_voice(
+        self,
+        audio: bytes | None = None,
+        *,
+        filename: str = "voice.wav",
+        audio_url: str | None = None,
+        parameters: BaseModel | None = None,
+    ) -> str:
+        """Return a provider ID without a network request."""
+        return "demo-voice-id"
+
+
+class _DemoVoiceCredential(CredentialBase):  # pylint: disable=abstract-method
+    """A separately registered credential supplying its own client."""
+
+    type: typing.Literal["demo_voice_credential"] = "demo_voice_credential"
+
+    @classmethod
+    def get_voice_cloning_client_class(
+        cls,
+    ) -> typing.Type[VoiceCloningClientBase]:
+        """Expose the demo client's voice creation capability."""
+        return _DemoVoiceCloningClient
+
+
+class TestVoiceCloningClientDispatch(IsolatedAsyncioTestCase):
+    """New providers use the common route without adding dispatch branches."""
+
+    async def test_registered_provider_uses_common_route(self) -> None:
+        """Credential registration and engine mapping select a third client."""
+        access = AsyncMock()
+        data = {
+            "type": "demo_voice_credential",
+            "id": "credential-demo",
+            "name": "Demo credential",
+        }
+        access.resolve_credential.return_value = CredentialRecord(
+            id="credential-demo",
+            user_id="user-a",
+            data=data,
+        )
+        with (
+            patch.object(
+                CredentialFactory,
+                "_classes",
+                list(CredentialFactory._classes),
+            ),
+            patch.object(CredentialFactory, "_adapter", None),
+            patch.dict(
+                ENGINE_TO_CREDENTIAL_TYPE,
+                {"demo_engine": "demo_voice_credential"},
+            ),
+            patch.object(
+                _DemoVoiceCloningClient,
+                "create_voice",
+                autospec=True,
+                return_value="demo-voice-id",
+            ) as create,
+        ):
+            CredentialFactory.register_credential(_DemoVoiceCredential)
+            result = await clone_voice(
+                CloneVoiceRequest(
+                    engine="demo_engine",
+                    credential_id="credential-demo",
+                    audio_base64="AAEC",
+                    audio_filename="sample.mp3",
+                    prefix="Demo voice",
+                ),
+                "user-a",
+                access,
+            )
+        self.assertEqual(
+            result.model_dump(),
+            {
+                "voice_id": "demo-voice-id",
+                "credential_id": "credential-demo",
+            },
+        )
+        create.assert_awaited_once()
+        client = create.call_args.args[0]
+        self.assertEqual(client.credential.model_dump(), data)
+        create.assert_awaited_once_with(
+            client,
+            b"\x00\x01\x02",
+            filename="sample.mp3",
+            audio_url=None,
+            parameters=_DemoVoiceCloningClient.Parameters(name="Demo voice"),
+        )
+
+    async def test_unsupported_client_is_rejected(self) -> None:
+        """Unknown engines and credentials without clients do not dispatch."""
+        access = AsyncMock()
+        for engine in ("unknown", "gemini_tts"):
+            with self.subTest(engine=engine):
+                with self.assertRaises(HTTPException) as ctx:
+                    await clone_voice(
+                        CloneVoiceRequest(
+                            engine=engine,
+                            credential_id="credential-a",
+                        ),
+                        "user-a",
+                        access,
+                    )
+                self.assertEqual(ctx.exception.status_code, 400)
+        access.resolve_credential.assert_not_called()
+
+    async def test_common_route_keeps_credential_authorization(self) -> None:
+        """Shared and wrong-provider credentials cannot reach any SDK call."""
+        for engine, provider in (
+            ("openai_tts", "openai_credential"),
+            ("cosyvoice", "dashscope_credential"),
+        ):
+            for owner, actual_type, expected_status in (
+                ("user-b", provider, 403),
+                ("user-a", "gemini_credential", 400),
+            ):
+                with self.subTest(engine=engine, owner=owner):
+                    access = AsyncMock()
+                    access.resolve_credential.return_value = CredentialRecord(
+                        id="credential-a",
+                        user_id=owner,
+                        data={"type": actual_type, "api_key": "test"},
+                    )
+                    with patch(
+                        "agentscope.tts._voice_utils.httpx.AsyncClient",
+                    ) as client:
+                        with self.assertRaises(HTTPException) as ctx:
+                            await clone_voice(
+                                CloneVoiceRequest(
+                                    engine=engine,
+                                    credential_id="credential-a",
+                                ),
+                                "user-a",
+                                access,
+                            )
+                    self.assertEqual(
+                        ctx.exception.status_code,
+                        expected_status,
+                    )
+                    client.assert_not_called()
 
 
 class TestVoiceProfileModel(TestCase):
@@ -713,7 +867,7 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
     async def test_malformed_audio_is_rejected_before_http(self) -> None:
         """Both upload routes reject invalid base64 without a provider call."""
         with patch(
-            "agentscope.app._router._voice_profile.httpx.AsyncClient",
+            "agentscope.tts._voice_utils.httpx.AsyncClient",
         ) as client:
             for audio in ("a", "!!!!", "中文", ""):
                 for operation in ("consent", "clone"):
@@ -810,8 +964,7 @@ class TestOpenAIVoiceRequestConfig(IsolatedAsyncioTestCase):
                     with (
                         patch.dict("os.environ", environment, clear=True),
                         patch(
-                            "agentscope.app._router._voice_profile.httpx."
-                            "AsyncClient",
+                            "agentscope.tts._voice_utils.httpx.AsyncClient",
                         ) as client,
                     ):
                         post = AsyncMock(
@@ -924,12 +1077,19 @@ class TestDashScopeVoiceCloneProtocol(IsolatedAsyncioTestCase):
         access.resolve_credential.return_value = CredentialRecord(
             id="credential-a",
             user_id="user-a",
-            data={"type": "dashscope_credential", "api_key": "test"},
+            data={
+                "type": "dashscope_credential",
+                "api_key": "test",
+                "base_url": (
+                    "https://workspace.cn-beijing.maas.aliyuncs.com"
+                    "/compatible-mode/v1"
+                ),
+            },
         )
         for engine, model, enrollment, expected_input in cases:
             with self.subTest(model=model):
                 with patch(
-                    "agentscope.app._router._voice_profile.httpx.AsyncClient",
+                    "agentscope.tts._voice_utils.httpx.AsyncClient",
                 ) as client:
                     post = AsyncMock(
                         return_value=httpx.Response(
@@ -943,7 +1103,9 @@ class TestDashScopeVoiceCloneProtocol(IsolatedAsyncioTestCase):
                             engine=engine,
                             model=model,
                             credential_id="credential-a",
-                            audio_base64="AAEC",
+                            audio_base64="AAEC"
+                            if engine != "cosyvoice"
+                            else None,
                             audio_filename="sample.mp3",
                             audio_url="https://example.com/sample.mp3"
                             if engine == "cosyvoice"
@@ -955,8 +1117,8 @@ class TestDashScopeVoiceCloneProtocol(IsolatedAsyncioTestCase):
                         access,
                     )
                 post.assert_awaited_once_with(
-                    "https://dashscope.aliyuncs.com/api/v1/services"
-                    "/audio/tts/customization",
+                    "https://workspace.cn-beijing.maas.aliyuncs.com"
+                    "/api/v1/services/audio/tts/customization",
                     json={
                         "model": enrollment,
                         "input": {**expected_input, "target_model": model},
@@ -995,7 +1157,7 @@ class TestVoiceProfileUpstreamResponse(IsolatedAsyncioTestCase):
             },
         )
         with patch(
-            "agentscope.app._router._voice_profile.httpx.AsyncClient",
+            "agentscope.tts._voice_utils.httpx.AsyncClient",
         ) as client:
             client.return_value.__aenter__.return_value.post = AsyncMock(
                 return_value=response,
@@ -1021,8 +1183,12 @@ class TestVoiceProfileUpstreamResponse(IsolatedAsyncioTestCase):
                         model="cosyvoice-v3-plus"
                         if operation == "dashscope"
                         else None,
-                        audio_url="https://example.com/sample.wav",
-                        audio_base64="AAEC",
+                        audio_url="https://example.com/sample.wav"
+                        if operation == "dashscope"
+                        else None,
+                        audio_base64="AAEC"
+                        if operation != "dashscope"
+                        else None,
                         consent="consent-1",
                     ),
                     "user-a",
@@ -1059,6 +1225,35 @@ class TestVoiceProfileUpstreamResponse(IsolatedAsyncioTestCase):
                                 "response.",
                             ),
                         )
+
+    async def test_sdk_errors_keep_http_boundary(self) -> None:
+        """SDK input and provider errors become HTTP 400 and 502."""
+        for operation, method in (
+            ("consent", "OpenAIVoiceCloningClient.create_consent"),
+            ("openai", "OpenAIVoiceCloningClient.create_voice"),
+            ("dashscope", "DashScopeVoiceCloningClient.create_voice"),
+        ):
+            for error, status_code in (
+                (ValueError("invalid audio"), 400),
+                (VoiceCloningError("upstream failure"), 502),
+            ):
+                with self.subTest(operation=operation, status=status_code):
+                    with patch(
+                        f"agentscope.tts.{method}",
+                        new_callable=AsyncMock,
+                        side_effect=error,
+                    ) as create:
+                        with self.assertRaises(HTTPException) as ctx:
+                            await self._request(
+                                operation,
+                                httpx.Response(200, json={}),
+                            )
+                    self.assertEqual(
+                        (ctx.exception.status_code, ctx.exception.detail),
+                        (status_code, str(error)),
+                    )
+                    self.assertIs(ctx.exception.__cause__, error)
+                    create.assert_awaited_once()
 
     async def test_valid_success_preserves_response(self) -> None:
         """Provider ids are still returned in the public response schema."""
