@@ -2,10 +2,10 @@
 """DashScope voice enrollment for Qwen-TTS and CosyVoice."""
 import base64
 from typing import Any
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
+from ._endpoints import _dashscope_url
 from ...credential import DashScopeCredential
 from .._voice_cloning_client_base import VoiceCloningClientBase
 from .._voice_utils import (
@@ -15,19 +15,6 @@ from .._voice_utils import (
 )
 
 _CLONE_PATH = "/api/v1/services/audio/tts/customization"
-
-
-def _clone_url(base_url: str) -> str:
-    """Replace the credential API suffix while preserving proxy prefixes."""
-    parsed = urlsplit(base_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("DashScope base_url must be an absolute HTTP(S) URL")
-    prefix = parsed.path.rstrip("/")
-    for suffix in ("/compatible-mode/v1", "/api/v1"):
-        if prefix.endswith(suffix):
-            prefix = prefix[: -len(suffix)]
-            break
-    return parsed._replace(path=prefix + _CLONE_PATH, fragment="").geturl()
 
 
 class DashScopeVoiceCloningClient(VoiceCloningClientBase):
@@ -126,7 +113,7 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
             )
 
         result = await _post_voice_request(
-            _clone_url(self.credential.base_url),
+            _dashscope_url(self.credential.base_url, _CLONE_PATH),
             provider="DashScope",
             operation="voice clone",
             headers={

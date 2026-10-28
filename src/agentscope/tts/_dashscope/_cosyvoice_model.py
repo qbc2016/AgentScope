@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from .._tts_base import TTSModelBase
 from .._tts_model_card import TTSModelCard
 from .._tts_response import TTSResponse
+from ._endpoints import _dashscope_url
 from ._cosyvoice_utils import (
     _BITS_PER_SAMPLE,
     _CHANNELS,
@@ -181,6 +182,11 @@ class DashScopeCosyVoiceTTSModel(TTSModelBase):
             voice=self.parameters.voice,
             format=AudioFormat.PCM_24000HZ_MONO_16BIT,
             callback=callback_instance,
+            url=_dashscope_url(
+                self.credential.base_url,
+                "/api-ws/v1/inference",
+                websocket=True,
+            ),
         )
         return synthesizer, callback_instance
 
