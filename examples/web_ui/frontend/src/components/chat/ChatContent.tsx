@@ -73,7 +73,7 @@ interface ChatContentProps {
 	/**
 	 * Reply lifecycle phase from ``useMessages`` — forwarded to
 	 * ``TextInput`` so it can show a separate Stop action while keeping
-	 * Send available for queued turns.
+	 * Send available for queued turns and coordinate realtime voice.
 	 */
 	phase: ReplyPhase;
 	/** Number of locally submitted user turns waiting to start. */

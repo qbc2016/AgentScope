@@ -1,13 +1,13 @@
 import type { ContentBlock, TextBlock } from '@agentscope-ai/agentscope/message';
 import {
 	AudioLines,
-	Paperclip,
+	ArrowUp,
+	FileText,
 	Loader2,
+	Paperclip,
 	Square,
 	type LucideIcon,
 	XIcon,
-	FileText,
-	ArrowUp,
 } from 'lucide-react';
 import mime from 'mime';
 import React, {
@@ -283,10 +283,12 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		};
 
 		const replyActive = phase !== 'idle';
+		const voiceActive = voiceState === 'active' || voiceState === 'connecting';
 
 		/**
-		 * Primary action configuration derived from realtime voice, reply,
-		 * and text input state. One struct keeps the JSX branch-free.
+		 * The primary action controls realtime voice when it is connected,
+		 * otherwise it sends a normal or queued text turn. A running text
+		 * reply gets its own Stop button so sending remains available.
 		 */
 		const actionButton: {
 			icon: LucideIcon;
@@ -555,7 +557,7 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 							{/* Keep Stop and Send separate while a reply is active:
 							    users can enqueue another turn without losing the
 							    ability to interrupt the current generation. */}
-							{replyActive && (
+							{replyActive && !voiceActive && (
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<Button
@@ -577,6 +579,7 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 								</Tooltip>
 							)}
 
+							{/* Voice or Send — driven by ``actionButton`` config. */}
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<Button
