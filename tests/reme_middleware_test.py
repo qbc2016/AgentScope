@@ -345,7 +345,7 @@ def _msg_text(m: Any) -> str:
     records dicts whose ``content`` is a list of typed blocks.
     """
     if hasattr(m, "get_text_content"):
-        return m.get_text_content() or ""
+        return m.get_text_content()
     content = m.get("content") if isinstance(m, dict) else None
     if isinstance(content, str):
         return content
