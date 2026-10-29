@@ -11,14 +11,12 @@ from ..deps import (
     get_resource_access_service,
     get_storage,
 )
-from .._service import ResourceAccessService
-from .._service._tts_model import validate_voice_profile_model
+from .._service import ResourceAccessService, validate_voice_profile_model
 from ..storage import StorageBase, VoiceProfileData, VoiceProfileRecord
 from ..storage._model import (
     ENGINE_GPU_REQUIREMENT,
     ENGINE_SOURCE,
     ENGINE_TO_CREDENTIAL_TYPE,
-    ENGINE_VOICE_CLONING,
     get_missing_voice_profile_binding_fields,
 )
 from ...credential import (
@@ -167,19 +165,26 @@ async def list_available_engines(
             engines.append(engine)
     engines.sort()
 
-    details = [
-        EngineInfo(
-            name=eng,
-            source=ENGINE_SOURCE.get(eng, "local"),
-            gpu_requirement=ENGINE_GPU_REQUIREMENT.get(eng),
-            voice_cloning=ENGINE_VOICE_CLONING.get(eng, False),
-            credentials=cred_by_type.get(
-                ENGINE_TO_CREDENTIAL_TYPE[eng],
-                [],
+    details = []
+    for eng in engines:
+        cred_cls = CredentialFactory.get_credential_class(
+            ENGINE_TO_CREDENTIAL_TYPE[eng],
+        )
+        details.append(
+            EngineInfo(
+                name=eng,
+                source=ENGINE_SOURCE.get(eng, "local"),
+                gpu_requirement=ENGINE_GPU_REQUIREMENT.get(eng),
+                voice_cloning=(
+                    cred_cls is not None
+                    and cred_cls.get_voice_cloning_client_class() is not None
+                ),
+                credentials=cred_by_type.get(
+                    ENGINE_TO_CREDENTIAL_TYPE[eng],
+                    [],
+                ),
             ),
         )
-        for eng in engines
-    ]
     return AvailableEnginesResponse(
         engines=engines,
         engine_details=details,

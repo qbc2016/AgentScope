@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """TTS model service: builds a TTSModelBase from stored credential + config."""
+import re
 from typing import Type
 
 from fastapi import HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from ._access import ResourceAccessService
 from ..storage import StorageBase, TTSModelConfig, VoiceProfileData
@@ -14,14 +15,6 @@ from ..storage._model import (
 from ...credential import CredentialBase, CredentialFactory
 from ...tts import OpenAITTSModel, TTSModelBase, TTSModelCard
 from ..._logging import logger
-
-
-class _VoiceProfileNotFound(HTTPException):
-    """The session's voice profile is no longer visible to its owner."""
-
-
-class _VoiceProfileBindingMismatch(HTTPException):
-    """The session's binding differs from the current voice profile."""
 
 
 async def get_tts_model(
@@ -48,6 +41,8 @@ async def get_tts_model(
             The TTS model instance, or ``None`` when its configuration
             is no longer valid or accessible.
     """
+    credential = None
+    data = None
     try:
         if config.voice_profile_id is not None:
             data = await _get_voice_profile_data(
@@ -76,6 +71,7 @@ async def get_tts_model(
             config,
             access,
             storage,
+            resolved_profile=data,
         )
         parameters = _tts_parameters(tts_cls, config)
         return tts_cls(
@@ -88,11 +84,43 @@ async def get_tts_model(
             "Skipping TTS for user %r, model %r: %s",
             user_id,
             config.model,
-            exc.detail
-            if isinstance(exc, HTTPException)
-            else type(exc).__name__,
+            _config_error_detail(exc, config, credential),
         )
         return None
+
+
+def _config_error_detail(
+    exc: HTTPException | ValueError,
+    config: TTSModelConfig,
+    credential: CredentialBase | None,
+) -> str:
+    """Keep diagnostic fields while excluding submitted values and secrets."""
+    if isinstance(exc, ValidationError):
+        return "; ".join(
+            f"{'.'.join(map(str, item['loc']))}: {item['type']}"
+            for item in exc.errors(include_input=False, include_context=False)
+        )[:500]
+    detail = str(exc.detail if isinstance(exc, HTTPException) else exc)
+
+    def redact(value: object) -> None:
+        """Remove known values recursively, including SecretStr payloads."""
+        nonlocal detail
+        if isinstance(value, SecretStr):
+            value = value.get_secret_value()
+        if isinstance(value, str) and value:
+            detail = detail.replace(value, "[redacted]")
+        elif isinstance(value, dict):
+            for item in value.values():
+                redact(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                redact(item)
+
+    redact(config.parameters)
+    if credential is not None:
+        redact(credential.model_dump())
+    detail = re.sub(r"https?://\S+", "[URL]", detail)
+    return f"{type(exc).__name__}: {detail}"[:500]
 
 
 async def validate_tts_model_config(
@@ -141,7 +169,10 @@ def validate_voice_profile_model(
     """Reject known incompatible profiles without blocking new deployments."""
     classes = credential.get_tts_model_classes()
     if not classes:
-        raise HTTPException(400, "Credential does not support TTS models.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Credential does not support TTS models.",
+        )
     assert data.model is not None
     tts_cls = _resolve_tts_class(classes, data.model)
     _validate_profile_model(_find_model_card(tts_cls, data.model), data.voice)
@@ -149,8 +180,8 @@ def validate_voice_profile_model(
         tts_cls.Parameters(voice=data.voice)
     except ValueError as exc:
         raise HTTPException(
-            400,
-            "Invalid voice for the selected model.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid voice for the selected model.",
         ) from exc
 
 
@@ -175,6 +206,8 @@ async def _validate_and_resolve_tts_config(
     config: TTSModelConfig,
     access: ResourceAccessService,
     storage: StorageBase,
+    *,
+    resolved_profile: VoiceProfileData | None = None,
 ) -> tuple[CredentialBase, Type[TTSModelBase]]:
     """Resolve the provider and enforce custom voice ownership."""
     credential_record = await access.resolve_credential(
@@ -207,6 +240,7 @@ async def _validate_and_resolve_tts_config(
         credential_owner_id=credential_record.user_id,
         storage=storage,
         card=card,
+        resolved_profile=resolved_profile,
     )
     if config.voice_profile_id or (
         issubclass(tts_cls, OpenAITTSModel)
@@ -223,6 +257,7 @@ async def _validate_voice_binding(
     credential_owner_id: str,
     storage: StorageBase,
     card: TTSModelCard | None,
+    resolved_profile: VoiceProfileData | None = None,
 ) -> None:
     """Validate preset voices or an exact owner-scoped custom voice profile.
 
@@ -253,11 +288,13 @@ async def _validate_voice_binding(
             detail=("A non-preset voice requires an owned voice_profile_id."),
         )
 
-    data = await _get_voice_profile_data(
-        user_id,
-        config.voice_profile_id,
-        storage,
-    )
+    data = resolved_profile
+    if data is None:
+        data = await _get_voice_profile_data(
+            user_id,
+            config.voice_profile_id,
+            storage,
+        )
 
     assert data.engine is not None
     assert data.credential_id is not None
@@ -267,6 +304,10 @@ async def _validate_voice_binding(
             detail="Custom voices cannot use a shared credential.",
         )
 
+    # Runtime already derived its config from this owner-scoped snapshot.
+    # Persisted session writes still require an exact binding comparison.
+    if resolved_profile is not None:
+        return
     expected_type = ENGINE_TO_CREDENTIAL_TYPE[data.engine]
     bindings = {
         "credential_id": (config.credential_id, data.credential_id),
@@ -280,7 +321,7 @@ async def _validate_voice_binding(
         if actual != expected
     ]
     if mismatches:
-        raise _VoiceProfileBindingMismatch(
+        raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "TTS config does not match voice profile "
@@ -298,7 +339,7 @@ async def _get_voice_profile_data(
     profile = await storage.get_voice_profile(user_id, profile_id)
     if profile is None:
         # Do not reveal whether another tenant owns the supplied profile id.
-        raise _VoiceProfileNotFound(
+        raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Voice profile {profile_id!r} not found.",
         )

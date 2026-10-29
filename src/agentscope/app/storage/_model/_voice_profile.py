@@ -38,13 +38,6 @@ ENGINE_GPU_REQUIREMENT: dict[str, str | None] = {
     "gemini_tts": None,
 }
 
-ENGINE_VOICE_CLONING: dict[str, bool] = {
-    "cosyvoice": True,
-    "dashscope_tts": True,
-    "openai_tts": True,
-    "gemini_tts": False,
-}
-
 
 class VoiceProfileData(BaseModel):
     """The voice profile data model."""

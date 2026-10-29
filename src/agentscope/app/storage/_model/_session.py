@@ -151,27 +151,6 @@ class TTSModelConfig(BaseModel):
     parameters: dict
     """TTS parameters (voice, language, etc.)."""
 
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_legacy_voice_profile_id(cls, value: Any) -> Any:
-        """Promote the former frontend-only parameter to a first-class
-        field."""
-        if not isinstance(value, dict) or value.get("voice_profile_id"):
-            return value
-        parameters = value.get("parameters")
-        if not isinstance(parameters, dict):
-            return value
-        legacy_profile_id = parameters.get("_voice_profile_id")
-        if not isinstance(legacy_profile_id, str) or not legacy_profile_id:
-            return value
-
-        migrated = dict(value)
-        migrated_parameters = dict(parameters)
-        migrated_parameters.pop("_voice_profile_id", None)
-        migrated["parameters"] = migrated_parameters
-        migrated["voice_profile_id"] = legacy_profile_id
-        return migrated
-
 
 class RealtimeModelConfig(BaseModel):
     """The realtime voice model configuration class."""

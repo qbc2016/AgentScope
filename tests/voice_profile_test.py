@@ -5,7 +5,7 @@
 Covers:
   * VoiceProfileData and VoiceProfileRecord model creation.
   * ENGINE_TO_CREDENTIAL_TYPE mapping completeness.
-  * ENGINE_VOICE_CLONING mapping.
+  * Credential-derived voice cloning capabilities.
 """
 import base64
 import typing
@@ -20,6 +20,7 @@ from agentscope.app._router._voice_profile import (
     _decode_audio,
     _validate_voice_profile_data,
     clone_voice,
+    list_available_engines,
     upload_openai_consent,
 )
 from agentscope.app._router._schema import (
@@ -32,6 +33,7 @@ from agentscope.app._router._schema._voice_profile import (
 )
 from agentscope.app._service._tts_model import (
     _validate_voice_binding,
+    _config_error_detail,
     get_tts_model,
     validate_tts_model_config,
 )
@@ -46,7 +48,6 @@ from agentscope.app.storage._model._voice_profile import (
     _ENGINE_TYPE,
     ENGINE_SOURCE,
     ENGINE_GPU_REQUIREMENT,
-    ENGINE_VOICE_CLONING,
 )
 from agentscope.tts import (
     DashScopeCosyVoiceTTSModel,
@@ -54,7 +55,11 @@ from agentscope.tts import (
     VoiceCloningError,
     VoiceCloningClientBase,
 )
-from agentscope.credential import CredentialBase, CredentialFactory
+from agentscope.credential import (
+    CredentialBase,
+    CredentialFactory,
+    OpenAICredential,
+)
 
 
 class _DemoVoiceCloningClient(VoiceCloningClientBase):
@@ -261,20 +266,6 @@ class TestVoiceProfileModel(TestCase):
         self.assertEqual(record.data.name, "Test")
         self.assertIsNotNone(record.id)
         self.assertIsNotNone(record.created_at)
-
-    def test_migrate_legacy_voice_profile_id(self) -> None:
-        """Legacy frontend metadata is promoted to the authorization field."""
-        config = TTSModelConfig(
-            type="openai_credential",
-            credential_id="cred-1",
-            model="gpt-4o-mini-tts",
-            parameters={
-                "voice": "voice-custom",
-                "_voice_profile_id": "profile-1",
-            },
-        )
-        self.assertEqual(config.voice_profile_id, "profile-1")
-        self.assertNotIn("_voice_profile_id", config.parameters)
 
 
 def _model_card(
@@ -901,6 +892,60 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
         )
         self.access.resolve_credential.assert_not_called()
 
+    async def test_runtime_uses_one_owner_scoped_snapshot(self) -> None:
+        """Runtime does not reread a profile after deriving its binding."""
+        self.storage.get_voice_profile.side_effect = [
+            _profile(),
+            AssertionError("Unexpected second profile read"),
+        ]
+        model = await get_tts_model(
+            "user-a",
+            _custom_config(),
+            self.access,
+            self.storage,
+        )
+        self.assertIsNotNone(model)
+        self.storage.get_voice_profile.assert_awaited_once_with(
+            "user-a",
+            "profile-a",
+        )
+        self.assertEqual(model.parameters.voice, {"id": "voice-a"})
+        await model.client.close()
+
+    async def test_validation_log_names_field_without_input(self) -> None:
+        """Invalid parameter diagnostics identify fields but hide inputs."""
+        config = _custom_config()
+        config.parameters["response_format"] = "private-input"
+        with patch("agentscope.app._service._tts_model.logger.warning") as log:
+            self.assertIsNone(
+                await get_tts_model(
+                    "user-a",
+                    config,
+                    self.access,
+                    self.storage,
+                ),
+            )
+        self.assertEqual(
+            log.call_args.args[-1],
+            "response_format: literal_error",
+        )
+
+    def test_value_error_detail_is_redacted_and_bounded(self) -> None:
+        """Constructor errors retain context without exposing known secrets."""
+        credential = OpenAICredential(api_key="super-secret-key")
+        error = ValueError(
+            "Invalid endpoint https://host.test/?token=unknown-secret "
+            "with super-secret-key and voice-a " + "x" * 600,
+        )
+        detail = _config_error_detail(error, _custom_config(), credential)
+        self.assertEqual(
+            detail,
+            (
+                "ValueError: Invalid endpoint [URL] with [redacted] and "
+                "[redacted] " + "x" * 600
+            )[:500],
+        )
+
     async def test_profile_rename_keeps_tts_available(self) -> None:
         """Non-binding edits do not disable an otherwise valid voice."""
         self.storage.get_voice_profile.return_value.data.name = "Renamed"
@@ -1425,12 +1470,6 @@ class TestEngineConstants(TestCase):
         for engine in args:
             self.assertIn(engine, ENGINE_GPU_REQUIREMENT)
 
-    def test_all_engines_have_voice_cloning_flag(self) -> None:
-        """Every engine type has an ENGINE_VOICE_CLONING."""
-        args = typing.get_args(_ENGINE_TYPE)
-        for engine in args:
-            self.assertIn(engine, ENGINE_VOICE_CLONING)
-
     def test_api_engines_no_gpu(self) -> None:
         """API engines should not require GPU."""
         expected = {
@@ -1440,16 +1479,6 @@ class TestEngineConstants(TestCase):
             "gemini_tts": None,
         }
         self.assertEqual(ENGINE_GPU_REQUIREMENT, expected)
-
-    def test_voice_cloning_flags(self) -> None:
-        """Verify known cloning support flags."""
-        expected = {
-            "cosyvoice": True,
-            "dashscope_tts": True,
-            "openai_tts": True,
-            "gemini_tts": False,
-        }
-        self.assertEqual(ENGINE_VOICE_CLONING, expected)
 
 
 class TestVoiceAudioLimits(TestCase):
@@ -1488,3 +1517,45 @@ class TestVoiceAudioLimits(TestCase):
         with self.assertRaises(HTTPException) as ctx:
             _decode_audio(oversized)
         self.assertEqual(ctx.exception.status_code, 413)
+
+
+class TestEngineCapabilities(IsolatedAsyncioTestCase):
+    """Engine discovery follows the credential's SDK capability."""
+
+    async def test_cloning_flag_tracks_credential_client(self) -> None:
+        """Changing a credential client changes engine info immediately."""
+        access = AsyncMock()
+        access.list_resource.return_value = [
+            CredentialRecord(
+                id="credential-a",
+                user_id="user-a",
+                data={"type": "openai_credential", "name": "OpenAI"},
+            ),
+        ]
+        for supported in (False, True):
+            with self.subTest(supported=supported):
+                with patch.object(
+                    OpenAICredential,
+                    "get_voice_cloning_client_class",
+                    return_value=_DemoVoiceCloningClient
+                    if supported
+                    else None,
+                ):
+                    response = await list_available_engines("user-a", access)
+                self.assertEqual(
+                    response.model_dump(),
+                    {
+                        "engines": ["openai_tts"],
+                        "engine_details": [
+                            {
+                                "name": "openai_tts",
+                                "source": "api",
+                                "gpu_requirement": None,
+                                "voice_cloning": supported,
+                                "credentials": [
+                                    {"id": "credential-a", "label": "OpenAI"},
+                                ],
+                            },
+                        ],
+                    },
+                )

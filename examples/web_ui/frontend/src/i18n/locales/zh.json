@@ -138,6 +138,7 @@
 		"copy": "复制"
 	},
 	"chat": {
+		"ttsFailed": "语音生成失败，文字回复继续。",
 		"inputPlaceholder": "输入消息...",
 		"confirmToolCall": "允许此操作？",
 		"subagentConfirmTitle": "{{name}} 请求确认",

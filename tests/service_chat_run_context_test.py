@@ -5,7 +5,7 @@
 from types import SimpleNamespace
 from typing import AsyncGenerator
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from agentscope.agent import ContextConfig, ReActConfig
 from agentscope.app._service import ChatService
@@ -216,6 +216,10 @@ class TestRunContextResolution(IsolatedAsyncioTestCase):
                 "agentscope.app._service._chat.get_tts_model",
                 autospec=True,
             ) as get_tts_model,
+            patch(
+                "agentscope.app._service._chat.publish_session_event",
+                new_callable=AsyncMock,
+            ) as publish,
         ):
             if not tts_available:
                 get_tts_model.return_value = None
@@ -225,6 +229,30 @@ class TestRunContextResolution(IsolatedAsyncioTestCase):
                 worker_agent.id,
                 None,
             )
+
+        failures = [
+            call.args[2]
+            for call in publish.await_args_list
+            if call.args[2].get("name") == "tts_error"
+        ]
+        self.assertEqual(
+            [
+                {"name": item["name"], "value": item["value"]}
+                for item in failures
+            ],
+            []
+            if tts_available
+            else [
+                {
+                    "name": "tts_error",
+                    "value": {"stage": "configuration"},
+                },
+            ],
+        )
+        for middlewares in equipped:
+            for middleware in middlewares:
+                if isinstance(middleware, TTSMiddleware):
+                    self.assertTrue(middleware.continue_on_error)
 
         get_tts_model.assert_awaited_once_with(
             user_id,

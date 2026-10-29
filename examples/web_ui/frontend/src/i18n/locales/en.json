@@ -138,6 +138,7 @@
 		"copy": "Copy"
 	},
 	"chat": {
+		"ttsFailed": "Speech generation failed. Text replies will continue.",
 		"inputPlaceholder": "Type a message...",
 		"confirmToolCall": "Allow this action?",
 		"subagentConfirmTitle": "{{name}} requests confirmation",
