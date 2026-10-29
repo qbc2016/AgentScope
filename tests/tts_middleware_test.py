@@ -670,3 +670,65 @@ class TestTTSFailureIsolation(IsolatedAsyncioTestCase):
                 else:
                     with self.assertRaisesRegex(RuntimeError, "consumer"):
                         await stream.athrow(RuntimeError("consumer"))
+
+    async def test_caller_except_does_not_hide_cleanup_failure(self) -> None:
+        """A handled caller exception is not a propagating generator error."""
+        for continue_on_error in (False, True):
+            with self.subTest(continue_on_error=continue_on_error):
+                cleanup_error = RuntimeError("cleanup failure")
+                self.tts.__aexit__.side_effect = cleanup_error
+                try:
+                    raise ValueError("already handled by caller")
+                except ValueError:
+                    if continue_on_error:
+                        events = await self._collect(continue_on_error=True)
+                        self.assertEqual(
+                            [_dump(event) for event in events],
+                            [_dump(event) for event in self.events]
+                            + [
+                                _dump(
+                                    CustomEvent(
+                                        name="tts_error",
+                                        value={
+                                            "reply_id": "reply-1",
+                                            "stage": "cleanup",
+                                        },
+                                    ),
+                                ),
+                            ],
+                        )
+                    else:
+                        with self.assertRaises(RuntimeError) as ctx:
+                            await self._collect(continue_on_error=None)
+                        self.assertIs(ctx.exception, cleanup_error)
+                self.assertEqual(
+                    self.tts.__aexit__.call_args.args[-3:],
+                    (None, None, None),
+                )
+                self.tts.reset_mock()
+
+    async def test_cleanup_keeps_actual_propagating_error(self) -> None:
+        """Cleanup failure cannot replace text errors or cancellation."""
+        self.tts.__aexit__.side_effect = RuntimeError("cleanup failure")
+        for error in (ValueError("text failure"), asyncio.CancelledError()):
+            with self.subTest(error=type(error)):
+
+                async def upstream(
+                    failure: BaseException = error,
+                    **_kwargs: Any,
+                ) -> AsyncGenerator:
+                    yield self.events[0]
+                    raise failure
+
+                with self.assertRaises(type(error)) as ctx:
+                    async for _ in TTSMiddleware(self.tts).on_reply(
+                        _make_agent_stub(),
+                        {},
+                        upstream,
+                    ):
+                        pass
+                self.assertIs(ctx.exception, error)
+                exit_args = self.tts.__aexit__.call_args.args[-3:]
+                self.assertEqual(exit_args[:2], (type(error), error))
+                self.assertIsNotNone(exit_args[2])
+                self.tts.reset_mock()

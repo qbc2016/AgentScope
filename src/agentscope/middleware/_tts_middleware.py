@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Middleware that turns reasoning text into speech and injects it as
 ``DATA_BLOCK_*`` events into the agent's event stream."""
-import sys
 from contextlib import AsyncExitStack, aclosing
 from typing import TYPE_CHECKING, AsyncGenerator, Callable
 
@@ -79,6 +78,7 @@ class TTSMiddleware(MiddlewareBase):
 
         enabled = True
         cleanup_failed = False
+        propagating_error: BaseException | None = None
         stack = AsyncExitStack()
         try:
             await stack.enter_async_context(self.tts)
@@ -148,13 +148,24 @@ class TTSMiddleware(MiddlewareBase):
                     audio_media_type = None
                 if not enabled:
                     yield self._failure_event(agent, "synthesis")
+        except BaseException as exc:
+            propagating_error = exc
+            raise
         finally:
-            error = sys.exc_info()
+            error = (
+                (
+                    type(propagating_error),
+                    propagating_error,
+                    propagating_error.__traceback__,
+                )
+                if propagating_error is not None
+                else (None, None, None)
+            )
             try:
                 await stack.__aexit__(*error)
             except Exception as exc:
                 # Cleanup must not replace an upstream/consumer exception.
-                if error[0] is None and not self.continue_on_error:
+                if propagating_error is None and not self.continue_on_error:
                     raise
                 logger.warning("TTS cleanup failed: %s", exc)
                 cleanup_failed = True

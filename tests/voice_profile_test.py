@@ -930,6 +930,35 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             "response_format: literal_error",
         )
 
+    async def test_short_parameters_leave_log_words_readable(self) -> None:
+        """Ordinary voice, language and format values are not secrets."""
+        config = _custom_config(profile_id=None)
+        config.parameters = {
+            "voice": "alloy",
+            "language": "en",
+            "response_format": "wav",
+        }
+        detail = "Credential endpoint cannot use alloy with en and wav."
+        self.access.resolve_credential.side_effect = HTTPException(400, detail)
+        with patch("agentscope.app._service._tts_model.logger.warning") as log:
+            self.assertIsNone(
+                await get_tts_model(
+                    "user-a",
+                    config,
+                    self.access,
+                    self.storage,
+                ),
+            )
+        self.assertEqual(log.call_args.args[-1], f"HTTPException: {detail}")
+
+    def test_credential_name_is_not_redacted(self) -> None:
+        """Credential labels cannot replace ordinary error substrings."""
+        credential = OpenAICredential(api_key="secret-key", name="en")
+        self.assertEqual(
+            _config_error_detail(ValueError("Invalid endpoint"), credential),
+            "ValueError: Invalid endpoint",
+        )
+
     def test_value_error_detail_is_redacted_and_bounded(self) -> None:
         """Constructor errors retain context without exposing known secrets."""
         credential = OpenAICredential(api_key="super-secret-key")
@@ -937,12 +966,12 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             "Invalid endpoint https://host.test/?token=unknown-secret "
             "with super-secret-key and voice-a " + "x" * 600,
         )
-        detail = _config_error_detail(error, _custom_config(), credential)
+        detail = _config_error_detail(error, credential)
         self.assertEqual(
             detail,
             (
                 "ValueError: Invalid endpoint [URL] with [redacted] and "
-                "[redacted] " + "x" * 600
+                "voice-a " + "x" * 600
             )[:500],
         )
 

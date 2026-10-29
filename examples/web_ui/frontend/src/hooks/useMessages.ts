@@ -155,6 +155,7 @@ export function useMessages(
 
 	const msgsRef = useRef<Msg[]>([]);
 	const currentReplyRef = useRef<Msg | null>(null);
+	const ttsConfigurationWarningsRef = useRef(new Set<string>());
 	const abortRef = useRef<AbortController | null>(null);
 	const rafRef = useRef<number | null>(null);
 	// Timer that reverts ``interrupting`` back to ``idle`` if the
@@ -190,7 +191,15 @@ export function useMessages(
 			if (event.type === EventType.CUSTOM) {
 				const custom = event as CustomEvent;
 				if (custom.name === 'tts_error') {
-					toast.warning(t('chat.ttsFailed'), { id: `tts-error-${custom.id}` });
+					const failure = custom.value as { stage?: string; reply_id?: string };
+					const sessionKey = JSON.stringify([agentId, sessionId]);
+					if (failure.stage === 'configuration') {
+						if (ttsConfigurationWarningsRef.current.has(sessionKey)) return;
+						ttsConfigurationWarningsRef.current.add(sessionKey);
+					}
+					toast.warning(t('chat.ttsFailed'), {
+						id: `tts-error-${sessionKey}-${failure.reply_id ?? custom.id}`,
+					});
 				} else if (custom.name === 'team_updated') {
 					optionsRef.current?.onTeamUpdated?.();
 				} else if (custom.name === 'state_updated' && custom.value) {
@@ -299,7 +308,7 @@ export function useMessages(
 
 			scheduleUpdate();
 		},
-		[scheduleUpdate, audioManager, clearInterruptTimer, t],
+		[scheduleUpdate, audioManager, clearInterruptTimer, t, agentId, sessionId],
 	);
 
 	// ── Lifecycle: fetch history + open SSE stream ──────────────────

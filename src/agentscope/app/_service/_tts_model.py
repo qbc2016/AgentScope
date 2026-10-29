@@ -84,14 +84,13 @@ async def get_tts_model(
             "Skipping TTS for user %r, model %r: %s",
             user_id,
             config.model,
-            _config_error_detail(exc, config, credential),
+            _config_error_detail(exc, credential),
         )
         return None
 
 
 def _config_error_detail(
     exc: HTTPException | ValueError,
-    config: TTSModelConfig,
     credential: CredentialBase | None,
 ) -> str:
     """Keep diagnostic fields while excluding submitted values and secrets."""
@@ -102,24 +101,11 @@ def _config_error_detail(
         )[:500]
     detail = str(exc.detail if isinstance(exc, HTTPException) else exc)
 
-    def redact(value: object) -> None:
-        """Remove known values recursively, including SecretStr payloads."""
-        nonlocal detail
-        if isinstance(value, SecretStr):
-            value = value.get_secret_value()
-        if isinstance(value, str) and value:
-            detail = detail.replace(value, "[redacted]")
-        elif isinstance(value, dict):
-            for item in value.values():
-                redact(item)
-        elif isinstance(value, (list, tuple)):
-            for item in value:
-                redact(item)
-
-    redact(config.parameters)
     if credential is not None:
-        redact(credential.model_dump())
-    detail = re.sub(r"https?://\S+", "[URL]", detail)
+        for value in credential.model_dump().values():
+            if isinstance(value, SecretStr) and value.get_secret_value():
+                detail = detail.replace(value.get_secret_value(), "[redacted]")
+    detail = re.sub(r"(?:https?|wss?)://\S+", "[URL]", detail)
     return f"{type(exc).__name__}: {detail}"[:500]
 
 
