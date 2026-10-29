@@ -143,9 +143,9 @@ class TTSModelConfig(BaseModel):
     voice_profile_id: str | None = None
     """The owner-scoped voice profile used for a custom voice.
 
-    Preset provider voices do not require a profile. Custom voices must carry
-    this field so the server can validate ownership and bind the voice to the
-    credential and model that created it.
+    Profiles bind the voice to its owner, credential and synthesis model.
+    Direct voice IDs remain supported with owned credentials. Shared
+    credentials may only use default or known preset voices without a profile.
     """
 
     parameters: dict

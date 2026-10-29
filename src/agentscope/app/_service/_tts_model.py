@@ -3,6 +3,7 @@
 from typing import Type
 
 from fastapi import HTTPException, status
+from pydantic import BaseModel
 
 from ._access import ResourceAccessService
 from ..storage import StorageBase, TTSModelConfig, VoiceProfileData
@@ -44,8 +45,8 @@ async def get_tts_model(
 
     Returns:
         `TTSModelBase | None`:
-            The TTS model instance, or ``None`` when its profile is missing
-            or changes again during validation.
+            The TTS model instance, or ``None`` when its configuration
+            is no longer valid or accessible.
     """
     try:
         if config.voice_profile_id is not None:
@@ -76,26 +77,22 @@ async def get_tts_model(
             access,
             storage,
         )
-    except (_VoiceProfileNotFound, _VoiceProfileBindingMismatch) as exc:
+        parameters = _tts_parameters(tts_cls, config)
+        return tts_cls(
+            credential=credential,
+            model=config.model,
+            parameters=parameters,
+        )
+    except (HTTPException, ValueError) as exc:
         logger.warning(
-            "Skipping TTS: voice profile %r is unavailable for user %r: %s",
-            config.voice_profile_id,
+            "Skipping TTS for user %r, model %r: %s",
             user_id,
-            exc.detail,
+            config.model,
+            exc.detail
+            if isinstance(exc, HTTPException)
+            else type(exc).__name__,
         )
         return None
-
-    values = dict(config.parameters)
-    if issubclass(tts_cls, OpenAITTSModel) and config.voice_profile_id:
-        card = _find_model_card(tts_cls, config.model)
-        if values.get("voice") not in _get_preset_voices(card):
-            values["voice"] = {"id": values["voice"]}
-    parameters = tts_cls.Parameters(**values) if values else None
-    return tts_cls(
-        credential=credential,
-        model=config.model,
-        parameters=parameters,
-    )
 
 
 async def validate_tts_model_config(
@@ -107,12 +104,70 @@ async def validate_tts_model_config(
     """Validate a TTS config before it is persisted on a session."""
     if config is None:
         return
-    await _validate_and_resolve_tts_config(
+    _, tts_cls = await _validate_and_resolve_tts_config(
         user_id,
         config,
         access,
         storage,
     )
+
+    try:
+        _tts_parameters(tts_cls, config)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid TTS parameters for the selected model.",
+        ) from exc
+
+
+def _tts_parameters(
+    tts_cls: Type[TTSModelBase],
+    config: TTSModelConfig,
+) -> BaseModel:
+    """Validate parameters, adapting profile voice IDs for OpenAI."""
+    values = dict(config.parameters)
+    card = _find_model_card(tts_cls, config.model)
+    if issubclass(tts_cls, OpenAITTSModel) and config.voice_profile_id:
+        voice = values.get("voice")
+        if isinstance(voice, str) and voice not in _get_preset_voices(card):
+            values["voice"] = {"id": voice}
+    return tts_cls.Parameters(**values)
+
+
+def validate_voice_profile_model(
+    credential: CredentialBase,
+    data: VoiceProfileData,
+) -> None:
+    """Reject known incompatible profiles without blocking new deployments."""
+    classes = credential.get_tts_model_classes()
+    if not classes:
+        raise HTTPException(400, "Credential does not support TTS models.")
+    assert data.model is not None
+    tts_cls = _resolve_tts_class(classes, data.model)
+    _validate_profile_model(_find_model_card(tts_cls, data.model), data.voice)
+    try:
+        tts_cls.Parameters(voice=data.voice)
+    except ValueError as exc:
+        raise HTTPException(
+            400,
+            "Invalid voice for the selected model.",
+        ) from exc
+
+
+def _validate_profile_model(
+    card: TTSModelCard | None,
+    voice: object,
+) -> None:
+    """Known models must support either this preset or custom voices."""
+    if (
+        card is not None
+        and not card.voice_cloning
+        and not (isinstance(voice, str) and voice in _get_preset_voices(card))
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Model {card.name!r} does not support custom voices.",
+        )
 
 
 async def _validate_and_resolve_tts_config(
@@ -153,16 +208,11 @@ async def _validate_and_resolve_tts_config(
         storage=storage,
         card=card,
     )
-    if (
+    if config.voice_profile_id or (
         issubclass(tts_cls, OpenAITTSModel)
-        and config.voice_profile_id
-        and config.parameters.get("voice") not in _get_preset_voices(card)
-        and (card is None or not card.voice_cloning)
+        and isinstance(config.parameters.get("voice"), dict)
     ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Model {config.model!r} does not support custom voices.",
-        )
+        _validate_profile_model(card, config.parameters.get("voice"))
     return credential, tts_cls
 
 
@@ -184,6 +234,8 @@ async def _validate_voice_binding(
     voice = config.parameters.get("voice")
     preset_voices = _get_preset_voices(card)
     if config.voice_profile_id is None:
+        if credential_owner_id == user_id and voice is not None:
+            return
         if _requires_voice_profile(card, preset_voices):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

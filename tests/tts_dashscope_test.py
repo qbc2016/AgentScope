@@ -1688,7 +1688,7 @@ class TestDashScopeVoiceEndpoints(IsolatedAsyncioTestCase):
         self,
         base_url: str,
         clone_url: str,
-        synthesis_url: str,
+        synthesis_url: str | None,
         *,
         name: str = "cosyvoice-v3-plus",
         stream: bool = False,
@@ -1726,7 +1726,7 @@ class TestDashScopeVoiceEndpoints(IsolatedAsyncioTestCase):
             voice="cloned-voice",
             format=AudioFormat.PCM_24000HZ_MONO_16BIT,
             callback=callback,
-            url=synthesis_url,
+            **({"url": synthesis_url} if synthesis_url else {}),
         )
         self.post.assert_awaited_once()
         self.assertEqual(self.post.call_args.args, (clone_url,))
@@ -1762,11 +1762,22 @@ class TestDashScopeVoiceEndpoints(IsolatedAsyncioTestCase):
         for http_origin, ws_origin in origins:
             for suffix in ("/", "/compatible-mode/v1/", "/api/v1/"):
                 with self.subTest(origin=http_origin, suffix=suffix):
+                    legacy_default = (
+                        http_origin == "https://dashscope.aliyuncs.com"
+                        and suffix == "/compatible-mode/v1/"
+                    ) or (
+                        http_origin.startswith(
+                            ("https://proxy.", "http://localhost"),
+                        )
+                        and suffix == "/"
+                    )
                     await self._assert_clone_to_synthesis(
                         http_origin + suffix,
                         http_origin
                         + "/api/v1/services/audio/tts/customization",
-                        ws_origin + "/api-ws/v1/inference",
+                        None
+                        if legacy_default
+                        else ws_origin + "/api-ws/v1/inference",
                     )
 
     async def test_all_synthesis_modes_use_cloned_voice_endpoint(self) -> None:
@@ -1805,7 +1816,7 @@ class TestDashScopeVoiceEndpoints(IsolatedAsyncioTestCase):
             )
             for base_url in (
                 "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-                "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "https://dashscope.aliyuncs.com/api/v1",
             )
         ]
         try:
@@ -1842,3 +1853,39 @@ class TestDashScopeVoiceEndpoints(IsolatedAsyncioTestCase):
             "customization?tenant=demo",
             "wss://proxy.example.test/tts/api-ws/v1/inference?tenant=demo",
         )
+
+    async def test_explicit_gateway_websocket_overrides_inference(
+        self,
+    ) -> None:
+        """An arbitrary gateway route can explicitly choose its WS service."""
+        credential = DashScopeCredential(
+            api_key="test",
+            base_url="https://gateway.test/custom/http",
+            websocket_url="wss://speech.gateway.test/custom/socket?tenant=1",
+        )
+        model = DashScopeCosyVoiceTTSModel(credential, stream=False)
+        async with model:
+            await model.synthesize("Hello")
+        self.assertEqual(
+            self.synth_factory.call_args.kwargs["url"],
+            credential.websocket_url,
+        )
+
+    async def test_default_and_arbitrary_gateway_preserve_sdk_settings(
+        self,
+    ) -> None:
+        """Existing global WebSocket overrides remain effective by default."""
+        for base in (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "https://gateway.test/custom/http",
+        ):
+            with self.subTest(base=base):
+                credential = DashScopeCredential(api_key="test", base_url=base)
+                model = DashScopeCosyVoiceTTSModel(credential, stream=False)
+                async with model:
+                    await model.synthesize("Hello")
+                self.assertNotIn("url", self.synth_factory.call_args.kwargs)
+                self.assertEqual(
+                    dashscope.base_websocket_api_url,
+                    "wss://global.invalid/inference",
+                )

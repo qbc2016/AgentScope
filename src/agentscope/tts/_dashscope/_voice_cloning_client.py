@@ -136,6 +136,6 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
         if not isinstance(voice_id, str) or not voice_id:
             raise VoiceCloningError(
                 "DashScope returned success but no "
-                f"voice found in response: {result}",
+                f"voice found in response: {str(result)[:500]}",
             )
         return voice_id

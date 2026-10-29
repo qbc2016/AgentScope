@@ -7,13 +7,14 @@ Covers:
   * ENGINE_TO_CREDENTIAL_TYPE mapping completeness.
   * ENGINE_VOICE_CLONING mapping.
 """
+import base64
 import typing
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch
 
 import httpx
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from agentscope.app._router._voice_profile import (
     _decode_audio,
@@ -24,6 +25,10 @@ from agentscope.app._router._voice_profile import (
 from agentscope.app._router._schema import (
     CloneVoiceRequest,
     OpenAIConsentRequest,
+)
+from agentscope.app._router._schema._voice_profile import (
+    MAX_AUDIO_SIZE_BYTES,
+    MAX_AUDIO_BASE64_LENGTH,
 )
 from agentscope.app._service._tts_model import (
     _validate_voice_binding,
@@ -410,7 +415,7 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
             await _validate_voice_binding(
                 user_id="user-a",
                 config=_custom_config(profile_id=None, voice="voice-a"),
-                credential_owner_id="user-a",
+                credential_owner_id="user-b",
                 storage=storage,
                 card=_model_card([], voice_cloning=True),
             )
@@ -418,6 +423,37 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("requires a cloned voice profile", ctx.exception.detail)
         storage.get_voice_profile.assert_not_called()
+
+    async def test_owned_keys_accept_unlisted_and_existing_cloned_voices(
+        self,
+    ) -> None:
+        """Direct SDK/API voice IDs need no App profile for owned keys."""
+        for card in (
+            None,
+            _model_card(["alloy"]),
+            _model_card([], voice_cloning=True),
+        ):
+            with self.subTest(card=card):
+                storage = AsyncMock()
+                await _validate_voice_binding(
+                    user_id="user-a",
+                    config=_custom_config(profile_id=None, voice="voice-a"),
+                    credential_owner_id="user-a",
+                    storage=storage,
+                    card=card,
+                )
+                storage.get_voice_profile.assert_not_called()
+                with self.assertRaises(HTTPException):
+                    await _validate_voice_binding(
+                        user_id="user-a",
+                        config=_custom_config(
+                            profile_id=None,
+                            voice="voice-a",
+                        ),
+                        credential_owner_id="user-b",
+                        storage=storage,
+                        card=card,
+                    )
 
     async def test_preset_voice_does_not_require_profile(self) -> None:
         """Provider-declared preset voices remain usable as before."""
@@ -437,7 +473,7 @@ class TestVoiceProfileTenantIsolation(IsolatedAsyncioTestCase):
             await _validate_voice_binding(
                 user_id="user-a",
                 config=_custom_config(profile_id=None, voice="voice-b"),
-                credential_owner_id="user-a",
+                credential_owner_id="user-b",
                 storage=AsyncMock(),
                 card=_model_card(["alloy"]),
             )
@@ -630,41 +666,114 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
             )
         self.assertEqual(ctx.exception.status_code, 404)
 
-    async def test_other_authorization_errors_still_fail(self) -> None:
-        """Credential errors are not treated as stale profile bindings."""
-        self.access.resolve_credential.side_effect = HTTPException(404)
-        with self.assertRaises(HTTPException) as ctx:
+    async def test_invalid_credentials_skip_runtime_but_reject_saves(
+        self,
+    ) -> None:
+        """Deleted, revoked and invalid credentials never reach synthesis."""
+        for code in (400, 403, 404):
+            with self.subTest(code=code):
+                self.access.resolve_credential.side_effect = HTTPException(
+                    code,
+                )
+                config = _custom_config()
+                self.assertIsNone(
+                    await get_tts_model(
+                        "user-a",
+                        config,
+                        self.access,
+                        self.storage,
+                    ),
+                )
+                with self.assertRaises(HTTPException) as ctx:
+                    await validate_tts_model_config(
+                        "user-a",
+                        config,
+                        self.access,
+                        self.storage,
+                    )
+                self.assertEqual(ctx.exception.status_code, code)
+
+    async def test_invalid_parameters_skip_runtime_but_reject_saves(
+        self,
+    ) -> None:
+        """Parameter validation is isolated at runtime and strict on save."""
+        config = _custom_config()
+        config.parameters["response_format"] = "invalid-format"
+        self.assertIsNone(
             await get_tts_model(
                 "user-a",
-                _custom_config(),
+                config,
                 self.access,
                 self.storage,
-            )
-        self.assertEqual(ctx.exception.status_code, 404)
-        self.access.resolve_credential.side_effect = None
-        self.access.resolve_credential.return_value.data[
-            "type"
-        ] = "dashscope_credential"
+            ),
+        )
         with self.assertRaises(HTTPException) as ctx:
-            await get_tts_model(
+            await validate_tts_model_config(
                 "user-a",
-                _custom_config(),
+                config,
                 self.access,
                 self.storage,
             )
         self.assertEqual(ctx.exception.status_code, 400)
-        self.access.resolve_credential.return_value.data[
-            "type"
-        ] = "openai_credential"
-        self.access.resolve_credential.return_value.user_id = "user-b"
-        with self.assertRaises(HTTPException) as ctx:
-            await get_tts_model(
-                "user-a",
-                _custom_config(),
-                self.access,
-                self.storage,
-            )
-        self.assertEqual(ctx.exception.status_code, 403)
+
+    async def test_profile_model_is_validated_before_save(self) -> None:
+        """Known incompatible clones fail; presets and new deployments work."""
+        for model, voice, rejected in (
+            ("tts-1", "custom-voice-id", True),
+            ("tts-1-hd", "custom-voice-id", True),
+            ("tts-1", "alloy", False),
+            ("gpt-4o-mini-tts", "custom-voice-id", False),
+            ("custom-deployment", "custom-voice-id", False),
+        ):
+            with self.subTest(model=model, voice=voice):
+                data = _profile().data
+                data.model = model
+                data.voice = voice
+                if rejected:
+                    with self.assertRaises(HTTPException) as ctx:
+                        await _validate_voice_profile_data(
+                            self.access,
+                            "user-a",
+                            data,
+                        )
+                    self.assertEqual(ctx.exception.status_code, 400)
+                    self.storage.get_voice_profile.return_value.data = data
+                    self.assertIsNone(
+                        await get_tts_model(
+                            "user-a",
+                            _custom_config(),
+                            self.access,
+                            self.storage,
+                        ),
+                    )
+                else:
+                    await _validate_voice_profile_data(
+                        self.access,
+                        "user-a",
+                        data,
+                    )
+
+    async def test_owned_legacy_voices_work_without_profiles(self) -> None:
+        """YAML voice removals and unknown models do not break owned keys."""
+        for model, voice in (
+            ("tts-1", "verse"),
+            ("tts-1-hd", "ballad"),
+            ("custom-deployment", "unlisted-voice"),
+            ("gpt-4o-mini-tts", {"id": "custom-voice"}),
+        ):
+            with self.subTest(model=model, voice=voice):
+                config = _custom_config(profile_id=None)
+                config.model = model
+                config.parameters = {"voice": voice}
+                instance = await get_tts_model(
+                    "user-a",
+                    config,
+                    self.access,
+                    self.storage,
+                )
+                self.assertEqual(instance.parameters.voice, voice)
+                await instance.client.close()
+        self.storage.get_voice_profile.assert_not_called()
 
     async def test_stale_bindings_cannot_be_saved(self) -> None:
         """Runtime resolution does not weaken write-time binding checks."""
@@ -779,19 +888,16 @@ class TestVoiceProfileRuntime(IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(config.model_dump(), before)
 
-    async def test_incomplete_current_profile_is_rejected(self) -> None:
+    async def test_incomplete_current_profile_skips_tts(self) -> None:
         """An incomplete profile cannot fall back to stale session values."""
         self.storage.get_voice_profile.return_value.data.voice = None
-        with self.assertRaises(HTTPException) as ctx:
+        self.assertIsNone(
             await get_tts_model(
                 "user-a",
                 _custom_config(),
                 self.access,
                 self.storage,
-            )
-        self.assertEqual(
-            (ctx.exception.status_code, ctx.exception.detail),
-            (400, "Voice profile 'profile-a' is incomplete: voice."),
+            ),
         )
         self.access.resolve_credential.assert_not_called()
 
@@ -1344,3 +1450,41 @@ class TestEngineConstants(TestCase):
             "gemini_tts": False,
         }
         self.assertEqual(ENGINE_VOICE_CLONING, expected)
+
+
+class TestVoiceAudioLimits(TestCase):
+    """Reject oversized uploads before provider requests or extra encoding."""
+
+    def test_base64_and_decoded_size_limits(self) -> None:
+        """Boundary-sized audio works; padding cannot hide an extra byte."""
+        audio = b"a" * MAX_AUDIO_SIZE_BYTES
+        encoded = base64.b64encode(audio).decode("ascii")
+        for schema, extra in (
+            (CloneVoiceRequest, {"engine": "openai_tts"}),
+            (OpenAIConsentRequest, {}),
+        ):
+            with self.subTest(schema=schema):
+                request = schema(
+                    credential_id="credential-a",
+                    audio_base64=encoded,
+                    **extra,
+                )
+                self.assertEqual(_decode_audio(request.audio_base64), audio)
+                with self.assertRaises(ValidationError) as ctx:
+                    schema(
+                        credential_id="credential-a",
+                        audio_base64="a" * (MAX_AUDIO_BASE64_LENGTH + 1),
+                        **extra,
+                    )
+                self.assertEqual(
+                    [
+                        (error["loc"], error["type"])
+                        for error in ctx.exception.errors()
+                    ],
+                    [(("audio_base64",), "string_too_long")],
+                )
+        oversized = base64.b64encode(audio + b"a").decode("ascii")
+        self.assertLessEqual(len(oversized), MAX_AUDIO_BASE64_LENGTH)
+        with self.assertRaises(HTTPException) as ctx:
+            _decode_audio(oversized)
+        self.assertEqual(ctx.exception.status_code, 413)

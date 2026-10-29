@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import {
 	AudioWaveform,
 	Plus,
@@ -35,6 +36,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useVoiceProfiles, VOICE_PROFILES_KEY } from '@/hooks/useVoiceProfiles';
 import { useTranslation } from '@/i18n/useI18n';
 import { credentialTypeForEngine, isModelForEngine } from '@/utils/tts';
 
@@ -713,28 +715,29 @@ function VoiceProfileDialog({
 
 export function VoiceProfilePage() {
 	const { t } = useTranslation();
-	const [profiles, setProfiles] = useState<VoiceProfileRecord[]>([]);
-	const [initialLoading, setInitialLoading] = useState(true);
+	const { profiles, loading: initialLoading } = useVoiceProfiles();
+	const queryClient = useQueryClient();
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editProfile, setEditProfile] = useState<VoiceProfileRecord | null>(null);
 	const [deleteProfile, setDeleteProfile] = useState<VoiceProfileRecord | null>(null);
 	const [engineDetails, setEngineDetails] = useState<EngineInfo[]>([]);
 
-	const loadProfiles = useCallback(async () => {
-		try {
-			const res = await voiceProfileApi.list();
-			setProfiles(res.profiles);
-		} finally {
-			setInitialLoading(false);
-		}
-	}, []);
+	const loadProfiles = useCallback(
+		() => queryClient.invalidateQueries({ queryKey: VOICE_PROFILES_KEY }),
+		[queryClient],
+	);
 
 	useEffect(() => {
-		loadProfiles();
-		voiceProfileApi.availableEngines().then((res) => {
-			setEngineDetails(res.engine_details);
-		});
-	}, [loadProfiles]);
+		voiceProfileApi
+			.availableEngines()
+			.then((res) => {
+				setEngineDetails(res.engine_details);
+			})
+			.catch(() => {
+				// The API client already displays the error toast.
+				setEngineDetails([]);
+			});
+	}, []);
 
 	const getCredentialLabel = (profile: VoiceProfileRecord): string | null => {
 		if (!profile.data.credential_id || !profile.data.engine) return null;
@@ -745,9 +748,13 @@ export function VoiceProfilePage() {
 
 	const handleDelete = async () => {
 		if (!deleteProfile) return;
-		await voiceProfileApi.delete(deleteProfile.id);
-		setDeleteProfile(null);
-		loadProfiles();
+		try {
+			await voiceProfileApi.delete(deleteProfile.id);
+			setDeleteProfile(null);
+			await loadProfiles();
+		} catch {
+			// Keep the dialog open; the API client already displays the error.
+		}
 	};
 
 	return (

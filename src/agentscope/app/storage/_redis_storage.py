@@ -2604,6 +2604,7 @@ class RedisStorage(StorageBase):
             `str`: The id of the stored voice profile.
         """
         record.user_id = user_id
+        record.updated_at = datetime.now()
         key = self._key(
             self.key_config.voice_profile,
             user_id=user_id,

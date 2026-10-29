@@ -12,6 +12,7 @@ from ..deps import (
     get_storage,
 )
 from .._service import ResourceAccessService
+from .._service._tts_model import validate_voice_profile_model
 from ..storage import StorageBase, VoiceProfileData, VoiceProfileRecord
 from ..storage._model import (
     ENGINE_GPU_REQUIREMENT,
@@ -41,6 +42,7 @@ from ._schema import (
     OpenAIConsentResponse,
     UpdateVoiceProfileRequest,
 )
+from ._schema._voice_profile import MAX_AUDIO_SIZE_BYTES
 
 voice_profile_router = APIRouter(
     prefix="/voice-profile",
@@ -108,11 +110,15 @@ async def _validate_voice_profile_data(
 
     assert data.engine is not None
     assert data.credential_id is not None
-    await _resolve_owned_credential(
+    credential_data = await _resolve_owned_credential(
         access,
         user_id,
         data.credential_id,
         ENGINE_TO_CREDENTIAL_TYPE[data.engine],
+    )
+    validate_voice_profile_model(
+        CredentialFactory.from_dict(credential_data),
+        data,
     )
 
 
@@ -396,6 +402,11 @@ def _decode_audio(audio_base64: str) -> bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="audio_base64 must contain non-empty audio.",
+        )
+    if len(audio) > MAX_AUDIO_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Audio must not exceed 10 MiB.",
         )
     return audio
 

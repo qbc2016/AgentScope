@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """Schema models for the voice profile router."""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...storage._model import VoiceProfileData, VoiceProfileRecord
+
+MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024
+MAX_AUDIO_BASE64_LENGTH = 4 * ((MAX_AUDIO_SIZE_BYTES + 2) // 3)
 
 
 class CreateVoiceProfileRequest(BaseModel):
@@ -87,7 +90,10 @@ class CloneVoiceRequest(BaseModel):
     model: str | None = None
     """Target model (required for DashScope, optional for OpenAI)."""
 
-    audio_base64: str | None = None
+    audio_base64: str | None = Field(
+        default=None,
+        max_length=MAX_AUDIO_BASE64_LENGTH,
+    )
     """Base64-encoded audio (for Qwen-TTS/OpenAI upload)."""
 
     audio_filename: str = "voice.wav"
@@ -128,7 +134,7 @@ class OpenAIConsentRequest(BaseModel):
     language: str = "en-US"
     """BCP 47 language tag for the consent phrase."""
 
-    audio_base64: str
+    audio_base64: str = Field(max_length=MAX_AUDIO_BASE64_LENGTH)
     """Base64-encoded consent audio recording."""
 
     audio_filename: str = "consent.wav"

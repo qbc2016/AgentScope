@@ -38,6 +38,16 @@ class DashScopeCredential(CredentialBase):
         ),
     )
 
+    websocket_url: str | None = Field(
+        default=None,
+        pattern=r"^wss?://[^/?#]+(?:[/?#].*)?$",
+        title="TTS WebSocket URL",
+        description=(
+            "Optional CosyVoice/Qwen Audio WebSocket endpoint for gateways. "
+            "Overrides automatic resolution and DashScope SDK settings."
+        ),
+    )
+
     @classmethod
     def get_chat_model_class(cls) -> Type["ChatModelBase"]:
         """Return the DashScopeChatModel class."""

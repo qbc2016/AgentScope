@@ -1,26 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 import { voiceProfileApi } from '@/api';
-import type { VoiceProfileRecord } from '@/api';
+
+export const VOICE_PROFILES_KEY = ['voice-profiles'];
 
 export function useVoiceProfiles() {
-	const [profiles, setProfiles] = useState<VoiceProfileRecord[]>([]);
-	const [loading, setLoading] = useState(true);
+	const { data, isPending, refetch } = useQuery({
+		queryKey: VOICE_PROFILES_KEY,
+		queryFn: () => voiceProfileApi.list(),
+	});
 
-	const refetch = useCallback(async () => {
-		try {
-			const res = await voiceProfileApi.list();
-			setProfiles(res.profiles);
-		} catch {
-			setProfiles([]);
-		} finally {
-			setLoading(false);
-		}
-	}, []);
-
-	useEffect(() => {
-		refetch();
-	}, [refetch]);
-
-	return { profiles, loading, refetch };
+	return { profiles: data?.profiles ?? [], loading: isPending, refetch };
 }

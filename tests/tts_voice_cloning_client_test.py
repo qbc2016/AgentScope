@@ -455,6 +455,18 @@ class TestVoiceCloningClients(IsolatedAsyncioTestCase):
                     self.assertIs(ctx.exception.__cause__, cause)
                     self.post.assert_awaited_once()
 
+    async def test_dashscope_missing_voice_error_is_bounded(self) -> None:
+        """A malformed success response cannot flood the API error detail."""
+        result = {"output": {"unexpected": "a" * 2000}}
+        self.post.return_value = httpx.Response(200, json=result)
+        with self.assertRaises(VoiceCloningError) as ctx:
+            await self._create("dashscope")
+        self.assertEqual(
+            str(ctx.exception),
+            "DashScope returned success but no voice found in response: "
+            + str(result)[:500],
+        )
+
     async def test_invalid_success_payloads_are_sdk_errors(self) -> None:
         """Malformed JSON, unexpected structures and unusable IDs fail."""
         responses = [
