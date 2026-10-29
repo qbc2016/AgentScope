@@ -290,7 +290,7 @@ def _memory_components(
                 },
                 "parameters": {
                     "max_tokens": 65_536,
-                    "thinking_enable": False,
+                    "thinking_enable": None,
                 },
             },
         },
