@@ -496,6 +496,25 @@ class TestAnthropicThinkingMode(IsolatedAsyncioTestCase):
 
         self.assertEqual(self._thinking(), {"type": "disabled"})
 
+    async def test_false_drops_budget_and_display(self) -> None:
+        """Disabled thinking omits budget/display without expanding tokens."""
+        self.model.parameters.thinking_enable = False
+        self.model.parameters.thinking_budget = 16_384
+        self.model.parameters.thinking_display = "summarized"
+
+        await self.model([])
+
+        self.assertEqual(
+            self.mock_create.call_args.kwargs,
+            {
+                "model": "claude-opus-4-5",
+                "messages": [],
+                "stream": False,
+                "max_tokens": 8192,
+                "thinking": {"type": "disabled"},
+            },
+        )
+
     async def test_legacy_toggle_still_means_budget_mode(self) -> None:
         """thinking_enable keeps its old meaning when mode is unset."""
         self.model.parameters.thinking_enable = True

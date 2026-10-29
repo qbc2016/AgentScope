@@ -33,10 +33,10 @@ class MiniMaxChatModel(AnthropicChatModel):
             default=None,
             title="Thinking",
             description=(
-                "Whether to enable adaptive thinking. False sends "
-                "thinking.type='disabled'. When None, no thinking "
-                "configuration is sent and the model's default behavior "
-                "applies."
+                "None omits the thinking configuration and uses the "
+                "provider default. True sends thinking.type='adaptive'. "
+                "False sends thinking.type='disabled'; whether disabling "
+                "thinking is supported depends on the model."
             ),
         )
 
@@ -91,7 +91,11 @@ class MiniMaxChatModel(AnthropicChatModel):
         self,
         max_tokens: int,
     ) -> tuple[dict[str, Any] | None, int]:
-        """Use adaptive or disabled thinking, without a token budget."""
+        """Send adaptive or disabled thinking, without a token budget.
+
+        MiniMax-M3 accepts disabled; M3.1-Flash rejects it. See:
+        https://platform.minimax.io/docs/api-reference/text-anthropic-api
+        """
         if self.parameters.thinking_enable is False:
             return {"type": "disabled"}, max_tokens
         if self.parameters.thinking_enable:

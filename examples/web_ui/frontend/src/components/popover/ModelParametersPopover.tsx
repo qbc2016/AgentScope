@@ -48,6 +48,8 @@ interface ParameterProperty {
 	exclusiveMaximum?: number;
 	enum?: unknown[];
 	anyOf?: ParameterProperty[];
+	/** Reset these parameters on edit only when their controls are hidden. */
+	'x-reset-hidden-on-change'?: Record<string, unknown>;
 }
 
 interface ParameterSchema {
@@ -350,10 +352,17 @@ export function ModelParametersPopover({
 			if (value === '' || value === undefined) {
 				delete next[key];
 			}
+			const properties = schema?.properties ?? {};
+			const resets = properties[key]?.['x-reset-hidden-on-change'] ?? {};
+			for (const [target, resetValue] of Object.entries(resets)) {
+				if (!Object.hasOwn(properties, target)) {
+					next[target] = resetValue;
+				}
+			}
 			setValues(next);
 			onChange(next);
 		},
-		[values, onChange],
+		[values, onChange, schema],
 	);
 
 	const handleSelectFallback = (

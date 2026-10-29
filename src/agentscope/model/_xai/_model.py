@@ -51,13 +51,11 @@ class XAIChatModel(ChatModelBase):
             default=None,
             title="Thinking",
             description=(
-                "Whether to enable reasoning for models that support "
-                "extended thinking (e.g. ``grok-3-mini``). Use "
-                "reasoning_effort to control the depth of reasoning. "
-                "When None, an explicit reasoning_effort is forwarded; "
-                "otherwise no reasoning parameters are added. False raises "
-                "an error because the xAI SDK does not support disabling "
-                "thinking."
+                "None and True forward reasoning_effort when it is set. "
+                "If reasoning_effort is unset, neither adds reasoning "
+                "parameters; the provider default applies. False raises "
+                "ValueError before making a request because this adapter "
+                "does not support disabling thinking."
             ),
         )
 

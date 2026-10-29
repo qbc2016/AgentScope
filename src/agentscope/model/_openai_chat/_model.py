@@ -52,12 +52,11 @@ class OpenAIChatModel(ChatModelBase):
             default=None,
             title="Thinking",
             description=(
-                "Whether to enable reasoning for reasoning models "
-                "(e.g. o3, o4-mini, gpt-5.5). Use reasoning_effort to "
-                "control the depth of reasoning. When None, an explicit "
-                "reasoning_effort is forwarded; otherwise no reasoning "
-                "parameters are added. False sends reasoning_effort='none' "
-                "to request that reasoning be disabled."
+                "None and True forward reasoning_effort when it is set, "
+                "including 'none'. If reasoning_effort is unset, neither "
+                "adds reasoning parameters; the provider default applies. "
+                "False overrides reasoning_effort with 'none' to request "
+                "that reasoning be disabled."
             ),
         )
 
@@ -72,6 +71,9 @@ class OpenAIChatModel(ChatModelBase):
                 "model-dependent and may include: none, minimal, low, "
                 "medium, high, xhigh."
             ),
+            json_schema_extra={
+                "x-reset-hidden-on-change": {"thinking_enable": None},
+            },
         )
 
         temperature: float | None = Field(
