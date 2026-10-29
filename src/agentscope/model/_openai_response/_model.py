@@ -69,13 +69,16 @@ class OpenAIResponseModel(ChatModelBase):
             gt=0,
         )
 
-        thinking_enable: bool = Field(
-            default=False,
+        thinking_enable: bool | None = Field(
+            default=None,
             title="Thinking",
             description=(
                 "Whether to enable reasoning for reasoning models "
                 "(e.g. o3, o4-mini, gpt-5.5). Use reasoning_effort to "
-                "control the depth of reasoning."
+                "control the depth of reasoning. When None, an explicit "
+                "reasoning_effort is forwarded; otherwise no reasoning "
+                "parameters are added. False sends reasoning.effort='none' "
+                "to request that reasoning be disabled."
             ),
         )
 
@@ -218,10 +221,9 @@ class OpenAIResponseModel(ChatModelBase):
         if self.parameters.temperature is not None:
             api_kwargs["temperature"] = self.parameters.temperature
 
-        if (
-            self.parameters.thinking_enable
-            and self.parameters.reasoning_effort
-        ):
+        if self.parameters.thinking_enable is False:
+            api_kwargs["reasoning"] = {"effort": "none"}
+        elif self.parameters.reasoning_effort is not None:
             api_kwargs["reasoning"] = {
                 "effort": self.parameters.reasoning_effort,
             }

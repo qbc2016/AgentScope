@@ -29,10 +29,15 @@ class MiniMaxChatModel(AnthropicChatModel):
             gt=0,
         )
 
-        thinking_enable: bool = Field(
-            default=False,
+        thinking_enable: bool | None = Field(
+            default=None,
             title="Thinking",
-            description="Whether to enable adaptive thinking.",
+            description=(
+                "Whether to enable adaptive thinking. False sends "
+                "thinking.type='disabled'. When None, no thinking "
+                "configuration is sent and the model's default behavior "
+                "applies."
+            ),
         )
 
     def __init__(
@@ -86,7 +91,9 @@ class MiniMaxChatModel(AnthropicChatModel):
         self,
         max_tokens: int,
     ) -> tuple[dict[str, Any] | None, int]:
-        """MiniMax only accepts adaptive thinking, without a token budget."""
+        """Use adaptive or disabled thinking, without a token budget."""
+        if self.parameters.thinking_enable is False:
+            return {"type": "disabled"}, max_tokens
         if self.parameters.thinking_enable:
             return {"type": "adaptive"}, max_tokens
         return None, max_tokens

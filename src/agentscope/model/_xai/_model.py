@@ -47,13 +47,17 @@ class XAIChatModel(ChatModelBase):
         )
         """The maximum number of tokens to generate."""
 
-        thinking_enable: bool = Field(
-            default=False,
+        thinking_enable: bool | None = Field(
+            default=None,
             title="Thinking",
             description=(
                 "Whether to enable reasoning for models that support "
                 "extended thinking (e.g. ``grok-3-mini``). Use "
-                "reasoning_effort to control the depth of reasoning."
+                "reasoning_effort to control the depth of reasoning. "
+                "When None, an explicit reasoning_effort is forwarded; "
+                "otherwise no reasoning parameters are added. False raises "
+                "an error because the xAI SDK does not support disabling "
+                "thinking."
             ),
         )
 
@@ -64,8 +68,8 @@ class XAIChatModel(ChatModelBase):
                 "Controls the depth of reasoning for models that support "
                 "extended thinking (e.g. ``grok-3-mini``). Set to "
                 "``'low'``, ``'medium'``, or ``'high'`` to enable reasoning "
-                "with the corresponding effort level. ``None`` disables "
-                "reasoning."
+                "with the corresponding effort level. When None, no "
+                "reasoning effort is sent."
             ),
         )
 
@@ -185,6 +189,13 @@ class XAIChatModel(ChatModelBase):
                 generator of ``ChatResponse`` objects when streaming is
                 enabled.
         """
+        if self.parameters.thinking_enable is False:
+            raise ValueError(
+                "The xAI SDK does not support disabling thinking. "
+                "Set thinking_enable to None or True and use "
+                "reasoning_effort to control reasoning depth.",
+            )
+
         from xai_sdk import AsyncClient
 
         client = AsyncClient(
@@ -206,10 +217,7 @@ class XAIChatModel(ChatModelBase):
             create_kwargs["temperature"] = self.parameters.temperature
         if self.parameters.top_p is not None:
             create_kwargs["top_p"] = self.parameters.top_p
-        if (
-            self.parameters.thinking_enable
-            and self.parameters.reasoning_effort
-        ):
+        if self.parameters.reasoning_effort is not None:
             create_kwargs[
                 "reasoning_effort"
             ] = self.parameters.reasoning_effort
