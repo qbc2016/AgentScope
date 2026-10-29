@@ -415,8 +415,9 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
 
         Custom buses must make cancellation during ``acquire_lock`` safe:
         resolve ambiguous acquisitions and release only their own lease.
-        Redis does this before propagating acquisition cancellation, so
-        transport cleanup may outlast the contention deadline.
+        Redis attempts cleanup within its own finite deadline, so cleanup
+        may outlast the contention deadline. If transport cleanup times out,
+        the lock TTL is the final fallback.
 
         Args:
             key (`str`): Lock identifier.
@@ -624,6 +625,17 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
             `str | None`:
                 The stored value, or ``None`` if missing.
         """
+
+    async def registry_get_many(
+        self,
+        namespace: str,
+        fields: list[str],
+    ) -> list[str | None]:
+        """Read selected fields in order, using None for missing values.
+
+        Custom buses may override this compatible fallback with a batch read.
+        """
+        return [await self.registry_get(namespace, field) for field in fields]
 
     @abstractmethod
     async def registry_drop(self, namespace: str) -> None:

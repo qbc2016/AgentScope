@@ -411,6 +411,92 @@ class TestLockPrimitive(IsolatedAsyncioTestCase):
                 await asyncio.wait_for(task, 1)
         self.assertEqual(await self.fr.get("cancelled"), "new-owner")
 
+    async def test_stalled_set_cleanup_has_absolute_deadline(self) -> None:
+        """Repeated cancellation cannot extend cleanup of a stuck SET."""
+        committed, release = asyncio.Event(), asyncio.Event()
+        original = self.fr.set
+
+        async def blocked_set(*args: Any, **kwargs: Any) -> object:
+            result = await original(*args, **kwargs)
+            committed.set()
+            await release.wait()
+            return result
+
+        async def acquire() -> None:
+            async with self.bus.acquire_lock("stalled", ttl_secs=10):
+                self.fail("Cancelled acquisition entered its body.")
+
+        self.bus._lock_cleanup_timeout_secs = 0.03
+        with patch.object(self.fr, "set", blocked_set):
+            task = asyncio.create_task(acquire())
+            try:
+                await asyncio.wait_for(committed.wait(), 1)
+                task.cancel()
+                for _ in range(5):
+                    await asyncio.sleep(0.01)
+                    task.cancel()
+                done, _ = await asyncio.wait({task}, timeout=0.3)
+                self.assertEqual(done, {task})
+                self.assertTrue(task.cancelled())
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                self.assertEqual(self.bus._lock_cleanup_tasks, set())
+                self.assertGreater(await self.fr.ttl("stalled"), 0)
+            finally:
+                release.set()
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    async def test_stalled_release_does_not_block_acquisition_cancellation(
+        self,
+    ) -> None:
+        """The deadline also covers release Lua, not only the SET response."""
+        committed, response, releasing, release = (
+            asyncio.Event(),
+            asyncio.Event(),
+            asyncio.Event(),
+            asyncio.Event(),
+        )
+        original_set = self.fr.set
+
+        async def delayed_set(*args: Any, **kwargs: Any) -> object:
+            result = await original_set(*args, **kwargs)
+            committed.set()
+            await response.wait()
+            return result
+
+        async def blocked_eval(*_args: Any, **_kwargs: Any) -> None:
+            releasing.set()
+            await release.wait()
+
+        async def acquire() -> None:
+            async with self.bus.acquire_lock("stalled-release", ttl_secs=10):
+                self.fail("Cancelled acquisition entered its body.")
+
+        self.bus._lock_cleanup_timeout_secs = 0.03
+        with patch.object(self.fr, "set", delayed_set), patch.object(
+            self.fr,
+            "eval",
+            blocked_eval,
+        ):
+            task = asyncio.create_task(acquire())
+            try:
+                await asyncio.wait_for(committed.wait(), 1)
+                task.cancel()
+                response.set()
+                await asyncio.wait_for(releasing.wait(), 1)
+                done, _ = await asyncio.wait({task}, timeout=0.3)
+                self.assertEqual(done, {task})
+                self.assertTrue(task.cancelled())
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                self.assertEqual(self.bus._lock_cleanup_tasks, set())
+            finally:
+                response.set()
+                release.set()
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
     async def test_heartbeat_does_not_renew_another_owner(self) -> None:
         """A stale holder cannot extend or delete a replacement lease."""
         async with self.bus.acquire_lock("ownership", ttl_secs=2):

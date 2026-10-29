@@ -29,7 +29,18 @@ async def hydrate_input(bus: "MessageBus", payload: dict) -> dict | None:
     )
     if raw is None:
         return None
-    return {**payload, "input": json.loads(raw)}
+    return decode_input(payload, raw)
+
+
+def decode_input(payload: dict, raw: str | None) -> dict | None:
+    """Decode a referenced input, omitting missing or corrupt payloads."""
+    if raw is None:
+        return None
+    try:
+        return {**payload, "input": json.loads(raw)}
+    except (TypeError, ValueError):
+        logger.warning("Invalid queued input payload %s.", payload.get("id"))
+        return None
 
 
 async def discard_input(bus: "MessageBus", payload: dict) -> None:
@@ -62,11 +73,17 @@ async def cleanup_session(bus: "MessageBus", session_id: str) -> None:
         session_id,
     )
     if raw is not None:
-        routing = json.loads(raw)
-        await bus.registry_del(
-            MessageBusKeys.chat_input_user_sessions(routing["user_id"]),
-            session_id,
-        )
+        try:
+            user_id = json.loads(raw)["user_id"]
+            if not isinstance(user_id, str) or not user_id:
+                raise ValueError("Invalid pending-input owner.")
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Invalid pending-input owner for %s.", session_id)
+        else:
+            await bus.registry_del(
+                MessageBusKeys.chat_input_user_sessions(user_id),
+                session_id,
+            )
     await bus.registry_drop(MessageBusKeys.chat_input_payloads(session_id))
     await bus.registry_drop(MessageBusKeys.chat_input_claim(session_id))
     await bus.registry_del(

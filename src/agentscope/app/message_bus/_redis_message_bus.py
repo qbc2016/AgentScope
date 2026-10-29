@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any, Callable, Self, TYPE_CHECKING
 
+from ..._logging import logger
 from ._base import MessageBus
 
 if TYPE_CHECKING:
@@ -91,6 +92,7 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
         db: int = 0,
         password: str | None = None,
         connection_pool: ConnectionPool | None = None,
+        lock_cleanup_timeout_secs: float = 2.0,
         **kwargs: Any,
     ) -> None:
         """Store connection parameters; the actual pool is created in
@@ -112,12 +114,18 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
                 lifecycle. When omitted a pool is created from
                 *host*/*port*/*db*/*password* on :meth:`__aenter__`
                 and closed on :meth:`aclose`.
+            lock_cleanup_timeout_secs (`float`, defaults to ``2.0``):
+                Maximum cancellation cleanup wait before falling back to TTL.
             **kwargs (`Any`):
                 Extra keyword arguments forwarded to
                 ``redis.asyncio.ConnectionPool`` when the pool is
                 created internally (e.g. ``max_connections=20``,
                 ``socket_timeout=5``).
         """
+        if lock_cleanup_timeout_secs <= 0:
+            raise ValueError("lock_cleanup_timeout_secs must be positive.")
+        self._lock_cleanup_timeout_secs = lock_cleanup_timeout_secs
+        self._lock_cleanup_tasks: set[asyncio.Task] = set()
         self._host = host
         self._port = port
         self._db = db
@@ -171,6 +179,8 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
 
         Externally supplied pools are left open — the caller owns them.
         """
+        for task in tuple(self._lock_cleanup_tasks):
+            task.cancel()
         if self._owned_pool is not None:
             await self._owned_pool.aclose()
             self._owned_pool = None
@@ -588,6 +598,16 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
         """
         return await self._client.hget(namespace, field)
 
+    async def registry_get_many(
+        self,
+        namespace: str,
+        fields: list[str],
+    ) -> list[str | None]:
+        """Read only the requested registry fields in their supplied order."""
+        if not fields:
+            return []
+        return await self._client.hmget(namespace, fields)
+
     async def registry_drop(self, namespace: str) -> None:
         """Delete the entire Hash at ``namespace``.
 
@@ -691,6 +711,56 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
     # Poll interval while waiting for a contested lock.
     _LOCK_RETRY_DELAY_SECS = 0.1
 
+    async def _resolve_cancelled_acquisition(
+        self,
+        key: str,
+        token: str,
+        attempt: asyncio.Task,
+    ) -> None:
+        """Resolve an ambiguous SET within an absolute cleanup deadline."""
+        client = self._client
+
+        async def resolve_and_release() -> None:
+            try:
+                await attempt
+            except Exception:
+                # A failed response may still represent a committed SET.
+                pass
+            await client.eval(_LOCK_RELEASE_LUA, 1, key, token)
+
+        def observed(task: asyncio.Task) -> None:
+            self._lock_cleanup_tasks.discard(task)
+            if not task.cancelled():
+                task.exception()
+
+        cleanup = asyncio.create_task(resolve_and_release())
+        for task in (attempt, cleanup):
+            self._lock_cleanup_tasks.add(task)
+            task.add_done_callback(observed)
+        deadline = (
+            asyncio.get_running_loop().time() + self._lock_cleanup_timeout_secs
+        )
+        while not cleanup.done():
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                # Cancelling the Redis request disconnects its in-use socket.
+                # Do not wait indefinitely for cleanup of a broken transport.
+                cleanup.cancel()
+                attempt.cancel()
+                logger.warning(
+                    "Lock acquisition cleanup timed out for %s; "
+                    "relying on TTL.",
+                    key,
+                )
+                return
+            try:
+                await asyncio.wait({cleanup}, timeout=remaining)
+            except asyncio.CancelledError:
+                # Further cancellation never resets the absolute deadline.
+                continue
+        if not cleanup.cancelled() and cleanup.exception() is not None:
+            logger.warning("Lock cleanup failed for %s; relying on TTL.", key)
+
     @asynccontextmanager
     async def acquire_lock(
         self,
@@ -709,9 +779,10 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
           seconds while the body runs, so a long-running holder
           does not lose the lease.
         - Renewal and release compare the ownership token atomically.
-        - Acquisition cancellation waits for an outstanding SET response
-          and releases its token before propagating cancellation. Redis
-          socket timeouts bound transport failures, not the lock deadline.
+        - Acquisition cancellation resolves an outstanding SET and releases
+          its token within the configured cleanup deadline. If Redis remains
+          unavailable, cancelled client tasks are observed and TTL is the
+          final fallback. Cleanup never waits indefinitely.
 
         Args:
             key (`str`):
@@ -731,31 +802,7 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
             try:
                 ok = await asyncio.shield(attempt)
             except asyncio.CancelledError:
-                # SET may already have committed. Resolve the request before
-                # releasing our token; never delete another owner's lease.
-                async def resolve_and_release() -> None:
-                    try:
-                        await attempt
-                    finally:
-                        await self._client.eval(
-                            _LOCK_RELEASE_LUA,
-                            1,
-                            key,
-                            token,
-                        )
-
-                cleanup = asyncio.create_task(resolve_and_release())
-                while not cleanup.done():
-                    try:
-                        await asyncio.shield(cleanup)
-                    except asyncio.CancelledError:
-                        continue
-                try:
-                    cleanup.result()
-                except Exception:
-                    # Redis may be unavailable; the lease remains the final
-                    # recovery bound, but preserve the caller's cancellation.
-                    pass
+                await self._resolve_cancelled_acquisition(key, token, attempt)
                 raise
             if ok:
                 break

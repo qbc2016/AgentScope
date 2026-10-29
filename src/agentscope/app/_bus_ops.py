@@ -34,7 +34,7 @@ from .message_bus._keys import MessageBusKeys
 from ._chat_input_store import (
     cleanup_session,
     discard_input,
-    hydrate_input,
+    decode_input,
     queue_entry,
 )
 
@@ -177,11 +177,19 @@ def _serialized_input(
         else inputs.model_dump(mode="json")
     )
     metadata = deepcopy(serialized)
+    attachment_bytes = 0
     for message in metadata if isinstance(metadata, list) else [metadata]:
         for block in message.get("content", []):
             source = block.get("source", {})
             if block.get("type") == "data" and source.get("type") == "base64":
+                attachment_bytes += len(source["data"].encode("utf-8"))
                 source["data"] = ""
+    attachment_limit = MessageBusKeys.CHAT_INPUT_ATTACHMENT_MAX_BYTES
+    if attachment_bytes > attachment_limit:
+        raise ChatQueuePayloadTooLargeError(
+            "The queued attachments are too large "
+            f"({attachment_bytes} encoded bytes; limit {attachment_limit}).",
+        )
     size = len(
         json.dumps(
             metadata,
@@ -692,9 +700,30 @@ async def _read_chat_input_payloads(
         MessageBusKeys.chat_inputs(session_id),
         max_count=MessageBusKeys.CHAT_INPUT_MAX_LEN,
     )
+    refs = [
+        entry["input_ref"]
+        for _, entry in entries
+        if "input" not in entry and isinstance(entry.get("input_ref"), str)
+    ]
+    values = (
+        await bus.registry_get_many(
+            MessageBusKeys.chat_input_payloads(session_id),
+            refs,
+        )
+        if refs
+        else []
+    )
+    inputs = dict(zip(refs, values))
     payloads = []
     for _entry_id, entry in entries:
-        payload = await hydrate_input(bus, entry)
+        payload = (
+            entry
+            if "input" in entry
+            else decode_input(
+                entry,
+                inputs.get(entry.get("input_ref")),
+            )
+        )
         if payload is not None:
             payloads.append(payload)
     return payloads
@@ -732,7 +761,18 @@ async def _count_user_chat_inputs(
             session_id,
         )
         if raw is not None:
-            ids.add(json.loads(raw)["id"])
+            try:
+                item_id = json.loads(raw)["id"]
+                if not isinstance(item_id, str) or not item_id:
+                    raise ValueError("Invalid claimed item id.")
+            except (KeyError, TypeError, ValueError):
+                logger.warning(
+                    "Invalid quota claim for session %s; counting one item.",
+                    session_id,
+                )
+                count += 1
+            else:
+                ids.add(item_id)
         count += len(ids)
         if count >= MessageBusKeys.CHAT_INPUT_USER_MAX_LEN:
             return count

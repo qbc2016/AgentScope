@@ -17,6 +17,7 @@ from ...event import (
 )
 from ...message import Msg
 from ..message_bus import MessageBusKeys
+from ._chat_run_registry import CHAT_RUN_SHUTDOWN
 from .._bus_ops import (
     ChatQueueBusyError,
     chat_input_mutation,
@@ -44,6 +45,7 @@ _MESSAGE_CLAIMED = "claimed"
 _MESSAGE_INPUT_PERSISTED = "input_persisted"
 _MESSAGE_CANCELLED = "cancelled"
 _MESSAGE_FAILED = "failed"
+_MESSAGE_COMPLETED = "completed"
 
 
 class ChatInputQueue:
@@ -436,6 +438,9 @@ class ChatInputQueue:
             if claim is None:
                 return False
             payload, claim_state = claim
+            if claim_state == _MESSAGE_COMPLETED:
+                await self._acknowledge_completed(session_id, payload)
+                return True
             try:
                 queued_user_id = payload["user_id"]
                 queued_session_id = payload["session_id"]
@@ -557,9 +562,15 @@ class ChatInputQueue:
                     input_msg=queued_input,
                     queue_item_id=queue_item_id,
                 )
-                await self._finish_chat_input_claim(session_id)
+                claim_state = _MESSAGE_COMPLETED
+                await self._acknowledge_completed(session_id, payload)
                 return True
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as exc:
+                if claim_state == _MESSAGE_COMPLETED or (
+                    claim_state == _MESSAGE_CLAIMED
+                    and exc.args == (CHAT_RUN_SHUTDOWN,)
+                ):
+                    raise
                 cleanup_task = asyncio.create_task(
                     self._cancel_chat_input_claim(
                         session_id,
@@ -643,6 +654,7 @@ class ChatInputQueue:
                         _MESSAGE_INPUT_PERSISTED,
                         _MESSAGE_CANCELLED,
                         _MESSAGE_FAILED,
+                        _MESSAGE_COMPLETED,
                     ):
                         raise ValueError("Invalid chat-input claim.")
                 except (KeyError, TypeError, ValueError):
@@ -699,6 +711,8 @@ class ChatInputQueue:
                     MessageBusKeys.chat_inputs(session_id),
                     max_count=1,
                 )
+            if claim["state"] == _MESSAGE_COMPLETED:
+                return payload, _MESSAGE_COMPLETED
             hydrated = await hydrate_input(self._bus, payload)
             return hydrated or payload, claim["state"]
 
@@ -734,6 +748,36 @@ class ChatInputQueue:
                 json.dumps({"state": state, "payload": queue_entry(payload)}),
             )
 
+    async def _acknowledge_completed(
+        self,
+        session_id: str,
+        payload: dict,
+    ) -> None:
+        """Retry terminal bookkeeping without running or failing the turn.
+
+        Keep the dispatch lease until completion is durable and acknowledged.
+        Cancellation may leave a completed marker for recovery; a hard crash
+        before that write remains an unknown outcome, never a safe replay.
+        """
+        marked = False
+        while True:
+            try:
+                if not marked:
+                    await self._set_chat_input_claim_state(
+                        session_id,
+                        payload,
+                        _MESSAGE_COMPLETED,
+                    )
+                    marked = True
+                await self._finish_chat_input_claim(session_id)
+                return
+            except Exception:
+                logger.exception(
+                    "Retrying completed claim acknowledgement for %s.",
+                    session_id,
+                )
+                await asyncio.sleep(MessageBusKeys.CHAT_INPUT_RETRY_SECS)
+
     async def _finish_chat_input_claim(self, session_id: str) -> None:
         """Acknowledge one claim and garbage-collect an empty marker.
 
@@ -762,7 +806,17 @@ class ChatInputQueue:
                 session_id,
             )
             if raw is not None:
-                await discard_input(self._bus, json.loads(raw)["payload"])
+                try:
+                    payload = json.loads(raw)["payload"]
+                    if not isinstance(payload, dict):
+                        raise ValueError("Invalid terminal claim payload.")
+                except (KeyError, TypeError, ValueError):
+                    logger.warning(
+                        "Skipping malformed terminal claim data for %s.",
+                        session_id,
+                    )
+                else:
+                    await discard_input(self._bus, payload)
             await cleanup_session(self._bus, session_id)
 
     async def _cancel_chat_input_claim(

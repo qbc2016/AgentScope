@@ -586,6 +586,15 @@ class InMemoryMessageBus(
         """
         return self._registries.get(namespace, {}).get(field)
 
+    async def registry_get_many(
+        self,
+        namespace: str,
+        fields: list[str],
+    ) -> list[str | None]:
+        """Read only the requested registry fields in their supplied order."""
+        registry = self._registries.get(namespace, {})
+        return [registry.get(field) for field in fields]
+
     async def registry_drop(self, namespace: str) -> None:
         """Delete the entire registry at ``namespace``.
 
