@@ -39,6 +39,7 @@ from agentscope.app._bus_ops import (
     reorder_chat_inputs,
     update_chat_input,
 )
+from agentscope.app._manager._chat_input_queue import ChatInputQueue
 from agentscope.app.message_bus import (
     InMemoryMessageBus,
     MessageBus,
@@ -49,6 +50,7 @@ from agentscope.app._router._schema import (
     ChatRequest,
     UpdateChatQueueItemRequest,
 )
+from agentscope.state import AgentState
 from agentscope.message import AssistantMsg, ToolCallBlock, UserMsg
 
 
@@ -89,7 +91,11 @@ class _FakeStorage:
                     ],
                 ),
             ]
-        return SimpleNamespace(state=SimpleNamespace(context=context))
+        return SimpleNamespace(state=AgentState(context=context))
+
+    async def get_agent(self, _user_id: str, _agent_id: str) -> object:
+        """Return the agent name used by canonical HITL detection."""
+        return SimpleNamespace(data=SimpleNamespace(name="agent"))
 
     async def upsert_message(
         self,
@@ -300,6 +306,7 @@ class _FakeChatService:
         session_id: str,
         agent_id: str,
         input_msg: Any = None,
+        queue_item_id: str | None = None,
     ) -> None:
         """Record the call and signal a waiter."""
         self.calls.append(
@@ -327,8 +334,15 @@ class _BlockingChatService(_FakeChatService):
         session_id: str,
         agent_id: str,
         input_msg: Any = None,
+        queue_item_id: str | None = None,
     ) -> None:
-        await super().run(user_id, session_id, agent_id, input_msg)
+        await super().run(
+            user_id,
+            session_id,
+            agent_id,
+            input_msg,
+            queue_item_id,
+        )
         if len(self.calls) == 1:
             await self.release_first.wait()
         await enqueue_run_trigger(
@@ -707,8 +721,14 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
             UserMsg("user", "persist me", id="claim-message"),
         )
 
-        with self.assertRaises(RuntimeError):
-            await dispatcher._drain_chat_inputs("u", "claim-retry", "a")
+        with patch.object(MessageBusKeys, "CHAT_INPUT_RETRY_SECS", 0):
+            self.assertFalse(
+                await dispatcher._chat_queue.drain_chat_inputs(
+                    "u",
+                    "claim-retry",
+                    "a",
+                ),
+            )
 
         self.assertEqual(
             await bus.queue_read(
@@ -720,14 +740,18 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
         claim = json.loads(
             (
                 await bus.registry_getall(
-                    MessageBusKeys.chat_input_inflight_registry(),
+                    MessageBusKeys.chat_input_claim("claim-retry"),
                 )
-            )["claim-retry"],
+            )["claim"],
         )
         self.assertEqual(claim["state"], "claimed")
 
         self.assertTrue(
-            await dispatcher._drain_chat_inputs("u", "claim-retry", "a"),
+            await dispatcher._chat_queue.drain_chat_inputs(
+                "u",
+                "claim-retry",
+                "a",
+            ),
         )
         self.assertEqual(len(chat.calls), 1)
         self.assertEqual(chat.calls[0]["input_msg"].id, "claim-message")
@@ -758,15 +782,21 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
             "a",
             UserMsg("user", "do not replay", id="persisted-message"),
         )
-        payload, _state = await dispatcher._claim_chat_input("claim-failed")
-        await dispatcher._set_chat_input_claim_state(
+        payload, _state = await dispatcher._chat_queue._claim_chat_input(
+            "claim-failed",
+        )
+        await dispatcher._chat_queue._set_chat_input_claim_state(
             "claim-failed",
             payload,
             "input_persisted",
         )
 
         self.assertTrue(
-            await dispatcher._drain_chat_inputs("u", "claim-failed", "a"),
+            await dispatcher._chat_queue.drain_chat_inputs(
+                "u",
+                "claim-failed",
+                "a",
+            ),
         )
         self.assertEqual(chat.calls, [])
         self.assertIn(
@@ -805,13 +835,13 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
         )
         payload = pending[0][1]
         await bus.registry_set(
-            MessageBusKeys.chat_input_inflight_registry(),
-            "claim-before-drain",
+            MessageBusKeys.chat_input_claim("claim-before-drain"),
+            "claim",
             json.dumps({"state": "claimed", "payload": payload}),
         )
 
         self.assertTrue(
-            await dispatcher._drain_chat_inputs(
+            await dispatcher._chat_queue.drain_chat_inputs(
                 "u",
                 "claim-before-drain",
                 "a",
@@ -1321,18 +1351,18 @@ class TestChatInputClaimReliability(IsolatedAsyncioTestCase):
             "CHAT_INPUT_MUTATION_TIMEOUT_SECS",
             0.001,
         ):
-            await dispatcher._set_chat_input_claim_state(
+            await dispatcher._chat_queue._set_chat_input_claim_state(
                 "s",
                 payload,
                 "input_persisted",
             )
             self.assertTrue(
                 await bus.registry_exists(
-                    MessageBusKeys.chat_input_inflight_registry(),
-                    "s",
+                    MessageBusKeys.chat_input_claim("s"),
+                    "claim",
                 ),
             )
-            await dispatcher._finish_chat_input_claim("s")
+            await dispatcher._chat_queue._finish_chat_input_claim("s")
 
         self.assertFalse(
             await bus.registry_exists(
@@ -1348,7 +1378,7 @@ class TestWakeupDispatcherLifecycle(IsolatedAsyncioTestCase):
     async def test_recovery_sweep_has_one_cluster_leader(self) -> None:
         """Two processes sharing a bus do not both run the O(N) sweep."""
 
-        class _CountingDispatcher(WakeupDispatcher):
+        class _CountingQueue(ChatInputQueue):
             sweep_count = 0
 
             async def _recover_pending_chat_inputs_locked(self) -> int:
@@ -1356,25 +1386,35 @@ class TestWakeupDispatcherLifecycle(IsolatedAsyncioTestCase):
                 return await super()._recover_pending_chat_inputs_locked()
 
         bus = _FakeBus()
-        first = _CountingDispatcher(
+        first = WakeupDispatcher(
             message_bus=bus,
             storage=_FakeStorage(),
             chat_service=_FakeChatService(),
             chat_run_registry=ChatRunRegistry(),
         )
-        second = _CountingDispatcher(
+        second = WakeupDispatcher(
             message_bus=bus,
             storage=_FakeStorage(),
             chat_service=_FakeChatService(),
             chat_run_registry=ChatRunRegistry(),
         )
 
+        first._chat_queue = _CountingQueue(
+            bus,
+            _FakeStorage(),
+            _FakeChatService(),
+        )
+        second._chat_queue = _CountingQueue(
+            bus,
+            _FakeStorage(),
+            _FakeChatService(),
+        )
         await asyncio.gather(
-            first._recover_pending_chat_inputs(),
-            second._recover_pending_chat_inputs(),
+            first._chat_queue._recover_pending_chat_inputs(),
+            second._chat_queue._recover_pending_chat_inputs(),
         )
 
-        self.assertEqual(_CountingDispatcher.sweep_count, 1)
+        self.assertEqual(_CountingQueue.sweep_count, 1)
         self.assertEqual(
             bus._channel(MessageBusKeys.wakeup_signal()).qsize(),
             0,
@@ -1493,7 +1533,12 @@ class TestChatEndpointQueue(IsolatedAsyncioTestCase):
             max_count=10,
         )
         self.assertEqual(len(queued), 1)
-        self.assertEqual(queued[0][1]["input"]["id"], "http-message")
+        stored = await bus.registry_get(
+            MessageBusKeys.chat_input_payloads("s"),
+            queued[0][1]["input_ref"],
+        )
+        assert stored is not None
+        self.assertEqual(json.loads(stored), user_msg.model_dump(mode="json"))
 
         triggers = await bus.queue_drain(
             MessageBusKeys.wakeup_queue(),
@@ -2059,7 +2104,14 @@ class TestEditableChatQueue(IsolatedAsyncioTestCase):
             0.01,
         ):
             with self.assertRaises(ChatQueueBusyError):
-                await list_chat_inputs(_ContendedBus(), "s")
+                await enqueue_chat_input(
+                    _ContendedBus(),
+                    "u",
+                    "s",
+                    "a",
+                    UserMsg("u", "queued"),
+                )
+            self.assertEqual(await list_chat_inputs(_ContendedBus(), "s"), [])
 
     async def test_queue_snapshots_are_not_written_to_replay_log(
         self,

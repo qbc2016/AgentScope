@@ -44,6 +44,20 @@ if value then redis.call('HDEL', KEYS[1], ARGV[1]) end
 return value
 """
 
+_LOCK_RELEASE_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+_LOCK_RENEW_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return 0
+"""
+
 
 class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
     """Redis-backed implementation of :class:`MessageBus`.
@@ -694,16 +708,10 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
         - A heartbeat task renews the TTL every ``ttl_secs / 2``
           seconds while the body runs, so a long-running holder
           does not lose the lease.
-        - On exit, the heartbeat is cancelled and the lock is
-          released by GET-then-DEL guarded on the random token —
-          we never delete a key whose value isn't ours, so a
-          process whose lease has already expired (and been re-
-          acquired by someone else) cannot accidentally release
-          the new holder's lock. The non-atomic GET+DEL race
-          window opens only after the heartbeat is cancelled, in
-          a sub-millisecond span; the ``ttl_secs`` lease still has
-          plenty of time left so the race effectively never
-          materialises.
+        - Renewal and release compare the ownership token atomically.
+        - Acquisition cancellation waits for an outstanding SET response
+          and releases its token before propagating cancellation. Redis
+          socket timeouts bound transport failures, not the lock deadline.
 
         Args:
             key (`str`):
@@ -717,7 +725,38 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
         token = uuid.uuid4().hex
         # Acquire (poll until success).
         while True:
-            ok = await self._client.set(key, token, nx=True, ex=ttl_secs)
+            attempt = asyncio.create_task(
+                self._client.set(key, token, nx=True, ex=ttl_secs),
+            )
+            try:
+                ok = await asyncio.shield(attempt)
+            except asyncio.CancelledError:
+                # SET may already have committed. Resolve the request before
+                # releasing our token; never delete another owner's lease.
+                async def resolve_and_release() -> None:
+                    try:
+                        await attempt
+                    finally:
+                        await self._client.eval(
+                            _LOCK_RELEASE_LUA,
+                            1,
+                            key,
+                            token,
+                        )
+
+                cleanup = asyncio.create_task(resolve_and_release())
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        continue
+                try:
+                    cleanup.result()
+                except Exception:
+                    # Redis may be unavailable; the lease remains the final
+                    # recovery bound, but preserve the caller's cancellation.
+                    pass
+                raise
             if ok:
                 break
             await asyncio.sleep(self._LOCK_RETRY_DELAY_SECS)
@@ -726,7 +765,13 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
         async def _heartbeat() -> None:
             while True:
                 await asyncio.sleep(max(1.0, ttl_secs / 2))
-                await self._client.expire(key, ttl_secs)
+                await self._client.eval(
+                    _LOCK_RENEW_LUA,
+                    1,
+                    key,
+                    token,
+                    ttl_secs,
+                )
 
         hb_task = asyncio.create_task(
             _heartbeat(),
@@ -739,16 +784,14 @@ class RedisMessageBus(MessageBus):  # pylint: disable=too-many-public-methods
             hb_task.cancel()
             try:
                 await hb_task
-            except asyncio.CancelledError:
+            except (asyncio.CancelledError, Exception):
                 pass
             # Release: only delete if the value still matches our
             # token. Failures are swallowed (the lease may have
             # expired naturally, in which case there is nothing to
             # do).
             try:
-                current = await self._client.get(key)
-                if current == token:
-                    await self._client.delete(key)
+                await self._client.eval(_LOCK_RELEASE_LUA, 1, key, token)
             except Exception:  # pylint: disable=broad-except
                 pass
 

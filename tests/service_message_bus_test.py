@@ -350,6 +350,75 @@ class TestLockPrimitive(IsolatedAsyncioTestCase):
             ["first-in", "first-out", "second-in"],
         )
 
+    async def test_timeout_resolves_committed_set_before_returning(
+        self,
+    ) -> None:
+        """An acquisition timeout cannot leave an unrenewed committed lock."""
+        committed = asyncio.Event()
+        release_response = asyncio.Event()
+        original = self.fr.set
+
+        async def delayed_set(*args: Any, **kwargs: Any) -> object:
+            result = await original(*args, **kwargs)
+            committed.set()
+            await release_response.wait()
+            return result
+
+        async def acquire() -> None:
+            async with self.bus.acquire_lock_bounded(
+                "delayed",
+                ttl_secs=10,
+                timeout_secs=0.01,
+            ):
+                self.fail("Timed-out acquisition entered the body.")
+
+        with patch.object(self.fr, "set", delayed_set):
+            task = asyncio.create_task(acquire())
+            await asyncio.wait_for(committed.wait(), 1)
+            await asyncio.sleep(0.03)
+            self.assertFalse(task.done())
+            release_response.set()
+            with self.assertRaises(TimeoutError):
+                await asyncio.wait_for(task, 1)
+        self.assertEqual(await self.fr.get("delayed"), None)
+
+    async def test_repeated_cancel_does_not_release_new_owner(self) -> None:
+        """Late SET cleanup is shielded and checks its ownership token."""
+        committed = asyncio.Event()
+        release_response = asyncio.Event()
+        original = self.fr.set
+
+        async def delayed_set(*args: Any, **kwargs: Any) -> object:
+            result = await original(*args, **kwargs)
+            committed.set()
+            await release_response.wait()
+            return result
+
+        async def acquire() -> None:
+            async with self.bus.acquire_lock("cancelled", ttl_secs=10):
+                self.fail("Cancelled acquisition entered the body.")
+
+        with patch.object(self.fr, "set", delayed_set):
+            task = asyncio.create_task(acquire())
+            await asyncio.wait_for(committed.wait(), 1)
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            await original("cancelled", "new-owner", ex=10)
+            release_response.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 1)
+        self.assertEqual(await self.fr.get("cancelled"), "new-owner")
+
+    async def test_heartbeat_does_not_renew_another_owner(self) -> None:
+        """A stale holder cannot extend or delete a replacement lease."""
+        async with self.bus.acquire_lock("ownership", ttl_secs=2):
+            await self.fr.set("ownership", "replacement", ex=20)
+            await asyncio.sleep(1.05)
+            self.assertGreater(await self.fr.ttl("ownership"), 10)
+        self.assertEqual(await self.fr.get("ownership"), "replacement")
+
 
 class TestSessionRunAutoTrimsLog(IsolatedAsyncioTestCase):
     """``session_run.__aexit__`` must trim the session's replay log

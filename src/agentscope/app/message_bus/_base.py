@@ -40,9 +40,11 @@ should fan out at write time — push one entry per recipient inbox using
 Mode A. The bus stays simple; deduplication is the producer's
 responsibility.
 """
+import asyncio
+import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, Callable, Self
 
 from typing_extensions import deprecated
@@ -155,7 +157,6 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
                 list when the queue is empty.
         """
 
-    @abstractmethod
     async def queue_read(
         self,
         key: str,
@@ -177,8 +178,8 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
             `list[tuple[str, dict]]`:
                 ``(entry_id, payload)`` pairs in queue order.
         """
+        raise NotImplementedError("This bus does not support editable queues.")
 
-    @abstractmethod
     async def queue_replace(
         self,
         key: str,
@@ -200,6 +201,7 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
             `list[str]`:
                 Newly assigned transport-level entry ids.
         """
+        raise NotImplementedError("This bus does not support editable queues.")
 
     @abstractmethod
     async def queue_delete(self, key: str) -> None:
@@ -400,6 +402,39 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
         # @asynccontextmanager to work; subclasses override it.
         if False:  # pylint: disable=using-constant-test
             yield  # pylint: disable=unreachable
+
+    @asynccontextmanager
+    async def acquire_lock_bounded(
+        self,
+        key: str,
+        *,
+        ttl_secs: int = 600,
+        timeout_secs: float = 2.0,
+    ) -> AsyncGenerator[None, None]:
+        """Bound contention waiting without timing out the lock body.
+
+        Custom buses must make cancellation during ``acquire_lock`` safe:
+        resolve ambiguous acquisitions and release only their own lease.
+        Redis does this before propagating acquisition cancellation, so
+        transport cleanup may outlast the contention deadline.
+
+        Args:
+            key (`str`): Lock identifier.
+            ttl_secs (`int`): Renewable lease duration.
+            timeout_secs (`float`): Maximum contention wait.
+
+        Yields:
+            `None`: While holding the lock.
+
+        Raises:
+            `TimeoutError`: The contention deadline expired.
+        """
+        async with AsyncExitStack() as stack:
+            async with asyncio.timeout(timeout_secs):
+                await stack.enter_async_context(
+                    self.acquire_lock(key, ttl_secs=ttl_secs),
+                )
+            yield
 
     @abstractmethod
     async def is_locked(self, key: str) -> bool:
@@ -747,6 +782,21 @@ class MessageBus(ABC):  # pylint: disable=too-many-public-methods
         await self.log_trim(self._SESSION_EVENTS_KEY.format(sid=session_id))
         await self.queue_delete(self._INBOX_KEY.format(sid=session_id))
         await self.queue_delete(MessageBusKeys.chat_inputs(session_id))
+        routing = await self.registry_get(
+            MessageBusKeys.chat_input_pending_registry(),
+            session_id,
+        )
+        if routing is not None:
+            await self.registry_del(
+                MessageBusKeys.chat_input_user_sessions(
+                    json.loads(routing)["user_id"],
+                ),
+                session_id,
+            )
+        await self.registry_drop(
+            MessageBusKeys.chat_input_payloads(session_id),
+        )
+        await self.registry_drop(MessageBusKeys.chat_input_claim(session_id))
         await self.registry_del(
             MessageBusKeys.chat_input_pending_registry(),
             session_id,

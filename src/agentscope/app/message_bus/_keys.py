@@ -274,7 +274,7 @@ class MessageBusKeys:  # pylint: disable=too-many-public-methods
     """Maximum pending/in-flight ordinary turns owned by one user."""
 
     CHAT_INPUT_MAX_BYTES: Final = 1_000_000
-    """Maximum serialized size of one queued turn."""
+    """Maximum serialized text/metadata bytes, excluding base64 attachments."""
 
     CHAT_INPUT_MUTATION_TTL_SECS: Final = 10
     """Crash lease for short queue mutations."""
@@ -287,6 +287,27 @@ class MessageBusKeys:  # pylint: disable=too-many-public-methods
 
     CHAT_INPUT_RECOVERY_LOCK_TIMEOUT_SECS: Final = 0.1
     """Maximum recovery-sweep wait for one session mutation lock."""
+
+    CHAT_INPUT_MAX_ATTEMPTS: Final = 3
+    """Maximum pre-execution persistence attempts before terminal failure."""
+
+    CHAT_INPUT_RETRY_SECS: Final = 1.0
+    """Initial retry backoff; multiplied by the failed attempt count."""
+
+    @classmethod
+    def chat_input_payloads(cls, session_id: str) -> str:
+        """Return the session-local registry of complete input payloads."""
+        return f"agentscope:chat:payloads:{session_id}"
+
+    @classmethod
+    def chat_input_claim(cls, session_id: str) -> str:
+        """Return the session-local durable claim registry."""
+        return f"agentscope:chat:claim:{session_id}"
+
+    @classmethod
+    def chat_input_user_sessions(cls, user_id: str) -> str:
+        """Return one user's lightweight pending-session index."""
+        return f"agentscope:chat:user_sessions:{user_id}"
 
     @classmethod
     def chat_inputs(cls, session_id: str) -> str:

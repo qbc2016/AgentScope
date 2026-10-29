@@ -255,19 +255,23 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 												<Button
 													size={'xs'}
 													onClick={() => {
-														onSend([
-															{
-																id: crypto.randomUUID(),
-																type: 'text',
-																text: t(
-																	'chat.maxItersExceeded.continue',
-																),
-																created_at:
-																	new Date().toISOString(),
-																finished_at:
-																	new Date().toISOString(),
-															} as TextBlock,
-														]);
+														void Promise.resolve(
+															onSend([
+																{
+																	id: crypto.randomUUID(),
+																	type: 'text',
+																	text: t(
+																		'chat.maxItersExceeded.continue',
+																	),
+																	created_at:
+																		new Date().toISOString(),
+																	finished_at:
+																		new Date().toISOString(),
+																} as TextBlock,
+															]),
+														).catch(() => {
+															// The send handler reports the failure.
+														});
 													}}
 												>
 													{t('chat.maxItersExceeded.continue')}

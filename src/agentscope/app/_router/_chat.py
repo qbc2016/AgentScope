@@ -134,17 +134,10 @@ async def get_chat_queue(
 
     Raises:
         `HTTPException`:
-            HTTP 404 if the session is not owned by the caller, or HTTP
-            503 if the queue cannot be read promptly.
+            HTTP 404 if the session is not owned by the caller.
     """
     await _ensure_session(storage, user_id, agent_id, session_id)
-    try:
-        items = await list_chat_inputs(message_bus, session_id)
-    except ChatQueueBusyError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
+    items = await list_chat_inputs(message_bus, session_id)
     return ChatQueueResponse(items=items)
 
 

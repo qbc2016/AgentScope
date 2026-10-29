@@ -286,6 +286,7 @@ class ChatService:
         | UserInterruptEvent
         | None = None,
         sop_dispatch: str | None = None,
+        queue_item_id: str | None = None,
     ) -> None:
         """Drive a chat run to completion.
 
@@ -328,6 +329,8 @@ class ChatService:
             sop_dispatch (`str | None`, optional):
                 ``"<run id>:<step index>"`` when a SOP run dispatched
                 this turn, which gives it a submit tool.
+            queue_item_id (`str | None`, optional):
+                Queue identity for terminal failure reporting.
         """
         try:
             await self._run_impl(
@@ -346,7 +349,10 @@ class ChatService:
                 agent_id,
                 str(e),
             )
-            if isinstance(input_msg, (Msg, list)):
+            if queue_item_id is not None and isinstance(
+                input_msg,
+                (Msg, list),
+            ):
                 messages = (
                     input_msg
                     if isinstance(input_msg, list)
@@ -358,6 +364,7 @@ class ChatService:
                     event = CustomEvent(
                         name="chat_input_failed",
                         value={
+                            "queue_item_id": queue_item_id,
                             "message_ids": [msg.id for msg in messages],
                             "message": (
                                 "The queued message could not be processed. "
