@@ -48,7 +48,6 @@ from ..storage import StorageBase
 from .._bus_ops import (
     ChatQueueBusyError,
     ChatQueueFullError,
-    ChatQueuePayloadTooLargeError,
     delete_chat_input,
     enqueue_chat_input,
     enqueue_run_trigger,
@@ -237,8 +236,8 @@ async def update_chat_queue_item(
     Raises:
         `HTTPException`:
             HTTP 404 if the session is not owned by the caller, HTTP 409
-            if the item is no longer pending, HTTP 413 if the replacement
-            is too large, or HTTP 503 if the queue is busy.
+            if the item is no longer pending, or HTTP 503 if the queue is
+            busy.
     """
     await _ensure_session(
         storage,
@@ -258,11 +257,6 @@ async def update_chat_queue_item(
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-    except ChatQueuePayloadTooLargeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=str(exc),
         ) from exc
     except ChatQueueBusyError as exc:
@@ -395,8 +389,8 @@ async def chat(
         `HTTPException`:
             HTTP 404 if an ordinary-message session is not owned by the
             caller; HTTP 409 for a conflicting direct ``None`` continuation;
-            HTTP 413 for an oversized turn; HTTP 429 when a queue quota is
-            full; or HTTP 503 when queue mutation is temporarily busy.
+            HTTP 429 when a queue quota is full; or HTTP 503 when queue
+            mutation is temporarily busy.
     """
     # ------------------------------------------------------------------
     # HITL resume — route to the owning session, then enqueue.
@@ -456,11 +450,6 @@ async def chat(
         except ChatQueueFullError as exc:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=str(exc),
-            ) from exc
-        except ChatQueuePayloadTooLargeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=str(exc),
             ) from exc
         except ChatQueueBusyError as exc:

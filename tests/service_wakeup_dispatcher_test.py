@@ -31,7 +31,6 @@ from agentscope.app._service import ChatService
 from agentscope.app._bus_ops import (
     ChatQueueBusyError,
     ChatQueueFullError,
-    ChatQueuePayloadTooLargeError,
     delete_chat_input,
     enqueue_chat_input,
     enqueue_run_trigger,
@@ -1630,24 +1629,6 @@ class TestChatEndpointQueue(IsolatedAsyncioTestCase):
                 )
         self.assertEqual(raised.exception.status_code, 429)
 
-    async def test_oversized_queue_input_returns_http_413(self) -> None:
-        """POST /chat exposes the serialized turn size limit."""
-        with patch.object(MessageBusKeys, "CHAT_INPUT_MAX_BYTES", 10):
-            with self.assertRaises(HTTPException) as raised:
-                await chat_endpoint(
-                    request=ChatRequest(
-                        agent_id="a",
-                        session_id="s",
-                        input=UserMsg("user", "too large"),
-                    ),
-                    user_id="u",
-                    storage=_FakeStorage(),
-                    chat_service=_FakeChatService(),
-                    chat_run_registry=ChatRunRegistry(),
-                    message_bus=_FakeBus(),
-                )
-        self.assertEqual(raised.exception.status_code, 413)
-
     async def test_queue_lock_timeout_returns_http_503(self) -> None:
         """POST /chat turns stale-lock waits into retryable backpressure."""
         for key in (
@@ -2064,23 +2045,6 @@ class TestEditableChatQueue(IsolatedAsyncioTestCase):
                     "a",
                     UserMsg("user", "three"),
                 )
-
-    async def test_enqueue_rejects_oversized_payload(self) -> None:
-        """Serialized input bytes are bounded before touching the queue."""
-        bus = _FakeBus()
-        with patch.object(MessageBusKeys, "CHAT_INPUT_MAX_BYTES", 10):
-            with self.assertRaises(ChatQueuePayloadTooLargeError):
-                await enqueue_chat_input(
-                    bus,
-                    "u",
-                    "s",
-                    "a",
-                    UserMsg("user", "too large"),
-                )
-        self.assertEqual(
-            await bus.queue_read(MessageBusKeys.chat_inputs("s"), max_count=1),
-            [],
-        )
 
     async def test_mutation_lock_wait_is_bounded(self) -> None:
         """A stale short lock surfaces retryable busy instead of hanging."""

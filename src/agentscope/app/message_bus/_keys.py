@@ -13,7 +13,6 @@ Add new business keys here as needed. As legacy keys are migrated off
 ``MessageBus``, they should move into this class as well.
 """
 
-import os
 from typing import Final
 
 
@@ -273,21 +272,6 @@ class MessageBusKeys:  # pylint: disable=too-many-public-methods
 
     CHAT_INPUT_USER_MAX_LEN: Final = 500
     """Maximum pending/in-flight ordinary turns owned by one user."""
-
-    CHAT_INPUT_MAX_BYTES: Final = 1_000_000
-    """Maximum serialized text/metadata bytes, excluding base64 attachments."""
-
-    CHAT_INPUT_ATTACHMENT_MAX_BYTES: Final = int(
-        os.environ.get(
-            "AGENTSCOPE_CHAT_ATTACHMENT_MAX_BYTES",
-            str(32 * 1024 * 1024),
-        ),
-    )
-    """Maximum inline base64 bytes across all messages in one turn."""
-    if CHAT_INPUT_ATTACHMENT_MAX_BYTES <= 0:
-        raise ValueError(
-            "AGENTSCOPE_CHAT_ATTACHMENT_MAX_BYTES must be positive.",
-        )
 
     CHAT_INPUT_MUTATION_TTL_SECS: Final = 10
     """Crash lease for short queue mutations."""

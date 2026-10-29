@@ -22,7 +22,6 @@ other's internals.
 from __future__ import annotations
 
 import json
-from copy import deepcopy
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
@@ -58,10 +57,6 @@ class ChatQueueFullError(RuntimeError):
 
 class ChatQueueBusyError(RuntimeError):
     """Raised when a short queue mutation lock cannot be acquired."""
-
-
-class ChatQueuePayloadTooLargeError(RuntimeError):
-    """Raised when one serialized queued turn exceeds its byte limit."""
 
 
 @asynccontextmanager
@@ -153,7 +148,7 @@ async def _chat_input_user_quota(
 def _serialized_input(
     inputs: "Msg | list[Msg]",
 ) -> dict | list[dict]:
-    """Serialize and enforce the per-turn queue payload limit.
+    """Serialize one ordinary input without imposing a queue byte limit.
 
     Args:
         inputs (`Msg | list[Msg]`):
@@ -166,43 +161,14 @@ def _serialized_input(
     Raises:
         `ValueError`:
             ``inputs`` is an empty list.
-        `ChatQueuePayloadTooLargeError`:
-            The serialized turn exceeds the configured byte limit.
     """
     if isinstance(inputs, list) and not inputs:
         raise ValueError("A queued message list must not be empty.")
-    serialized = (
+    return (
         [msg.model_dump(mode="json") for msg in inputs]
         if isinstance(inputs, list)
         else inputs.model_dump(mode="json")
     )
-    metadata = deepcopy(serialized)
-    attachment_bytes = 0
-    for message in metadata if isinstance(metadata, list) else [metadata]:
-        for block in message.get("content", []):
-            source = block.get("source", {})
-            if block.get("type") == "data" and source.get("type") == "base64":
-                attachment_bytes += len(source["data"].encode("utf-8"))
-                source["data"] = ""
-    attachment_limit = MessageBusKeys.CHAT_INPUT_ATTACHMENT_MAX_BYTES
-    if attachment_bytes > attachment_limit:
-        raise ChatQueuePayloadTooLargeError(
-            "The queued attachments are too large "
-            f"({attachment_bytes} encoded bytes; limit {attachment_limit}).",
-        )
-    size = len(
-        json.dumps(
-            metadata,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8"),
-    )
-    if size > MessageBusKeys.CHAT_INPUT_MAX_BYTES:
-        raise ChatQueuePayloadTooLargeError(
-            "The queued message is too large "
-            f"({size} bytes; limit {MessageBusKeys.CHAT_INPUT_MAX_BYTES}).",
-        )
-    return serialized
 
 
 async def publish_session_event(
@@ -379,8 +345,6 @@ async def enqueue_chat_input(
             ``inputs`` is an empty list.
         `ChatQueueFullError`:
             The session queue or aggregate per-user quota is full.
-        `ChatQueuePayloadTooLargeError`:
-            The serialized turn exceeds the configured byte limit.
         `ChatQueueBusyError`:
             A queue or quota mutation lock cannot be acquired promptly.
     """
@@ -520,8 +484,6 @@ async def update_chat_input(
             ``inputs`` is an empty list.
         `LookupError`:
             The item is no longer pending or is not owned by the caller.
-        `ChatQueuePayloadTooLargeError`:
-            The replacement turn exceeds the configured byte limit.
         `ChatQueueBusyError`:
             The session mutation lock cannot be acquired promptly.
     """

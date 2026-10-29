@@ -15,7 +15,6 @@ from service_message_bus_test import _make_bus
 from service_wakeup_dispatcher_test import _FakeChatService, _FakeStorage
 
 from agentscope.app._bus_ops import (
-    ChatQueuePayloadTooLargeError,
     _count_user_chat_inputs,
     delete_chat_input,
     enqueue_chat_input,
@@ -728,64 +727,47 @@ class TestTerminalChatClaims(IsolatedAsyncioTestCase):
         self.assertFalse(await self.queue.drain_chat_inputs("u", "s", "a"))
 
 
-class TestChatInputResourceLimits(IsolatedAsyncioTestCase):
-    """Budget attachments separately and read only referenced payloads."""
+class TestChatInputPayloads(IsolatedAsyncioTestCase):
+    """Preserve large input compatibility and read only referenced payloads."""
 
-    async def test_attachment_budget_counts_all_messages_and_rejects_edits(
-        self,
-    ) -> None:
-        """Exactly-at-limit inputs work; an over-limit edit changes nothing."""
-        async with InMemoryMessageBus() as bus:
-            block = DataBlock(
-                source=Base64Source(
-                    data=base64.b64encode(b"abc").decode(),
-                    media_type="image/png",
+    async def test_large_attachment_can_be_enqueued_and_edited(self) -> None:
+        """Inputs exceeding the removed attachment budget remain accepted."""
+        message = UserMsg(
+            "u",
+            [
+                DataBlock(
+                    source=Base64Source(
+                        data=base64.b64encode(
+                            b"x" * (24 * 1024 * 1024 + 1),
+                        ).decode(),
+                        media_type="image/png",
+                    ),
                 ),
+            ],
+        )
+        async with InMemoryMessageBus() as bus:
+            item = await enqueue_chat_input(bus, "u", "s", "a", message)
+            self.assertEqual(item["input"], message.model_dump(mode="json"))
+            self.assertEqual(
+                await update_chat_input(
+                    bus,
+                    "u",
+                    "s",
+                    "a",
+                    item["id"],
+                    message,
+                ),
+                [item],
             )
-            two = [UserMsg("u", [block]), UserMsg("u", [block])]
-            with patch.object(
-                MessageBusKeys,
-                "CHAT_INPUT_ATTACHMENT_MAX_BYTES",
-                8,
-            ):
-                item = await enqueue_chat_input(bus, "u", "s", "a", two)
-                self.assertEqual(
-                    item["input"],
-                    [m.model_dump(mode="json") for m in two],
-                )
-                for oversized in (
-                    two + [UserMsg("u", [block])],
-                    UserMsg("u", [block, block, block]),
-                ):
-                    with self.assertRaises(ChatQueuePayloadTooLargeError):
-                        await enqueue_chat_input(bus, "u", "s", "a", oversized)
-                    with self.assertRaises(ChatQueuePayloadTooLargeError):
-                        await update_chat_input(
-                            bus,
-                            "u",
-                            "s",
-                            "a",
-                            item["id"],
-                            oversized,
-                        )
-                self.assertEqual(await list_chat_inputs(bus, "s"), [item])
+            self.assertEqual(await list_chat_inputs(bus, "s"), [item])
 
-    async def test_attachment_limit_returns_http_413_for_send_and_edit(
-        self,
-    ) -> None:
-        """The HTTP boundary reports attachment rejection without mutation."""
+    async def test_large_text_can_be_sent_and_edited_over_http(self) -> None:
+        """The HTTP queue accepts text beyond the removed one MB budget."""
         async with InMemoryMessageBus() as bus:
             storage, chat, registry = (
                 _FakeStorage(),
                 _FakeChatService(),
                 ChatRunRegistry(),
-            )
-            original = await enqueue_chat_input(
-                bus,
-                "u",
-                "s",
-                "a",
-                UserMsg("u", "keep this"),
             )
             app = FastAPI()
             app.include_router(chat_router)
@@ -796,58 +778,41 @@ class TestChatInputResourceLimits(IsolatedAsyncioTestCase):
                 get_chat_service: lambda: chat,
                 get_chat_run_registry: lambda: registry,
             }
-            message = UserMsg(
-                "u",
-                [
-                    DataBlock(
-                        source=Base64Source(
-                            data=base64.b64encode(b"abcdef").decode(),
-                            media_type="image/png",
-                        ),
-                    ),
-                ],
-            )
             body = {
                 "agent_id": "a",
                 "session_id": "s",
-                "input": message.model_dump(mode="json"),
+                "input": UserMsg("u", "x" * 1_000_001).model_dump(mode="json"),
             }
             async with AsyncClient(
                 transport=ASGITransport(app=app),
                 base_url="http://test",
             ) as client:
-                with patch.object(
-                    MessageBusKeys,
-                    "CHAT_INPUT_ATTACHMENT_MAX_BYTES",
-                    4,
-                ):
-                    for method, path in (
-                        ("POST", "/chat/"),
-                        ("PATCH", f"/chat/queue/{original['id']}"),
-                    ):
-                        with self.subTest(method=method):
-                            response = await client.request(
-                                method,
-                                path,
-                                json=body,
-                            )
-                            self.assertEqual(
-                                (response.status_code, response.json()),
-                                (
-                                    413,
-                                    {
-                                        "detail": (
-                                            "The queued attachments are "
-                                            "too large "
-                                            "(8 encoded bytes; limit 4)."
-                                        ),
-                                    },
-                                ),
-                            )
-                            self.assertEqual(
-                                await list_chat_inputs(bus, "s"),
-                                [original],
-                            )
+                sent = await client.post("/chat/", json=body)
+                self.assertEqual(sent.status_code, 200)
+                items = await list_chat_inputs(bus, "s")
+                self.assertEqual(len(items), 1)
+                self.assertEqual(
+                    sent.json(),
+                    {
+                        "status": "queued",
+                        "session_id": "s",
+                        "queue_item_id": items[0]["id"],
+                    },
+                )
+                self.assertEqual(items[0]["input"], body["input"])
+                body["input"] = UserMsg("u", "y" * 1_000_002).model_dump(
+                    mode="json",
+                )
+                edited = await client.patch(
+                    f"/chat/queue/{items[0]['id']}",
+                    json=body,
+                )
+                items[0]["input"] = body["input"]
+                self.assertEqual(
+                    (edited.status_code, edited.json()),
+                    (200, {"items": items}),
+                )
+                self.assertEqual(await list_chat_inputs(bus, "s"), items)
             self.assertEqual(chat.calls, [])
 
     async def test_list_uses_one_hmget_for_only_pending_references(
