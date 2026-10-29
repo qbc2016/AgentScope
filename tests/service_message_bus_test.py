@@ -17,7 +17,11 @@ from unittest.mock import patch
 import fakeredis.aioredis
 from utils import AnyString
 
-from agentscope.app.message_bus import MessageBus, RedisMessageBus
+from agentscope.app.message_bus import (
+    InMemoryMessageBus,
+    MessageBus,
+    RedisMessageBus,
+)
 
 
 def _make_bus(
@@ -41,12 +45,17 @@ def _make_bus(
         """Bus subclass that returns the supplied fakeredis client on
         context entry instead of building a real one."""
 
+        def __init__(self) -> None:
+            """Initialize the bus and declare the test-owned client."""
+            super().__init__()
+            self._client: fakeredis.aioredis.FakeRedis | None = None
+
         async def __aenter__(self) -> "RedisMessageBus":
             self._client = fake_redis
             return self
 
         async def aclose(self) -> None:
-            # The fakeredis client is owned by the test, not the bus.
+            """Detach the client without closing the test-owned connection."""
             self._client = None
 
     return _FakeBus()
@@ -686,6 +695,35 @@ class TestRegistryPrimitive(IsolatedAsyncioTestCase):
         await self._stack.aclose()
         await self.fr.aclose()
 
+    async def test_batch_read_preserves_order_missing_and_custom_bus_fallback(
+        self,
+    ) -> None:
+        """The optional primitive has compatible semantics on every backend."""
+        memory_bus = await self._stack.enter_async_context(
+            InMemoryMessageBus(),
+        )
+        for bus in (memory_bus, self.bus):
+            await bus.registry_set("test-batch", "one", "1")
+            await bus.registry_set("test-batch", "two", "2")
+            fields = ["two", "absent", "one", "two"]
+            self.assertEqual(
+                await bus.registry_get_many("test-batch", fields),
+                ["2", None, "1", "2"],
+            )
+            self.assertEqual(
+                await MessageBus.registry_get_many(
+                    bus,
+                    "test-batch",
+                    fields,
+                ),
+                ["2", None, "1", "2"],
+            )
+            self.assertEqual(
+                await bus.registry_get_many("test-batch", []),
+                [],
+            )
+        self.assertNotIn("registry_get_many", MessageBus.__abstractmethods__)
+
     async def test_set_then_exists_and_getall(self) -> None:
         """``registry_set`` stores a field under a namespace; ``exists``
         is True, ``getall`` returns the full mapping."""
@@ -891,3 +929,15 @@ class TestBaseClassIsAbstract(IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             # pylint: disable=abstract-class-instantiated
             MessageBus()  # type: ignore[abstract]
+
+    async def test_historical_bus_remains_instantiable(self) -> None:
+        """Optional editable-queue methods do not add abstract requirements."""
+        self.assertFalse(
+            {"queue_read", "queue_replace", "acquire_lock_bounded"}
+            & MessageBus.__abstractmethods__,
+        )
+        bus = InMemoryMessageBus()
+        with self.assertRaises(NotImplementedError):
+            await MessageBus.queue_read(bus, "unsupported")
+        with self.assertRaises(NotImplementedError):
+            await MessageBus.queue_replace(bus, "unsupported", [])
