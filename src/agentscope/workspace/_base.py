@@ -1247,7 +1247,8 @@ class WorkspaceBase:
                 continue
             try:
                 raw = await backend.read_file(md_path)
-                doc = fm.loads(raw.decode("utf-8"))
+                # Strip an optional UTF-8 BOM before parsing front matter.
+                doc = fm.loads(raw.decode("utf-8-sig"))
                 name = doc.get("name")
                 desc = doc.get("description")
                 if not name or not desc:
