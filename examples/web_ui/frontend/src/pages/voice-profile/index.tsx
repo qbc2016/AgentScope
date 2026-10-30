@@ -305,7 +305,7 @@ function VoiceProfileDialog({
 	};
 
 	const handleSave = async () => {
-		if (!name.trim()) return;
+		if (cloning || saving || !name.trim()) return;
 		setSaving(true);
 		try {
 			const data: VoiceProfileData = {
@@ -314,6 +314,7 @@ function VoiceProfileDialog({
 				model: model || null,
 				credential_id: credentialId,
 				voice: voice.trim() || null,
+				metadata: profile?.data.metadata ?? null,
 			};
 			if (profile) {
 				await voiceProfileApi.update(profile.id, data);
@@ -668,6 +669,7 @@ function VoiceProfileDialog({
 						onClick={handleSave}
 						disabled={
 							saving ||
+							cloning ||
 							enginesLoading ||
 							!enginesReady ||
 							!name.trim() ||

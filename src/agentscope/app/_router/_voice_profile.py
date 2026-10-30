@@ -23,6 +23,7 @@ from ...credential import (
 )
 from ...tts import (
     OpenAIVoiceCloningClient,
+    TTSModelCard,
     VoiceCloningError,
 )
 from ._schema import (
@@ -165,13 +166,18 @@ async def list_available_engines(
     engines.sort()
 
     details = []
+    models_by_type: dict[str, list[TTSModelCard]] = {}
     for eng in engines:
         credential_type = ENGINE_TO_CREDENTIAL_TYPE[eng]
         cred_cls = CredentialFactory.get_credential_class(credential_type)
         client_cls = (
             cred_cls.get_voice_cloning_client_class() if cred_cls else None
         )
-        models = cred_cls.list_tts_models() if cred_cls else []
+        if credential_type not in models_by_type:
+            models_by_type[credential_type] = (
+                cred_cls.list_tts_models() if cred_cls else []
+            )
+        models = models_by_type[credential_type]
         if credential_type == "dashscope_credential":
             # The App groups Qwen models together, including Qwen Audio.
             models = [

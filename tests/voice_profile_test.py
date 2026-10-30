@@ -1620,8 +1620,9 @@ class TestEngineCapabilities(IsolatedAsyncioTestCase):
             DashScopeCredential,
             "list_tts_models",
             return_value=cards,
-        ):
+        ) as load_models:
             response = await list_available_engines("user-a", access)
+            load_models.assert_called_once_with()
         expected_models = [
             {**card.model_dump(), "enrollment_model": enrollment}
             for card, (_, _, enrollment) in zip(cards, cases)
@@ -1649,6 +1650,24 @@ class TestEngineCapabilities(IsolatedAsyncioTestCase):
                             expected_models[3],
                         ],
                     },
+                ],
+            },
+        )
+
+        # A later request reloads cards, including an empty updated registry.
+        with patch.object(
+            DashScopeCredential,
+            "list_tts_models",
+            return_value=[],
+        ) as load_models:
+            refreshed = await list_available_engines("user-a", access)
+            load_models.assert_called_once_with()
+        self.assertEqual(
+            refreshed.model_dump(),
+            {
+                "engine_details": [
+                    {**common, "name": "cosyvoice", "models": []},
+                    {**common, "name": "dashscope_tts", "models": []},
                 ],
             },
         )
