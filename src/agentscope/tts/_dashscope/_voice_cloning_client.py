@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ._endpoints import _dashscope_url
+from ._endpoints import _dashscope_url, _qwen_http_url
 from ...credential import DashScopeCredential
 from .._voice_cloning_client_base import VoiceCloningClientBase
 from .._voice_utils import (
@@ -22,6 +22,7 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
 
     The credential's ``base_url`` selects the host and optional proxy prefix.
     Its API suffix is replaced with the audio enrollment path.
+    Qwen-TTS uses the SDK global HTTP endpoint when ``base_url`` is omitted.
     Reuse the credential and target model for synthesis.
     Methods raise ``ValueError`` for invalid inputs and ``VoiceCloningError``
     for failed provider requests.
@@ -114,7 +115,9 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
             )
 
         result = await _post_voice_request(
-            _dashscope_url(self.credential.base_url, _CLONE_PATH),
+            _qwen_http_url(self.credential, _CLONE_PATH)
+            if enrollment == "qwen-voice-enrollment"
+            else _dashscope_url(self.credential.base_url, _CLONE_PATH),
             provider="DashScope",
             operation="voice clone",
             headers={

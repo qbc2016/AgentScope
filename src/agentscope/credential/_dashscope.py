@@ -2,7 +2,13 @@
 """The DashScope credential."""
 from typing import Literal, Type, TYPE_CHECKING
 
-from pydantic import ConfigDict, Field, SecretStr
+from pydantic import (
+    ConfigDict,
+    Field,
+    SecretStr,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from ._base import CredentialBase
 
@@ -47,6 +53,17 @@ class DashScopeCredential(CredentialBase):
             "Overrides automatic resolution and DashScope SDK settings."
         ),
     )
+
+    @model_serializer(mode="wrap")
+    def _serialize_endpoint_choice(
+        self,
+        handler: SerializerFunctionWrapHandler,
+    ) -> dict:
+        """Keep an implicit endpoint implicit across storage round trips."""
+        data = handler(self)
+        if "base_url" not in self.model_fields_set:
+            data.pop("base_url", None)
+        return data
 
     @classmethod
     def get_chat_model_class(cls) -> Type["ChatModelBase"]:

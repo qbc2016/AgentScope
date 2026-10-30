@@ -29,7 +29,8 @@ from dashscope.audio.tts_v2 import AudioFormat
 from utils import AnyString, AnyValue
 
 from agentscope.app._service._tts_model import _resolve_tts_class
-from agentscope.credential import DashScopeCredential
+from agentscope.credential import CredentialFactory, DashScopeCredential
+from agentscope.app.storage._utils import _dump_with_secrets
 from agentscope.tts import (
     DashScopeCosyVoiceTTSModel,
     DashScopeVoiceCloningClient,
@@ -217,6 +218,95 @@ def _parse_wav_payload(wav_bytes: bytes) -> bytes:
 
 class TestQwenCloneEndpoints(IsolatedAsyncioTestCase):
     """Verify Qwen enrollment and real SDK request routing together."""
+
+    async def test_implicit_endpoint_survives_serialization(self) -> None:
+        """Implicit defaults follow SDK settings across serialization."""
+        parameters_cls = DashScopeTTSModel.Parameters
+        for global_url in (
+            "https://dashscope-intl.aliyuncs.com/api/v1",
+            "https://gateway.example.com/tenant/custom-api",
+        ):
+            with (
+                patch.object(dashscope, "base_http_api_url", global_url),
+                patch(
+                    "agentscope.tts._dashscope._voice_cloning_client."
+                    "_post_voice_request",
+                    new_callable=AsyncMock,
+                    return_value={"output": {"voice": "cloned-voice"}},
+                ) as post,
+                patch(
+                    "dashscope.api_entities.api_request_factory.HttpRequest",
+                ) as request,
+            ):
+                for explicit in (False, True):
+                    options = {"api_key": "test"}
+                    if explicit:
+                        options[
+                            "base_url"
+                        ] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    credential = DashScopeCredential(**options)
+                    base_url = (
+                        "https://dashscope.aliyuncs.com/api/v1"
+                        if explicit
+                        else global_url
+                    )
+                    versions = (
+                        credential,
+                        CredentialFactory.from_dict(credential.model_dump()),
+                        CredentialFactory.from_dict(
+                            _dump_with_secrets(credential),
+                        ),
+                        DashScopeCredential.model_validate_json(
+                            credential.model_dump_json(),
+                        ),
+                    )
+                    for index, restored in enumerate(versions):
+                        for stream in (False, True):
+                            with self.subTest(
+                                explicit=explicit,
+                                index=index,
+                                stream=stream,
+                            ):
+                                self.assertEqual(
+                                    "base_url" in restored.model_fields_set,
+                                    explicit,
+                                )
+                                client = DashScopeVoiceCloningClient(restored)
+                                voice = await client.create_voice(
+                                    audio=b"sample",
+                                    parameters=client.Parameters(
+                                        target_model="qwen3-tts-flash",
+                                    ),
+                                )
+                                self.assertEqual(
+                                    post.call_args.args,
+                                    (
+                                        base_url
+                                        + "/services/audio/tts/customization",
+                                    ),
+                                )
+                                for selected_voice in ("Cherry", voice):
+                                    call = request.return_value.call
+                                    call.return_value = iter(())
+                                    model = DashScopeTTSModel(
+                                        credential=restored,
+                                        parameters=parameters_cls(
+                                            voice=selected_voice,
+                                        ),
+                                        stream=stream,
+                                    )
+                                    result = await model.synthesize("Hello")
+                                    if stream:
+                                        _ = [chunk async for chunk in result]
+                                    self.assertEqual(
+                                        request.call_args.kwargs["url"],
+                                        base_url + "/services/aigc/"
+                                        "multimodal-generation/generation",
+                                    )
+                                self.assertEqual(
+                                    dashscope.base_http_api_url,
+                                    global_url,
+                                )
 
     async def test_clone_and_synthesis_use_credential_region(self) -> None:
         """Interleaved credentials keep their routes in both output modes."""

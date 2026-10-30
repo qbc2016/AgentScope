@@ -2,6 +2,22 @@
 """Credential endpoint resolution shared by enrollment and synthesis."""
 from urllib.parse import urlsplit
 
+from ...credential import DashScopeCredential
+
+
+def _qwen_http_url(credential: DashScopeCredential, path: str) -> str:
+    """Share Qwen enrollment/synthesis routing without changing SDK globals."""
+    if "base_url" in credential.model_fields_set:
+        return _dashscope_url(credential.base_url, path)
+
+    import dashscope
+
+    parsed = urlsplit(dashscope.base_http_api_url)
+    return parsed._replace(
+        path=parsed.path.rstrip("/") + path.removeprefix("/api/v1"),
+        fragment="",
+    ).geturl()
+
 
 def _dashscope_url(
     base_url: str,
