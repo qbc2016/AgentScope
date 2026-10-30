@@ -26,7 +26,6 @@ from ._hub_skill import SkillView
 from ._workspace import (
     AddFromLibraryRequest,
     AddFromLibraryResponse,
-    AddSkillRequest,
     AddSkillsFromLibraryRequest,
     DirectoryEntry,
     DirectoryListing,
@@ -112,6 +111,20 @@ from ._session import (
     TeamDetailResponse,
     TeamMemberView,
 )
+from ._voice_profile import (
+    AvailableEnginesResponse,
+    CloneVoiceRequest,
+    CloneVoiceResponse,
+    CreateVoiceProfileRequest,
+    CreateVoiceProfileResponse,
+    CredentialRef,
+    EngineInfo,
+    EngineModelInfo,
+    ListVoiceProfilesResponse,
+    OpenAIConsentRequest,
+    OpenAIConsentResponse,
+    UpdateVoiceProfileRequest,
+)
 
 __all__ = [
     # Health
@@ -126,7 +139,6 @@ __all__ = [
     # Workspace
     "AddFromLibraryRequest",
     "AddFromLibraryResponse",
-    "AddSkillRequest",
     "AddSkillsFromLibraryRequest",
     "DirectoryEntry",
     "DirectoryListing",
@@ -221,4 +233,17 @@ __all__ = [
     "SessionView",
     "TeamDetailResponse",
     "TeamMemberView",
+    # Voice Profile
+    "AvailableEnginesResponse",
+    "CloneVoiceRequest",
+    "CloneVoiceResponse",
+    "CreateVoiceProfileRequest",
+    "CreateVoiceProfileResponse",
+    "CredentialRef",
+    "EngineInfo",
+    "EngineModelInfo",
+    "ListVoiceProfilesResponse",
+    "OpenAIConsentRequest",
+    "OpenAIConsentResponse",
+    "UpdateVoiceProfileRequest",
 ]

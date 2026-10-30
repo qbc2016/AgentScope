@@ -18,6 +18,7 @@ export interface TTSModelConfig {
 	type: string;
 	credential_id: string;
 	model: string;
+	voice_profile_id?: string | null;
 	parameters: Record<string, unknown>;
 }
 
@@ -545,15 +546,6 @@ export interface Skill {
 	updated_at: number;
 }
 
-/**
- * @deprecated The path is resolved on the server, which only means
- * anything for a single-host deployment. Upload a folder or install
- * from the library instead.
- */
-export interface AddSkillRequest {
-	skill_path: string;
-}
-
 // ─── Hub ──────────────────────────────────────────────────────────────────────
 
 /** One registered hub, as shown in the hub picker. */
@@ -791,6 +783,7 @@ export interface CreateScheduleRequest {
 	description?: string;
 	cron_expression: string;
 	timezone?: string;
+	ended_at?: string | null;
 	agent_id: string;
 	chat_model_config: ChatModelConfig;
 	enabled?: boolean;
@@ -1326,6 +1319,7 @@ export interface TTSModelCard {
 	input_types: string[];
 	output_types: string[];
 	realtime: boolean;
+	voice_cloning: boolean;
 	parameter_schema: Record<string, unknown>;
 	parameters_overrides: Record<string, Record<string, unknown>>;
 }

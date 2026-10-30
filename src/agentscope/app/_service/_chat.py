@@ -1115,8 +1115,21 @@ class ChatService:
                         user_id,
                         tts_cfg,
                         self._access,
+                        self._storage,
                     )
-                    middlewares.append(TTSMiddleware(tts_model))
+                    if tts_model is not None:
+                        middlewares.append(
+                            TTSMiddleware(tts_model, continue_on_error=True),
+                        )
+                    else:
+                        await publish_session_event(
+                            self._message_bus,
+                            session_id,
+                            CustomEvent(
+                                name="tts_error",
+                                value={"stage": "configuration"},
+                            ).model_dump(mode="json"),
+                        )
 
                 # -------------------------------------------------------------
                 # 2c. Knowledge-base middleware — inject when the session has
@@ -1328,7 +1341,7 @@ class ChatService:
             elif isinstance(input_msg, list):
                 trigger_msgs = input_msg
             trigger_text = "\n".join(
-                msg.get_text_content() or "" for msg in trigger_msgs
+                msg.get_text_content() for msg in trigger_msgs
             ).strip()
             await register_inbox_consumer(self._message_bus, session_id)
             try:

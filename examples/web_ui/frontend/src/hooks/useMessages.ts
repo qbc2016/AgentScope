@@ -177,6 +177,7 @@ export function useMessages(
 
 	const msgsRef = useRef<Msg[]>([]);
 	const currentReplyRef = useRef<Msg | null>(null);
+	const ttsConfigurationWarningsRef = useRef(new Set<string>());
 	const abortRef = useRef<AbortController | null>(null);
 	const rafRef = useRef<number | null>(null);
 	// Timer that reverts ``interrupting`` back to ``idle`` if the
@@ -211,7 +212,17 @@ export function useMessages(
 			// reply content — route them to callbacks and skip appendEvent.
 			if (event.type === EventType.CUSTOM) {
 				const custom = event as CustomEvent;
-				if (custom.name === 'team_updated') {
+				if (custom.name === 'tts_error') {
+					const failure = custom.value as { stage?: string; reply_id?: string };
+					const sessionKey = JSON.stringify([agentId, sessionId]);
+					if (failure.stage === 'configuration') {
+						if (ttsConfigurationWarningsRef.current.has(sessionKey)) return;
+						ttsConfigurationWarningsRef.current.add(sessionKey);
+					}
+					toast.warning(t('chat.ttsFailed'), {
+						id: `tts-error-${sessionKey}-${failure.reply_id ?? custom.id}`,
+					});
+				} else if (custom.name === 'team_updated') {
 					optionsRef.current?.onTeamUpdated?.();
 				} else if (custom.name === 'state_updated' && custom.value) {
 					optionsRef.current?.onStateUpdated?.(custom.value as Record<string, unknown>);
@@ -359,6 +370,8 @@ export function useMessages(
 			applyQueueSnapshot,
 			finishItem,
 			t,
+			agentId,
+			sessionId,
 		],
 	);
 

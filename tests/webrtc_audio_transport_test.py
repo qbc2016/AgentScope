@@ -1297,8 +1297,8 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
         """A new page can replay an older turn after a newer one settles."""
         for old_event, old_text in [
             (me.InputTranscriptionEvent(item_id="u1", text="first"), "first"),
-            (me.InputTranscriptionFailedEvent(item_id="u1"), None),
-            (me.InputTranscriptionEvent(item_id="u1", text=""), None),
+            (me.InputTranscriptionFailedEvent(item_id="u1"), ""),
+            (me.InputTranscriptionEvent(item_id="u1", text=""), ""),
         ]:
             with self.subTest(event=old_event):
                 await self._check_transcript_replay(old_event, old_text)
@@ -1306,7 +1306,7 @@ class WebRTCSessionTest(unittest.IsolatedAsyncioTestCase):
     async def _check_transcript_replay(
         self,
         old_event: me.ModelEvent,
-        old_text: str | None,
+        old_text: str,
     ) -> None:
         """Check replay and persistence for one delayed transcript result."""
         agent = RealtimeAgent(
