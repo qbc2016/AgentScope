@@ -42,12 +42,30 @@ import { useTranslation } from '@/i18n/useI18n';
 
 const EMPTY_MODELS: EngineInfo['models'] = [];
 
+const CUSTOM_MODEL = '__custom_model__';
+
 const ENGINE_LABELS: Record<string, string> = {
 	cosyvoice: 'CosyVoice',
 	dashscope_tts: 'DashScope TTS',
 	openai_tts: 'OpenAI TTS',
 	gemini_tts: 'Gemini TTS',
 };
+
+/** Read preset choices without treating an unlisted voice as invalid. */
+function voiceSettings(card: EngineInfo['models'][number] | undefined) {
+	const props = (card?.parameter_schema as Record<string, unknown> | undefined)?.properties as
+		| Record<string, Record<string, unknown>>
+		| undefined;
+	const options = (props?.voice?.enum as string[] | undefined) ?? [];
+	const defaultVoice = props?.voice?.default;
+	return {
+		options,
+		defaultVoice:
+			typeof defaultVoice === 'string' && options.includes(defaultVoice)
+				? defaultVoice
+				: (options[0] ?? ''),
+	};
+}
 
 /** Read a File as base64 string (without the data URL prefix). */
 function fileToBase64(file: File): Promise<string> {
@@ -89,6 +107,7 @@ function VoiceProfileDialog({
 	const [engine, setEngine] = useState<string | undefined>(undefined);
 	const [model, setModel] = useState<string | undefined>(undefined);
 	const [voice, setVoice] = useState('');
+	const [customModelMode, setCustomModelMode] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const {
 		engineDetails,
@@ -109,18 +128,16 @@ function VoiceProfileDialog({
 	const [credentialId, setCredentialId] = useState<string | null>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const consentFileRef = useRef<HTMLInputElement>(null);
-	const voiceSelectionRef = useRef({
-		engine: profile?.data.engine || undefined,
-		model: profile?.data.model || undefined,
-		credentialId: profile?.data.credential_id || null,
-		pending: false,
-	});
 
 	useEffect(() => {
 		if (open) void refetchEngines({ cancelRefetch: false });
 	}, [open, refetchEngines]);
 
 	useEffect(() => {
+		setCustomModelMode(false);
+		setConsentId('');
+		setCloneError('');
+		setCloneUrl('');
 		if (profile) {
 			setName(profile.data.name);
 			setEngine(profile.data.engine || undefined);
@@ -136,74 +153,58 @@ function VoiceProfileDialog({
 		}
 	}, [profile, open]);
 
-	useEffect(() => {
-		if (!open || !engine || !enginesReady || enginesLoading) return;
-		// Auto-select credential for this engine
-		const engineInfo = engineDetails.find((d) => d.name === engine);
-		const creds = engineInfo?.credentials || [];
-		setCredentialId((prev) => {
-			if (prev && creds.some((c) => c.id === prev)) return prev;
-			return creds.length === 1 ? creds[0].id : null;
-		});
-	}, [open, engine, engineDetails, enginesReady, enginesLoading]);
+	const selectedCard = modelOptions.find((item) => item.name === model);
+	const credentialIsAvailable = selectedEngine?.credentials.some(
+		(item) => item.id === credentialId,
+	);
+	const isCustomModel = customModelMode || (!!model && !selectedCard);
+	const { options: voiceOptions, defaultVoice } = voiceSettings(selectedCard);
 
-	useEffect(() => {
-		if (!open || !engine || !enginesReady || enginesLoading) return;
-		setModel((prev) => {
-			if (modelOptions.some((item) => item.name === prev)) return prev;
-			return modelOptions.find((item) => item.voice_cloning)?.name ?? modelOptions[0]?.name;
-		});
-	}, [open, engine, enginesReady, enginesLoading, modelOptions]);
-
-	const canClone = selectedEngine?.voice_cloning ?? false;
-
-	const selectedModelSupportsClone = model
-		? (modelOptions.find((m) => m.name === model)?.voice_cloning ?? false)
-		: false;
-
-	const cloneSupportsUpload = engine === 'dashscope_tts' || engine === 'openai_tts';
-
-	const enrollmentModel = modelOptions.find((item) => item.name === model)?.enrollment_model;
-
-	const voiceOptions: string[] = (() => {
-		if (!model) return [];
-		const card = modelOptions.find((m) => m.name === model);
-		if (!card) return [];
-		const props = (card.parameter_schema as Record<string, unknown>)?.properties as
-			| Record<string, Record<string, unknown>>
-			| undefined;
-		if (!props?.voice?.enum) return [];
-		return props.voice.enum as string[];
-	})();
-
-	useEffect(() => {
-		if (!open || !engine || !enginesReady || enginesLoading) return;
-		const previous = voiceSelectionRef.current;
-		const modelChanged = previous.engine !== engine || previous.model !== model;
-		const credentialChanged = previous.credentialId !== credentialId;
-		if (!modelChanged && !credentialChanged && !previous.pending) return;
-		if (credentialChanged || previous.engine !== engine) setConsentId('');
-
-		const card = modelOptions.find((m) => m.name === model);
-		voiceSelectionRef.current = { engine, model, credentialId, pending: !card };
+	const handleEngineChange = (nextEngine: string) => {
+		if (nextEngine === engine) return;
+		const info = engineDetails.find((item) => item.name === nextEngine);
+		const nextModel = info?.models.find((item) => item.voice_cloning) ?? info?.models[0];
+		const credentials = info?.credentials ?? [];
+		setEngine(nextEngine);
+		setModel(nextModel?.name);
+		setCustomModelMode(false);
+		setVoice(voiceSettings(nextModel).defaultVoice);
+		setCredentialId(
+			credentials.some((item) => item.id === credentialId)
+				? credentialId
+				: credentials.length === 1
+					? credentials[0].id
+					: null,
+		);
+		setConsentId('');
 		setCloneError('');
-		if (!card) {
-			setVoice('');
-			// Wait for the selected engine's model list before choosing a voice.
-			return;
-		}
-		const props = (card.parameter_schema as Record<string, unknown>)?.properties as
-			| Record<string, Record<string, unknown>>
-			| undefined;
-		const presets = (props?.voice?.enum as string[] | undefined) ?? [];
-		const defaultVoice = props?.voice?.default;
-		setVoice((current) => {
-			if (!modelChanged && presets.includes(current)) return current;
-			return typeof defaultVoice === 'string' && presets.includes(defaultVoice)
-				? defaultVoice
-				: (presets[0] ?? '');
-		});
-	}, [open, engine, model, modelOptions, credentialId, enginesReady, enginesLoading]);
+	};
+
+	const handleModelChange = (nextModel: string | undefined) => {
+		if (nextModel === model) return;
+		setModel(nextModel);
+		setVoice(voiceSettings(modelOptions.find((item) => item.name === nextModel)).defaultVoice);
+		setCloneError('');
+	};
+
+	const handleCustomModelChange = (value: string) => {
+		setCustomModelMode(true);
+		handleModelChange(value || undefined);
+	};
+
+	const handleCredentialChange = (nextCredentialId: string) => {
+		if (nextCredentialId === credentialId) return;
+		setCredentialId(nextCredentialId);
+		setVoice((current) => (voiceOptions.includes(current) ? current : defaultVoice));
+		setConsentId('');
+		setCloneError('');
+	};
+
+	const canClone = !!credentialIsAvailable && (selectedEngine?.voice_cloning ?? false);
+
+	const selectedModelSupportsClone = selectedCard?.voice_cloning ?? false;
+	const cloneSupportsUpload = engine === 'dashscope_tts' || engine === 'openai_tts';
+	const enrollmentModel = selectedCard?.enrollment_model;
 
 	const handleConsentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
@@ -356,7 +357,7 @@ function VoiceProfileDialog({
 						) : (
 							<Select
 								value={engine}
-								onValueChange={setEngine}
+								onValueChange={handleEngineChange}
 								disabled={enginesLoading || cloning}
 							>
 								<SelectTrigger id="vp-engine">
@@ -378,8 +379,8 @@ function VoiceProfileDialog({
 						(() => {
 							const engineInfo = engineDetails?.find((d) => d.name === engine);
 							const creds = engineInfo?.credentials || [];
-							if (creds.length === 0) return null;
-							if (creds.length === 1) {
+							if (creds.length === 0 && !credentialId) return null;
+							if (creds.length === 1 && creds[0].id === credentialId) {
 								return (
 									<div className="flex flex-col gap-2">
 										<Label htmlFor="vp-credential">
@@ -398,7 +399,7 @@ function VoiceProfileDialog({
 									</Label>
 									<Select
 										value={credentialId || undefined}
-										onValueChange={(val) => setCredentialId(val)}
+										onValueChange={handleCredentialChange}
 										disabled={cloning}
 									>
 										<SelectTrigger id="vp-credential">
@@ -409,6 +410,13 @@ function VoiceProfileDialog({
 											/>
 										</SelectTrigger>
 										<SelectContent>
+											{credentialId && !credentialIsAvailable && (
+												<SelectItem value={credentialId} disabled>
+													{t('voiceProfile.unavailableCredential', {
+														id: credentialId,
+													})}
+												</SelectItem>
+											)}
 											{creds.map((c) => (
 												<SelectItem key={c.id} value={c.id}>
 													{c.label}
@@ -428,13 +436,24 @@ function VoiceProfileDialog({
 									{t('voiceProfile.loadingModels')}
 								</div>
 							) : modelOptions.length > 0 ? (
-								<Select value={model} onValueChange={setModel} disabled={cloning}>
+								<Select
+									value={isCustomModel ? CUSTOM_MODEL : model}
+									onValueChange={(value) => {
+										const custom = value === CUSTOM_MODEL;
+										setCustomModelMode(custom);
+										handleModelChange(custom ? undefined : value);
+									}}
+									disabled={cloning}
+								>
 									<SelectTrigger id="vp-model">
 										<SelectValue
 											placeholder={t('voiceProfile.modelPlaceholder')}
 										/>
 									</SelectTrigger>
 									<SelectContent>
+										<SelectItem value={CUSTOM_MODEL}>
+											{t('voiceProfile.customModel')}
+										</SelectItem>
 										{modelOptions.map((m) => (
 											<SelectItem key={m.name} value={m.name}>
 												{m.label || m.name}
@@ -448,8 +467,18 @@ function VoiceProfileDialog({
 									id="vp-model"
 									disabled={cloning}
 									value={model || ''}
-									onChange={(e) => setModel(e.target.value || undefined)}
+									onChange={(e) => handleCustomModelChange(e.target.value)}
 									placeholder={t('voiceProfile.modelPlaceholder')}
+								/>
+							)}
+							{!enginesLoading && modelOptions.length > 0 && isCustomModel && (
+								<Input
+									id="vp-custom-model"
+									aria-label={t('voiceProfile.customModel')}
+									disabled={cloning}
+									value={model || ''}
+									onChange={(e) => handleCustomModelChange(e.target.value)}
+									placeholder={t('voiceProfile.customModelPlaceholder')}
 								/>
 							)}
 						</div>
@@ -643,7 +672,7 @@ function VoiceProfileDialog({
 							!enginesReady ||
 							!name.trim() ||
 							!engine ||
-							!credentialId ||
+							!credentialIsAvailable ||
 							!model ||
 							!voice.trim()
 						}
