@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """Tests for queued-message steering state and reasoning boundaries."""
+import json
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator
 from unittest import IsolatedAsyncioTestCase
+from unittest.mock import patch
 
+from agentscope.app import _bus_ops
 from agentscope.app._bus_ops import (
     ChatSteeringUnavailableError,
     acknowledge_steering_chat_inputs,
     enqueue_chat_input,
+    fail_steering_chat_input,
     finish_active_chat_reply,
     list_chat_inputs,
     register_active_chat_reply,
@@ -114,6 +118,116 @@ async def _custom_events(bus: InMemoryMessageBus) -> list[dict]:
 
 class TestSteeringQueueState(IsolatedAsyncioTestCase):
     """Queue reservations remain durable until injection or fallback."""
+
+    async def test_steering_preserves_reference_storage(self) -> None:
+        """Steer, failure and fallback keep payloads out of the FIFO."""
+        bus = InMemoryMessageBus()
+        message = UserMsg(name="user", content="guide")
+        item = await enqueue_chat_input(
+            bus,
+            "user",
+            "session",
+            "agent",
+            message,
+        )
+        expected = {
+            "id": item["id"],
+            "user_id": "user",
+            "session_id": "session",
+            "agent_id": "agent",
+            "created_at": item["created_at"],
+            "input_ref": item["id"],
+            "state": "queued",
+        }
+        async with bus.acquire_lock(MessageBusKeys.session_lock("session")):
+            await register_active_chat_reply(bus, "session", "reply")
+            for transition in ("steer", "fail", "steer", "finish"):
+                with self.subTest(transition=transition):
+                    if transition == "steer":
+                        await steer_chat_input(
+                            bus,
+                            "user",
+                            "session",
+                            "agent",
+                            item["id"],
+                            "reply",
+                        )
+                        expected["state"] = "steering"
+                        expected["target_reply_id"] = "reply"
+                        expected.pop("error", None)
+                    elif transition == "fail":
+                        await fail_steering_chat_input(
+                            bus,
+                            "session",
+                            "reply",
+                            item["id"],
+                            "invalid",
+                        )
+                        expected["state"] = "failed"
+                        expected["error"] = "invalid"
+                        expected.pop("target_reply_id")
+                    else:
+                        await finish_active_chat_reply(bus, "session", "reply")
+                        expected["state"] = "queued"
+                        expected.pop("target_reply_id")
+                    entries = await bus.queue_read(
+                        MessageBusKeys.chat_inputs("session"),
+                    )
+                    self.assertEqual(
+                        [entry for _, entry in entries],
+                        [expected],
+                    )
+                    self.assertEqual(
+                        await bus.registry_getall(
+                            MessageBusKeys.chat_input_payloads("session"),
+                        ),
+                        {
+                            item["id"]: json.dumps(
+                                message.model_dump(mode="json"),
+                            ),
+                        },
+                    )
+
+    async def test_notification_failure_keeps_steering_committed(self) -> None:
+        """A failed broadcast cannot reject reservation or acknowledgement."""
+        bus = InMemoryMessageBus()
+        item = await enqueue_chat_input(
+            bus,
+            "user",
+            "session",
+            "agent",
+            UserMsg("user", "guide"),
+        )
+        async with bus.acquire_lock(MessageBusKeys.session_lock("session")):
+            await register_active_chat_reply(bus, "session", "reply")
+            with patch.object(
+                _bus_ops,
+                "_publish_chat_queue_changed",
+                side_effect=ConnectionError("offline"),
+            ):
+                reserved = await steer_chat_input(
+                    bus,
+                    "user",
+                    "session",
+                    "agent",
+                    item["id"],
+                    "reply",
+                )
+                self.assertEqual(reserved, [{**item, "state": "steering"}])
+                removed = await acknowledge_steering_chat_inputs(
+                    bus,
+                    "session",
+                    "reply",
+                    [item["id"]],
+                )
+                self.assertEqual(removed, reserved)
+            self.assertEqual(await list_chat_inputs(bus, "session"), [])
+            self.assertEqual(
+                await bus.registry_getall(
+                    MessageBusKeys.chat_input_payloads("session"),
+                ),
+                {},
+            )
 
     async def test_reserve_is_idempotent_and_finish_restores(self) -> None:
         """Repeated Steer targets once and ReplyEnd restores deferred send."""
@@ -222,6 +336,15 @@ class TestSteeringQueueState(IsolatedAsyncioTestCase):
         self.assertEqual(
             await list_chat_inputs(bus, "session"),
             [first, third],
+        )
+        self.assertEqual(
+            await bus.registry_getall(
+                MessageBusKeys.chat_input_payloads("session"),
+            ),
+            {
+                first["id"]: json.dumps(first["input"]),
+                third["id"]: json.dumps(third["input"]),
+            },
         )
 
     async def test_stale_reply_is_rejected_without_changing_item(self) -> None:
@@ -539,15 +662,10 @@ class TestSteeringMiddleware(IsolatedAsyncioTestCase):
             "agent",
             original,
         )
-        entries = await bus.queue_read(
-            MessageBusKeys.chat_inputs("session"),
-            max_count=10,
-        )
-        payloads = [payload for _entry_id, payload in entries]
-        payloads[0]["input"] = {"invalid": "message"}
-        await bus.queue_replace(
-            MessageBusKeys.chat_inputs("session"),
-            payloads,
+        await bus.registry_set(
+            MessageBusKeys.chat_input_payloads("session"),
+            item["id"],
+            json.dumps({"invalid": "message"}),
         )
 
         async def model_call(**_kwargs: object) -> AsyncGenerator:

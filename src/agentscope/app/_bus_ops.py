@@ -21,15 +21,21 @@ other's internals.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator, TYPE_CHECKING, Literal
 
+from .._logging import logger
 from ..event import CustomEvent
 from .message_bus._keys import MessageBusKeys
+from ._chat_input_store import (
+    cleanup_session,
+    discard_input,
+    decode_input,
+    queue_entry,
+)
 
 if TYPE_CHECKING:
     from .message_bus._base import MessageBus
@@ -51,10 +57,6 @@ class ChatQueueFullError(RuntimeError):
 
 class ChatQueueBusyError(RuntimeError):
     """Raised when a short queue mutation lock cannot be acquired."""
-
-
-class ChatQueuePayloadTooLargeError(RuntimeError):
-    """Raised when one serialized queued turn exceeds its byte limit."""
 
 
 class ChatSteeringUnavailableError(RuntimeError):
@@ -92,17 +94,20 @@ async def chat_input_mutation(
         if timeout_secs is None
         else timeout_secs
     )
-    try:
-        async with asyncio.timeout(timeout):
-            async with bus.acquire_lock(
-                MessageBusKeys.chat_input_mutation_lock(session_id),
-                ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
-            ):
-                yield
-    except TimeoutError as exc:
-        raise ChatQueueBusyError(
-            "The pending message queue is busy; retry shortly.",
-        ) from exc
+    async with AsyncExitStack() as stack:
+        try:
+            await stack.enter_async_context(
+                bus.acquire_lock_bounded(
+                    MessageBusKeys.chat_input_mutation_lock(session_id),
+                    ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
+                    timeout_secs=timeout,
+                ),
+            )
+        except TimeoutError as exc:
+            raise ChatQueueBusyError(
+                "The pending message queue is busy; retry shortly.",
+            ) from exc
+        yield
 
 
 @asynccontextmanager
@@ -126,25 +131,28 @@ async def _chat_input_user_quota(
         `ChatQueueBusyError`:
             The quota lock could not be acquired before the timeout.
     """
-    try:
-        async with asyncio.timeout(
-            MessageBusKeys.CHAT_INPUT_MUTATION_TIMEOUT_SECS,
-        ):
-            async with bus.acquire_lock(
-                MessageBusKeys.chat_input_user_quota_lock(user_id),
-                ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
-            ):
-                yield
-    except TimeoutError as exc:
-        raise ChatQueueBusyError(
-            "The pending message quota is busy; retry shortly.",
-        ) from exc
+    async with AsyncExitStack() as stack:
+        try:
+            await stack.enter_async_context(
+                bus.acquire_lock_bounded(
+                    MessageBusKeys.chat_input_user_quota_lock(user_id),
+                    ttl_secs=MessageBusKeys.CHAT_INPUT_MUTATION_TTL_SECS,
+                    timeout_secs=(
+                        MessageBusKeys.CHAT_INPUT_MUTATION_TIMEOUT_SECS
+                    ),
+                ),
+            )
+        except TimeoutError as exc:
+            raise ChatQueueBusyError(
+                "The pending message quota is busy; retry shortly.",
+            ) from exc
+        yield
 
 
 def _serialized_input(
     inputs: "Msg | list[Msg]",
 ) -> dict | list[dict]:
-    """Serialize and enforce the per-turn queue payload limit.
+    """Serialize one ordinary input without imposing a queue byte limit.
 
     Args:
         inputs (`Msg | list[Msg]`):
@@ -157,29 +165,14 @@ def _serialized_input(
     Raises:
         `ValueError`:
             ``inputs`` is an empty list.
-        `ChatQueuePayloadTooLargeError`:
-            The serialized turn exceeds the configured byte limit.
     """
     if isinstance(inputs, list) and not inputs:
         raise ValueError("A queued message list must not be empty.")
-    serialized = (
+    return (
         [msg.model_dump(mode="json") for msg in inputs]
         if isinstance(inputs, list)
         else inputs.model_dump(mode="json")
     )
-    size = len(
-        json.dumps(
-            serialized,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8"),
-    )
-    if size > MessageBusKeys.CHAT_INPUT_MAX_BYTES:
-        raise ChatQueuePayloadTooLargeError(
-            "The queued message is too large "
-            f"({size} bytes; limit {MessageBusKeys.CHAT_INPUT_MAX_BYTES}).",
-        )
-    return serialized
 
 
 async def publish_session_event(
@@ -290,6 +283,34 @@ async def enqueue_run_trigger(
         await bus.publish(MessageBusKeys.wakeup_signal(), {})
 
 
+async def nudge_chat_inputs(
+    bus: "MessageBus",
+    user_id: str,
+    session_id: str,
+    agent_id: str,
+) -> None:
+    """Wake pending input after releasing a run lock; recovery is fallback."""
+    try:
+        pending = await bus.queue_read(
+            MessageBusKeys.chat_inputs(session_id),
+            max_count=1,
+        )
+        claimed = await bus.registry_exists(
+            MessageBusKeys.chat_input_inflight_registry(),
+            session_id,
+        )
+        if pending or claimed:
+            await enqueue_run_trigger(
+                bus,
+                user_id,
+                session_id,
+                agent_id,
+                kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
+            )
+    except Exception:
+        logger.exception("Failed to nudge queued inputs for %s.", session_id)
+
+
 async def enqueue_chat_input(
     bus: "MessageBus",
     user_id: str,
@@ -303,6 +324,8 @@ async def enqueue_chat_input(
     per-session queue owns ordering, while the shared trigger queue only
     nudges an available dispatcher. Duplicate ``queued_message`` triggers
     are harmless because the per-session queue is consumed exactly once.
+    Once the input is stored, notification failures are logged rather than
+    reported as rejection; pending-input recovery retries dispatch.
 
     Args:
         bus:
@@ -326,13 +349,11 @@ async def enqueue_chat_input(
             ``inputs`` is an empty list.
         `ChatQueueFullError`:
             The session queue or aggregate per-user quota is full.
-        `ChatQueuePayloadTooLargeError`:
-            The serialized turn exceeds the configured byte limit.
         `ChatQueueBusyError`:
             A queue or quota mutation lock cannot be acquired promptly.
     """
     serialized = _serialized_input(inputs)
-    item = {
+    item: dict = {
         # Queue identity is independent from message identity. Clients may
         # legitimately retry/replay the same Msg.id; management operations
         # still need one unambiguous id per pending turn.
@@ -377,18 +398,41 @@ async def enqueue_chat_input(
                     },
                 ),
             )
+            await bus.registry_set(
+                MessageBusKeys.chat_input_user_sessions(user_id),
+                session_id,
+                agent_id,
+            )
+            item["input_ref"] = item["id"]
+            await bus.registry_set(
+                MessageBusKeys.chat_input_payloads(session_id),
+                item["input_ref"],
+                json.dumps(serialized),
+            )
             await bus.queue_push(
                 MessageBusKeys.chat_inputs(session_id),
-                item,
+                queue_entry(item),
             )
-            await _publish_chat_queue_changed(bus, session_id)
-    await enqueue_run_trigger(
-        bus,
-        user_id=user_id,
-        session_id=session_id,
-        agent_id=agent_id,
-        kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
-    )
+            try:
+                await _publish_chat_queue_changed(bus, session_id)
+            except Exception:
+                logger.exception(
+                    "Chat input %s accepted, but queue notification failed.",
+                    item["id"],
+                )
+    try:
+        await enqueue_run_trigger(
+            bus,
+            user_id=user_id,
+            session_id=session_id,
+            agent_id=agent_id,
+            kind=MessageBusKeys.WAKEUP_KIND_QUEUED_MESSAGE,
+        )
+    except Exception:
+        logger.exception(
+            "Chat input %s accepted; wakeup failed, awaiting recovery.",
+            item["id"],
+        )
     return _public_chat_input(item)
 
 
@@ -407,17 +451,9 @@ async def list_chat_inputs(
     Returns:
         `list[dict]`:
             Public queue items ordered from the next turn to the last.
-
-    Raises:
-        `ChatQueueBusyError`:
-            The session mutation lock cannot be acquired promptly.
     """
-    async with chat_input_mutation(bus, session_id):
-        entries = await bus.queue_read(
-            MessageBusKeys.chat_inputs(session_id),
-            max_count=MessageBusKeys.CHAT_INPUT_MAX_LEN,
-        )
-        return [_public_chat_input(payload) for _entry_id, payload in entries]
+    payloads = await _read_chat_input_payloads(bus, session_id)
+    return [_public_chat_input(payload) for payload in payloads]
 
 
 async def register_active_chat_reply(
@@ -528,9 +564,9 @@ async def steer_chat_input(
         item.pop("error", None)
         await bus.queue_replace(
             MessageBusKeys.chat_inputs(session_id),
-            payloads,
+            [queue_entry(payload) for payload in payloads],
         )
-        return await _publish_chat_queue_changed(bus, session_id, payloads)
+        return await _notify_chat_queue_changed(bus, session_id, payloads)
 
 
 async def list_steering_chat_inputs(
@@ -618,9 +654,11 @@ async def acknowledge_steering_chat_inputs(
         remaining = [payload for payload in payloads if payload not in removed]
         await bus.queue_replace(
             MessageBusKeys.chat_inputs(session_id),
-            remaining,
+            [queue_entry(payload) for payload in remaining],
         )
-        await _publish_chat_queue_changed(bus, session_id, remaining)
+        for payload in removed:
+            await discard_input(bus, payload)
+        await _notify_chat_queue_changed(bus, session_id, remaining)
         return [_public_chat_input(payload) for payload in removed]
 
 
@@ -665,9 +703,9 @@ async def fail_steering_chat_input(
         if changed:
             await bus.queue_replace(
                 MessageBusKeys.chat_inputs(session_id),
-                payloads,
+                [queue_entry(payload) for payload in payloads],
             )
-            await _publish_chat_queue_changed(bus, session_id, payloads)
+            await _notify_chat_queue_changed(bus, session_id, payloads)
 
 
 async def finish_active_chat_reply(
@@ -716,9 +754,9 @@ async def finish_active_chat_reply(
         if restored_ids:
             await bus.queue_replace(
                 MessageBusKeys.chat_inputs(session_id),
-                payloads,
+                [queue_entry(payload) for payload in payloads],
             )
-            await _publish_chat_queue_changed(bus, session_id, payloads)
+            await _notify_chat_queue_changed(bus, session_id, payloads)
         return restored_ids
 
 
@@ -755,8 +793,6 @@ async def update_chat_input(
             ``inputs`` is an empty list.
         `LookupError`:
             The item is no longer pending or is not owned by the caller.
-        `ChatQueuePayloadTooLargeError`:
-            The replacement turn exceeds the configured byte limit.
         `ChatQueueBusyError`:
             The session mutation lock cannot be acquired promptly.
     """
@@ -774,15 +810,23 @@ async def update_chat_input(
             raise LookupError(
                 f"Queued message '{item_id}' is currently steering.",
             )
+        previous = dict(item)
         item["input"] = serialized
         item["state"] = "queued"
         item.pop("target_reply_id", None)
         item.pop("error", None)
+        item["input_ref"] = uuid.uuid4().hex
+        await bus.registry_set(
+            MessageBusKeys.chat_input_payloads(session_id),
+            item["input_ref"],
+            json.dumps(serialized),
+        )
         await bus.queue_replace(
             MessageBusKeys.chat_inputs(session_id),
-            payloads,
+            [queue_entry(payload) for payload in payloads],
         )
-        return await _publish_chat_queue_changed(bus, session_id, payloads)
+        await discard_input(bus, previous)
+        return await _notify_chat_queue_changed(bus, session_id, payloads)
 
 
 async def delete_chat_input(
@@ -832,9 +876,10 @@ async def delete_chat_input(
         payloads.remove(item)
         await bus.queue_replace(
             MessageBusKeys.chat_inputs(session_id),
-            payloads,
+            [queue_entry(payload) for payload in payloads],
         )
-        return await _publish_chat_queue_changed(bus, session_id, payloads)
+        await discard_input(bus, item)
+        return await _notify_chat_queue_changed(bus, session_id, payloads)
 
 
 async def reorder_chat_inputs(
@@ -915,9 +960,9 @@ async def reorder_chat_inputs(
         ]
         await bus.queue_replace(
             MessageBusKeys.chat_inputs(session_id),
-            reordered,
+            [queue_entry(payload) for payload in reordered],
         )
-        return await _publish_chat_queue_changed(
+        return await _notify_chat_queue_changed(
             bus,
             session_id,
             reordered,
@@ -928,7 +973,7 @@ async def _read_chat_input_payloads(
     bus: "MessageBus",
     session_id: str,
 ) -> list[dict]:
-    """Read raw chat-input payloads while the caller holds the lock.
+    """Hydrate editable entries, omitting claims and deleted references.
 
     Args:
         bus (`MessageBus`):
@@ -944,7 +989,49 @@ async def _read_chat_input_payloads(
         MessageBusKeys.chat_inputs(session_id),
         max_count=MessageBusKeys.CHAT_INPUT_MAX_LEN,
     )
-    return [payload for _entry_id, payload in entries]
+    # A failed dequeue can leave a durable claim in the physical FIFO.
+    # Mutations call this reader under the same lock as claim creation;
+    # they must never replace or discard the claimed input reference.
+    raw_claim = await bus.registry_get(
+        MessageBusKeys.chat_input_claim(session_id),
+        "claim",
+    )
+    if raw_claim is not None:
+        try:
+            claimed_id = json.loads(raw_claim)["payload"]["id"]
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Invalid chat-input claim for %s.", session_id)
+        else:
+            entries = [
+                entry for entry in entries if entry[1].get("id") != claimed_id
+            ]
+    refs = [
+        entry["input_ref"]
+        for _, entry in entries
+        if "input" not in entry and isinstance(entry.get("input_ref"), str)
+    ]
+    values = (
+        await bus.registry_get_many(
+            MessageBusKeys.chat_input_payloads(session_id),
+            refs,
+        )
+        if refs
+        else []
+    )
+    inputs = dict(zip(refs, values))
+    payloads = []
+    for _entry_id, entry in entries:
+        payload = (
+            entry
+            if "input" in entry
+            else decode_input(
+                entry,
+                inputs.get(entry.get("input_ref")),
+            )
+        )
+        if payload is not None:
+            payloads.append(payload)
+    return payloads
 
 
 async def _count_user_chat_inputs(
@@ -964,47 +1051,34 @@ async def _count_user_chat_inputs(
             Pending and distinct in-flight turns, capped once the configured
             per-user quota is reached.
     """
-    pending_sessions = await bus.registry_getall(
-        MessageBusKeys.chat_input_pending_registry(),
+    sessions = await bus.registry_getall(
+        MessageBusKeys.chat_input_user_sessions(user_id),
     )
-    seen_ids: set[str] = set()
     count = 0
-    for session_id, raw_routing in pending_sessions.items():
-        try:
-            routing = json.loads(raw_routing)
-        except (TypeError, ValueError):
-            continue
-        if routing.get("user_id") != user_id:
-            continue
+    for session_id in sessions:
         entries = await bus.queue_read(
             MessageBusKeys.chat_inputs(session_id),
             max_count=MessageBusKeys.CHAT_INPUT_MAX_LEN,
         )
-        for _entry_id, payload in entries:
-            if payload.get("user_id") != user_id:
-                continue
-            item_id = str(payload.get("id", ""))
-            if item_id:
-                seen_ids.add(item_id)
-            count += 1
-            if count >= MessageBusKeys.CHAT_INPUT_USER_MAX_LEN:
-                return count
-
-    claims = await bus.registry_getall(
-        MessageBusKeys.chat_input_inflight_registry(),
-    )
-    for raw_claim in claims.values():
-        try:
-            claim = json.loads(raw_claim)
-            payload = claim["payload"]
-        except (KeyError, TypeError, ValueError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        item_id = str(payload.get("id", ""))
-        if payload.get("user_id") != user_id or item_id in seen_ids:
-            continue
-        count += 1
+        ids = {payload["id"] for _, payload in entries}
+        raw = await bus.registry_get(
+            MessageBusKeys.chat_input_inflight_registry(),
+            session_id,
+        )
+        if raw is not None:
+            try:
+                item_id = json.loads(raw)["id"]
+                if not isinstance(item_id, str) or not item_id:
+                    raise ValueError("Invalid claimed item id.")
+            except (KeyError, TypeError, ValueError):
+                logger.warning(
+                    "Invalid quota claim for session %s; counting one item.",
+                    session_id,
+                )
+                count += 1
+            else:
+                ids.add(item_id)
+        count += len(ids)
         if count >= MessageBusKeys.CHAT_INPUT_USER_MAX_LEN:
             return count
     return count
@@ -1094,14 +1168,8 @@ async def _publish_chat_queue_changed(
     """
     if payloads is None:
         payloads = await _read_chat_input_payloads(bus, session_id)
-    if not payloads and not await bus.registry_exists(
-        MessageBusKeys.chat_input_inflight_registry(),
-        session_id,
-    ):
-        await bus.registry_del(
-            MessageBusKeys.chat_input_pending_registry(),
-            session_id,
-        )
+    if not payloads:
+        await cleanup_session(bus, session_id)
     items = [_public_chat_input(payload) for payload in payloads]
     event = CustomEvent(name="chat_queue_changed", value={"items": items})
     # Queue state is an ephemeral projection backed by GET /chat/queue.
@@ -1111,6 +1179,23 @@ async def _publish_chat_queue_changed(
         MessageBusKeys.session_events(session_id),
         event.model_dump(mode="json"),
     )
+    return items
+
+
+async def _notify_chat_queue_changed(
+    bus: "MessageBus",
+    session_id: str,
+    payloads: list[dict],
+) -> list[dict]:
+    """Return committed state even when its live notification fails."""
+    items = [_public_chat_input(payload) for payload in payloads]
+    try:
+        await _publish_chat_queue_changed(bus, session_id, payloads)
+    except Exception:
+        logger.exception(
+            "Queue mutation committed; notification failed for %s.",
+            session_id,
+        )
     return items
 
 
@@ -1341,49 +1426,3 @@ async def enqueue_index_task(
         },
     )
     await bus.publish(MessageBusKeys.index_tasks_signal(), {})
-
-
-# ── enqueue_channel_output ─────────────────────────────────────────────
-
-
-async def enqueue_channel_output(
-    bus: "MessageBus",
-    *,
-    session_id: str,
-    channel_id: str,
-    chat_id: str,
-    user_id: str,
-    agent_id: str,
-) -> None:
-    """Signal that a channel-bound session is producing output.
-
-    Pushes one signal onto the durable channel-outbound queue and nudges
-    the consumers. Whichever node hosts the channel drains it and
-    forwards the reply back to the platform chat. Called once at the
-    start of a channel-bound run, before the reply is produced.
-
-    Args:
-        bus (`MessageBus`):
-            The application message bus.
-        session_id (`str`):
-            The session about to produce output.
-        channel_id (`str`):
-            The owning channel (locates the adapter + presentation).
-        chat_id (`str`):
-            The platform chat to deliver the reply to.
-        user_id (`str`):
-            The owning user id.
-        agent_id (`str`):
-            The agent id that owns the session.
-    """
-    await bus.queue_push(
-        MessageBusKeys.channel_outbound_queue(),
-        {
-            "session_id": session_id,
-            "channel_id": channel_id,
-            "chat_id": chat_id,
-            "user_id": user_id,
-            "agent_id": agent_id,
-        },
-    )
-    await bus.publish(MessageBusKeys.channel_outbound_signal(), {})

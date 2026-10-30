@@ -20,17 +20,17 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, call as mock_call, patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from agentscope.app import _bus_ops
 from agentscope.app._manager import ChatRunRegistry, WakeupDispatcher
 from agentscope.app._service import ChatService
 from agentscope.app._bus_ops import (
     ChatQueueBusyError,
     ChatQueueFullError,
-    ChatQueuePayloadTooLargeError,
     delete_chat_input,
     enqueue_chat_input,
     enqueue_run_trigger,
@@ -38,12 +38,18 @@ from agentscope.app._bus_ops import (
     reorder_chat_inputs,
     update_chat_input,
 )
-from agentscope.app.message_bus import MessageBus, MessageBusKeys
+from agentscope.app._manager._chat_input_queue import ChatInputQueue
+from agentscope.app.message_bus import (
+    InMemoryMessageBus,
+    MessageBus,
+    MessageBusKeys,
+)
 from agentscope.app._router._chat import chat as chat_endpoint
 from agentscope.app._router._schema import (
     ChatRequest,
     UpdateChatQueueItemRequest,
 )
+from agentscope.state import AgentState
 from agentscope.message import AssistantMsg, ToolCallBlock, UserMsg
 
 
@@ -84,7 +90,11 @@ class _FakeStorage:
                     ],
                 ),
             ]
-        return SimpleNamespace(state=SimpleNamespace(context=context))
+        return SimpleNamespace(state=AgentState(context=context))
+
+    async def get_agent(self, _user_id: str, _agent_id: str) -> object:
+        """Return the agent name used by canonical HITL detection."""
+        return SimpleNamespace(data=SimpleNamespace(name="agent"))
 
     async def upsert_message(
         self,
@@ -96,7 +106,7 @@ class _FakeStorage:
         self.persisted_messages.append((user_id, session_id, message))
 
 
-class _FakeBus(MessageBus):
+class _FakeBus(MessageBus):  # pylint: disable=too-many-public-methods
     """In-memory bus with just enough behaviour for the dispatcher.
 
     Implements the four primitives the dispatcher uses
@@ -248,6 +258,20 @@ class _FakeBus(MessageBus):
     ) -> None:
         self.registries.setdefault(namespace, {})[field] = value
 
+    async def registry_set_if(
+        self,
+        namespace: str,
+        field: str,
+        value: str,
+        *,
+        expected: str,
+        ttl_secs: int | None = None,
+    ) -> bool:
+        raise NotImplementedError
+
+    async def registry_pop(self, namespace: str, field: str) -> str | None:
+        raise NotImplementedError
+
     async def registry_del(self, namespace: str, field: str) -> None:
         self.registries.get(namespace, {}).pop(field, None)
 
@@ -275,12 +299,18 @@ class _FakeChatService:
         self.calls: list[dict] = []
         self.notify = asyncio.Event()
 
+    async def resolve_agent(self, _user_id: str, _agent_id: str) -> object:
+        """Return the agent used by queue parked-state checks."""
+        return SimpleNamespace(data=SimpleNamespace(name="agent"))
+
     async def run(
         self,
         user_id: str,
         session_id: str,
         agent_id: str,
         input_msg: Any = None,
+        queue_item_id: str | None = None,
+        input_persisted: bool = False,
     ) -> None:
         """Record the call and signal a waiter."""
         self.calls.append(
@@ -308,8 +338,17 @@ class _BlockingChatService(_FakeChatService):
         session_id: str,
         agent_id: str,
         input_msg: Any = None,
+        queue_item_id: str | None = None,
+        input_persisted: bool = False,
     ) -> None:
-        await super().run(user_id, session_id, agent_id, input_msg)
+        await super().run(
+            user_id,
+            session_id,
+            agent_id,
+            input_msg,
+            queue_item_id,
+            input_persisted,
+        )
         if len(self.calls) == 1:
             await self.release_first.wait()
         await enqueue_run_trigger(
@@ -688,8 +727,14 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
             UserMsg("user", "persist me", id="claim-message"),
         )
 
-        with self.assertRaises(RuntimeError):
-            await dispatcher._drain_chat_inputs("u", "claim-retry", "a")
+        with patch.object(MessageBusKeys, "CHAT_INPUT_RETRY_SECS", 0):
+            self.assertFalse(
+                await dispatcher._chat_queue.drain_chat_inputs(
+                    "u",
+                    "claim-retry",
+                    "a",
+                ),
+            )
 
         self.assertEqual(
             await bus.queue_read(
@@ -701,14 +746,18 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
         claim = json.loads(
             (
                 await bus.registry_getall(
-                    MessageBusKeys.chat_input_inflight_registry(),
+                    MessageBusKeys.chat_input_claim("claim-retry"),
                 )
-            )["claim-retry"],
+            )["claim"],
         )
         self.assertEqual(claim["state"], "claimed")
 
         self.assertTrue(
-            await dispatcher._drain_chat_inputs("u", "claim-retry", "a"),
+            await dispatcher._chat_queue.drain_chat_inputs(
+                "u",
+                "claim-retry",
+                "a",
+            ),
         )
         self.assertEqual(len(chat.calls), 1)
         self.assertEqual(chat.calls[0]["input_msg"].id, "claim-message")
@@ -739,15 +788,21 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
             "a",
             UserMsg("user", "do not replay", id="persisted-message"),
         )
-        payload, _state = await dispatcher._claim_chat_input("claim-failed")
-        await dispatcher._set_chat_input_claim_state(
+        payload, _state = await dispatcher._chat_queue._claim_chat_input(
+            "claim-failed",
+        )
+        await dispatcher._chat_queue._set_chat_input_claim_state(
             "claim-failed",
             payload,
             "input_persisted",
         )
 
         self.assertTrue(
-            await dispatcher._drain_chat_inputs("u", "claim-failed", "a"),
+            await dispatcher._chat_queue.drain_chat_inputs(
+                "u",
+                "claim-failed",
+                "a",
+            ),
         )
         self.assertEqual(chat.calls, [])
         self.assertIn(
@@ -786,13 +841,13 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
         )
         payload = pending[0][1]
         await bus.registry_set(
-            MessageBusKeys.chat_input_inflight_registry(),
-            "claim-before-drain",
+            MessageBusKeys.chat_input_claim("claim-before-drain"),
+            "claim",
             json.dumps({"state": "claimed", "payload": payload}),
         )
 
         self.assertTrue(
-            await dispatcher._drain_chat_inputs(
+            await dispatcher._chat_queue.drain_chat_inputs(
                 "u",
                 "claim-before-drain",
                 "a",
@@ -1146,6 +1201,63 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
             "survive restart",
         )
 
+    async def test_fallback_continues_after_transient_failures(self) -> None:
+        """Signal and recovery failures do not stop subsequent ticks."""
+        for failure in ("publish", "recovery"):
+            with self.subTest(failure=failure):
+                bus = _FakeBus()
+                dispatcher = WakeupDispatcher(
+                    bus,
+                    _FakeStorage(),
+                    _FakeChatService(),
+                    ChatRunRegistry(),
+                )
+                publish = AsyncMock(
+                    side_effect=[
+                        ConnectionError("signal")
+                        if failure == "publish"
+                        else None,
+                        None,
+                    ],
+                )
+                recovery = Mock(
+                    side_effect=[
+                        RuntimeError("schedule")
+                        if failure == "recovery"
+                        else None,
+                        None,
+                    ],
+                )
+                with (
+                    patch.object(bus, "publish", publish),
+                    patch.object(
+                        dispatcher._chat_queue,
+                        "schedule_recovery",
+                        recovery,
+                    ),
+                    patch(
+                        "agentscope.app._manager._wakeup_dispatcher."
+                        "asyncio.sleep",
+                        AsyncMock(
+                            side_effect=[
+                                None,
+                                None,
+                                asyncio.CancelledError(),
+                            ],
+                        ),
+                    ),
+                ):
+                    with self.assertRaises(asyncio.CancelledError):
+                        await dispatcher._fallback_loop()
+                self.assertEqual(
+                    publish.await_args_list,
+                    [mock_call(MessageBusKeys.wakeup_signal(), {})] * 2,
+                )
+                self.assertEqual(
+                    recovery.call_args_list,
+                    [mock_call(), mock_call()],
+                )
+
     async def test_fallback_tick_drains_trigger_without_live_signal(
         self,
     ) -> None:
@@ -1302,18 +1414,18 @@ class TestChatInputClaimReliability(IsolatedAsyncioTestCase):
             "CHAT_INPUT_MUTATION_TIMEOUT_SECS",
             0.001,
         ):
-            await dispatcher._set_chat_input_claim_state(
+            await dispatcher._chat_queue._set_chat_input_claim_state(
                 "s",
                 payload,
                 "input_persisted",
             )
             self.assertTrue(
                 await bus.registry_exists(
-                    MessageBusKeys.chat_input_inflight_registry(),
-                    "s",
+                    MessageBusKeys.chat_input_claim("s"),
+                    "claim",
                 ),
             )
-            await dispatcher._finish_chat_input_claim("s")
+            await dispatcher._chat_queue._finish_chat_input_claim("s")
 
         self.assertFalse(
             await bus.registry_exists(
@@ -1329,7 +1441,7 @@ class TestWakeupDispatcherLifecycle(IsolatedAsyncioTestCase):
     async def test_recovery_sweep_has_one_cluster_leader(self) -> None:
         """Two processes sharing a bus do not both run the O(N) sweep."""
 
-        class _CountingDispatcher(WakeupDispatcher):
+        class _CountingQueue(ChatInputQueue):
             sweep_count = 0
 
             async def _recover_pending_chat_inputs_locked(self) -> int:
@@ -1337,25 +1449,35 @@ class TestWakeupDispatcherLifecycle(IsolatedAsyncioTestCase):
                 return await super()._recover_pending_chat_inputs_locked()
 
         bus = _FakeBus()
-        first = _CountingDispatcher(
+        first = WakeupDispatcher(
             message_bus=bus,
             storage=_FakeStorage(),
             chat_service=_FakeChatService(),
             chat_run_registry=ChatRunRegistry(),
         )
-        second = _CountingDispatcher(
+        second = WakeupDispatcher(
             message_bus=bus,
             storage=_FakeStorage(),
             chat_service=_FakeChatService(),
             chat_run_registry=ChatRunRegistry(),
         )
 
+        first._chat_queue = _CountingQueue(
+            bus,
+            _FakeStorage(),
+            _FakeChatService(),
+        )
+        second._chat_queue = _CountingQueue(
+            bus,
+            _FakeStorage(),
+            _FakeChatService(),
+        )
         await asyncio.gather(
-            first._recover_pending_chat_inputs(),
-            second._recover_pending_chat_inputs(),
+            first._chat_queue._recover_pending_chat_inputs(),
+            second._chat_queue._recover_pending_chat_inputs(),
         )
 
-        self.assertEqual(_CountingDispatcher.sweep_count, 1)
+        self.assertEqual(_CountingQueue.sweep_count, 1)
         self.assertEqual(
             bus._channel(MessageBusKeys.wakeup_signal()).qsize(),
             0,
@@ -1474,7 +1596,12 @@ class TestChatEndpointQueue(IsolatedAsyncioTestCase):
             max_count=10,
         )
         self.assertEqual(len(queued), 1)
-        self.assertEqual(queued[0][1]["input"]["id"], "http-message")
+        stored = await bus.registry_get(
+            MessageBusKeys.chat_input_payloads("s"),
+            queued[0][1]["input_ref"],
+        )
+        assert stored is not None
+        self.assertEqual(json.loads(stored), user_msg.model_dump(mode="json"))
 
         triggers = await bus.queue_drain(
             MessageBusKeys.wakeup_queue(),
@@ -1566,59 +1693,191 @@ class TestChatEndpointQueue(IsolatedAsyncioTestCase):
                 )
         self.assertEqual(raised.exception.status_code, 429)
 
-    async def test_oversized_queue_input_returns_http_413(self) -> None:
-        """POST /chat exposes the serialized turn size limit."""
-        with patch.object(MessageBusKeys, "CHAT_INPUT_MAX_BYTES", 10):
-            with self.assertRaises(HTTPException) as raised:
-                await chat_endpoint(
-                    request=ChatRequest(
-                        agent_id="a",
-                        session_id="s",
-                        input=UserMsg("user", "too large"),
-                    ),
-                    user_id="u",
-                    storage=_FakeStorage(),
-                    chat_service=_FakeChatService(),
-                    chat_run_registry=ChatRunRegistry(),
-                    message_bus=_FakeBus(),
-                )
-        self.assertEqual(raised.exception.status_code, 413)
-
     async def test_queue_lock_timeout_returns_http_503(self) -> None:
         """POST /chat turns stale-lock waits into retryable backpressure."""
+        for key in (
+            MessageBusKeys.chat_input_mutation_lock("s"),
+            MessageBusKeys.chat_input_user_quota_lock("u"),
+        ):
+            with self.subTest(key=key), patch.object(
+                MessageBusKeys,
+                "CHAT_INPUT_MUTATION_TIMEOUT_SECS",
+                0.01,
+            ):
+                async with InMemoryMessageBus() as bus:
+                    async with bus.acquire_lock(key):
+                        with self.assertRaises(HTTPException) as raised:
+                            await chat_endpoint(
+                                request=ChatRequest(
+                                    agent_id="a",
+                                    session_id="s",
+                                    input=UserMsg("user", "retry later"),
+                                ),
+                                user_id="u",
+                                storage=_FakeStorage(),
+                                chat_service=_FakeChatService(),
+                                chat_run_registry=ChatRunRegistry(),
+                                message_bus=bus,
+                            )
+                    self.assertEqual(raised.exception.status_code, 503)
+                    self.assertEqual(await list_chat_inputs(bus, "s"), [])
+                    self.assertEqual(
+                        await bus.registry_getall(
+                            MessageBusKeys.chat_input_pending_registry(),
+                        ),
+                        {},
+                    )
 
-        class _ContendedBus(_FakeBus):
-            @asynccontextmanager
-            async def acquire_lock(
-                self,
-                key: str,
-                *,
-                ttl_secs: int = 600,
-            ) -> AsyncGenerator[None, None]:
-                del ttl_secs
-                if key == MessageBusKeys.chat_input_mutation_lock("s"):
-                    await asyncio.Event().wait()
-                yield
+    async def test_slow_notification_keeps_http_acceptance(self) -> None:
+        """Neither lock's wait deadline cancels an accepted queue write."""
+        bus = _FakeBus()
+        publish = bus.publish
 
-        with patch.object(
+        async def slow_publish(key: str, payload: dict) -> None:
+            await asyncio.sleep(0.03)
+            await publish(key, payload)
+
+        message = UserMsg("user", "accepted")
+        with patch.object(bus, "publish", slow_publish), patch.object(
             MessageBusKeys,
             "CHAT_INPUT_MUTATION_TIMEOUT_SECS",
             0.01,
         ):
-            with self.assertRaises(HTTPException) as raised:
-                await chat_endpoint(
-                    request=ChatRequest(
-                        agent_id="a",
-                        session_id="s",
-                        input=UserMsg("user", "retry later"),
-                    ),
-                    user_id="u",
-                    storage=_FakeStorage(),
-                    chat_service=_FakeChatService(),
-                    chat_run_registry=ChatRunRegistry(),
-                    message_bus=_ContendedBus(),
+            response = await chat_endpoint(
+                request=ChatRequest(
+                    agent_id="a",
+                    session_id="s",
+                    input=message,
+                ),
+                user_id="u",
+                storage=_FakeStorage(),
+                chat_service=_FakeChatService(),
+                chat_run_registry=ChatRunRegistry(),
+                message_bus=bus,
+            )
+        items = await list_chat_inputs(bus, "s")
+        self.assertEqual(
+            response.model_dump(),
+            {
+                "status": "queued",
+                "session_id": "s",
+                "queue_item_id": items[0]["id"],
+            },
+        )
+        self.assertEqual(
+            items,
+            [
+                {
+                    "id": response.queue_item_id,
+                    "created_at": items[0]["created_at"],
+                    "input": message.model_dump(mode="json"),
+                    "state": "queued",
+                    "error": None,
+                },
+            ],
+        )
+
+    async def test_notification_failure_preserves_accepted_input(
+        self,
+    ) -> None:
+        """Broadcast and wakeup failures leave accepted input recoverable."""
+        for operation in (
+            "_publish_chat_queue_changed",
+            "enqueue_run_trigger",
+        ):
+            for error_type in (ConnectionError, TimeoutError):
+                with self.subTest(operation=operation, error=error_type):
+                    bus = _FakeBus()
+                    message = UserMsg("user", "recover me")
+                    with patch.object(
+                        _bus_ops,
+                        operation,
+                        side_effect=error_type("offline"),
+                    ):
+                        response = await chat_endpoint(
+                            request=ChatRequest(
+                                agent_id="a",
+                                session_id="s",
+                                input=message,
+                            ),
+                            user_id="u",
+                            storage=_FakeStorage(),
+                            chat_service=_FakeChatService(),
+                            chat_run_registry=ChatRunRegistry(),
+                            message_bus=bus,
+                        )
+                    items = await list_chat_inputs(bus, "s")
+                    self.assertEqual(
+                        response.model_dump(),
+                        {
+                            "status": "queued",
+                            "session_id": "s",
+                            "queue_item_id": items[0]["id"],
+                        },
+                    )
+                    self.assertEqual(
+                        items,
+                        [
+                            {
+                                "id": response.queue_item_id,
+                                "created_at": items[0]["created_at"],
+                                "input": message.model_dump(mode="json"),
+                                "state": "queued",
+                                "error": None,
+                            },
+                        ],
+                    )
+                    # Remove any immediate trigger to exercise recovery.
+                    await bus.queue_delete(MessageBusKeys.wakeup_queue())
+                    chat = _FakeChatService()
+                    async with WakeupDispatcher(
+                        message_bus=bus,
+                        storage=_FakeStorage(),
+                        chat_service=chat,
+                        chat_run_registry=ChatRunRegistry(),
+                    ):
+                        await asyncio.wait_for(chat.notify.wait(), timeout=2)
+                    self.assertEqual(
+                        [call["input_msg"] for call in chat.calls],
+                        [message],
+                    )
+
+    async def test_queue_write_failure_is_not_accepted(self) -> None:
+        """Only post-acceptance notification errors may be suppressed."""
+        bus = _FakeBus()
+        error = ConnectionError("queue unavailable")
+        with patch.object(bus, "queue_push", side_effect=error):
+            with self.assertRaises(ConnectionError) as raised:
+                await enqueue_chat_input(
+                    bus,
+                    "u",
+                    "s",
+                    "a",
+                    UserMsg("user", "not accepted"),
                 )
-        self.assertEqual(raised.exception.status_code, 503)
+        self.assertIs(raised.exception, error)
+        self.assertEqual(await list_chat_inputs(bus, "s"), [])
+
+    async def test_body_timeout_is_not_reported_as_lock_contention(
+        self,
+    ) -> None:
+        """Only lock acquisition timeouts become queue-busy errors."""
+        async with InMemoryMessageBus() as bus:
+            for lock, key in (
+                (
+                    _bus_ops.chat_input_mutation(bus, "s"),
+                    MessageBusKeys.chat_input_mutation_lock("s"),
+                ),
+                (
+                    _bus_ops._chat_input_user_quota(bus, "u"),
+                    MessageBusKeys.chat_input_user_quota_lock("u"),
+                ),
+            ):
+                with self.subTest(key=key):
+                    with self.assertRaisesRegex(TimeoutError, "body failed"):
+                        async with lock:
+                            raise TimeoutError("body failed")
+                    self.assertFalse(await bus.is_locked(key))
 
 
 class TestEditableChatQueue(IsolatedAsyncioTestCase):
@@ -1855,23 +2114,6 @@ class TestEditableChatQueue(IsolatedAsyncioTestCase):
                     UserMsg("user", "three"),
                 )
 
-    async def test_enqueue_rejects_oversized_payload(self) -> None:
-        """Serialized input bytes are bounded before touching the queue."""
-        bus = _FakeBus()
-        with patch.object(MessageBusKeys, "CHAT_INPUT_MAX_BYTES", 10):
-            with self.assertRaises(ChatQueuePayloadTooLargeError):
-                await enqueue_chat_input(
-                    bus,
-                    "u",
-                    "s",
-                    "a",
-                    UserMsg("user", "too large"),
-                )
-        self.assertEqual(
-            await bus.queue_read(MessageBusKeys.chat_inputs("s"), max_count=1),
-            [],
-        )
-
     async def test_mutation_lock_wait_is_bounded(self) -> None:
         """A stale short lock surfaces retryable busy instead of hanging."""
 
@@ -1894,7 +2136,14 @@ class TestEditableChatQueue(IsolatedAsyncioTestCase):
             0.01,
         ):
             with self.assertRaises(ChatQueueBusyError):
-                await list_chat_inputs(_ContendedBus(), "s")
+                await enqueue_chat_input(
+                    _ContendedBus(),
+                    "u",
+                    "s",
+                    "a",
+                    UserMsg("u", "queued"),
+                )
+            self.assertEqual(await list_chat_inputs(_ContendedBus(), "s"), [])
 
     async def test_queue_snapshots_are_not_written_to_replay_log(
         self,

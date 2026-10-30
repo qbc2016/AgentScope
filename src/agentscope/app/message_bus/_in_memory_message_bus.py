@@ -17,20 +17,20 @@ dependency.
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
+import math
 import time
-import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from typing import Callable, Self
 
 from ._base import MessageBus
 
 
-class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
+class InMemoryMessageBus(
     MessageBus,
-):
+):  # pylint: disable=too-many-public-methods
     """In-memory implementation of :class:`MessageBus`.
 
     Mapping of bus modes to in-memory structures:
@@ -80,7 +80,9 @@ class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
         # Mode E — locks: key -> asyncio.Lock
         self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         # Track which key is currently held so is_locked() works.
-        self._lock_holders: dict[str, str] = {}
+        # key -> monotonic expiry deadline; ``acquire_lock`` has no
+        # lease, so it stores infinity.
+        self._lock_holders: dict[str, float] = {}
 
         # Mode F — registry maps: namespace -> {field: value}
         self._registries: dict[str, dict[str, str]] = defaultdict(dict)
@@ -155,7 +157,7 @@ class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
         queue = self._queues[key]
         now = time.monotonic()
         queue[:] = [e for e in queue if e[2] is None or e[2] > now]
-        expire_at = now + ttl_secs if ttl_secs else None
+        expire_at = now + ttl_secs if ttl_secs is not None else None
         queue.append((entry_id, deepcopy(payload), expire_at))
         return entry_id
 
@@ -437,9 +439,8 @@ class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
             `None`: while the lock is held.
         """
         lock = self._locks[key]
-        token = uuid.uuid4().hex
         async with lock:
-            self._lock_holders[key] = token
+            self._lock_holders[key] = math.inf
             try:
                 yield
             finally:
@@ -456,13 +457,15 @@ class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
             `bool`:
                 ``True`` if some coroutine holds the lock.
         """
-        return key in self._lock_holders
+        return self._lock_holders.get(key, 0.0) > time.monotonic()
 
     async def try_lock(self, key: str, *, ttl_secs: int = 600) -> bool:
         """Non-blocking claim on ``key``. See base."""
-        if key in self._lock_holders:
+        if self._lock_holders.get(key, 0.0) > time.monotonic():
             return False
-        self._lock_holders[key] = "1"
+        # The lease keeps a crashed holder from blocking the key
+        # forever, the contract the Redis bus gets from SET NX EX.
+        self._lock_holders[key] = time.monotonic() + ttl_secs
         return True
 
     async def unlock(self, key: str) -> None:
@@ -496,6 +499,26 @@ class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
                 Ignored (no TTL support).
         """
         self._registries[namespace][field] = value
+
+    async def registry_set_if(
+        self,
+        namespace: str,
+        field: str,
+        value: str,
+        *,
+        expected: str,
+        ttl_secs: int | None = None,
+    ) -> bool:
+        """Compare-and-set one field; ``ttl_secs`` ignored. See base."""
+        _ = ttl_secs
+        if self._registries.get(namespace, {}).get(field) != expected:
+            return False
+        self._registries.setdefault(namespace, {})[field] = value
+        return True
+
+    async def registry_pop(self, namespace: str, field: str) -> str | None:
+        """Read and remove one field. See base."""
+        return self._registries.get(namespace, {}).pop(field, None)
 
     async def registry_del(self, namespace: str, field: str) -> None:
         """Remove ``field`` from the registry at ``namespace``.
@@ -562,6 +585,15 @@ class InMemoryMessageBus(  # pylint: disable=too-many-public-methods
                 The stored value, or ``None`` if missing.
         """
         return self._registries.get(namespace, {}).get(field)
+
+    async def registry_get_many(
+        self,
+        namespace: str,
+        fields: list[str],
+    ) -> list[str | None]:
+        """Read only the requested registry fields in their supplied order."""
+        registry = self._registries.get(namespace, {})
+        return [registry.get(field) for field in fields]
 
     async def registry_drop(self, namespace: str) -> None:
         """Delete the entire registry at ``namespace``.

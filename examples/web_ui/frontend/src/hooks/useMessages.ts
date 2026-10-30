@@ -11,7 +11,7 @@ import type {
 import { appendEvent, AssistantMsg, UserMsg } from '@agentscope-ai/agentscope/message';
 import type { Msg, ContentBlock } from '@agentscope-ai/agentscope/message';
 import type { ToolCallBlock } from '@agentscope-ai/agentscope/message';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
 import { toast } from 'sonner';
 
 import { chatApi, sessionApi, takeFreshlyCreated } from '@/api';
@@ -97,9 +97,10 @@ const INTERRUPT_TIMEOUT_MS = 10_000;
  *   background retrigger, team member message, …).
  *
  * The hook opens the SSE connection immediately after fetching
- * history. Ordinary user input is accepted into the backend FIFO;
- * human-in-the-loop confirmations use fire-and-forget control triggers.
- * Resulting events arrive through the already-open SSE connection.
+ * history. Ordinary user input is accepted into the backend FIFO.
+ * Human-in-the-loop confirmations use the active realtime control
+ * channel during voice mode and ``POST /chat/`` otherwise. Resulting
+ * events arrive through the already-open SSE connection.
  *
  * ``phase`` is driven by event content, not HTTP lifecycle: it moves
  * to ``streaming`` on ``ReplyStartEvent`` and back to ``idle`` on
@@ -132,9 +133,29 @@ export function useMessages(
 		 * ``tasks_context`` and ``permission_context``.
 		 */
 		onStateUpdated?: (value: Record<string, unknown>) => void;
+		/**
+		 * Called when a ``CUSTOM`` event with ``name="session_updated"``
+		 * arrives — the session record changed server-side, currently
+		 * only when auto-naming replaced its placeholder name. Refetch
+		 * the session list to pick the new one up.
+		 */
+		onSessionUpdated?: () => void;
+		/** True when a dedicated realtime transport already plays PCM audio. */
+		isRealtimeAudioActive?: () => boolean;
+		/** Send a tool confirmation over the active realtime transport. */
+		sendRealtimeUserConfirm?: (event: UserConfirmResultEvent) => Promise<void>;
 	},
 ) {
 	const { t } = useTranslation();
+	// A new identity for each visit also rejects late responses after A -> B -> A.
+	const session = useMemo(() => ({ agentId, sessionId }), [agentId, sessionId]);
+	const activeSessionRef = useRef<typeof session | null>(null);
+	useLayoutEffect(() => {
+		activeSessionRef.current = session;
+		return () => {
+			activeSessionRef.current = null;
+		};
+	}, [session]);
 	const [msgs, setMsgs] = useState<Msg[]>([]);
 	// The (agent, session) pair `msgs` actually belongs to. Loading is
 	// derived from it rather than set inside the fetch effect: an effect
@@ -167,6 +188,7 @@ export function useMessages(
 
 	const msgsRef = useRef<Msg[]>([]);
 	const currentReplyRef = useRef<Msg | null>(null);
+	const ttsConfigurationWarningsRef = useRef(new Set<string>());
 	const abortRef = useRef<AbortController | null>(null);
 	const rafRef = useRef<number | null>(null);
 	// Timer that reverts ``interrupting`` back to ``idle`` if the
@@ -201,10 +223,22 @@ export function useMessages(
 			// reply content — route them to callbacks and skip appendEvent.
 			if (event.type === EventType.CUSTOM) {
 				const custom = event as CustomEvent;
-				if (custom.name === 'team_updated') {
+				if (custom.name === 'tts_error') {
+					const failure = custom.value as { stage?: string; reply_id?: string };
+					const sessionKey = JSON.stringify([agentId, sessionId]);
+					if (failure.stage === 'configuration') {
+						if (ttsConfigurationWarningsRef.current.has(sessionKey)) return;
+						ttsConfigurationWarningsRef.current.add(sessionKey);
+					}
+					toast.warning(t('chat.ttsFailed'), {
+						id: `tts-error-${sessionKey}-${failure.reply_id ?? custom.id}`,
+					});
+				} else if (custom.name === 'team_updated') {
 					optionsRef.current?.onTeamUpdated?.();
 				} else if (custom.name === 'state_updated' && custom.value) {
 					optionsRef.current?.onStateUpdated?.(custom.value as Record<string, unknown>);
+				} else if (custom.name === 'session_updated') {
+					optionsRef.current?.onSessionUpdated?.();
 				} else if (custom.name === 'subagent_require_user_confirm') {
 					// A team member is asking for confirmation; show (or
 					// refresh) its card on this leader view. Dedup by
@@ -277,23 +311,52 @@ export function useMessages(
 					currentReplyRef.current = existing;
 				} else {
 					audioManager?.stopAllPlayback();
-					const msg = AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
+					const msg =
+						e.role === 'user'
+							? UserMsg({ id: e.reply_id, name: e.name, content: [] })
+							: AssistantMsg({ id: e.reply_id, name: e.name, content: [] });
 					msgsRef.current = [...msgsRef.current, msg];
 					currentReplyRef.current = msg;
 				}
 				setActiveReplyId(e.reply_id);
 				clearInterruptTimer();
 				setPhase('streaming');
-			} else if (event.type === EventType.REPLY_END) {
-				if (currentReplyRef.current) {
-					appendEvent(currentReplyRef.current, event);
+			} else {
+				// Realtime providers may start the assistant response before the
+				// user's final transcription arrives. Route every identified event
+				// to its own reply instead of assuming event streams never overlap.
+				const reply = event.reply_id
+					? currentReplyRef.current?.id === event.reply_id
+						? currentReplyRef.current
+						: (msgsRef.current.find((message) => message.id === event.reply_id) ?? null)
+					: currentReplyRef.current;
+				if (reply) {
+					appendEvent(reply, event);
+					// ``appendEvent`` mutates in place, which would leave
+					// every Msg identical across renders and force the whole
+					// list to re-render on each delta. Republish just the
+					// reply that changed under a fresh identity, so the
+					// memoised bubbles of the other messages can skip the
+					// render. Anything holding a Msg reference across events
+					// must re-read it from here — ``currentReplyRef`` below,
+					// everything else looks the reply up by id.
+					const updated = { ...reply, content: [...reply.content] };
+					msgsRef.current = msgsRef.current.map((m) => (m === reply ? updated : m));
+					if (currentReplyRef.current?.id === reply.id) {
+						currentReplyRef.current = updated;
+					}
 				}
-				clearInterruptTimer();
-				setPhase('idle');
-				setActiveReplyId(null);
-				currentReplyRef.current = null;
-			} else if (currentReplyRef.current) {
-				appendEvent(currentReplyRef.current, event);
+				if (
+					event.type === EventType.REPLY_END &&
+					(!event.reply_id ||
+						currentReplyRef.current === null ||
+						currentReplyRef.current.id === event.reply_id)
+				) {
+					clearInterruptTimer();
+					setPhase('idle');
+					setActiveReplyId(null);
+					currentReplyRef.current = null;
+				}
 			}
 
 			// Route streaming audio DataBlocks to the audio manager. They still
@@ -329,11 +392,14 @@ export function useMessages(
 			applyQueueSnapshot,
 			finishItem,
 			t,
+			agentId,
+			sessionId,
 		],
 	);
 
 	// ── Lifecycle: fetch history + open SSE stream ──────────────────
 	useEffect(() => {
+		setLoadedKey(null);
 		msgsRef.current = [];
 		currentReplyRef.current = null;
 		setMsgs([]);
@@ -351,14 +417,19 @@ export function useMessages(
 		let cancelled = false;
 
 		(async () => {
+			let eventCursor: string | null = null;
 			// 1. Fetch persisted history — unless this tab just created the
 			// session, in which case there is provably none.
 			if (takeFreshlyCreated(sessionId)) {
 				if (!cancelled) setLoadedKey(`${agentId}:${sessionId}`);
 			} else {
 				try {
-					const { messages, is_running } = await sessionApi.messages(sessionId, agentId);
+					const { messages, is_running, event_cursor } = await sessionApi.messages(
+						sessionId,
+						agentId,
+					);
 					if (cancelled) return;
+					eventCursor = event_cursor;
 					msgsRef.current = messages;
 					// If a reply is in flight (running on a worker) OR the
 					// tail msg is parked on a pending tool_call (awaiting
@@ -407,6 +478,7 @@ export function useMessages(
 					sessionId,
 					agentId,
 					controller.signal,
+					eventCursor,
 				)) {
 					if (cancelled) break;
 					processEvent(event);
@@ -435,7 +507,7 @@ export function useMessages(
 	 */
 	const send = useCallback(
 		async (content: ContentBlock[]) => {
-			if (!agentId || !sessionId) return;
+			if (!agentId || !sessionId || activeSessionRef.current !== session) return;
 
 			const userMsg = UserMsg({ name: 'user', content });
 			const showInConversationImmediately = phase === 'idle' && pendingQueueCount === 0;
@@ -450,8 +522,10 @@ export function useMessages(
 					session_id: sessionId,
 					input: userMsg,
 				});
+				if (activeSessionRef.current !== session) return;
 				acceptOptimistic(optimisticId, response.queue_item_id);
 			} catch (e) {
+				if (activeSessionRef.current !== session) return;
 				// The server never accepted this input. Remove the
 				// optimistic queue row and restore the caller's draft.
 				rollbackOptimistic(optimisticId, userMsg.id);
@@ -468,6 +542,7 @@ export function useMessages(
 			sessionId,
 			phase,
 			pendingQueueCount,
+			session,
 			scheduleUpdate,
 			addOptimistic,
 			acceptOptimistic,
@@ -476,9 +551,10 @@ export function useMessages(
 	);
 
 	/**
-	 * Confirm or deny a tool call (human-in-the-loop). Fires a
-	 * ``POST /chat/`` with a ``UserConfirmResultEvent``; events
-	 * arrive via SSE.
+	 * Confirm or deny a tool call (human-in-the-loop). Sends a
+	 * ``UserConfirmResultEvent`` through realtime control while voice mode
+	 * is active, or through ``POST /chat/`` otherwise. Events arrive via
+	 * SSE in both cases.
 	 *
 	 * @param toolCall - The tool call block to confirm/deny.
 	 * @param confirm - Whether the user confirmed.
@@ -509,11 +585,18 @@ export function useMessages(
 			};
 
 			try {
-				await chatApi.trigger({
-					agent_id: agentId,
-					session_id: sessionId,
-					input: event,
-				});
+				if (
+					optionsRef.current?.isRealtimeAudioActive?.() &&
+					optionsRef.current.sendRealtimeUserConfirm
+				) {
+					await optionsRef.current.sendRealtimeUserConfirm(event);
+				} else {
+					await chatApi.trigger({
+						agent_id: agentId,
+						session_id: sessionId,
+						input: event,
+					});
+				}
 			} catch (e) {
 				setError(e as Error);
 				throw e;
@@ -631,32 +714,28 @@ export function useMessages(
 		[agentId, sessionId],
 	);
 
-	// True from the very first render after `sessionId` changes, because
-	// it compares props against what was fetched rather than tracking a
-	// flag an effect has yet to flip. `msgs` is still the previous
-	// session's until the effect clears it, so consumers must render the
-	// loading state in preference to `msgs`.
-	const loading =
-		agentId !== null && sessionId !== null && loadedKey !== `${agentId}:${sessionId}`;
+	const currentKey = agentId !== null && sessionId !== null ? `${agentId}:${sessionId}` : null;
+	const ownsConversation = currentKey !== null && loadedKey === currentKey;
+	const loading = currentKey !== null && !ownsConversation;
 
 	return {
-		msgs,
+		msgs: ownsConversation ? msgs : [],
 		loading,
-		phase,
-		activeReplyId,
-		queuedItems,
-		queuedCount,
-		queueReorderDisabled,
+		queuedItems: ownsConversation ? queuedItems : [],
+		queuedCount: ownsConversation ? queuedCount : 0,
+		queueReorderDisabled: !ownsConversation || queueReorderDisabled,
 		updateQueued,
 		deleteQueued,
-		steerQueued,
 		moveQueued,
 		reorderQueued,
-		error,
+		phase: ownsConversation ? phase : ('idle' as ReplyPhase),
+		error: ownsConversation ? error : null,
+		activeReplyId: ownsConversation ? activeReplyId : null,
+		steerQueued,
 		send,
 		onUserConfirm,
 		onSubagentConfirm,
-		subagentHitl,
+		subagentHitl: ownsConversation ? subagentHitl : [],
 		abort,
 		interrupt,
 	};
