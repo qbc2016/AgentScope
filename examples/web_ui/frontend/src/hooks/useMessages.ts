@@ -11,7 +11,7 @@ import type {
 import { appendEvent, AssistantMsg, UserMsg } from '@agentscope-ai/agentscope/message';
 import type { Msg, ContentBlock } from '@agentscope-ai/agentscope/message';
 import type { ToolCallBlock } from '@agentscope-ai/agentscope/message';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, useLayoutEffect } from 'react';
 import { toast } from 'sonner';
 
 import { chatApi, sessionApi, takeFreshlyCreated } from '@/api';
@@ -147,6 +147,15 @@ export function useMessages(
 	},
 ) {
 	const { t } = useTranslation();
+	// A new identity for each visit also rejects late responses after A -> B -> A.
+	const session = useMemo(() => ({ agentId, sessionId }), [agentId, sessionId]);
+	const activeSessionRef = useRef<typeof session | null>(null);
+	useLayoutEffect(() => {
+		activeSessionRef.current = session;
+		return () => {
+			activeSessionRef.current = null;
+		};
+	}, [session]);
 	const [msgs, setMsgs] = useState<Msg[]>([]);
 	// The (agent, session) pair `msgs` actually belongs to. Loading is
 	// derived from it rather than set inside the fetch effect: an effect
@@ -480,7 +489,7 @@ export function useMessages(
 	 */
 	const send = useCallback(
 		async (content: ContentBlock[]) => {
-			if (!agentId || !sessionId) return;
+			if (!agentId || !sessionId || activeSessionRef.current !== session) return;
 
 			const userMsg = UserMsg({ name: 'user', content });
 			const showInConversationImmediately = phase === 'idle' && pendingQueueCount === 0;
@@ -495,8 +504,10 @@ export function useMessages(
 					session_id: sessionId,
 					input: userMsg,
 				});
+				if (activeSessionRef.current !== session) return;
 				acceptOptimistic(optimisticId, response.queue_item_id);
 			} catch (e) {
+				if (activeSessionRef.current !== session) return;
 				// The server never accepted this input. Remove the
 				// optimistic queue row and restore the caller's draft.
 				rollbackOptimistic(optimisticId, userMsg.id);
@@ -513,6 +524,7 @@ export function useMessages(
 			sessionId,
 			phase,
 			pendingQueueCount,
+			session,
 			scheduleUpdate,
 			addOptimistic,
 			acceptOptimistic,

@@ -323,6 +323,7 @@ const ChatContentComponent: React.FC<ChatContentProps> = ({
 				    edges parallel — a plain rectangle here would show the
 				    pill's corners cutting into it. */}
 					<TextInput
+						key={JSON.stringify([agentId, sessionId])}
 						className="min-w-full max-w-full w-full rounded-[32px] bg-muted p-1"
 						onSend={onSend}
 						disabled={disabled}

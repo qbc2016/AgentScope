@@ -646,7 +646,7 @@ async def _read_chat_input_payloads(
     bus: "MessageBus",
     session_id: str,
 ) -> list[dict]:
-    """Hydrate a snapshot; concurrently deleted references are omitted.
+    """Hydrate editable entries, omitting claims and deleted references.
 
     Args:
         bus (`MessageBus`):
@@ -662,6 +662,22 @@ async def _read_chat_input_payloads(
         MessageBusKeys.chat_inputs(session_id),
         max_count=MessageBusKeys.CHAT_INPUT_MAX_LEN,
     )
+    # A failed dequeue can leave a durable claim in the physical FIFO.
+    # Mutations call this reader under the same lock as claim creation;
+    # they must never replace or discard the claimed input reference.
+    raw_claim = await bus.registry_get(
+        MessageBusKeys.chat_input_claim(session_id),
+        "claim",
+    )
+    if raw_claim is not None:
+        try:
+            claimed_id = json.loads(raw_claim)["payload"]["id"]
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Invalid chat-input claim for %s.", session_id)
+        else:
+            entries = [
+                entry for entry in entries if entry[1].get("id") != claimed_id
+            ]
     refs = [
         entry["input_ref"]
         for _, entry in entries

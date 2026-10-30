@@ -200,18 +200,21 @@ class WakeupDispatcher:
 
     async def _fallback_loop(self) -> None:
         """Periodically signal the sole drain loop and schedule recovery."""
-        try:
-            while True:
-                await asyncio.sleep(_MESSAGE_FALLBACK_TICK_SECS)
+        while True:
+            await asyncio.sleep(_MESSAGE_FALLBACK_TICK_SECS)
+            try:
                 # Never drain here: Redis queue_drain is XRANGE + XDEL and
                 # therefore requires a single in-process consumer. All
                 # actual draining remains serialized in ``_loop``.
                 await self._bus.publish(MessageBusKeys.wakeup_signal(), {})
+            except Exception:  # pylint: disable=broad-except
+                logger.exception("WakeupDispatcher fallback signal failed.")
+            try:
                 self._chat_queue.schedule_recovery()
-        except Exception:  # pylint: disable=broad-except
-            logger.exception(
-                "WakeupDispatcher fallback loop crashed.",
-            )
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "WakeupDispatcher recovery scheduling failed.",
+                )
 
     async def _drain_and_dispatch(self) -> None:
         """Read up to a batch of trigger entries and dispatch each."""

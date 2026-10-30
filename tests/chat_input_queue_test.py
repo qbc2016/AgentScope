@@ -53,6 +53,141 @@ from agentscope.state import AgentState
 class TestQueueStorageAndRecovery(IsolatedAsyncioTestCase):
     """Exercise real bus primitives, including Redis storage layouts."""
 
+    async def test_failed_dequeue_keeps_claim_out_of_editable_queue(
+        self,
+    ) -> None:
+        """Editing other turns cannot invalidate a durable input claim."""
+        redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        self.addAsyncCleanup(redis.aclose)
+        for backend in (InMemoryMessageBus(), _make_bus(redis)):
+            with self.subTest(backend=type(backend).__name__):
+                async with backend as bus:
+                    original = UserMsg("user", "claimed input")
+                    items = [
+                        await enqueue_chat_input(bus, "u", "s", "a", msg)
+                        for msg in (
+                            original,
+                            UserMsg("user", "second"),
+                            UserMsg("user", "third"),
+                        )
+                    ]
+                    queue = ChatInputQueue(
+                        bus,
+                        _FakeStorage(),
+                        _FakeChatService(),
+                    )
+                    with patch.object(
+                        bus,
+                        "queue_drain",
+                        AsyncMock(side_effect=ConnectionError("dequeue")),
+                    ):
+                        with self.assertRaises(ConnectionError):
+                            await queue._claim_chat_input("s")
+                    raw = await bus.registry_get(
+                        MessageBusKeys.chat_input_claim("s"),
+                        "claim",
+                    )
+                    claimed = json.loads(raw)["payload"]
+                    await queue.close()
+                    self.assertEqual(
+                        await list_chat_inputs(bus, "s"),
+                        items[1:],
+                    )
+                    with self.assertRaises(LookupError):
+                        await update_chat_input(
+                            bus,
+                            "u",
+                            "s",
+                            "a",
+                            items[0]["id"],
+                            UserMsg("user", "must not replace claim"),
+                        )
+                    with self.assertRaises(LookupError):
+                        await delete_chat_input(
+                            bus,
+                            "u",
+                            "s",
+                            "a",
+                            items[0]["id"],
+                        )
+                    with self.assertRaises(ValueError):
+                        await reorder_chat_inputs(
+                            bus,
+                            "u",
+                            "s",
+                            "a",
+                            [item["id"] for item in items],
+                        )
+                    self.assertEqual(
+                        await reorder_chat_inputs(
+                            bus,
+                            "u",
+                            "s",
+                            "a",
+                            [items[2]["id"], items[1]["id"]],
+                        ),
+                        [items[2], items[1]],
+                    )
+                    replacement = UserMsg("user", "edited pending input")
+                    updated = {
+                        **items[1],
+                        "input": replacement.model_dump(mode="json"),
+                    }
+                    self.assertEqual(
+                        await update_chat_input(
+                            bus,
+                            "u",
+                            "s",
+                            "a",
+                            items[1]["id"],
+                            replacement,
+                        ),
+                        [items[2], updated],
+                    )
+                    self.assertEqual(
+                        await delete_chat_input(
+                            bus,
+                            "u",
+                            "s",
+                            "a",
+                            items[2]["id"],
+                        ),
+                        [updated],
+                    )
+                    self.assertEqual(
+                        json.loads(
+                            await bus.registry_get(
+                                MessageBusKeys.chat_input_payloads("s"),
+                                claimed["input_ref"],
+                            ),
+                        ),
+                        original.model_dump(mode="json"),
+                    )
+                    chat = _FakeChatService()
+                    restarted = ChatInputQueue(bus, _FakeStorage(), chat)
+                    self.addAsyncCleanup(restarted.close)
+                    for _ in range(2):
+                        self.assertTrue(
+                            await restarted.drain_chat_inputs("u", "s", "a"),
+                        )
+                    self.assertEqual(
+                        [
+                            call["input_msg"].model_dump(mode="json")
+                            for call in chat.calls
+                        ],
+                        [
+                            original.model_dump(mode="json"),
+                            replacement.model_dump(mode="json"),
+                        ],
+                    )
+                    self.assertEqual(await list_chat_inputs(bus, "s"), [])
+                    self.assertEqual(
+                        await bus.registry_getall(
+                            MessageBusKeys.chat_input_payloads("s"),
+                        ),
+                        {},
+                    )
+
     async def test_large_attachment_roundtrip_and_cleanup(self) -> None:
         """Base64 bytes survive edits and execution without global copies."""
         redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
@@ -850,8 +985,8 @@ class TestChatInputPayloads(IsolatedAsyncioTestCase):
             ) as many, patch.object(
                 redis,
                 "hget",
-                side_effect=AssertionError("single read"),
-            ), patch.object(
+                wraps=redis.hget,
+            ) as single, patch.object(
                 redis,
                 "hgetall",
                 side_effect=AssertionError("whole hash"),
@@ -863,6 +998,10 @@ class TestChatInputPayloads(IsolatedAsyncioTestCase):
                 many.assert_called_once_with(
                     MessageBusKeys.chat_input_payloads("s"),
                     refs,
+                )
+                single.assert_called_once_with(
+                    MessageBusKeys.chat_input_claim("s"),
+                    "claim",
                 )
 
 

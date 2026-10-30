@@ -163,6 +163,13 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 		const [files, setFiles] = useState<ProcessedFile[]>([]);
 		const [isFocused, setIsFocused] = useState(false);
 		const [submitting, setSubmitting] = useState(false);
+		const mountedRef = useRef(false);
+		useLayoutEffect(() => {
+			mountedRef.current = true;
+			return () => {
+				mountedRef.current = false;
+			};
+		}, []);
 		const textareaRef = useRef<HTMLTextAreaElement>(null);
 		const fileInputRef = useRef<HTMLInputElement>(null);
 		const measureRef = useRef<HTMLSpanElement>(null);
@@ -273,12 +280,13 @@ export const TextInput = forwardRef<TextInputRef, TextInputProps>(
 			try {
 				await onSend(blocks);
 			} catch {
+				if (!mountedRef.current) return;
 				// The API layer reports the error; restore both the failed turn
 				// and any new draft content so neither is silently lost.
 				setValue((current) => (current ? `${submittedValue}\n${current}` : submittedValue));
 				setFiles((current) => [...submittedFiles, ...current]);
 			} finally {
-				setSubmitting(false);
+				if (mountedRef.current) setSubmitting(false);
 			}
 		};
 

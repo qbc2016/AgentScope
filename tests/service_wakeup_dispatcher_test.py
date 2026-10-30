@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, call as mock_call, patch
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -1193,6 +1193,63 @@ class TestWakeupDispatcherDispatch(  # pylint: disable=too-many-public-methods
             chat.calls[0]["input_msg"].content[0].text,
             "survive restart",
         )
+
+    async def test_fallback_continues_after_transient_failures(self) -> None:
+        """Signal and recovery failures do not stop subsequent ticks."""
+        for failure in ("publish", "recovery"):
+            with self.subTest(failure=failure):
+                bus = _FakeBus()
+                dispatcher = WakeupDispatcher(
+                    bus,
+                    _FakeStorage(),
+                    _FakeChatService(),
+                    ChatRunRegistry(),
+                )
+                publish = AsyncMock(
+                    side_effect=[
+                        ConnectionError("signal")
+                        if failure == "publish"
+                        else None,
+                        None,
+                    ],
+                )
+                recovery = Mock(
+                    side_effect=[
+                        RuntimeError("schedule")
+                        if failure == "recovery"
+                        else None,
+                        None,
+                    ],
+                )
+                with (
+                    patch.object(bus, "publish", publish),
+                    patch.object(
+                        dispatcher._chat_queue,
+                        "schedule_recovery",
+                        recovery,
+                    ),
+                    patch(
+                        "agentscope.app._manager._wakeup_dispatcher."
+                        "asyncio.sleep",
+                        AsyncMock(
+                            side_effect=[
+                                None,
+                                None,
+                                asyncio.CancelledError(),
+                            ],
+                        ),
+                    ),
+                ):
+                    with self.assertRaises(asyncio.CancelledError):
+                        await dispatcher._fallback_loop()
+                self.assertEqual(
+                    publish.await_args_list,
+                    [mock_call(MessageBusKeys.wakeup_signal(), {})] * 2,
+                )
+                self.assertEqual(
+                    recovery.call_args_list,
+                    [mock_call(), mock_call()],
+                )
 
     async def test_fallback_tick_drains_trigger_without_live_signal(
         self,
