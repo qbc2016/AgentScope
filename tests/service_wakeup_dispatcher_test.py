@@ -299,6 +299,10 @@ class _FakeChatService:
         self.calls: list[dict] = []
         self.notify = asyncio.Event()
 
+    async def resolve_agent(self, _user_id: str, _agent_id: str) -> object:
+        """Return the agent used by queue parked-state checks."""
+        return SimpleNamespace(data=SimpleNamespace(name="agent"))
+
     async def run(
         self,
         user_id: str,

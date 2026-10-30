@@ -274,6 +274,14 @@ class ChatService:
         # references to un-awaited tasks.
         self._queue_nudge_tasks: set[asyncio.Task] = set()
 
+    async def resolve_agent(
+        self,
+        user_id: str,
+        agent_id: str,
+    ) -> AgentRecord:
+        """Resolve an owned or shared agent for execution and queue checks."""
+        return await self._access.resolve_agent(user_id, agent_id)
+
     async def run(
         self,
         user_id: str,
@@ -930,7 +938,7 @@ class ChatService:
                 # the agent is not visible to the caller.
                 # -------------------------------------------------------------
                 try:
-                    agent_record = await self._access.resolve_agent(
+                    agent_record = await self.resolve_agent(
                         user_id,
                         agent_id,
                     )

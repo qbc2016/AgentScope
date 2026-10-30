@@ -31,6 +31,8 @@ from agentscope.app._manager._chat_input_queue import ChatInputQueue
 from agentscope.app._manager._chat_run_registry import CHAT_RUN_SHUTDOWN
 from agentscope.app._router._chat import chat_router
 from agentscope.app._service import ChatService, SessionService
+from agentscope.app._service._access import ResourceAccessService
+from agentscope.app.access import ResourceKind, ResourceRef
 from agentscope.app.deps import (
     get_chat_run_registry,
     get_chat_service,
@@ -527,6 +529,92 @@ class TestQueueStorageAndRecovery(IsolatedAsyncioTestCase):
 
 class TestQueueFailureScope(IsolatedAsyncioTestCase):
     """Match existing agent-state and queue-event contracts."""
+
+    async def test_shared_agent_waits_before_claiming_input(self) -> None:
+        """Shared agents retain queued input until pending tools finish."""
+        for state in ("asking", "submitted", None):
+            with self.subTest(state=state):
+                async with InMemoryMessageBus() as bus:
+                    storage = _FakeStorage()
+                    record = SimpleNamespace(
+                        source="user",
+                        data=SimpleNamespace(name="shared agent"),
+                    )
+                    storage.get_agent = AsyncMock(
+                        side_effect=lambda user_id, _agent_id, owned=record: (
+                            owned if user_id == "owner" else None
+                        ),
+                    )
+                    session = SimpleNamespace(
+                        state=AgentState(
+                            context=[
+                                AssistantMsg(
+                                    name="shared agent",
+                                    content=[
+                                        ToolCallBlock(
+                                            id="tool",
+                                            name="external",
+                                            input="{}",
+                                            state=state,
+                                        ),
+                                    ]
+                                    if state
+                                    else "done",
+                                ),
+                            ],
+                        ),
+                    )
+                    storage.get_session = AsyncMock(return_value=session)
+                    policy = SimpleNamespace(
+                        list_accessible=AsyncMock(
+                            return_value=[
+                                ResourceRef(
+                                    kind=ResourceKind.AGENT,
+                                    owner_id="owner",
+                                    resource_id="a",
+                                ),
+                            ],
+                        ),
+                    )
+                    service = object.__new__(ChatService)
+                    service._access = ResourceAccessService(storage, policy)
+                    service.run = AsyncMock()
+                    queue = ChatInputQueue(bus, storage, service)
+                    self.addAsyncCleanup(queue.close)
+                    message = UserMsg("viewer", "next turn")
+                    item = await enqueue_chat_input(
+                        bus,
+                        "viewer",
+                        "s",
+                        "a",
+                        message,
+                    )
+                    self.assertEqual(
+                        await queue.drain_chat_inputs("viewer", "s", "a"),
+                        state is None,
+                    )
+                    self.assertEqual(
+                        await list_chat_inputs(bus, "s"),
+                        [item] if state else [],
+                    )
+                    self.assertEqual(
+                        storage.persisted_messages,
+                        [] if state else [("viewer", "s", message)],
+                    )
+                    if state:
+                        service.run.assert_not_awaited()
+                        session.state.context = []
+                        self.assertTrue(
+                            await queue.drain_chat_inputs("viewer", "s", "a"),
+                        )
+                    service.run.assert_awaited_once_with(
+                        user_id="viewer",
+                        session_id="s",
+                        agent_id="a",
+                        input_msg=message,
+                        queue_item_id=item["id"],
+                        input_persisted=True,
+                    )
 
     async def test_parked_detection_uses_owning_agent_and_results(
         self,

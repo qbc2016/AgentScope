@@ -281,9 +281,7 @@ class ChatInputQueue:
         state = getattr(session, "state", None)
         if not state or not state.context:
             return False
-        record = await self._storage.get_agent(user_id, agent_id)
-        if record is None:
-            return False
+        record = await self._chat_service.resolve_agent(user_id, agent_id)
         return bool(
             state.get_awaiting_tool_calls(record.data.name),
         )
