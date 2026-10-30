@@ -215,6 +215,86 @@ def _parse_wav_payload(wav_bytes: bytes) -> bytes:
         return wav.readframes(wav.getnframes())
 
 
+class TestQwenCloneEndpoints(IsolatedAsyncioTestCase):
+    """Verify Qwen enrollment and real SDK request routing together."""
+
+    async def test_clone_and_synthesis_use_credential_region(self) -> None:
+        """Interleaved credentials keep their routes in both output modes."""
+        origins = (
+            "https://dashscope-intl.aliyuncs.com",
+            "https://dashscope.aliyuncs.com",
+            "https://workspace.cn-beijing.maas.aliyuncs.com",
+            "http://localhost:8080/gateway",
+        )
+        global_url = "https://global.invalid/api/v1"
+        with (
+            patch.object(dashscope, "base_http_api_url", global_url),
+            patch(
+                "agentscope.tts._dashscope._voice_cloning_client."
+                "_post_voice_request",
+                new_callable=AsyncMock,
+                return_value={"output": {"voice": "cloned-voice"}},
+            ) as post,
+            patch(
+                "dashscope.api_entities.api_request_factory.HttpRequest",
+            ) as request,
+        ):
+            for stream in (False, True):
+                for suffix in ("/compatible-mode/v1/", "/api/v1", "/"):
+                    models = []
+                    for origin in origins:
+                        credential = DashScopeCredential(
+                            api_key="test",
+                            base_url=origin + suffix,
+                        )
+                        client = DashScopeVoiceCloningClient(credential)
+                        voice = await client.create_voice(
+                            audio=b"sample",
+                            parameters=client.Parameters(
+                                target_model="qwen3-tts-flash",
+                            ),
+                        )
+                        self.assertEqual(
+                            post.call_args.args,
+                            (
+                                origin
+                                + "/api/v1/services/audio/tts/customization",
+                            ),
+                        )
+                        models.append(
+                            DashScopeTTSModel(
+                                credential=credential,
+                                parameters=DashScopeTTSModel.Parameters(
+                                    voice=voice,
+                                ),
+                                stream=stream,
+                            ),
+                        )
+                    for index in (0, 1, 2, 3, 0):
+                        with self.subTest(
+                            stream=stream,
+                            suffix=suffix,
+                            index=index,
+                        ):
+                            request.return_value.call.return_value = iter(())
+                            result = await models[index].synthesize("Hello")
+                            if stream:
+                                _ = [chunk async for chunk in result]
+                            self.assertEqual(
+                                (
+                                    request.call_args.kwargs["url"],
+                                    request.call_args.kwargs["api_key"],
+                                    dashscope.base_http_api_url,
+                                ),
+                                (
+                                    origins[index] + "/api/v1/services/aigc/"
+                                    "multimodal-generation/generation",
+                                    "test",
+                                    global_url,
+                                ),
+                            )
+
+
 class TestDashScopeTTSModel(IsolatedAsyncioTestCase):
     """The unittests for DashScope TTS model (non-realtime)."""
 
@@ -300,6 +380,9 @@ class TestDashScopeTTSModel(IsolatedAsyncioTestCase):
                             "api_key": "test",
                             "text": "Hello",
                             "voice": expected,
+                            "base_address": (
+                                "https://dashscope.aliyuncs.com/api/v1"
+                            ),
                             "stream": True,
                         },
                     )
@@ -336,6 +419,7 @@ class TestDashScopeTTSModel(IsolatedAsyncioTestCase):
                     language_type="English",
                     api_key="ignored",
                     stream=False,
+                    base_address="https://override.invalid/api/v1",
                 )
                 responses = (
                     [chunk async for chunk in result] if stream else [result]
@@ -348,6 +432,7 @@ class TestDashScopeTTSModel(IsolatedAsyncioTestCase):
                         "text": "Hello",
                         "voice": "Serena",
                         "language_type": "English",
+                        "base_address": "https://override.invalid/api/v1",
                         "stream": True,
                     },
                 )

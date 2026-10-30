@@ -39,7 +39,7 @@ import { useVoiceProfiles } from '@/hooks/useVoiceProfiles';
 import { useTranslation } from '@/i18n/useI18n';
 import { cn } from '@/lib/utils';
 import { credentialLabel } from '@/utils/common';
-import { credentialTypeForEngine, isModelForEngine } from '@/utils/tts';
+import { credentialTypeForEngine } from '@/utils/tts';
 
 interface ParameterProperty {
 	type?: string;
@@ -87,17 +87,17 @@ function resolveVoiceProfileBinding(
 	if (!engine || !credentialId || !model || !voice) return null;
 
 	const type = credentialTypeForEngine(engine);
-	if (!type || !isModelForEngine(model, engine)) return null;
+	if (!type) return null;
 
 	const credentialModels = ttsGroups[type]?.find((item) => item.credential.id === credentialId);
-	const modelCard = credentialModels?.models.find((item) => item.name === model);
-	if (!modelCard) return null;
+	if (!credentialModels) return null;
+	const modelCard = credentialModels.models.find((item) => item.name === model);
 
 	return {
 		type,
 		credentialId,
 		modelName: model,
-		schema: modelCard.parameter_schema as ParameterSchema | undefined,
+		schema: modelCard?.parameter_schema as ParameterSchema | undefined,
 	};
 }
 
