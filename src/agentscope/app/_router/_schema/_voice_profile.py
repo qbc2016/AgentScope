@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 
 from ...storage._model import VoiceProfileData, VoiceProfileRecord
+from ....tts import TTSModelCard
 
 MAX_AUDIO_SIZE_BYTES = 10 * 1024 * 1024
 MAX_AUDIO_BASE64_LENGTH = 4 * ((MAX_AUDIO_SIZE_BYTES + 2) // 3)
@@ -49,17 +50,24 @@ class CredentialRef(BaseModel):
     """Display label (credential name or type)."""
 
 
+class EngineModelInfo(TTSModelCard):
+    """A selectable synthesis model and its enrollment model, if any."""
+
+    enrollment_model: str | None = None
+    """Separate model used for voice enrollment, supplied by the SDK client."""
+
+
 class EngineInfo(BaseModel):
     """Metadata about a TTS engine."""
 
     name: str
     """The engine name (e.g. 'dashscope_tts')."""
 
-    source: str
-    """Whether the engine runs in cloud or locally."""
+    credential_type: str
+    """Credential provider required by the engine."""
 
-    gpu_requirement: str | None = None
-    """GPU requirement for local engines."""
+    models: list[EngineModelInfo] = []
+    """Synthesis model cards belonging to this engine."""
 
     voice_cloning: bool = False
     """Whether the engine supports voice cloning."""
@@ -71,11 +79,8 @@ class EngineInfo(BaseModel):
 class AvailableEnginesResponse(BaseModel):
     """Response body for available TTS engines."""
 
-    engines: list[str]
-    """Sorted list of engine names with credentials."""
-
     engine_details: list[EngineInfo] = []
-    """Engine metadata including source and cloning."""
+    """Available engines with credentials and capabilities, sorted by name."""
 
 
 class CloneVoiceRequest(BaseModel):

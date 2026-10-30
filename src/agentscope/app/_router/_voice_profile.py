@@ -14,8 +14,6 @@ from ..deps import (
 from .._service import ResourceAccessService, validate_voice_profile_model
 from ..storage import StorageBase, VoiceProfileData, VoiceProfileRecord
 from ..storage._model import (
-    ENGINE_GPU_REQUIREMENT,
-    ENGINE_SOURCE,
     ENGINE_TO_CREDENTIAL_TYPE,
     get_missing_voice_profile_binding_fields,
 )
@@ -35,6 +33,7 @@ from ._schema import (
     CreateVoiceProfileResponse,
     CredentialRef,
     EngineInfo,
+    EngineModelInfo,
     ListVoiceProfilesResponse,
     OpenAIConsentRequest,
     OpenAIConsentResponse,
@@ -167,26 +166,42 @@ async def list_available_engines(
 
     details = []
     for eng in engines:
-        cred_cls = CredentialFactory.get_credential_class(
-            ENGINE_TO_CREDENTIAL_TYPE[eng],
+        credential_type = ENGINE_TO_CREDENTIAL_TYPE[eng]
+        cred_cls = CredentialFactory.get_credential_class(credential_type)
+        client_cls = (
+            cred_cls.get_voice_cloning_client_class() if cred_cls else None
         )
+        models = cred_cls.list_tts_models() if cred_cls else []
+        if credential_type == "dashscope_credential":
+            # The App groups Qwen models together, including Qwen Audio.
+            models = [
+                card
+                for card in models
+                if card.name.startswith("cosyvoice-") == (eng == "cosyvoice")
+            ]
         details.append(
             EngineInfo(
                 name=eng,
-                source=ENGINE_SOURCE.get(eng, "local"),
-                gpu_requirement=ENGINE_GPU_REQUIREMENT.get(eng),
-                voice_cloning=(
-                    cred_cls is not None
-                    and cred_cls.get_voice_cloning_client_class() is not None
-                ),
+                credential_type=credential_type,
+                models=[
+                    EngineModelInfo(
+                        **card.model_dump(),
+                        enrollment_model=client_cls.get_enrollment_model(
+                            card.name,
+                        )
+                        if client_cls and card.voice_cloning
+                        else None,
+                    )
+                    for card in models
+                ],
+                voice_cloning=client_cls is not None,
                 credentials=cred_by_type.get(
-                    ENGINE_TO_CREDENTIAL_TYPE[eng],
+                    credential_type,
                     [],
                 ),
             ),
         )
     return AvailableEnginesResponse(
-        engines=engines,
         engine_details=details,
     )
 

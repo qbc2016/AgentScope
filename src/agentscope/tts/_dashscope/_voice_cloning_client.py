@@ -46,6 +46,17 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
         """Bind the credential used for voice enrollment."""
         super().__init__(credential)
 
+    @classmethod
+    def get_enrollment_model(cls, model: str) -> str:
+        """Resolve the enrollment model used for a synthesis model family."""
+        if model.startswith(("cosyvoice-", "qwen-audio-")):
+            return "voice-enrollment"
+        if model.startswith("qwen"):
+            return "qwen-voice-enrollment"
+        raise ValueError(
+            f"Unsupported DashScope voice model family: {model!r}",
+        )
+
     async def create_voice(
         self,
         audio: bytes | None = None,
@@ -73,6 +84,7 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
         target_model = options.target_model
         if (audio is None) == (audio_url is None):
             raise ValueError("Provide exactly one of audio or audio_url")
+        enrollment = self.get_enrollment_model(target_model)
 
         inputs: dict[str, Any] = {
             "action": "create_voice",
@@ -80,7 +92,6 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
             "prefix": options.prefix,
         }
         if target_model.startswith("cosyvoice-"):
-            enrollment = "voice-enrollment"
             if audio is not None:
                 raise ValueError(
                     "CosyVoice requires audio_url, not audio bytes",
@@ -88,7 +99,7 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
             if not audio_url:
                 raise ValueError("audio_url must not be empty")
             inputs["url"] = audio_url
-        elif target_model.startswith("qwen"):
+        else:
             if audio is None:
                 raise ValueError(
                     "Qwen-TTS requires audio bytes, not audio_url",
@@ -97,10 +108,8 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
             encoded = base64.b64encode(audio).decode("ascii")
             data_uri = f"data:{mime_type};base64,{encoded}"
             if target_model.startswith("qwen-audio-"):
-                enrollment = "voice-enrollment"
                 inputs["audio"] = data_uri
             else:
-                enrollment = "qwen-voice-enrollment"
                 inputs = {
                     "action": "create",
                     "target_model": target_model,
@@ -109,11 +118,6 @@ class DashScopeVoiceCloningClient(VoiceCloningClientBase):
                 }
                 if options.text:
                     inputs["text"] = options.text
-        else:
-            raise ValueError(
-                f"Unsupported DashScope voice model family: {target_model!r}",
-            )
-
         result = await _post_voice_request(
             _qwen_http_url(self.credential, _CLONE_PATH)
             if enrollment == "qwen-voice-enrollment"

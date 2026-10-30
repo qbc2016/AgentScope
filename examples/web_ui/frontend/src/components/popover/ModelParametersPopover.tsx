@@ -10,6 +10,7 @@ import type {
 	TTSModelCard,
 	TTSModelConfig,
 	VoiceProfileRecord,
+	EngineInfo,
 } from '@/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,12 +35,11 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAvailableModels } from '@/hooks/useAvailableModels';
 import { useAvailableTTSModels } from '@/hooks/useAvailableTTSModels';
-import type { CredentialWithTTSModels } from '@/hooks/useAvailableTTSModels';
+import { useVoiceEngines } from '@/hooks/useVoiceEngines';
 import { useVoiceProfiles } from '@/hooks/useVoiceProfiles';
 import { useTranslation } from '@/i18n/useI18n';
 import { cn } from '@/lib/utils';
 import { credentialLabel } from '@/utils/common';
-import { credentialTypeForEngine } from '@/utils/tts';
 
 interface ParameterProperty {
 	type?: string;
@@ -81,17 +81,15 @@ interface ResolvedVoiceProfileBinding {
  */
 function resolveVoiceProfileBinding(
 	profile: VoiceProfileRecord,
-	ttsGroups: Record<string, CredentialWithTTSModels[]>,
+	engineDetails: EngineInfo[],
 ): ResolvedVoiceProfileBinding | null {
 	const { engine, credential_id: credentialId, model, voice } = profile.data;
 	if (!engine || !credentialId || !model || !voice) return null;
 
-	const type = credentialTypeForEngine(engine);
-	if (!type) return null;
-
-	const credentialModels = ttsGroups[type]?.find((item) => item.credential.id === credentialId);
-	if (!credentialModels) return null;
-	const modelCard = credentialModels.models.find((item) => item.name === model);
+	const engineInfo = engineDetails.find((item) => item.name === engine);
+	if (!engineInfo?.credentials.some((item) => item.id === credentialId)) return null;
+	const type = engineInfo.credential_type;
+	const modelCard = engineInfo.models.find((item) => item.name === model);
 
 	return {
 		type,
@@ -330,6 +328,7 @@ export function ModelParametersPopover({
 	const { groups } = useAvailableModels();
 	const { groups: ttsGroups } = useAvailableTTSModels();
 	const { profiles: voiceProfiles } = useVoiceProfiles();
+	const { engineDetails } = useVoiceEngines(selectedTTSModel !== undefined);
 
 	const schema = modelCard?.parameter_schema as ParameterSchema | undefined;
 	const properties = schema?.properties ?? {};
@@ -637,7 +636,10 @@ export function ModelParametersPopover({
 										const isProfileActive =
 											selectedTTSModel != null &&
 											selectedTTSModel.voice_profile_id === vp.id;
-										const binding = resolveVoiceProfileBinding(vp, ttsGroups);
+										const binding = resolveVoiceProfileBinding(
+											vp,
+											engineDetails,
+										);
 										const unavailable = binding === null;
 										const item = (
 											<DropdownMenuCheckboxItem

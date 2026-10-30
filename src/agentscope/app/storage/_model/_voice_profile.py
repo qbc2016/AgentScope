@@ -15,27 +15,11 @@ _ENGINE_TYPE = Literal[
     "gemini_tts",
 ]
 
-_SOURCE_TYPE = Literal["api", "local"]
-
 ENGINE_TO_CREDENTIAL_TYPE: dict[str, str] = {
     "cosyvoice": "dashscope_credential",
     "dashscope_tts": "dashscope_credential",
     "openai_tts": "openai_credential",
     "gemini_tts": "gemini_credential",
-}
-
-ENGINE_SOURCE: dict[str, _SOURCE_TYPE] = {
-    "cosyvoice": "api",
-    "dashscope_tts": "api",
-    "openai_tts": "api",
-    "gemini_tts": "api",
-}
-
-ENGINE_GPU_REQUIREMENT: dict[str, str | None] = {
-    "cosyvoice": None,
-    "dashscope_tts": None,
-    "openai_tts": None,
-    "gemini_tts": None,
 }
 
 
@@ -73,15 +57,6 @@ class VoiceProfileData(BaseModel):
             "for both operations."
         ),
         title="Credential ID",
-    )
-
-    source: _SOURCE_TYPE | None = Field(
-        default=None,
-        description=(
-            "Deployment source: 'api' for cloud-based "
-            "or 'local' for on-device inference."
-        ),
-        title="Source",
     )
 
     voice: str | None = Field(

@@ -1,11 +1,11 @@
 import { client } from './client';
+import type { TTSModelCard } from './types';
 
 export interface VoiceProfileData {
 	name: string;
 	engine?: string | null;
 	model?: string | null;
 	credential_id?: string | null;
-	source?: 'api' | 'local' | null;
 	voice?: string | null;
 	metadata?: Record<string, unknown> | null;
 }
@@ -34,14 +34,13 @@ export interface CredentialRef {
 
 export interface EngineInfo {
 	name: string;
-	source: 'api' | 'local';
-	gpu_requirement?: string | null;
+	credential_type: string;
+	models: (TTSModelCard & { enrollment_model: string | null })[];
 	voice_cloning: boolean;
 	credentials: CredentialRef[];
 }
 
 export interface AvailableEnginesResponse {
-	engines: string[];
 	engine_details: EngineInfo[];
 }
 

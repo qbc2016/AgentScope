@@ -46,8 +46,6 @@ from agentscope.app.storage._model import (
 )
 from agentscope.app.storage._model._voice_profile import (
     _ENGINE_TYPE,
-    ENGINE_SOURCE,
-    ENGINE_GPU_REQUIREMENT,
 )
 from agentscope.tts import (
     DashScopeCosyVoiceTTSModel,
@@ -58,6 +56,7 @@ from agentscope.tts import (
 from agentscope.credential import (
     CredentialBase,
     CredentialFactory,
+    DashScopeCredential,
     OpenAICredential,
 )
 
@@ -225,7 +224,6 @@ class TestVoiceProfileModel(TestCase):
                 "engine": None,
                 "model": None,
                 "credential_id": None,
-                "source": None,
                 "voice": None,
                 "metadata": None,
             },
@@ -238,7 +236,6 @@ class TestVoiceProfileModel(TestCase):
             engine="dashscope_tts",
             model="qwen3-tts-flash",
             credential_id="cred-abc-123",
-            source="api",
             voice="cosyvoice-clone-abc123",
             metadata={"quality": "high"},
         )
@@ -249,7 +246,6 @@ class TestVoiceProfileModel(TestCase):
                 "engine": "dashscope_tts",
                 "model": "qwen3-tts-flash",
                 "credential_id": "cred-abc-123",
-                "source": "api",
                 "voice": "cosyvoice-clone-abc123",
                 "metadata": {"quality": "high"},
             },
@@ -266,6 +262,23 @@ class TestVoiceProfileModel(TestCase):
         self.assertEqual(record.data.name, "Test")
         self.assertIsNotNone(record.id)
         self.assertIsNotNone(record.created_at)
+
+    def test_stored_source_does_not_affect_profile_binding(self) -> None:
+        """Existing records remain readable after removing the source label."""
+        expected = {
+            "name": "Voice A",
+            "engine": "dashscope_tts",
+            "model": "qwen3-tts-flash",
+            "credential_id": "credential-a",
+            "voice": "voice-a",
+            "metadata": {"label": "sample"},
+        }
+        for source in ("api", "local", None):
+            with self.subTest(source=source):
+                data = VoiceProfileData.model_validate(
+                    {**expected, "source": source},
+                )
+                self.assertEqual(data.model_dump(), expected)
 
 
 def _model_card(
@@ -322,7 +335,6 @@ def _profile(
             engine="openai_tts",
             model="gpt-4o-mini-tts",
             credential_id=credential_id,
-            source="api",
             voice=voice,
         ),
     )
@@ -1484,32 +1496,6 @@ class TestEngineToCredentialMapping(TestCase):
             )
 
 
-class TestEngineConstants(TestCase):
-    """Unit tests for engine-level constant dicts."""
-
-    def test_all_engines_have_source(self) -> None:
-        """Every engine type has an ENGINE_SOURCE entry."""
-        args = typing.get_args(_ENGINE_TYPE)
-        for engine in args:
-            self.assertIn(engine, ENGINE_SOURCE)
-
-    def test_all_engines_have_gpu_requirement(self) -> None:
-        """Every engine type has an ENGINE_GPU_REQUIREMENT."""
-        args = typing.get_args(_ENGINE_TYPE)
-        for engine in args:
-            self.assertIn(engine, ENGINE_GPU_REQUIREMENT)
-
-    def test_api_engines_no_gpu(self) -> None:
-        """API engines should not require GPU."""
-        expected = {
-            "cosyvoice": None,
-            "dashscope_tts": None,
-            "openai_tts": None,
-            "gemini_tts": None,
-        }
-        self.assertEqual(ENGINE_GPU_REQUIREMENT, expected)
-
-
 class TestVoiceAudioLimits(TestCase):
     """Reject oversized uploads before provider requests or extra encoding."""
 
@@ -1561,25 +1547,39 @@ class TestEngineCapabilities(IsolatedAsyncioTestCase):
                 data={"type": "openai_credential", "name": "OpenAI"},
             ),
         ]
+        card = _model_card(["alloy"], voice_cloning=True).model_copy(
+            update={"name": "custom-deployment"},
+        )
         for supported in (False, True):
             with self.subTest(supported=supported):
-                with patch.object(
-                    OpenAICredential,
-                    "get_voice_cloning_client_class",
-                    return_value=_DemoVoiceCloningClient
-                    if supported
-                    else None,
+                with (
+                    patch.object(
+                        OpenAICredential,
+                        "get_voice_cloning_client_class",
+                        return_value=_DemoVoiceCloningClient
+                        if supported
+                        else None,
+                    ),
+                    patch.object(
+                        OpenAICredential,
+                        "list_tts_models",
+                        return_value=[card],
+                    ),
                 ):
                     response = await list_available_engines("user-a", access)
                 self.assertEqual(
                     response.model_dump(),
                     {
-                        "engines": ["openai_tts"],
                         "engine_details": [
                             {
                                 "name": "openai_tts",
-                                "source": "api",
-                                "gpu_requirement": None,
+                                "credential_type": "openai_credential",
+                                "models": [
+                                    {
+                                        **card.model_dump(),
+                                        "enrollment_model": None,
+                                    },
+                                ],
                                 "voice_cloning": supported,
                                 "credentials": [
                                     {"id": "credential-a", "label": "OpenAI"},
@@ -1588,3 +1588,73 @@ class TestEngineCapabilities(IsolatedAsyncioTestCase):
                         ],
                     },
                 )
+
+    async def test_dashscope_models_and_enrollment_metadata(self) -> None:
+        """Expose SDK models with existing App grouping and owned keys only."""
+        access = AsyncMock()
+        access.list_resource.return_value = [
+            CredentialRecord(
+                id="shared",
+                user_id="other",
+                data={"type": "dashscope_credential", "name": "Shared"},
+            ),
+            CredentialRecord(
+                id="owned",
+                user_id="user-a",
+                data={"type": "dashscope_credential", "name": "DashScope"},
+            ),
+        ]
+        cases = (
+            ("qwen3-tts-flash", True, "qwen-voice-enrollment"),
+            ("qwen-audio-3.1-tts-flash", True, "voice-enrollment"),
+            ("cosyvoice-v3-plus", True, "voice-enrollment"),
+            ("qwen-preset-only", False, None),
+        )
+        cards = [
+            _model_card([], voice_cloning=cloning).model_copy(
+                update={"name": name},
+            )
+            for name, cloning, _ in cases
+        ]
+        with patch.object(
+            DashScopeCredential,
+            "list_tts_models",
+            return_value=cards,
+        ):
+            response = await list_available_engines("user-a", access)
+        expected_models = [
+            {**card.model_dump(), "enrollment_model": enrollment}
+            for card, (_, _, enrollment) in zip(cards, cases)
+        ]
+        common = {
+            "credential_type": "dashscope_credential",
+            "voice_cloning": True,
+            "credentials": [{"id": "owned", "label": "DashScope"}],
+        }
+        self.assertEqual(
+            response.model_dump(),
+            {
+                "engine_details": [
+                    {
+                        **common,
+                        "name": "cosyvoice",
+                        "models": [expected_models[2]],
+                    },
+                    {
+                        **common,
+                        "name": "dashscope_tts",
+                        "models": [
+                            expected_models[0],
+                            expected_models[1],
+                            expected_models[3],
+                        ],
+                    },
+                ],
+            },
+        )
+
+        access.list_resource.return_value = access.list_resource.return_value[
+            :1
+        ]
+        response = await list_available_engines("user-a", access)
+        self.assertEqual(response.model_dump(), {"engine_details": []})

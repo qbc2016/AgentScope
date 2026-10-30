@@ -279,6 +279,10 @@ class TestVoiceCloningClients(IsolatedAsyncioTestCase):
                         ),
                         "voice-created",
                     )
+                    self.assertEqual(
+                        self.dashscope.get_enrollment_model(model),
+                        enrollment,
+                    )
                     self.post.assert_awaited_once_with(
                         "https://dashscope.aliyuncs.com/api/v1/services"
                         "/audio/tts/customization",

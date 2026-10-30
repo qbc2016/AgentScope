@@ -54,8 +54,6 @@ from ._sop import (
 from ._team import TeamRecord, TeamData, TeamMember
 from ._user import UserRecord
 from ._voice_profile import (
-    ENGINE_GPU_REQUIREMENT,
-    ENGINE_SOURCE,
     ENGINE_TO_CREDENTIAL_TYPE,
     get_missing_voice_profile_binding_fields,
     VoiceProfileData,
@@ -113,8 +111,6 @@ __all__ = [
     "AgentChatConfig",
     "InviteConfig",
     "ENGINE_TO_CREDENTIAL_TYPE",
-    "ENGINE_SOURCE",
-    "ENGINE_GPU_REQUIREMENT",
     "get_missing_voice_profile_binding_fields",
     "VoiceProfileData",
     "VoiceProfileRecord",

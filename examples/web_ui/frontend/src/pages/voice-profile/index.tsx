@@ -11,8 +11,8 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-import { voiceProfileApi, ttsModelApi } from '@/api';
-import type { VoiceProfileRecord, VoiceProfileData, EngineInfo, TTSModelCard } from '@/api';
+import { voiceProfileApi } from '@/api';
+import type { VoiceProfileRecord, VoiceProfileData, EngineInfo } from '@/api';
 import { DeleteDialog } from '@/components/dialog/DeleteDialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -36,9 +36,11 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useVoiceEngines } from '@/hooks/useVoiceEngines';
 import { useVoiceProfiles, VOICE_PROFILES_KEY } from '@/hooks/useVoiceProfiles';
 import { useTranslation } from '@/i18n/useI18n';
-import { credentialTypeForEngine, isModelForEngine } from '@/utils/tts';
+
+const EMPTY_MODELS: EngineInfo['models'] = [];
 
 const ENGINE_LABELS: Record<string, string> = {
 	cosyvoice: 'CosyVoice',
@@ -86,13 +88,17 @@ function VoiceProfileDialog({
 	const [name, setName] = useState('');
 	const [engine, setEngine] = useState<string | undefined>(undefined);
 	const [model, setModel] = useState<string | undefined>(undefined);
-	const [modelOptions, setModelOptions] = useState<TTSModelCard[]>([]);
-	const [modelsLoading, setModelsLoading] = useState(false);
 	const [voice, setVoice] = useState('');
 	const [saving, setSaving] = useState(false);
-	const [availableEngines, setAvailableEngines] = useState<string[]>([]);
-	const [engineDetails, setEngineDetails] = useState<EngineInfo[] | null>(null);
-	const [enginesLoading, setEnginesLoading] = useState(false);
+	const {
+		engineDetails,
+		loading: enginesLoading,
+		ready: enginesReady,
+		refetch: refetchEngines,
+	} = useVoiceEngines(open);
+	const selectedEngine = engineDetails.find((item) => item.name === engine);
+	const modelOptions = selectedEngine?.models ?? EMPTY_MODELS;
+	const availableEngines = engineDetails.map((detail) => detail.name);
 	const [cloning, setCloning] = useState(false);
 	const [cloneError, setCloneError] = useState('');
 	const [cloneUrl, setCloneUrl] = useState('');
@@ -111,30 +117,8 @@ function VoiceProfileDialog({
 	});
 
 	useEffect(() => {
-		if (!open) return;
-		let active = true;
-		setEnginesLoading(true);
-		setEngineDetails(null);
-		voiceProfileApi
-			.availableEngines()
-			.then((res) => {
-				if (!active) return;
-				setAvailableEngines(res.engines);
-				setEngineDetails(res.engine_details || []);
-			})
-			.catch(() => {
-				// The API client already displays the error toast.
-				if (!active) return;
-				setAvailableEngines([]);
-				setEngineDetails([]);
-			})
-			.finally(() => {
-				if (active) setEnginesLoading(false);
-			});
-		return () => {
-			active = false;
-		};
-	}, [open]);
+		if (open) void refetchEngines({ cancelRefetch: false });
+	}, [open, refetchEngines]);
 
 	useEffect(() => {
 		if (profile) {
@@ -153,7 +137,7 @@ function VoiceProfileDialog({
 	}, [profile, open]);
 
 	useEffect(() => {
-		if (!open || !engine || engineDetails === null) return;
+		if (!open || !engine || !enginesReady || enginesLoading) return;
 		// Auto-select credential for this engine
 		const engineInfo = engineDetails.find((d) => d.name === engine);
 		const creds = engineInfo?.credentials || [];
@@ -161,48 +145,17 @@ function VoiceProfileDialog({
 			if (prev && creds.some((c) => c.id === prev)) return prev;
 			return creds.length === 1 ? creds[0].id : null;
 		});
-	}, [open, engine, engineDetails]);
+	}, [open, engine, engineDetails, enginesReady, enginesLoading]);
 
 	useEffect(() => {
-		if (!open || !engine) {
-			setModelOptions([]);
-			return;
-		}
-		let active = true;
-		const credType = credentialTypeForEngine(engine);
-		if (!credType) {
-			setModelOptions([]);
-			return;
-		}
-		setModelsLoading(true);
-		ttsModelApi
-			.list(credType)
-			.then((res) => {
-				if (!active) return;
-				const filtered = res.models.filter((m) => isModelForEngine(m.name, engine!));
-				setModelOptions(filtered);
-				setModel((prev) => {
-					const inList = filtered.some((m) => m.name === prev);
-					if (inList) return prev;
-					const cloneModel = filtered.find((m) => m.voice_cloning);
-					if (cloneModel) return cloneModel.name;
-					return filtered.length > 0 ? filtered[0].name : undefined;
-				});
-			})
-			.catch(() => {
-				if (active) setModelOptions([]);
-			})
-			.finally(() => {
-				if (active) setModelsLoading(false);
-			});
-		return () => {
-			active = false;
-		};
-	}, [open, engine]);
+		if (!open || !engine || !enginesReady || enginesLoading) return;
+		setModel((prev) => {
+			if (modelOptions.some((item) => item.name === prev)) return prev;
+			return modelOptions.find((item) => item.voice_cloning)?.name ?? modelOptions[0]?.name;
+		});
+	}, [open, engine, enginesReady, enginesLoading, modelOptions]);
 
-	const canClone = engine
-		? (engineDetails?.find((d) => d.name === engine)?.voice_cloning ?? false)
-		: false;
+	const canClone = selectedEngine?.voice_cloning ?? false;
 
 	const selectedModelSupportsClone = model
 		? (modelOptions.find((m) => m.name === model)?.voice_cloning ?? false)
@@ -210,14 +163,7 @@ function VoiceProfileDialog({
 
 	const cloneSupportsUpload = engine === 'dashscope_tts' || engine === 'openai_tts';
 
-	const enrollmentModel = (() => {
-		if (!model) return null;
-		if (engine === 'cosyvoice') return 'voice-enrollment';
-		if (engine === 'dashscope_tts') {
-			return model.startsWith('qwen-audio-') ? 'voice-enrollment' : 'qwen-voice-enrollment';
-		}
-		return null;
-	})();
+	const enrollmentModel = modelOptions.find((item) => item.name === model)?.enrollment_model;
 
 	const voiceOptions: string[] = (() => {
 		if (!model) return [];
@@ -231,14 +177,14 @@ function VoiceProfileDialog({
 	})();
 
 	useEffect(() => {
-		if (!open || !engine) return;
+		if (!open || !engine || !enginesReady || enginesLoading) return;
 		const previous = voiceSelectionRef.current;
 		const modelChanged = previous.engine !== engine || previous.model !== model;
 		const credentialChanged = previous.credentialId !== credentialId;
 		if (!modelChanged && !credentialChanged && !previous.pending) return;
 		if (credentialChanged || previous.engine !== engine) setConsentId('');
 
-		const card = modelOptions.find((m) => m.name === model && isModelForEngine(m.name, engine));
+		const card = modelOptions.find((m) => m.name === model);
 		voiceSelectionRef.current = { engine, model, credentialId, pending: !card };
 		setCloneError('');
 		if (!card) {
@@ -257,7 +203,7 @@ function VoiceProfileDialog({
 				? defaultVoice
 				: (presets[0] ?? '');
 		});
-	}, [open, engine, model, modelOptions, credentialId]);
+	}, [open, engine, model, modelOptions, credentialId, enginesReady, enginesLoading]);
 
 	const handleConsentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
@@ -366,9 +312,6 @@ function VoiceProfileDialog({
 				engine: engine || null,
 				model: model || null,
 				credential_id: credentialId,
-				source: engine
-					? engineDetails?.find((d) => d.name === engine)?.source || null
-					: null,
 				voice: voice.trim() || null,
 			};
 			if (profile) {
@@ -479,7 +422,7 @@ function VoiceProfileDialog({
 					{engine && (
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="vp-model">{t('voiceProfile.model')}</Label>
-							{modelsLoading ? (
+							{enginesLoading ? (
 								<div className="flex items-center gap-2 text-sm text-muted-foreground">
 									<Loader2 className="size-4 animate-spin" />
 									{t('voiceProfile.loadingModels')}
@@ -697,7 +640,7 @@ function VoiceProfileDialog({
 						disabled={
 							saving ||
 							enginesLoading ||
-							modelsLoading ||
+							!enginesReady ||
 							!name.trim() ||
 							!engine ||
 							!credentialId ||
@@ -720,24 +663,12 @@ export function VoiceProfilePage() {
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editProfile, setEditProfile] = useState<VoiceProfileRecord | null>(null);
 	const [deleteProfile, setDeleteProfile] = useState<VoiceProfileRecord | null>(null);
-	const [engineDetails, setEngineDetails] = useState<EngineInfo[]>([]);
+	const { engineDetails } = useVoiceEngines();
 
 	const loadProfiles = useCallback(
 		() => queryClient.invalidateQueries({ queryKey: VOICE_PROFILES_KEY }),
 		[queryClient],
 	);
-
-	useEffect(() => {
-		voiceProfileApi
-			.availableEngines()
-			.then((res) => {
-				setEngineDetails(res.engine_details);
-			})
-			.catch(() => {
-				// The API client already displays the error toast.
-				setEngineDetails([]);
-			});
-	}, []);
 
 	const getCredentialLabel = (profile: VoiceProfileRecord): string | null => {
 		if (!profile.data.credential_id || !profile.data.engine) return null;

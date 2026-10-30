@@ -25,6 +25,12 @@ class VoiceCloningClientBase(ABC):
         """Bind the credential used for voice creation."""
         self.credential = credential
 
+    @classmethod
+    # pylint: disable-next=unused-argument
+    def get_enrollment_model(cls, model: str) -> str | None:
+        """Return the separate enrollment model, if the provider uses one."""
+        return None
+
     @abstractmethod
     async def create_voice(
         self,
