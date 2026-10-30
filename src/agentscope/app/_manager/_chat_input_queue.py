@@ -561,6 +561,7 @@ class ChatInputQueue:
                     agent_id=queued_agent_id,
                     input_msg=queued_input,
                     queue_item_id=queue_item_id,
+                    input_persisted=True,
                 )
                 claim_state = _MESSAGE_COMPLETED
                 await self._acknowledge_completed(session_id, payload)

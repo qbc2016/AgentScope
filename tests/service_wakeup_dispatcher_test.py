@@ -306,6 +306,7 @@ class _FakeChatService:
         agent_id: str,
         input_msg: Any = None,
         queue_item_id: str | None = None,
+        input_persisted: bool = False,
     ) -> None:
         """Record the call and signal a waiter."""
         self.calls.append(
@@ -334,6 +335,7 @@ class _BlockingChatService(_FakeChatService):
         agent_id: str,
         input_msg: Any = None,
         queue_item_id: str | None = None,
+        input_persisted: bool = False,
     ) -> None:
         await super().run(
             user_id,
@@ -341,6 +343,7 @@ class _BlockingChatService(_FakeChatService):
             agent_id,
             input_msg,
             queue_item_id,
+            input_persisted,
         )
         if len(self.calls) == 1:
             await self.release_first.wait()

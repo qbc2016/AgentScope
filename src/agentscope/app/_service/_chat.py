@@ -287,6 +287,7 @@ class ChatService:
         | None = None,
         sop_dispatch: str | None = None,
         queue_item_id: str | None = None,
+        input_persisted: bool = False,
     ) -> None:
         """Drive a chat run to completion.
 
@@ -331,6 +332,8 @@ class ChatService:
                 this turn, which gives it a submit tool.
             queue_item_id (`str | None`, optional):
                 Queue identity for terminal failure reporting.
+            input_persisted (`bool`, optional):
+                Internal queue caller already saved this initial input.
         """
         try:
             await self._run_impl(
@@ -339,6 +342,7 @@ class ChatService:
                 agent_id,
                 input_msg,
                 sop_dispatch,
+                input_persisted=input_persisted,
             )
         except Exception as e:
             logger.exception(
@@ -886,6 +890,7 @@ class ChatService:
         | UserInterruptEvent
         | None,
         sop_dispatch: str | None = None,
+        input_persisted: bool = False,
     ) -> None:
         """The actual chat-run body; wrapped by :meth:`run` for error
         swallowing. Separated so the try/except doesn't bury the
@@ -1354,7 +1359,9 @@ class ChatService:
                         ):
                             # Case A: new reply (user message(s), or
                             # retrigger with empty input)
-                            if isinstance(input_msg, (Msg, list)):
+                            if isinstance(input_msg, (Msg, list)) and not (
+                                input_persisted
+                            ):
                                 input_msgs = (
                                     [input_msg]
                                     if isinstance(input_msg, Msg)
@@ -1367,6 +1374,8 @@ class ChatService:
                                         msg,
                                     )
 
+                            # Only the initial queued input was pre-saved.
+                            input_persisted = False
                             async for event in agent.reply_stream(
                                 inputs=input_msg,
                             ):
